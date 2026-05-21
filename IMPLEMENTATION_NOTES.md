@@ -518,7 +518,32 @@ Demo seeds (`scripts/seed_dummy_data.py`): asset workflows + role permission gra
 | `GET /{id}/audit` | `asset.view` | Module audit events |
 | `GET /categories` | `asset.view` | Category picker |
 
-Files: `backend/modules/assets/` (`model.py`, `schema.py`, `service.py`, `router.py`, `import_parser.py`, `audit_log.py`).
+Files: `backend/modules/assets/` (`model.py`, `schema.py`, `service.py`, `router.py`, `import_parser.py`, `field_definitions.py`, `import_row_mapper.py`, `audit_helpers.py`).
+
+Migration `036_asset_master_excel_fields` adds columns used by the Excel template: `asset_class`, `asset_type` on `asset_master`; `sub_location` on location; invoice/voucher/GRN/put-to-use/depreciation/life span on financial.
+
+### Excel import template (canonical columns)
+
+Row 1 headers (case-insensitive aliases supported):
+
+`Asset Name` · `Asset Class` · `Asset Type` · `Asset Category` · `Asset Code` · `RFID Code` · `Sub Location` · `Cost Center` · `Party Details` · `Invoice No.` · `Invoice Date` · `Inventory Count` · `Voucher No` · `Voucher Date` · `GRN Date` · `GRN No` · `Put to Use` · `Rate Of Depreciation` · `Gross Block` · `Life Span` · `Plant Name`
+
+| Excel header | Storage |
+|--------------|---------|
+| Asset Name | `asset_master.asset_name` |
+| Asset Class / Type | `asset_master.asset_class`, `asset_type` |
+| Asset Category | category code → `asset_category_id` |
+| Asset Code / RFID | `asset_code`, `rfid_code` |
+| Sub Location | `asset_location_information.sub_location` |
+| Plant Name | plant code → `plant_id` |
+| Cost Center, Party Details, Invoice*, Voucher*, GRN*, Put to Use, Depreciation, Gross Block, Life Span | `asset_financial_information.*` |
+| Inventory Count | Ignored on import; new assets always get `inventory_count=1` |
+
+Frontend field order mirrors the template: `frontend/src/lib/asset-master-fields.ts`, rendered on asset detail via `asset-master-panel.tsx`.
+
+**Uniqueness:** `asset_code` is required and unique per asset. `rfid_code` is optional but must be unique when not empty (DB + import validation).
+
+**Import review UI:** After upload, `asset-import.tsx` shows an Excel-style editable grid (`asset-import-grid.tsx`) with per-cell error highlighting. Users fix cells → **Re-validate** (`POST /import/validate`) → **Submit import** only when all rows are valid. Confirm re-validates server-side and returns `422` with the grid payload if anything fails.
 
 ### Dashboard
 
@@ -533,10 +558,21 @@ Frontend: `frontend/src/components/dashboard/asset-dashboard.tsx` composed from 
 Routes under `/dashboard/assets` (parent requires `asset.view`):
 
 - **List** — `assets-list.tsx`: compact sticky table, selection checkboxes (bulk actions placeholder), pagination/filters/search
-- **Detail** — `asset-detail.tsx`: SAP-style sections, edit/read-only, approval banner, workflow/audit/attachment placeholders
+- **Detail** — `asset-detail.tsx`: single **Asset master** panel (21 Excel fields), edit/read-only, approval banner, audit trail (When / By / Activity)
 - **Import** — `asset-import.tsx`: upload → preview → confirm (`asset.import` guard)
 
 Types: `frontend/src/lib/assets-types.ts`.
+
+### Reference masters (hierarchical)
+
+Migration `032_hierarchical_asset_masters`. Plants remain superadmin-only (`org_units` type `PLANT`); workspace **Masters** (`/dashboard/masters`, `masters.*` permissions) maintains:
+
+| Chain | Parent → child |
+|-------|----------------|
+| Financial | Plant → cost center → profit center |
+| Location | Plant → functional location → actual location |
+
+API (`/admin/asset-masters/`): `categories`, `cost-centers?plant_id=`, `profit-centers?cost_center_id=`, `functional-locations?plant_id=`, `actual-locations?functional_location_id=`. Asset create/detail dropdowns cascade: selecting plant loads cost centers and functional locations; selecting cost center loads profit centers; selecting functional location loads actual locations.
 
 ### Audit
 

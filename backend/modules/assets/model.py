@@ -27,6 +27,7 @@ class AssetCategory(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -61,6 +62,8 @@ class AssetMaster(Base):
     asset_category_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("asset_categories.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    asset_class: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    asset_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
     lifecycle_status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="draft", index=True)
     approval_status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="not_required", index=True)
     ownership_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -124,6 +127,7 @@ class AssetLocationInformation(Base):
     plant_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("org_units.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    sub_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     functional_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     actual_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     building: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -143,9 +147,20 @@ class AssetFinancialInformation(Base):
         Integer, ForeignKey("asset_master.id", ondelete="CASCADE"), unique=True, nullable=False
     )
     cost_center: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    laboratory: Mapped[str | None] = mapped_column(String(255), nullable=True)
     profit_center: Mapped[str | None] = mapped_column(String(128), nullable=True)
     cap_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     gross_block: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    party_details: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    invoice_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    voucher_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    voucher_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    grn_no: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    grn_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    put_to_use_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    depreciation_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    life_span: Mapped[str | None] = mapped_column(String(64), nullable=True)
     vendor_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     po_number: Mapped[str | None] = mapped_column(String(128), nullable=True)
     currency: Mapped[str | None] = mapped_column(String(8), nullable=True)

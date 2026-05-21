@@ -2,6 +2,7 @@ import * as React from "react"
 import {
   ChevronDown,
   ClipboardList,
+  Database,
   Factory,
   KeyRound,
   LayoutDashboard,
@@ -81,6 +82,13 @@ const shellNavItems: ShellNavItem[] = [
     icon: Package,
     to: "/dashboard/assets",
     permission: "asset.view",
+  },
+  {
+    id: "masters",
+    label: "Masters",
+    icon: Database,
+    to: "/dashboard/masters",
+    permission: "masters.view",
   },
 
   {

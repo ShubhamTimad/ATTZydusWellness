@@ -133,6 +133,17 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
             },
         ],
     },
+    {
+        "key": "masters",
+        "title": "Asset reference masters",
+        "tabs": [
+            {
+                "key": "masters",
+                "title": "Masters",
+                "actions": list(DEFAULT_TAB_ACTIONS),
+            },
+        ],
+    },
 
     {
         "key": "order",

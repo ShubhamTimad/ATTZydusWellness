@@ -755,14 +755,28 @@ class ApprovalEngineService:
         self._db.commit()
         return self.get_request(req.id)
 
+    def _last_approve_user_id(self, req: ApprovalRequest) -> int | None:
+        row = self._db.execute(
+            select(ApprovalAction.user_id)
+            .join(ApprovalTask, ApprovalTask.id == ApprovalAction.task_id)
+            .where(
+                ApprovalTask.request_id == req.id,
+                ApprovalAction.action == "approve",
+            )
+            .order_by(ApprovalAction.created_at.desc())
+            .limit(1)
+        ).first()
+        return int(row[0]) if row else None
+
     def _finalize_request(self, req: ApprovalRequest) -> None:
         if req.entity_type in ("asset_creation", "asset_import"):
             from modules.assets.service import activate_asset_after_approval
 
+            approver_id = self._last_approve_user_id(req)
             activate_asset_after_approval(
                 self._db,
                 asset_id=int(req.entity_id),
-                approver_user_id=None,
+                approver_user_id=approver_id,
             )
             self._db.commit()
             return

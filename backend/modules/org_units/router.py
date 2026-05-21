@@ -34,6 +34,10 @@ def list_org_units(
                 "users.update",
                 "roles.create",
                 "roles.update",
+                "asset.view",
+                "asset.create",
+                "asset.update",
+                "masters.view",
             )
         ),
     ],

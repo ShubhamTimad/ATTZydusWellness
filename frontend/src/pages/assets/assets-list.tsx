@@ -26,12 +26,16 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, postJson } from "@/lib/api"
-import type { AssetCategory, AssetDetail, AssetListResponse } from "@/lib/assets-types"
-import { canListOrgUnitsForAssignments } from "@/lib/permissions"
+import type { AssetDetail, AssetListResponse } from "@/lib/assets-types"
+import {
+  categoryLabel,
+  costCenterChildLabel,
+  plantChildLabel,
+  plantLabel,
+  useAssetMasterLookups,
+} from "@/lib/use-asset-masters"
 import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
-
-type PlantOption = { id: number; name: string; code: string }
 
 export type AssetListFilters = {
   plant_id: string
@@ -79,8 +83,6 @@ function buildQueryParams(
 export function AssetsListPage() {
   const navigate = useNavigate()
   const [data, setData] = React.useState<AssetListResponse | null>(null)
-  const [categories, setCategories] = React.useState<AssetCategory[]>([])
-  const [plants, setPlants] = React.useState<PlantOption[]>([])
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
   const [page, setPage] = React.useState(1)
@@ -102,7 +104,20 @@ export function AssetsListPage() {
     functional_location: "",
     actual_location: "",
     cost_center: "",
+    profit_center: "",
   })
+
+  const plantIdForLookups = form.plant_id ? Number(form.plant_id) : null
+  const masters = useAssetMasterLookups(
+    plantIdForLookups,
+    form.cost_center || null,
+    form.functional_location || null,
+  )
+
+  const createCostCenterDesc =
+    masters.costCenters.find((c) => c.code === form.cost_center)?.description ?? "—"
+  const createProfitCenterDesc =
+    masters.profitCenters.find((p) => p.code === form.profit_center)?.description ?? "—"
 
   const canCreate = hasPermission("asset.create")
   const canImport = hasPermission("asset.import")
@@ -130,17 +145,6 @@ export function AssetsListPage() {
   React.useEffect(() => {
     void load().catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load assets"))
   }, [load])
-
-  React.useEffect(() => {
-    void getJson<AssetCategory[]>("/admin/assets/categories")
-      .then(setCategories)
-      .catch(() => setCategories([]))
-    if (canListOrgUnitsForAssignments()) {
-      void getJson<PlantOption[]>("/admin/org-units?type=PLANT")
-        .then(setPlants)
-        .catch(() => setPlants([]))
-    }
-  }, [])
 
   function applyFilters() {
     setFilters(draftFilters)
@@ -187,7 +191,10 @@ export function AssetsListPage() {
           functional_location: form.functional_location.trim() || null,
           actual_location: form.actual_location.trim() || null,
         },
-        financial: { cost_center: form.cost_center.trim() || null },
+        financial: {
+          cost_center: form.cost_center.trim() || null,
+          profit_center: form.profit_center.trim() || null,
+        },
       })
       toast.success("Asset created.")
       setCreateOpen(false)
@@ -292,9 +299,9 @@ export function AssetsListPage() {
                   onChange={(e) => setDraftFilters((f) => ({ ...f, plant_id: e.target.value }))}
                 >
                   <option value="">All plants</option>
-                  {plants.map((p) => (
+                  {masters.plants.map((p) => (
                     <option key={p.id} value={String(p.id)}>
-                      {p.name}
+                      {plantLabel(p)}
                     </option>
                   ))}
                 </select>
@@ -307,9 +314,9 @@ export function AssetsListPage() {
                   onChange={(e) => setDraftFilters((f) => ({ ...f, category_id: e.target.value }))}
                 >
                   <option value="">All categories</option>
-                  {categories.map((c) => (
+                  {masters.categories.map((c) => (
                     <option key={c.id} value={String(c.id)}>
-                      {c.name}
+                      {categoryLabel(c)}
                     </option>
                   ))}
                 </select>
@@ -394,7 +401,7 @@ export function AssetsListPage() {
             <span className="text-xs text-muted-foreground">Active:</span>
             {filters.plant_id ? (
               <FilterChip
-                label={`Plant: ${plants.find((p) => String(p.id) === filters.plant_id)?.name ?? filters.plant_id}`}
+                label={`Plant: ${masters.plants.find((p) => String(p.id) === filters.plant_id)?.code ?? filters.plant_id}`}
                 onRemove={() => {
                   setFilters((f) => ({ ...f, plant_id: "" }))
                   setPage(1)
@@ -403,7 +410,7 @@ export function AssetsListPage() {
             ) : null}
             {filters.category_id ? (
               <FilterChip
-                label={`Category: ${categories.find((c) => String(c.id) === filters.category_id)?.name ?? filters.category_id}`}
+                label={`Category: ${masters.categories.find((c) => String(c.id) === filters.category_id)?.code ?? filters.category_id}`}
                 onRemove={() => {
                   setFilters((f) => ({ ...f, category_id: "" }))
                   setPage(1)
@@ -502,9 +509,13 @@ export function AssetsListPage() {
                     <AdminTableCell className="max-w-[12rem] truncate px-3 py-2">{row.actual_location ?? "—"}</AdminTableCell>
                     <AdminTableCell className="px-3 py-2">{row.cost_center ?? "—"}</AdminTableCell>
                     <AdminTableCell className="px-3 py-2 text-right tabular-nums">{row.inventory_count ?? "—"}</AdminTableCell>
-                    <AdminTableCell className="px-3 py-2 text-right tabular-nums">{row.physical_count ?? "—"}</AdminTableCell>
+                    <AdminTableCell className="px-3 py-2 text-right tabular-nums">
+                      {row.physical_count ?? 0}
+                    </AdminTableCell>
                     <AdminTableCell className="px-3 py-2 text-xs tabular-nums text-muted-foreground">
-                      {row.last_verification_date ?? "—"}
+                      {row.last_verification_date
+                        ? new Date(row.last_verification_date).toLocaleDateString()
+                        : "—"}
                     </AdminTableCell>
                   </tr>
                 ))
@@ -568,9 +579,9 @@ export function AssetsListPage() {
                 onChange={(e) => setForm((f) => ({ ...f, asset_category_id: e.target.value }))}
               >
                 <option value="">—</option>
-                {categories.map((c) => (
+                {masters.categories.map((c) => (
                   <option key={c.id} value={String(c.id)}>
-                    {c.name}
+                    {categoryLabel(c)}
                   </option>
                 ))}
               </select>
@@ -580,15 +591,108 @@ export function AssetsListPage() {
               <select
                 className={adminSelectClass}
                 value={form.plant_id}
-                onChange={(e) => setForm((f) => ({ ...f, plant_id: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    plant_id: e.target.value,
+                    functional_location: "",
+                    actual_location: "",
+                    cost_center: "",
+                    profit_center: "",
+                  }))
+                }
               >
                 <option value="">—</option>
-                {plants.map((p) => (
+                {masters.plants.map((p) => (
                   <option key={p.id} value={String(p.id)}>
-                    {p.name}
+                    {plantLabel(p)}
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Functional location</Label>
+              <select
+                className={adminSelectClass}
+                value={form.functional_location}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    functional_location: e.target.value,
+                    actual_location: "",
+                  }))
+                }
+              >
+                <option value="">{form.plant_id ? "—" : "Select plant first"}</option>
+                {masters.functionalLocations.map((l) => (
+                  <option key={l.id} value={l.code}>
+                    {plantChildLabel(l)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Actual location</Label>
+              <select
+                className={adminSelectClass}
+                value={form.actual_location}
+                onChange={(e) => setForm((f) => ({ ...f, actual_location: e.target.value }))}
+              >
+                <option value="">
+                  {form.functional_location ? "—" : "Select functional location first"}
+                </option>
+                {masters.actualLocations.map((l) => (
+                  <option key={l.id} value={l.code}>
+                    {`${l.code} — ${l.description}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cost center</Label>
+              <select
+                className={adminSelectClass}
+                value={form.cost_center}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    cost_center: e.target.value,
+                    profit_center: "",
+                  }))
+                }
+              >
+                <option value="">{form.plant_id ? "—" : "Select plant first"}</option>
+                {masters.costCenters.map((m) => (
+                  <option key={m.id} value={m.code}>
+                    {plantChildLabel(m)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Cost center descript</Label>
+              <Input className="h-9 bg-muted/40" value={createCostCenterDesc} readOnly disabled />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Profit center</Label>
+              <select
+                className={adminSelectClass}
+                value={form.profit_center}
+                onChange={(e) => setForm((f) => ({ ...f, profit_center: e.target.value }))}
+              >
+                <option value="">
+                  {form.cost_center ? "—" : "Select cost center first"}
+                </option>
+                {masters.profitCenters.map((m) => (
+                  <option key={m.id} value={m.code}>
+                    {costCenterChildLabel(m)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Profit center descript</Label>
+              <Input className="h-9 bg-muted/40" value={createProfitCenterDesc} readOnly disabled />
             </div>
             <div className="flex justify-end gap-2 border-t border-border/60 pt-3 sm:col-span-2">
               <Button type="button" variant="outline" size="sm" onClick={() => setCreateOpen(false)}>

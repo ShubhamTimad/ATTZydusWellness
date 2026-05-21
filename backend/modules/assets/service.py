@@ -9,8 +9,23 @@ from sqlalchemy.orm import Session, selectinload
 
 from modules.approvals.assignment_service import get_workflow_for_action
 from modules.approvals.service import ApprovalEngineService
+from modules.assets.audit_helpers import (
+    actor_display,
+    activity_verb_for_action,
+    build_audit_summary,
+    diff_snapshots,
+    format_changes_detail,
+    snapshot_asset,
+)
 from modules.assets.audit_log import log_asset_event
+from modules.assets.model import AssetAuditEvent
 from modules.assets.import_parser import parse_upload_file
+from modules.assets.import_row_mapper import build_section_payloads
+from modules.assets.import_validation import (
+    apply_import_validation,
+    build_preview_response,
+    rows_from_raw_dicts,
+)
 from modules.assets.model import (
     AssetCategory,
     AssetFinancialInformation,
@@ -46,6 +61,12 @@ class DuplicateRfidError(Exception):
     pass
 
 
+class ImportValidationError(Exception):
+    def __init__(self, preview: ImportPreviewResponse) -> None:
+        self.preview = preview
+        super().__init__("Import validation failed")
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -74,12 +95,39 @@ def _apply_financial(asset_id: int, payload: AssetFinancialPayload | None) -> As
     return fin
 
 
+INVENTORY_READONLY_FIELDS = frozenset(
+    {"inventory_count", "physical_count", "last_verification_date"}
+)
+
+
+def _new_inventory_row(asset_id: int) -> AssetInventoryInformation:
+    return AssetInventoryInformation(
+        asset_id=asset_id,
+        inventory_count=1,
+        physical_count=0,
+        last_verification_date=None,
+        verification_status=None,
+        verification_remarks=None,
+    )
+
+
 def _apply_inventory(asset_id: int, payload: AssetInventoryPayload | None) -> AssetInventoryInformation:
-    inv = AssetInventoryInformation(asset_id=asset_id)
+    inv = _new_inventory_row(asset_id)
     if payload:
         for k, v in payload.model_dump(exclude_unset=True).items():
+            if k in INVENTORY_READONLY_FIELDS:
+                continue
             setattr(inv, k, v)
     return inv
+
+
+def _merge_inventory_update(
+    row: AssetInventoryInformation, payload: AssetInventoryPayload
+) -> None:
+    for k, v in payload.model_dump(exclude_unset=True).items():
+        if k in INVENTORY_READONLY_FIELDS:
+            continue
+        setattr(row, k, v)
 
 
 class AssetMasterService:
@@ -176,6 +224,8 @@ class AssetMasterService:
             rfid_code=data.rfid_code.strip() if data.rfid_code else None,
             serial_no=data.serial_no.strip() if data.serial_no else None,
             asset_category_id=data.asset_category_id,
+            asset_class=data.asset_class.strip() if data.asset_class else None,
+            asset_type=data.asset_type.strip() if data.asset_type else None,
             ownership_type=data.ownership_type,
             source_type="manual",
             lifecycle_status="draft",
@@ -204,14 +254,19 @@ class AssetMasterService:
             asset_id=asset.id,
             actor_user_id=actor_user_id,
             action="created",
-            section="master",
-            new_value={"asset_code": code, "pending_approval": pending},
+            new_value={
+                "source": "manual",
+                "asset_code": code,
+                "pending_approval": pending,
+            },
         )
         try:
             self._db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             self._db.rollback()
-            raise DuplicateAssetCodeError() from None
+            if "rfid" in str(exc).lower():
+                raise DuplicateRfidError() from exc
+            raise DuplicateAssetCodeError() from exc
         return self.get_asset(asset.id)
 
     def list_assets(
@@ -332,6 +387,8 @@ class AssetMasterService:
             rfid_code=asset.rfid_code,
             serial_no=asset.serial_no,
             asset_category_id=asset.asset_category_id,
+            asset_class=asset.asset_class,
+            asset_type=asset.asset_type,
             category_name=asset.category.name if asset.category else None,
             lifecycle_status=asset.lifecycle_status,
             approval_status=asset.approval_status,
@@ -356,17 +413,39 @@ class AssetMasterService:
         if asset.approval_status == "pending":
             raise ConflictError("Cannot edit asset while approval is pending.")
 
-        old_snapshot = {"asset_code": asset.asset_code, "asset_name": asset.asset_name}
+        before = snapshot_asset(asset)
         if data.asset_name is not None:
             asset.asset_name = data.asset_name.strip()
         if data.asset_code is not None:
-            asset.asset_code = data.asset_code.strip().upper()
+            code = data.asset_code.strip().upper()
+            if self._db.scalar(
+                select(AssetMaster.id).where(
+                    AssetMaster.asset_code == code,
+                    AssetMaster.id != asset.id,
+                    AssetMaster.deleted_at.is_(None),
+                )
+            ):
+                raise DuplicateAssetCodeError()
+            asset.asset_code = code
         if data.rfid_code is not None:
-            asset.rfid_code = data.rfid_code.strip() or None
+            rfid = data.rfid_code.strip() or None
+            if rfid and self._db.scalar(
+                select(AssetMaster.id).where(
+                    AssetMaster.rfid_code == rfid,
+                    AssetMaster.id != asset.id,
+                    AssetMaster.deleted_at.is_(None),
+                )
+            ):
+                raise DuplicateRfidError()
+            asset.rfid_code = rfid
         if data.serial_no is not None:
             asset.serial_no = data.serial_no.strip() or None
         if data.asset_category_id is not None:
             asset.asset_category_id = data.asset_category_id
+        if data.asset_class is not None:
+            asset.asset_class = data.asset_class.strip() or None
+        if data.asset_type is not None:
+            asset.asset_type = data.asset_type.strip() or None
         if data.ownership_type is not None:
             asset.ownership_type = data.ownership_type
         if data.lifecycle_status is not None:
@@ -400,24 +479,27 @@ class AssetMasterService:
                 asset.inventory = _apply_inventory(asset.id, data.inventory)
                 self._db.add(asset.inventory)
             else:
-                for k, v in data.inventory.model_dump(exclude_unset=True).items():
-                    setattr(asset.inventory, k, v)
+                _merge_inventory_update(asset.inventory, data.inventory)
 
         asset.updated_at = _now()
-        log_asset_event(
-            self._db,
-            asset_id=asset.id,
-            actor_user_id=actor_user_id,
-            action="updated",
-            section="master",
-            old_value=old_snapshot,
-            new_value={"asset_code": asset.asset_code, "asset_name": asset.asset_name},
-        )
+        self._db.flush()
+        changes = diff_snapshots(before, snapshot_asset(asset))
+        if changes:
+            log_asset_event(
+                self._db,
+                asset_id=asset.id,
+                actor_user_id=actor_user_id,
+                action="updated",
+                old_value=before,
+                new_value={"changes": changes},
+            )
         try:
             self._db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             self._db.rollback()
-            raise DuplicateAssetCodeError() from None
+            if "rfid" in str(exc).lower():
+                raise DuplicateRfidError() from exc
+            raise DuplicateAssetCodeError() from exc
         return self.get_asset(asset.id)
 
     def soft_delete(self, asset_id: int, *, actor_user_id: int | None) -> None:
@@ -433,43 +515,86 @@ class AssetMasterService:
         self._db.commit()
 
     def list_audit(self, asset_id: int) -> list:
-        from modules.assets.model import AssetAuditEvent
+        from modules.assets.schema import AssetAuditChangeLine, AssetAuditEventPublic
+        from modules.users.model import User
 
-        self._load_asset(asset_id)
-        return list(
+        asset = self._load_asset(asset_id)
+        events = list(
             self._db.scalars(
                 select(AssetAuditEvent)
                 .where(AssetAuditEvent.asset_id == asset_id)
                 .order_by(AssetAuditEvent.created_at.desc())
             ).all()
         )
+        actor_ids = {e.actor_user_id for e in events if e.actor_user_id is not None}
+        users_by_id: dict[int, User] = {}
+        if actor_ids:
+            users = list(self._db.scalars(select(User).where(User.id.in_(actor_ids))).all())
+            users_by_id = {int(u.id): u for u in users}
+
+        plants = list(self._db.scalars(select(OrgUnit).where(OrgUnit.type == "PLANT")).all())
+        plant_labels = {int(p.id): f"{p.code} — {p.name}" for p in plants}
+        categories = list(self._db.scalars(select(AssetCategory)).all())
+        category_labels = {int(c.id): f"{c.code} — {c.name}" for c in categories}
+
+        out: list[AssetAuditEventPublic] = []
+        for ev in events:
+            actor = users_by_id.get(int(ev.actor_user_id)) if ev.actor_user_id else None
+            name = actor_display(actor, ev.actor_user_id)
+            change_rows: list[AssetAuditChangeLine] = []
+            nv = ev.new_value if isinstance(ev.new_value, dict) else {}
+            if ev.action == "updated" and isinstance(nv.get("changes"), dict):
+                change_rows = [
+                    AssetAuditChangeLine(**line)
+                    for line in format_changes_detail(
+                        nv["changes"],
+                        plant_labels=plant_labels,
+                        category_labels=category_labels,
+                    )
+                ]
+            summary = build_audit_summary(
+                action=ev.action,
+                actor_name=name,
+                new_value=ev.new_value,
+                old_value=ev.old_value,
+                source_type=asset.source_type,
+                plant_labels=plant_labels,
+                category_labels=category_labels,
+            )
+            out.append(
+                AssetAuditEventPublic(
+                    id=ev.id,
+                    action=ev.action,
+                    actor_user_id=ev.actor_user_id,
+                    actor_name=name if ev.actor_user_id or actor else None,
+                    activity_verb=activity_verb_for_action(
+                        ev.action, nv, asset.source_type
+                    ),
+                    summary=summary,
+                    changes=change_rows,
+                    created_at=ev.created_at,
+                )
+            )
+        return out
 
     def preview_import(self, *, filename: str | None, content: bytes) -> ImportPreviewResponse:
-        rows = parse_upload_file(filename=filename, content=content)
-        valid = 0
-        for row in rows:
-            if not row.valid:
-                continue
-            code = str(row.data.get("asset_code", "")).strip().upper()
-            if code and self._db.scalar(
-                select(AssetMaster.id).where(AssetMaster.asset_code == code, AssetMaster.deleted_at.is_(None))
-            ):
-                row.duplicate_asset_code = True
-                row.valid = False
-                row.errors.append("Asset code already exists.")
-            else:
-                valid += 1
-        return ImportPreviewResponse(
-            filename=filename,
-            total_rows=len(rows),
-            valid_rows=valid,
-            error_rows=len(rows) - valid,
-            rows=rows,
-        )
+        rows = apply_import_validation(self._db, parse_upload_file(filename=filename, content=content))
+        return ImportPreviewResponse(**build_preview_response(filename=filename, rows=rows))
+
+    def validate_import_rows(
+        self, *, filename: str | None, raw_rows: list[dict[str, Any]]
+    ) -> ImportPreviewResponse:
+        rows = apply_import_validation(self._db, rows_from_raw_dicts(raw_rows))
+        return ImportPreviewResponse(**build_preview_response(filename=filename, rows=rows))
 
     def confirm_import(
         self, body: ImportConfirmRequest, *, actor_user_id: int | None
     ) -> ImportConfirmResponse:
+        validated = self.validate_import_rows(filename=body.filename, raw_rows=body.rows)
+        invalid = [r for r in validated.rows if not r.valid]
+        if invalid:
+            raise ImportValidationError(validated)
+
         batch = AssetImportBatch(
             filename=body.filename,
             total_rows=len(body.rows),
@@ -484,28 +609,48 @@ class AssetMasterService:
         errors: list[str] = []
         pending = wf is not None
 
-        for idx, raw in enumerate(body.rows, start=1):
+        for idx, raw in enumerate(validated.rows, start=1):
             try:
-                code = str(raw.get("asset_code", "")).strip().upper()
-                name = str(raw.get("asset_name", "")).strip()
-                if not code or not name:
-                    errors.append(f"Row {idx}: missing name or code.")
+                mapped = build_section_payloads(raw.data)
+                code = mapped.get("asset_code") or ""
+                name = mapped.get("asset_name") or ""
+                rfid = mapped.get("rfid_code")
+                if rfid:
+                    if self._db.scalar(
+                        select(AssetMaster.id).where(
+                            AssetMaster.rfid_code == rfid,
+                            AssetMaster.deleted_at.is_(None),
+                        )
+                    ):
+                        errors.append(f"Row {raw.row_number}: duplicate RFID.")
+                        continue
+                if self._db.scalar(
+                    select(AssetMaster.id).where(
+                        AssetMaster.asset_code == str(code).strip().upper(),
+                        AssetMaster.deleted_at.is_(None),
+                    )
+                ):
+                    errors.append(f"Row {raw.row_number}: duplicate asset code.")
                     continue
                 cat_id = self._resolve_category_id(
                     category_id=None,
-                    category_code=str(raw.get("category_code") or "") or None,
+                    category_code=str(mapped.get("category_code") or "") or None,
                 )
+                loc = mapped.get("location")
                 plant_id = self._resolve_plant_id(
-                    plant_code=str(raw.get("plant_code") or "") or None,
-                    plant_id=None,
+                    plant_code=str(mapped.get("plant_code") or "") or None,
+                    plant_id=loc.plant_id if loc else None,
                 )
+                fin = mapped.get("financial")
                 asset = AssetMaster(
-                    asset_name=name,
-                    asset_code=code,
-                    rfid_code=str(raw.get("rfid_code") or "").strip() or None,
-                    serial_no=str(raw.get("serial_no") or "").strip() or None,
+                    asset_name=str(name).strip(),
+                    asset_code=str(code).strip().upper(),
+                    rfid_code=mapped.get("rfid_code"),
+                    serial_no=mapped.get("serial_no"),
                     asset_category_id=cat_id,
-                    ownership_type=str(raw.get("ownership_type") or "").strip() or None,
+                    asset_class=mapped.get("asset_class"),
+                    asset_type=mapped.get("asset_type"),
+                    ownership_type=str(raw.data.get("ownership_type") or "").strip() or None,
                     source_type="import",
                     import_batch_id=batch.id,
                     lifecycle_status="active" if not pending else "pending_approval",
@@ -514,45 +659,20 @@ class AssetMasterService:
                 )
                 self._db.add(asset)
                 self._db.flush()
-                self._db.add(
-                    _apply_information(
-                        asset.id,
-                        AssetInformationPayload(
-                            inventory_no=raw.get("inventory_no"),
-                            asset_description=raw.get("asset_description"),
-                        ),
+                info = mapped.get("information")
+                if info:
+                    self._db.add(_apply_information(asset.id, info))
+                if loc:
+                    loc_payload = AssetLocationPayload(
+                        plant_id=plant_id,
+                        sub_location=loc.sub_location,
+                        functional_location=loc.functional_location,
+                        actual_location=loc.actual_location,
                     )
-                )
-                self._db.add(
-                    _apply_location(
-                        asset.id,
-                        AssetLocationPayload(
-                            plant_id=plant_id,
-                            functional_location=raw.get("functional_location"),
-                            actual_location=raw.get("actual_location"),
-                        ),
-                    )
-                )
-                self._db.add(
-                    _apply_financial(
-                        asset.id,
-                        AssetFinancialPayload(
-                            cost_center=raw.get("cost_center"),
-                            vendor_name=raw.get("vendor_name"),
-                            po_number=raw.get("po_number"),
-                            currency=raw.get("currency"),
-                        ),
-                    )
-                )
-                self._db.add(
-                    _apply_inventory(
-                        asset.id,
-                        AssetInventoryPayload(
-                            inventory_count=raw.get("inventory_count"),
-                            physical_count=raw.get("physical_count"),
-                        ),
-                    )
-                )
+                    self._db.add(_apply_location(asset.id, loc_payload))
+                if fin:
+                    self._db.add(_apply_financial(asset.id, fin))
+                self._db.add(_apply_inventory(asset.id, None))
                 if pending and wf:
                     ApprovalEngineService(self._db).create_request_for_entity(
                         workflow=wf,
@@ -571,7 +691,7 @@ class AssetMasterService:
                     asset_id=asset.id,
                     actor_user_id=actor_user_id,
                     action="imported",
-                    new_value={"batch_id": batch.id},
+                    new_value={"source": "import", "batch_id": batch.id},
                 )
                 created += 1
             except (DuplicateAssetCodeError, DuplicateRfidError):
@@ -605,7 +725,7 @@ def activate_asset_after_approval(db: Session, *, asset_id: int, approver_user_i
         asset_id=asset.id,
         actor_user_id=approver_user_id,
         action="approved",
-        section="workflow",
+        new_value={"source": asset.source_type},
     )
 
 

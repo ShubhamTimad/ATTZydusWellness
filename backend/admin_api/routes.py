@@ -15,6 +15,7 @@ from modules.roles.router import router as roles_router
 from modules.settings.router import router as settings_router
 from modules.users.router import router as users_router
 from modules.assets.router import router as assets_router
+from modules.asset_masters.router import router as asset_masters_router
 
 _admin_dependencies = []
 if get_settings().enforce_superuser_on_admin:
@@ -32,4 +33,5 @@ router.include_router(permissions_router)
 router.include_router(roles_router)
 router.include_router(settings_router)
 router.include_router(assets_router)
+router.include_router(asset_masters_router)
 

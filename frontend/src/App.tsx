@@ -22,6 +22,7 @@ import { ForgotPasswordPage } from "@/pages/forgot-password"
 import { ResetPasswordPage } from "@/pages/reset-password"
 import { MfaSetupPage } from "@/pages/mfa-setup"
 import { AssetDetailPage, AssetImportPage, AssetsListPage } from "@/pages/assets"
+import { MastersPage } from "@/pages/masters/masters-page"
 import OrdersPage from "@/pages/orders"
 import * as React from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
@@ -91,6 +92,15 @@ function App() {
             />
             <Route path=":id" element={<AssetDetailPage />} />
           </Route>
+
+          <Route
+            path="masters"
+            element={
+              <RequirePermission code="masters.view">
+                <MastersPage />
+              </RequirePermission>
+            }
+          />
 
           <Route
             path="orders"

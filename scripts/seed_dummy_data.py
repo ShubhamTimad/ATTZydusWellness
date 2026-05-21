@@ -28,6 +28,12 @@ from sqlalchemy.orm import Session
 
 import db.models  # noqa: F401
 from db.session import SessionLocal
+from modules.asset_masters.model import (
+    ActualLocationMaster,
+    CostCenterMaster,
+    FunctionalLocationMaster,
+    ProfitCenterMaster,
+)
 from modules.assets.audit_log import log_asset_event
 from modules.assets.model import (
     AssetAuditEvent,
@@ -130,7 +136,12 @@ ROLE_SPECS: list[dict[str, object]] = [
             "task.act",
             "asset.view",
             "asset.create",
+            "asset.update",
             "asset.import",
+            "masters.view",
+            "masters.create",
+            "masters.update",
+            "masters.delete",
         ],
     },
     {
@@ -196,9 +207,12 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
     {
         "asset_code": "DEMO-AST-001",
         "asset_name": "Tablet Press Line A",
+        "asset_class": "Production Equipment",
+        "asset_type": "Tablet Press",
         "category_code": "EQUIPMENT",
         "rfid_code": "RFID-DEMO-001",
         "serial_no": "TP-2024-001",
+        "sub_location": "Line A — Bay 2",
         "functional_location": "PROD/BLD-A/LINE-01",
         "actual_location": "Building A, Floor 2",
         "building": "A",
@@ -206,9 +220,12 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
         "room": "201",
         "zone": "Production",
         "cost_center": "CC-4100",
+        "party_details": "OEM Supplier GmbH",
+        "invoice_no": "INV-2024-1001",
+        "voucher_no": "VCH-4100-01",
+        "grn_no": "GRN-2024-501",
         "inventory_count": 1,
-        "physical_count": 1,
-        "verification_status": "verified",
+        "physical_count": 0,
     },
     {
         "asset_code": "DEMO-AST-002",
@@ -224,8 +241,7 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
         "zone": "Quality",
         "cost_center": "CC-4200",
         "inventory_count": 1,
-        "physical_count": 1,
-        "verification_status": "verified",
+        "physical_count": 0,
     },
     {
         "asset_code": "DEMO-AST-003",
@@ -242,7 +258,6 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
         "cost_center": "CC-5100",
         "inventory_count": 1,
         "physical_count": 0,
-        "verification_status": "mismatch",
     },
     {
         "asset_code": "DEMO-AST-004",
@@ -258,8 +273,7 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
         "zone": "Logistics",
         "cost_center": "CC-4300",
         "inventory_count": 1,
-        "physical_count": 1,
-        "verification_status": "verified",
+        "physical_count": 0,
     },
     {
         "asset_code": "DEMO-AST-005",
@@ -275,8 +289,7 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
         "zone": "Utilities",
         "cost_center": "CC-4400",
         "inventory_count": 1,
-        "physical_count": 1,
-        "verification_status": "pending",
+        "physical_count": 0,
     },
 ]
 
@@ -445,6 +458,95 @@ def _category_id(db: Session, code: str) -> int | None:
     return db.scalar(select(AssetCategory.id).where(AssetCategory.code == code))
 
 
+def _seed_reference_masters(db: Session, *, plant_id: int) -> None:
+    """Hierarchical masters: plant→functional→actual and plant→cost→profit."""
+    fl_specs = [
+        ("PROD/BLD-A/LINE-01", "Production line A"),
+        ("QC/LAB-02", "QC laboratory bench"),
+    ]
+    fl_by_code: dict[str, FunctionalLocationMaster] = {}
+    for code, desc in fl_specs:
+        row = db.scalar(
+            select(FunctionalLocationMaster).where(
+                FunctionalLocationMaster.plant_id == plant_id,
+                FunctionalLocationMaster.code == code,
+            )
+        )
+        if row is None:
+            row = FunctionalLocationMaster(
+                code=code, description=desc, plant_id=plant_id, is_active=True
+            )
+            db.add(row)
+            db.flush()
+        fl_by_code[code] = row
+
+    al_specs = [
+        ("PROD/BLD-A/LINE-01", "WH/DOCK-01", "Warehouse dock 1"),
+        ("QC/LAB-02", "BLD-A-F2-R201", "Building A floor 2 room 201"),
+    ]
+    for fl_code, code, desc in al_specs:
+        fl = fl_by_code.get(fl_code)
+        if fl is None:
+            continue
+        exists = db.scalar(
+            select(ActualLocationMaster.id).where(
+                ActualLocationMaster.functional_location_id == fl.id,
+                ActualLocationMaster.code == code,
+            )
+        )
+        if exists is None:
+            db.add(
+                ActualLocationMaster(
+                    code=code,
+                    description=desc,
+                    functional_location_id=fl.id,
+                    is_active=True,
+                )
+            )
+
+    cc_specs = [
+        ("CC-4100", "Production cost center"),
+        ("CC-4200", "QC cost center"),
+        ("CC-5100", "IT cost center"),
+    ]
+    cc_by_code: dict[str, CostCenterMaster] = {}
+    for code, desc in cc_specs:
+        row = db.scalar(
+            select(CostCenterMaster).where(
+                CostCenterMaster.plant_id == plant_id,
+                CostCenterMaster.code == code,
+            )
+        )
+        if row is None:
+            row = CostCenterMaster(code=code, description=desc, plant_id=plant_id, is_active=True)
+            db.add(row)
+            db.flush()
+        cc_by_code[code] = row
+
+    pc_specs = [
+        ("CC-4100", "PC-100", "Corporate profit center"),
+        ("CC-4100", "PC-200", "Plant profit center"),
+    ]
+    for cc_code, code, desc in pc_specs:
+        cc = cc_by_code.get(cc_code)
+        if cc is None:
+            continue
+        exists = db.scalar(
+            select(ProfitCenterMaster.id).where(
+                ProfitCenterMaster.cost_center_id == cc.id,
+                ProfitCenterMaster.code == code,
+            )
+        )
+        if exists is None:
+            db.add(
+                ProfitCenterMaster(
+                    code=code, description=desc, cost_center_id=cc.id, is_active=True
+                )
+            )
+    db.commit()
+    print("  reference masters: functional/actual locations, cost/profit centers")
+
+
 def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
     today = date.today()
     for spec in DEMO_ASSET_SPECS:
@@ -456,6 +558,17 @@ def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
             )
         )
         if existing is not None:
+            inv = db.scalar(
+                select(AssetInventoryInformation).where(
+                    AssetInventoryInformation.asset_id == int(existing)
+                )
+            )
+            if inv is not None:
+                inv.inventory_count = 1
+                inv.physical_count = 0
+                inv.last_verification_date = None
+                inv.verification_status = None
+                inv.verification_remarks = None
             has_audit = db.scalar(
                 select(AssetAuditEvent.id).where(AssetAuditEvent.asset_id == existing).limit(1)
             )
@@ -465,18 +578,20 @@ def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
                     asset_id=int(existing),
                     actor_user_id=None,
                     action="created",
-                    section="master",
                     new_value={"asset_code": code, "source": "seed"},
                 )
                 print(f"  audit: {code} (backfilled)")
             else:
-                print(f"  skip: {code} (already exists)")
+                print(f"  skip: {code} (inventory reset, already exists)")
+            db.commit()
             continue
 
         cat_id = _category_id(db, str(spec["category_code"]))
         asset = AssetMaster(
             asset_name=str(spec["asset_name"]),
             asset_code=code,
+            asset_class=str(spec["asset_class"]) if spec.get("asset_class") else None,
+            asset_type=str(spec["asset_type"]) if spec.get("asset_type") else None,
             rfid_code=str(spec["rfid_code"]) if spec.get("rfid_code") else None,
             serial_no=str(spec["serial_no"]) if spec.get("serial_no") else None,
             asset_category_id=int(cat_id) if cat_id else None,
@@ -502,6 +617,7 @@ def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
             AssetLocationInformation(
                 asset_id=asset.id,
                 plant_id=plant_id,
+                sub_location=str(spec["sub_location"]) if spec.get("sub_location") else None,
                 functional_location=str(spec["functional_location"]),
                 actual_location=str(spec["actual_location"]),
                 building=str(spec["building"]) if spec.get("building") else None,
@@ -515,25 +631,31 @@ def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
                 asset_id=asset.id,
                 cost_center=str(spec["cost_center"]),
                 profit_center="PC-100",
+                party_details=str(spec["party_details"]) if spec.get("party_details") else None,
+                invoice_no=str(spec["invoice_no"]) if spec.get("invoice_no") else None,
+                invoice_date=today,
+                voucher_no=str(spec["voucher_no"]) if spec.get("voucher_no") else None,
+                voucher_date=today,
+                grn_no=str(spec["grn_no"]) if spec.get("grn_no") else None,
+                grn_date=today,
+                put_to_use_date=today,
+                depreciation_rate=Decimal("10.00"),
                 cap_date=today,
                 gross_block=Decimal("125000.00"),
+                life_span="10 years",
                 vendor_name="Takeda Demo Vendor",
                 po_number=f"PO-{code}",
                 currency="USD",
             )
         )
-        inv = int(spec["inventory_count"])
-        phys = int(spec["physical_count"])
         db.add(
             AssetInventoryInformation(
                 asset_id=asset.id,
-                inventory_count=inv,
-                physical_count=phys,
-                last_verification_date=today,
-                verification_status=str(spec["verification_status"]),
-                verification_remarks=None
-                if inv == phys
-                else "Physical count differs from inventory record.",
+                inventory_count=1,
+                physical_count=0,
+                last_verification_date=None,
+                verification_status=None,
+                verification_remarks=None,
             )
         )
         log_asset_event(
@@ -541,7 +663,6 @@ def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
             asset_id=asset.id,
             actor_user_id=None,
             action="created",
-            section="master",
             new_value={"asset_code": code, "source": "seed"},
         )
         print(f"  created: {code} — {spec['asset_name']}")
@@ -620,6 +741,13 @@ def main() -> int:
                 db.rollback()
                 print(f"  error: {spec['name']}: {exc}", file=sys.stderr)
                 return 3
+
+        print("\nReference masters:")
+        try:
+            _seed_reference_masters(db, plant_id=int(plant.id))
+        except IntegrityError as exc:
+            db.rollback()
+            print(f"  error: {exc}", file=sys.stderr)
 
         print("\nDemo assets:")
         try:

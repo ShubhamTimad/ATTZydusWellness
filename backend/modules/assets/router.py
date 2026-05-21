@@ -17,11 +17,13 @@ from modules.assets.schema import (
     ImportConfirmRequest,
     ImportConfirmResponse,
     ImportPreviewResponse,
+    ImportValidateRequest,
 )
 from modules.assets.service import (
     AssetMasterService,
     DuplicateAssetCodeError,
     DuplicateRfidError,
+    ImportValidationError,
 )
 from modules.assets.schema import AssetAuditEventPublic
 from modules.errors import ConflictError, NotFoundError
@@ -151,6 +153,15 @@ async def import_preview(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.post("/import/validate", response_model=ImportPreviewResponse)
+def import_validate(
+    body: ImportValidateRequest,
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.import"))],
+) -> ImportPreviewResponse:
+    return svc.validate_import_rows(filename=body.filename, raw_rows=body.rows)
+
+
 @router.post("/import/confirm", response_model=ImportConfirmResponse)
 def import_confirm(
     body: ImportConfirmRequest,
@@ -158,4 +169,10 @@ def import_confirm(
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
     _: Annotated[object, Depends(require_permission("asset.import"))],
 ) -> ImportConfirmResponse:
-    return svc.confirm_import(body, actor_user_id=int(current.subject))
+    try:
+        return svc.confirm_import(body, actor_user_id=int(current.subject))
+    except ImportValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.preview.model_dump(mode="json"),
+        ) from exc

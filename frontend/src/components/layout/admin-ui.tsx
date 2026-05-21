@@ -26,6 +26,7 @@ export const adminTabsListClass = "h-10 rounded-lg bg-muted/40 p-1"
 export function AdminPanel({
   title,
   description,
+  headerActions,
   children,
   footer,
   className,
@@ -33,6 +34,7 @@ export function AdminPanel({
 }: {
   title?: string
   description?: string
+  headerActions?: React.ReactNode
   children: React.ReactNode
   footer?: React.ReactNode
   className?: string
@@ -40,14 +42,17 @@ export function AdminPanel({
 }) {
   return (
     <div className={cn(adminPanelClass, className)}>
-      {title || description ? (
-        <div className="border-b border-border/60 px-5 py-4">
-          {title ? <h3 className="text-sm font-semibold text-foreground">{title}</h3> : null}
-          {description ? (
-            <p className={cn("text-xs leading-relaxed text-muted-foreground", title && "mt-1")}>
-              {description}
-            </p>
-          ) : null}
+      {title || description || headerActions ? (
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
+          <div className="min-w-0">
+            {title ? <h3 className="text-sm font-semibold text-foreground">{title}</h3> : null}
+            {description ? (
+              <p className={cn("text-xs leading-relaxed text-muted-foreground", title && "mt-1")}>
+                {description}
+              </p>
+            ) : null}
+          </div>
+          {headerActions ? <div className="shrink-0">{headerActions}</div> : null}
         </div>
       ) : null}
       <div className={cn(contentClassName)}>{children}</div>

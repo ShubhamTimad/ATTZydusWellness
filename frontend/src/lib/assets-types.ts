@@ -34,6 +34,7 @@ export type AssetSectionPayloads = {
   asset_allocation?: string | null
   pm_equipment_id?: string | null
   plant_id?: number | null
+  sub_location?: string | null
   functional_location?: string | null
   actual_location?: string | null
   building?: string | null
@@ -41,9 +42,20 @@ export type AssetSectionPayloads = {
   room?: string | null
   zone?: string | null
   cost_center?: string | null
+  laboratory?: string | null
   profit_center?: string | null
   cap_date?: string | null
   gross_block?: number | string | null
+  party_details?: string | null
+  invoice_no?: string | null
+  invoice_date?: string | null
+  voucher_no?: string | null
+  voucher_date?: string | null
+  grn_no?: string | null
+  grn_date?: string | null
+  put_to_use_date?: string | null
+  depreciation_rate?: number | string | null
+  life_span?: string | null
   vendor_name?: string | null
   po_number?: string | null
   currency?: string | null
@@ -61,6 +73,8 @@ export type AssetDetail = {
   rfid_code: string | null
   serial_no: string | null
   asset_category_id: number | null
+  asset_class: string | null
+  asset_type: string | null
   category_name: string | null
   lifecycle_status: string
   approval_status: string
@@ -78,13 +92,20 @@ export type AssetDetail = {
   inventory?: AssetSectionPayloads | null
 }
 
+export type AssetAuditChangeLine = {
+  field_label: string
+  from_value: string
+  to_value: string
+}
+
 export type AssetAuditEvent = {
   id: number
   action: string
-  section: string | null
   actor_user_id: number | null
-  old_value: Record<string, unknown> | null
-  new_value: Record<string, unknown> | null
+  actor_name: string | null
+  activity_verb: string
+  summary: string
+  changes: AssetAuditChangeLine[]
   created_at: string
 }
 

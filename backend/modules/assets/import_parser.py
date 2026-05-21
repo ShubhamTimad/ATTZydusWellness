@@ -4,27 +4,9 @@ import csv
 import io
 from typing import Any
 
+from modules.assets.field_definitions import IMPORT_COLUMN_ALIASES
+from modules.assets.import_row_mapper import normalize_import_row
 from modules.assets.schema import ImportPreviewRow
-
-# Canonical column headers (case-insensitive match)
-COLUMN_ALIASES: dict[str, list[str]] = {
-    "asset_name": ["asset name", "asset_name", "name"],
-    "asset_code": ["asset code", "asset_code", "code"],
-    "rfid_code": ["rfid", "rfid code", "rfid_code", "uhf_rfid_code"],
-    "serial_no": ["serial", "serial no", "serial_no"],
-    "category_code": ["category", "category code", "asset category", "asset_category"],
-    "plant_code": ["plant", "plant code", "plant_code"],
-    "functional_location": ["functional location", "functional_location"],
-    "actual_location": ["actual location", "actual_location", "location"],
-    "cost_center": ["cost center", "cost_center"],
-    "inventory_count": ["inventory count", "inventory_count"],
-    "physical_count": ["physical count", "physical_count"],
-    "inventory_no": ["inventory no", "inventory_no"],
-    "asset_description": ["description", "asset description", "asset_description"],
-    "vendor_name": ["vendor", "vendor name", "vendor_name"],
-    "po_number": ["po", "po number", "po_number"],
-    "currency": ["currency"],
-}
 
 
 def _normalize_header(h: str) -> str:
@@ -34,7 +16,7 @@ def _normalize_header(h: str) -> str:
 def _map_headers(raw_headers: list[str]) -> dict[int, str]:
     out: dict[int, str] = {}
     alias_lookup: dict[str, str] = {}
-    for canonical, aliases in COLUMN_ALIASES.items():
+    for canonical, aliases in IMPORT_COLUMN_ALIASES.items():
         for a in aliases:
             alias_lookup[_normalize_header(a)] = canonical
     for idx, raw in enumerate(raw_headers):
@@ -45,25 +27,14 @@ def _map_headers(raw_headers: list[str]) -> dict[int, str]:
 
 
 def _parse_row(mapped: dict[str, str], row_number: int) -> ImportPreviewRow:
-    errors: list[str] = []
-    data = {k: (v.strip() if isinstance(v, str) else v) for k, v in mapped.items() if v not in (None, "")}
-
-    if not data.get("asset_name"):
-        errors.append("Asset name is required.")
-    if not data.get("asset_code"):
-        errors.append("Asset code is required.")
-
-    for int_field in ("inventory_count", "physical_count"):
-        if data.get(int_field) is not None:
-            try:
-                data[int_field] = int(str(data[int_field]).replace(",", ""))
-            except ValueError:
-                errors.append(f"{int_field} must be a number.")
-
+    data = normalize_import_row(
+        {k: (v.strip() if isinstance(v, str) else v) for k, v in mapped.items() if v not in (None, "")}
+    )
     return ImportPreviewRow(
         row_number=row_number,
-        valid=len(errors) == 0,
-        errors=errors,
+        valid=False,
+        errors=[],
+        field_errors={},
         data=data,
     )
 

@@ -94,7 +94,11 @@ export function canListOrgUnitsForAssignments(): boolean {
       hasPermission("users.create") ||
       hasPermission("users.update") ||
       hasPermission("roles.create") ||
-      hasPermission("roles.update")
+      hasPermission("roles.update") ||
+      hasPermission("asset.view") ||
+      hasPermission("asset.create") ||
+      hasPermission("asset.update") ||
+      hasPermission("masters.view")
     )
   } catch {
     return false
