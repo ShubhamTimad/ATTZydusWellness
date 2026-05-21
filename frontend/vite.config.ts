@@ -54,6 +54,26 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      '/dashboard': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        bypass: (req) => {
+          const accept = req.headers?.accept ?? ''
+          // Let the SPA handle browser navigations like /dashboard
+          if (typeof accept === 'string' && accept.includes('text/html')) {
+            return req.url
+          }
+          return undefined
+        },
+      },
+      '/tasks': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/auth': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       '/admin': {
         target: 'http://localhost:8000',
         changeOrigin: true,

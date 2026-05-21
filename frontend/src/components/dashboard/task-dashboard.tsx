@@ -40,7 +40,7 @@ export function TaskDashboard({ data }: { data: TasksDashboardModule }) {
     <section className="grid gap-4">
       <div>
         <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-          Task dashboard <span className="text-emerald-600">•</span>
+          Task dashboard <span className="text-primary">•</span>
         </h2>
       </div>
 
@@ -51,7 +51,7 @@ export function TaskDashboard({ data }: { data: TasksDashboardModule }) {
         <StatCard title="Completed" value={data.completed} />
       </div>
 
-      <Card className="border-emerald-100">
+      <Card className="border-primary/15">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium">Status breakdown</CardTitle>
           <CardDescription className="text-xs">Counts across your assigned tasks</CardDescription>
@@ -63,7 +63,7 @@ export function TaskDashboard({ data }: { data: TasksDashboardModule }) {
               <XAxis dataKey="name" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
               <Tooltip />
-              <Bar dataKey="value" fill="#10b981" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="value" fill="#E1242A" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>

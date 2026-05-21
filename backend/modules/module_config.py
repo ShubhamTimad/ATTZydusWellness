@@ -116,7 +116,7 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
 
     {
         "key": "asset",
-        "title": "Assets",
+        "title": "Asset Master",
         "tabs": [
             {
                 "key": "asset",
@@ -124,8 +124,11 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
                 "actions": [
                     "view",
                     "create",
-                    "archive",
-                    "unarchive",
+                    "update",
+                    "delete",
+                    "import",
+                    "approve",
+                    "manage",
                 ],
             },
         ],

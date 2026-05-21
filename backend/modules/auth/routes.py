@@ -13,6 +13,9 @@ from core.password_policy import PasswordExpiredError
 from db.session import get_db
 from modules.auth.login_result import (
     CaptchaInvalidError,
+    ForgotPasswordAccountInactiveError,
+    ForgotPasswordDeliveryError,
+    ForgotPasswordUserNotFoundError,
     LoginOutcomeMfaOtp,
     LoginOutcomeMfaSetup,
     LoginOutcomeTokens,
@@ -212,8 +215,27 @@ def forgot_password(
     payload: ForgotPasswordRequest,
     svc: Annotated[AuthService, Depends(get_auth_service)],
 ) -> ForgotPasswordResponse:
-    svc.forgot_password(email=payload.email)
-    return ForgotPasswordResponse(ok=True)
+    try:
+        svc.forgot_password(email=str(payload.email))
+    except ForgotPasswordUserNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account found with this email address.",
+        ) from None
+    except ForgotPasswordAccountInactiveError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is inactive. Contact your administrator.",
+        ) from None
+    except ForgotPasswordDeliveryError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=exc.message,
+        ) from exc
+    return ForgotPasswordResponse(
+        ok=True,
+        message="A password reset link has been sent to your email.",
+    )
 
 
 @router.post("/reset-password", response_model=ResetPasswordResponse)

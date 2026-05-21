@@ -1,15 +1,35 @@
 import * as React from "react"
-import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Plus } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableHeader, TableRow } from "@/components/ui/table"
+import { AdminPage } from "@/components/layout/admin-page"
+import {
+  AdminPanel,
+  AdminPrimaryButton,
+  AdminStatusBadge,
+  AdminTableCell,
+  AdminTableHeadCell,
+  AdminTableHeaderRow,
+  adminSelectClass,
+  adminSwitchRowClass,
+  adminTextareaClass,
+} from "@/components/layout/admin-ui"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
+import { cn } from "@/lib/utils"
 
 type EmailTemplate = {
   id: number
@@ -21,12 +41,9 @@ type EmailTemplate = {
   is_active: boolean
 }
 
-type EmailMapping = {
-  id: number
-  event_code: string
-  template_id: number
-  is_enabled: boolean
-}
+type VarsResp = { event_code: string; variables: string[]; allowed_event_codes?: string[] }
+
+type PreviewResp = { subject: string; body_html: string; missing_variables: string[] }
 
 const EVENT_CODES = [
   "USER_CREATED",
@@ -38,180 +55,442 @@ const EVENT_CODES = [
 ] as const
 
 export function EmailTemplatesPage() {
-  const navigate = useNavigate()
-
   const [templates, setTemplates] = React.useState<EmailTemplate[]>([])
-  const [mappings, setMappings] = React.useState<EmailMapping[]>([])
   const [loading, setLoading] = React.useState(true)
+
+  const [view, setView] = React.useState<"list" | "edit">("list")
+  const [selectedId, setSelectedId] = React.useState<string>("")
+  const [createOpen, setCreateOpen] = React.useState(false)
+  const [creating, setCreating] = React.useState(false)
 
   const [createName, setCreateName] = React.useState("")
   const [createEvent, setCreateEvent] = React.useState<(typeof EVENT_CODES)[number]>("USER_CREATED")
   const [createSubject, setCreateSubject] = React.useState("")
   const [createBody, setCreateBody] = React.useState("")
 
+  const [editLoading, setEditLoading] = React.useState(false)
+  const [tpl, setTpl] = React.useState<EmailTemplate | null>(null)
+  const [vars, setVars] = React.useState<string[]>([])
+  const [name, setName] = React.useState("")
+  const [eventCode, setEventCode] = React.useState<string>("USER_CREATED")
+  const [subject, setSubject] = React.useState("")
+  const [bodyHtml, setBodyHtml] = React.useState("")
+  const [isActive, setIsActive] = React.useState(true)
+  const [saving, setSaving] = React.useState(false)
+  const [preview, setPreview] = React.useState<PreviewResp | null>(null)
+  const [previewPayload, setPreviewPayload] = React.useState(
+    '{"user_name":"A","email":"a@example.com"}',
+  )
+
   const canCreate = hasPermission("email_templates.create")
   const canUpdate = hasPermission("email_templates.update")
   const canDelete = hasPermission("email_templates.delete")
 
-  const load = React.useCallback(async () => {
+  const loadList = React.useCallback(async () => {
     setLoading(true)
     try {
-      const [t, m] = await Promise.all([
-        getJson<EmailTemplate[]>("/admin/email-templates"),
-        getJson<EmailMapping[]>("/admin/email-templates/mappings"),
-      ])
+      const t = await getJson<EmailTemplate[]>("/admin/email-templates")
       setTemplates(t)
-      setMappings(m)
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Could not load email templates."
       toast.error(msg)
+      setTemplates([])
     } finally {
       setLoading(false)
     }
   }, [])
 
   React.useEffect(() => {
-    void load()
-  }, [load])
+    void loadList()
+  }, [loadList])
 
-  async function createTemplate() {
+  const sortedTemplates = React.useMemo(
+    () => [...templates].sort((a, b) => a.name.localeCompare(b.name)),
+    [templates],
+  )
+
+  const loadTemplate = React.useCallback(async (id: number) => {
+    setEditLoading(true)
+    try {
+      const t = await getJson<EmailTemplate>(`/admin/email-templates/${id}`)
+      setTpl(t)
+      setName(t.name)
+      setEventCode(t.event_code)
+      setSubject(t.subject)
+      setBodyHtml(t.body_html)
+      setIsActive(Boolean(t.is_active))
+      setPreview(null)
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "Could not load template."
+      toast.error(msg)
+      setTpl(null)
+    } finally {
+      setEditLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (view !== "edit") return
+    const id = Number(selectedId)
+    if (!Number.isFinite(id) || id < 1) return
+    void loadTemplate(id)
+  }, [view, selectedId, loadTemplate])
+
+  React.useEffect(() => {
+    if (view !== "edit") return
+    const code = (eventCode || "").trim().toUpperCase()
+    if (!code) return
+    void (async () => {
+      try {
+        const r = await getJson<VarsResp>(
+          `/admin/email-templates/variables/${encodeURIComponent(code)}`,
+        )
+        setVars(Array.isArray(r.variables) ? r.variables : [])
+      } catch {
+        setVars([])
+      }
+    })()
+  }, [view, eventCode])
+
+  function openTemplate(id: number) {
+    setSelectedId(String(id))
+    setView("edit")
+  }
+
+  function backToList() {
+    setView("list")
+    setSelectedId("")
+    setTpl(null)
+    setPreview(null)
+  }
+
+  async function onCreateTemplate() {
     if (!canCreate) return
-    const name = createName.trim()
-    if (!name) return
-    if (!createSubject.trim() || !createBody.trim()) return
+    const trimmedName = createName.trim()
+    if (!trimmedName) {
+      toast.error("Name is required.")
+      return
+    }
+    if (!createSubject.trim() || !createBody.trim()) {
+      toast.error("Subject and body are required.")
+      return
+    }
+    setCreating(true)
     try {
       const created = await postJson<EmailTemplate>("/admin/email-templates", {
-        name,
+        name: trimmedName,
         event_code: createEvent,
-        subject: createSubject,
-        body_html: createBody,
+        subject: createSubject.trim(),
+        body_html: createBody.trim(),
         body_text: null,
         is_active: true,
       })
       toast.success("Template created.")
+      setCreateOpen(false)
       setCreateName("")
       setCreateSubject("")
       setCreateBody("")
-      await load()
-      navigate(`/admin/email-templates/${created.id}`)
+      await loadList()
+      openTemplate(created.id)
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Create failed."
       toast.error(msg)
+    } finally {
+      setCreating(false)
     }
   }
 
-  async function removeTemplate(id: number) {
-    if (!canDelete) return
+  async function onSave() {
+    if (!canUpdate || !tpl) return
+    setSaving(true)
     try {
-      await deleteJson(`/admin/email-templates/${id}`)
-      toast.success("Template deleted.")
-      await load()
+      await patchJson<EmailTemplate>(`/admin/email-templates/${tpl.id}`, {
+        name: name.trim(),
+        event_code: eventCode.trim().toUpperCase(),
+        subject,
+        body_html: bodyHtml,
+        is_active: isActive,
+      })
+      toast.success("Saved.")
+      await loadTemplate(tpl.id)
+      await loadList()
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "Save failed."
+      toast.error(msg)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function onDelete() {
+    if (!canDelete || !tpl) return
+    try {
+      await deleteJson(`/admin/email-templates/${tpl.id}`)
+      toast.success("Deleted.")
+      await loadList()
+      backToList()
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : "Delete failed."
       toast.error(msg)
     }
   }
 
-  function mappingFor(code: string) {
-    return mappings.find((x) => x.event_code === code) ?? null
+  async function runPreview() {
+    try {
+      const parsed = JSON.parse(previewPayload || "{}") as Record<string, unknown>
+      const res = await postJson<PreviewResp>("/admin/email-templates/preview", {
+        subject,
+        body_html: bodyHtml,
+        payload: parsed,
+      })
+      setPreview(res)
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : "Preview failed (invalid JSON payload?)."
+      toast.error(msg)
+    }
   }
 
-  async function upsertMapping(eventCode: string, nextTemplateId: number | null, enabled: boolean) {
-    if (!canUpdate) return
-    const existing = mappingFor(eventCode)
-    if (!nextTemplateId) return
-    try {
-      if (!existing) {
-        await postJson<EmailMapping>("/admin/email-templates/mappings", {
-          event_code: eventCode,
-          template_id: nextTemplateId,
-          is_enabled: enabled,
-        })
-      } else {
-        await patchJson<EmailMapping>(`/admin/email-templates/mappings/${existing.id}`, {
-          template_id: nextTemplateId,
-          is_enabled: enabled,
-        })
-      }
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : "Mapping save failed."
-      toast.error(msg)
-      return
+  if (view === "edit") {
+    if (editLoading) {
+      return (
+        <AdminPage>
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        </AdminPage>
+      )
     }
-    toast.success("Mapping saved.")
-    await load()
+    if (!tpl) {
+      return (
+        <AdminPage className="space-y-4">
+          <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToList}>
+            ← Back to templates
+          </Button>
+          <p className="text-sm text-muted-foreground">Template not found.</p>
+        </AdminPage>
+      )
+    }
+
+    return (
+      <AdminPage className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToList}>
+            ← Back to templates
+          </Button>
+          <div className="flex flex-wrap gap-2">
+            <AdminPrimaryButton type="button" onClick={() => void onSave()} disabled={!canUpdate || saving}>
+              {saving ? "Saving…" : "Save"}
+            </AdminPrimaryButton>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => void onDelete()}
+              disabled={!canDelete}
+            >
+              Delete
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-start">
+          <AdminPanel
+            className="lg:col-span-2"
+            title={tpl.name}
+            description={`Use variables like {{user_name}} in subject and body.`}
+            contentClassName="space-y-4 px-5 py-5"
+          >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Name</Label>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} disabled={!canUpdate} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Event</Label>
+                  <select
+                    className={adminSelectClass}
+                    value={eventCode}
+                    onChange={(e) => setEventCode(e.target.value)}
+                    disabled={!canUpdate}
+                  >
+                    {EVENT_CODES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Subject</Label>
+                <Input value={subject} onChange={(e) => setSubject(e.target.value)} disabled={!canUpdate} />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Body (HTML)</Label>
+                <textarea
+                  className={cn(adminTextareaClass, "min-h-[260px]")}
+                  value={bodyHtml}
+                  onChange={(e) => setBodyHtml(e.target.value)}
+                  disabled={!canUpdate}
+                />
+              </div>
+
+              <div className={adminSwitchRowClass}>
+                <div>
+                  <div className="text-sm font-medium">Active</div>
+                  <div className="text-xs text-muted-foreground">Inactive templates are not used.</div>
+                </div>
+                <Switch checked={isActive} onCheckedChange={setIsActive} disabled={!canUpdate} />
+              </div>
+          </AdminPanel>
+
+          <div className="space-y-4">
+            <AdminPanel
+              title="Variables"
+              description={`For ${eventCode}`}
+              contentClassName="px-5 py-5"
+            >
+                {vars.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No variables for this event.</p>
+                ) : (
+                  <ul className="space-y-1 text-sm">
+                    {vars.map((v) => (
+                      <li key={v} className="font-mono">{`{{${v}}}`}</li>
+                    ))}
+                  </ul>
+                )}
+            </AdminPanel>
+
+            <AdminPanel
+              title="Preview"
+              description="Render with sample JSON payload."
+              contentClassName="space-y-4 px-5 py-5"
+            >
+                <div className="space-y-1.5">
+                  <Label>Payload (JSON)</Label>
+                  <textarea
+                    className={cn(adminTextareaClass, "min-h-[120px] font-mono")}
+                    value={previewPayload}
+                    onChange={(e) => setPreviewPayload(e.target.value)}
+                  />
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={() => void runPreview()}>
+                  Render preview
+                </Button>
+                {preview ? (
+                  <>
+                    <Separator />
+                    {preview.missing_variables?.length ? (
+                      <p className="text-xs text-amber-800 dark:text-amber-200">
+                        Missing: {preview.missing_variables.join(", ")}
+                      </p>
+                    ) : null}
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-medium text-muted-foreground">Subject</div>
+                      <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm">{preview.subject}</div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-medium text-muted-foreground">Body</div>
+                      <div className="rounded-md border bg-muted/20 px-3 py-2 text-sm whitespace-pre-wrap">
+                        {preview.body_html}
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+            </AdminPanel>
+          </div>
+        </div>
+      </AdminPage>
+    )
   }
 
   return (
-    <div className="w-full min-w-0 space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold tracking-tight">Email templates</h2>
-        <p className="text-sm text-muted-foreground">
-          Configure subjects and bodies per event. Mappings decide which template is used when an event triggers.
-        </p>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Templates</CardTitle>
-            <CardDescription>Create or edit an email template.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Event</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+    <AdminPage
+      description="Notification templates for system events. Click a row to edit."
+      actions={
+        canCreate ? (
+          <AdminPrimaryButton
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            disabled={loading}
+          >
+            <Plus className="size-4" aria-hidden />
+            Create template
+          </AdminPrimaryButton>
+        ) : undefined
+      }
+    >
+      <AdminPanel>
+        <Table>
+          <TableHeader>
+            <AdminTableHeaderRow>
+              <AdminTableHeadCell>Name</AdminTableHeadCell>
+              <AdminTableHeadCell>Event</AdminTableHeadCell>
+              <AdminTableHeadCell>Status</AdminTableHeadCell>
+              <AdminTableHeadCell>Subject</AdminTableHeadCell>
+            </AdminTableHeaderRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <tr>
+                <td colSpan={4} className="px-5 py-12 text-center text-sm text-muted-foreground">
+                  Loading…
+                </td>
+              </tr>
+            ) : sortedTemplates.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-5 py-12 text-center text-sm text-muted-foreground">
+                  No templates yet. Click Create template.
+                </td>
+              </tr>
+            ) : (
+              sortedTemplates.map((t) => (
+                <TableRow
+                  key={t.id}
+                  className="cursor-pointer border-border/40 hover:bg-muted/30"
+                  onClick={() => openTemplate(t.id)}
+                >
+                  <AdminTableCell className="font-medium">{t.name}</AdminTableCell>
+                  <AdminTableCell className="font-mono text-xs text-muted-foreground">
+                    {t.event_code}
+                  </AdminTableCell>
+                  <AdminTableCell>
+                    <AdminStatusBadge active={t.is_active} />
+                  </AdminTableCell>
+                  <AdminTableCell className="max-w-md truncate text-muted-foreground">
+                    {t.subject}
+                  </AdminTableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading || templates.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-muted-foreground">
-                      {loading ? "Loading…" : "No templates yet."}
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  templates.map((t) => (
-                    <TableRow key={t.id}>
-                      <TableCell className="font-medium">{t.name}</TableCell>
-                      <TableCell className="text-sm">{t.event_code}</TableCell>
-                      <TableCell className="text-sm">{t.is_active ? "active" : "inactive"}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button type="button" size="sm" variant="outline" onClick={() => navigate(`/admin/email-templates/${t.id}`)}>
-                          Edit
-                        </Button>
-                        <Button type="button" size="sm" variant="outline" disabled={!canDelete} onClick={() => void removeTemplate(t.id)}>
-                          Delete
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </AdminPanel>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Create</CardTitle>
-            <CardDescription>Quickly create a template.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create template</DialogTitle>
+            <DialogDescription>Add a new email template, then edit details on the next screen.</DialogDescription>
+          </DialogHeader>
+          <div className="dialog-body">
             <div className="space-y-1.5">
-              <Label>Name</Label>
-              <Input value={createName} onChange={(e) => setCreateName(e.target.value)} placeholder="e.g. User created v1" disabled={!canCreate} />
+              <Label htmlFor="create-tpl-name">Name</Label>
+              <Input
+                id="create-tpl-name"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="User created v1"
+                disabled={!canCreate}
+              />
             </div>
             <div className="space-y-1.5">
-              <Label>Event</Label>
+              <Label htmlFor="create-tpl-event">Event</Label>
               <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                id="create-tpl-event"
+                className={adminSelectClass}
                 value={createEvent}
-                onChange={(e) => setCreateEvent(e.target.value as any)}
+                onChange={(e) => setCreateEvent(e.target.value as (typeof EVENT_CODES)[number])}
                 disabled={!canCreate}
               >
                 {EVENT_CODES.map((c) => (
@@ -222,77 +501,41 @@ export function EmailTemplatesPage() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label>Subject</Label>
-              <Input value={createSubject} onChange={(e) => setCreateSubject(e.target.value)} placeholder="Subject…" disabled={!canCreate} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Body (HTML)</Label>
-              <textarea
-                className="min-h-[140px] w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40"
-                value={createBody}
-                onChange={(e) => setCreateBody(e.target.value)}
-                placeholder="<p>Hello {{user_name}}</p>"
-                rows={6}
+              <Label htmlFor="create-tpl-subject">Subject</Label>
+              <Input
+                id="create-tpl-subject"
+                value={createSubject}
+                onChange={(e) => setCreateSubject(e.target.value)}
+                placeholder="Welcome to the platform"
                 disabled={!canCreate}
               />
             </div>
-            <Button type="button" size="sm" className="w-full" onClick={() => void createTemplate()} disabled={!canCreate}>
-              Create & open editor
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Event mappings</CardTitle>
-          <CardDescription>Choose which template is used for each event.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {EVENT_CODES.map((code) => {
-            const m = mappingFor(code)
-            const selected = m?.template_id ? String(m.template_id) : ""
-            const enabled = m?.is_enabled ?? true
-            return (
-              <div key={code} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">{code}</div>
-                  <div className="text-xs text-muted-foreground">{m ? `Mapped to template #${m.template_id}` : "No mapping yet"}</div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    className="h-9 w-64 rounded-md border border-input bg-background px-3 text-sm"
-                    value={selected}
-                    onChange={(e) => void upsertMapping(code, Number(e.target.value), enabled)}
-                    disabled={!canUpdate || templates.length === 0}
-                  >
-                    <option value="">{templates.length ? "Select template…" : "No templates"}</option>
-                    {templates
-                      .filter((t) => t.event_code === code)
-                      .map((t) => (
-                        <option key={t.id} value={String(t.id)}>
-                          {t.name}
-                        </option>
-                      ))}
-                  </select>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">Enabled</span>
-                    <Switch
-                      checked={enabled}
-                      disabled={!canUpdate || !m}
-                      onCheckedChange={(v) => {
-                        if (!m) return
-                        void upsertMapping(code, m.template_id, Boolean(v))
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </CardContent>
-      </Card>
-    </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="create-tpl-body">Body (HTML)</Label>
+              <textarea
+                id="create-tpl-body"
+                className={adminTextareaClass}
+                value={createBody}
+                onChange={(e) => setCreateBody(e.target.value)}
+                placeholder="<p>Hello {{user_name}}</p>"
+                disabled={!canCreate}
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button type="button" variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
+                Cancel
+              </Button>
+              <AdminPrimaryButton
+                type="button"
+                disabled={creating || !canCreate}
+                onClick={() => void onCreateTemplate()}
+              >
+                {creating ? "Creating…" : "Create"}
+              </AdminPrimaryButton>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </AdminPage>
   )
 }
-

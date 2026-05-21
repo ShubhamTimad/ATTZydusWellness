@@ -2,14 +2,21 @@ import * as React from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import { AdminPage } from "@/components/layout/admin-page"
+import {
+  AdminBackLink,
+  AdminDangerButton,
+  AdminDetailField,
+  AdminDetailGrid,
+  AdminPanel,
+  AdminPrimaryButton,
+  AdminStatusBadge,
+} from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
 import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
 import { hasPermission, isSuperuser } from "@/lib/permissions"
-import { cn } from "@/lib/utils"
 
 type UserPublic = {
   id: number
@@ -48,7 +55,6 @@ function eventTimeMs(ev: TimelineEvent): number {
     const t = new Date(ev.timestamp).getTime()
     if (!Number.isNaN(t)) return t
   }
-  // Keep "pending/Now" at the very top.
   if (ev.action === "pending") return Number.POSITIVE_INFINITY
   return Number.NEGATIVE_INFINITY
 }
@@ -84,7 +90,8 @@ export function UserViewPage() {
       await postJson(`/admin/users/${user.id}/resend-welcome`, {})
       toast.success("Welcome email queued (if email templates are configured).")
     } catch (e) {
-      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not resend welcome email"
+      const message =
+        e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not resend welcome email"
       toast.error(message)
     } finally {
       setResendingWelcome(false)
@@ -98,7 +105,8 @@ export function UserViewPage() {
       await postJson(`/admin/users/${user.id}/resend-mfa`, {})
       toast.success("MFA setup email queued (if email templates are configured).")
     } catch (e) {
-      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not resend MFA email"
+      const message =
+        e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not resend MFA email"
       toast.error(message)
     } finally {
       setResendingMfa(false)
@@ -144,11 +152,7 @@ export function UserViewPage() {
       setTimeline(null)
       try {
         try {
-          const me = await getJson<{
-            id: number
-            is_superuser?: boolean
-            permissions?: string[]
-          }>("/me")
+          const me = await getJson<{ id: number }>("/me")
           setMeId(me.id)
         } catch {
           setMeId(null)
@@ -186,75 +190,59 @@ export function UserViewPage() {
     })()
   }, [id, navigate, canViewAudit])
 
+  const toolbar = (
+    <div className="flex flex-wrap items-center gap-2">
+      <AdminBackLink to=".." />
+      {user && canUpdate && user.is_active && !user.is_superuser ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-9 shadow-sm"
+          disabled={resendingWelcome}
+          onClick={() => void resendWelcomeEmail()}
+        >
+          {resendingWelcome ? "Sending…" : "Resend welcome email"}
+        </Button>
+      ) : null}
+      {user && canResendMfa && mfaEnabled && user.is_active && !user.is_superuser && !user.mfa_setup_completed ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-9 shadow-sm"
+          disabled={resendingMfa}
+          onClick={() => void resendMfaSetupEmail()}
+        >
+          {resendingMfa ? "Sending…" : "Resend MFA setup"}
+        </Button>
+      ) : null}
+      {user && canUpdate && !user.is_superuser ? (
+        <AdminPrimaryButton asChild>
+          <Link to="edit">Edit user</Link>
+        </AdminPrimaryButton>
+      ) : null}
+      {user && canHardDelete ? (
+        <AdminDangerButton disabled={deleting} onClick={() => void handleDeleteUser()}>
+          {deleting ? "Deleting…" : "Delete user"}
+        </AdminDangerButton>
+      ) : null}
+    </div>
+  )
+
   if (loading) {
     return (
-      <div className="w-full space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold tracking-tight">User</h2>
-            <p className="text-sm text-muted-foreground">Loading…</p>
-          </div>
-          <Button asChild variant="outline" size="sm">
-            <Link to="..">Back</Link>
-          </Button>
-        </div>
-      </div>
+      <AdminPage description="Loading user profile…" actions={toolbar}>
+        <p className="text-sm text-muted-foreground">Please wait.</p>
+      </AdminPage>
     )
   }
 
   return (
-    <div className="w-full space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold tracking-tight">User details</h2>
-          <p className="text-sm text-muted-foreground">Read-only summary. Audit Trail appears below.</p>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button asChild variant="outline" size="sm">
-            <Link to="..">Back</Link>
-          </Button>
-          {user && canUpdate && user.is_active && !user.is_superuser ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={resendingWelcome}
-              onClick={() => void resendWelcomeEmail()}
-            >
-              {resendingWelcome ? "Resending…" : "Resend onboarding email"}
-            </Button>
-          ) : null}
-          {user && canResendMfa && mfaEnabled && user.is_active && !user.is_superuser && !user.mfa_setup_completed ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={resendingMfa}
-              onClick={() => void resendMfaSetupEmail()}
-            >
-              {resendingMfa ? "Resending…" : "Resend MFA setup"}
-            </Button>
-          ) : null}
-          {user && canUpdate && !user.is_superuser ? (
-            <Button asChild size="sm">
-              <Link to="edit">Edit</Link>
-            </Button>
-          ) : null}
-          {user && canHardDelete ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="border-red-200 text-red-700 hover:border-red-300 hover:bg-red-50 dark:border-red-900/50 dark:text-red-200 dark:hover:bg-red-950/30"
-              disabled={deleting}
-              onClick={() => void handleDeleteUser()}
-            >
-              {deleting ? "Deleting…" : "Delete user"}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
+    <AdminPage
+      description={user ? `${user.username} · ${user.email ?? "no email"}` : "User profile and audit history."}
+      actions={toolbar}
+    >
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Something went wrong</AlertTitle>
@@ -268,139 +256,125 @@ export function UserViewPage() {
           <AlertDescription>This user may have been deleted or is outside the loaded range.</AlertDescription>
         </Alert>
       ) : (
-        <>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{user.full_name}</CardTitle>
-              <CardDescription>User profile and assignment.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Full name</dt>
-                  <dd className="mt-0.5 font-medium text-foreground">{user.full_name}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone</dt>
-                  <dd className="mt-0.5 text-foreground">{user.phone ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Email</dt>
-                  <dd className="mt-0.5 text-foreground">{user.email ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Role</dt>
-                  <dd className="mt-0.5 text-foreground">{user.role?.name ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Plant</dt>
-                  <dd className="mt-0.5 text-foreground">{user.org_unit?.name ?? "—"}</dd>
-                </div>
-                <div className="sm:col-span-2">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</dt>
-                  <dd className="mt-1 flex flex-wrap items-center gap-2">
-                    <Badge
-                      variant={user.is_active ? "default" : "secondary"}
-                      className={cn(
-                        "rounded-md",
-                        user.is_active &&
-                          "border-0 bg-primary text-primary-foreground hover:bg-primary",
-                      )}
-                    >
-                      {user.is_active ? "Active" : "Inactive"}
-                    </Badge>
-                    {user.is_superuser ? (
-                      <Badge
-                        variant="outline"
-                        className="rounded-md border-amber-300/80 text-amber-900 dark:border-amber-700 dark:text-amber-100"
-                      >
-                        Superuser
-                      </Badge>
+        <div className="space-y-6">
+          <AdminPanel title={user.full_name} description="Profile and assignment">
+            <div className="px-5 py-5">
+              <AdminDetailGrid>
+                <AdminDetailField label="Full name" value={user.full_name} className="sm:col-span-2" />
+                <AdminDetailField label="Username" value={user.username} />
+                <AdminDetailField label="Email" value={user.email ?? "—"} />
+                <AdminDetailField label="Phone" value={user.phone ?? "—"} />
+                <AdminDetailField label="Role" value={user.role?.name ?? "—"} />
+                <AdminDetailField label="Plant" value={user.org_unit?.name ?? "—"} />
+                <AdminDetailField
+                  label="Status"
+                  value={
+                    <span className="flex flex-wrap items-center gap-2">
+                      <AdminStatusBadge active={user.is_active} />
+                      {user.is_superuser ? (
+                        <Badge variant="outline" className="rounded-md border-amber-300/80 text-amber-800">
+                          Superuser
+                        </Badge>
+                      ) : null}
+                    </span>
+                  }
+                  className="sm:col-span-2"
+                />
+              </AdminDetailGrid>
+            </div>
+            <div className="grid gap-3 border-t border-border/60 bg-muted/15 px-5 py-3 text-xs text-muted-foreground sm:grid-cols-2">
+              <div>
+                <span className="font-medium text-foreground/70">Created</span>
+                <p className="mt-0.5 tabular-nums">{formatDateTime(user.created_at)}</p>
+              </div>
+              <div>
+                <span className="font-medium text-foreground/70">Last updated</span>
+                <p className="mt-0.5 tabular-nums">{formatDateTime(user.updated_at)}</p>
+              </div>
+            </div>
+          </AdminPanel>
+
+          <AdminPanel
+            title="Audit trail"
+            description={
+              canViewAudit
+                ? "Request and approval lifecycle for this user."
+                : "Requires approval.view permission."
+            }
+            contentClassName="px-5 py-5"
+          >
+            {!canViewAudit ? (
+              <p className="text-sm text-muted-foreground">
+                Missing permission: <span className="font-mono text-foreground/80">approval.view</span>
+              </p>
+            ) : sortedTimeline.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No audit events found.</p>
+            ) : (
+              <ul className="space-y-2">
+                {sortedTimeline.map((ev, i) => (
+                  <li
+                    key={i}
+                    className="rounded-lg border border-border/60 bg-muted/10 px-4 py-3 text-sm transition-colors hover:bg-muted/20"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium capitalize text-foreground">
+                        {ev.type.replace("_", " ")}
+                      </span>
+                      <span className="text-xs tabular-nums text-muted-foreground">
+                        {ev.timestamp ? formatDateTime(ev.timestamp) : ev.action === "pending" ? "Now" : "—"}
+                      </span>
+                    </div>
+                    {ev.type === "created" ? (
+                      <p className="mt-1 text-xs text-muted-foreground">By {ev.user ?? "—"}</p>
                     ) : null}
-                  </dd>
-                </div>
-              </dl>
-
-              <Separator />
-
-              <dl className="grid grid-cols-1 gap-3 text-xs text-muted-foreground sm:grid-cols-2">
-                <div>
-                  <dt className="font-medium">Created</dt>
-                  <dd className="mt-0.5 tabular-nums">{formatDateTime(user.created_at)}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium">Last updated</dt>
-                  <dd className="mt-0.5 tabular-nums">{formatDateTime(user.updated_at)}</dd>
-                </div>
-              </dl>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Audit Trail</CardTitle>
-              <CardDescription>
-                Timeline for this user. {canViewAudit ? "Includes request/approval lifecycle when available." : "You don’t have permission to view audit details."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {!canViewAudit ? (
-                <p className="text-sm text-muted-foreground">
-                  Missing permission: <span className="font-mono">approval.view</span>
-                </p>
-              ) : sortedTimeline.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No audit events found.</p>
-              ) : (
-                <ul className="space-y-2 text-sm">
-                  {sortedTimeline.map((ev, i) => (
-                    <li key={i} className="rounded-md border bg-muted/30 px-3 py-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-medium capitalize">{ev.type.replace("_", " ")}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {ev.timestamp ? formatDateTime(ev.timestamp) : ev.action === "pending" ? "Now" : "—"}
-                        </span>
+                    {ev.type === "approval_step" && ev.action && ev.action !== "pending" ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Step {ev.step ?? "—"} · {ev.action} by {ev.user ?? "—"}
+                      </p>
+                    ) : null}
+                    {ev.type === "approval_step" &&
+                    typeof ev.details?.comment === "string" &&
+                    String(ev.details.comment).trim() !== "" ? (
+                      <p className="mt-1 text-xs whitespace-pre-wrap text-muted-foreground">
+                        Note: {String(ev.details.comment)}
+                      </p>
+                    ) : null}
+                    {ev.type === "approval_step" && ev.action === "pending" ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Awaiting: {(ev.assigned_to ?? []).join(", ") || "—"}
+                        {ev.details?.role ? ` · Role: ${String(ev.details.role)}` : ""}
+                      </p>
+                    ) : null}
+                    {ev.type === "entity_updated" &&
+                    ev.details &&
+                    typeof (ev.details as { changes?: object }).changes === "object" ? (
+                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        {Object.entries(
+                          (ev.details as { changes: Record<string, { from?: unknown; to?: unknown }> }).changes,
+                        ).length === 0 ? (
+                          <p>No changes captured.</p>
+                        ) : (
+                          <ul className="space-y-0.5">
+                            {Object.entries(
+                              (ev.details as { changes: Record<string, { from?: unknown; to?: unknown }> })
+                                .changes,
+                            ).map(([k, v]) => (
+                              <li key={k}>
+                                <span className="font-medium text-foreground/80">{k}</span>:{" "}
+                                {String(v?.from ?? "—")} → {String(v?.to ?? "—")}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
-                      {ev.type === "created" ? <p className="text-xs text-muted-foreground">By {ev.user ?? "—"}</p> : null}
-                      {ev.type === "approval_step" && ev.action && ev.action !== "pending" ? (
-                        <p className="text-xs text-muted-foreground">
-                          Step {ev.step ?? "—"} · {ev.action} by {ev.user ?? "—"}
-                        </p>
-                      ) : null}
-                      {ev.type === "approval_step" && typeof ev.details?.comment === "string" && String(ev.details.comment).trim() !== "" ? (
-                        <p className="mt-0.5 text-xs text-muted-foreground whitespace-pre-wrap">
-                          Note: {String(ev.details.comment)}
-                        </p>
-                      ) : null}
-                      {ev.type === "approval_step" && ev.action === "pending" ? (
-                        <p className="text-xs text-muted-foreground">
-                          Awaiting: {(ev.assigned_to ?? []).join(", ") || "—"}
-                          {ev.details?.role ? ` · Role: ${String(ev.details.role)}` : ""}
-                        </p>
-                      ) : null}
-                      {ev.type === "entity_updated" && ev.details && typeof (ev.details as any).changes === "object" ? (
-                        <div className="mt-1 space-y-1 text-xs text-muted-foreground">
-                          {Object.entries((ev.details as any).changes as Record<string, any>).length === 0 ? (
-                            <p>No changes captured.</p>
-                          ) : (
-                            <ul className="space-y-1">
-                              {Object.entries((ev.details as any).changes as Record<string, any>).map(([k, v]) => (
-                                <li key={k}>
-                                  <span className="font-medium">{k}</span>: {String(v?.from ?? "—")} → {String(v?.to ?? "—")}
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        </>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </AdminPanel>
+        </div>
       )}
-    </div>
+    </AdminPage>
   )
 }
-

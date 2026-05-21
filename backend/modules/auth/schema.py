@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class LoginRequest(BaseModel):
@@ -55,11 +55,12 @@ class TokenPair(BaseModel):
 
 
 class ForgotPasswordRequest(BaseModel):
-    email: str = Field(min_length=3, max_length=255)
+    email: EmailStr
 
 
 class ForgotPasswordResponse(BaseModel):
     ok: bool = True
+    message: str = "A password reset link has been sent to your email."
 
 
 class ResetPasswordRequest(BaseModel):

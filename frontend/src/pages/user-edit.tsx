@@ -2,12 +2,18 @@ import * as React from "react"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import { AdminPage } from "@/components/layout/admin-page"
+import {
+  AdminBackLink,
+  AdminPanel,
+  AdminPrimaryButton,
+  adminSelectClass,
+} from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -30,6 +36,7 @@ function rolesForPlant(all: RoleListItem[] | null, plantId: string): RoleListIte
 type OrgUnitPublic = {
   id: number
   name: string
+  code: string
   type: string
   parent_id: number | null
   created_at: string
@@ -183,32 +190,17 @@ export function UserEditPage() {
 
   if (loading) {
     return (
-      <div className="w-full space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold tracking-tight">Edit user</h2>
-            <p className="text-sm text-muted-foreground">Loading…</p>
-          </div>
-          <Button asChild variant="outline" size="sm">
-            <Link to="..">Back</Link>
-          </Button>
-        </div>
-      </div>
+      <AdminPage description="Loading…" actions={<AdminBackLink to=".." />}>
+        <p className="text-sm text-muted-foreground">Please wait.</p>
+      </AdminPage>
     )
   }
 
   return (
-    <div className="w-full space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold tracking-tight">Edit user</h2>
-          <p className="text-sm text-muted-foreground">Update profile, plant, role, and status.</p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="..">Back</Link>
-        </Button>
-      </div>
-
+    <AdminPage
+      description="Update profile, plant, role, and status."
+      actions={<AdminBackLink to=".." />}
+    >
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Something went wrong</AlertTitle>
@@ -222,13 +214,8 @@ export function UserEditPage() {
           <AlertDescription>This user may have been deleted or is outside the loaded range.</AlertDescription>
         </Alert>
       ) : (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">{user.full_name}</CardTitle>
-            <CardDescription>Make changes and save.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
+        <AdminPanel title={user.full_name} description="Make changes and save." contentClassName="px-5 py-5">
+            <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-2 sm:col-span-2">
                   <Label htmlFor="edit-full-name">Full name</Label>
@@ -265,14 +252,14 @@ export function UserEditPage() {
                 <div className="space-y-2">
                   <Label>Plant</Label>
                   <select
-                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    className={adminSelectClass}
                     {...form.register("org_unit_id")}
                     disabled={user.is_superuser}
                   >
                     <option value="">Select a plant…</option>
                     {(plants ?? []).map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name}
+                        {p.code} — {p.name}
                       </option>
                     ))}
                   </select>
@@ -283,7 +270,7 @@ export function UserEditPage() {
 
                 <div className="space-y-2">
                   <Label>Role</Label>
-                  <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" {...form.register("role_id")} disabled={user.is_superuser}>
+                  <select className={adminSelectClass} {...form.register("role_id")} disabled={user.is_superuser}>
                     <option value="">Select a role…</option>
                     {rolesForPlant(roles, plantId).map((r) => (
                       <option key={r.id} value={r.id}>
@@ -309,19 +296,24 @@ export function UserEditPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-1">
-                <Button type="button" variant="outline" onClick={() => navigate("..")} disabled={form.formState.isSubmitting}>
+              <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 shadow-sm"
+                  onClick={() => navigate("..")}
+                  disabled={form.formState.isSubmitting}
+                >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={form.formState.isSubmitting || user.is_superuser}>
-                  {form.formState.isSubmitting ? "Saving…" : "Save"}
-                </Button>
+                <AdminPrimaryButton type="submit" disabled={form.formState.isSubmitting || user.is_superuser}>
+                  {form.formState.isSubmitting ? "Saving…" : "Save changes"}
+                </AdminPrimaryButton>
               </div>
             </form>
-          </CardContent>
-        </Card>
+        </AdminPanel>
       )}
-    </div>
+    </AdminPage>
   )
 }
 

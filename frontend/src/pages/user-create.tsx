@@ -2,12 +2,18 @@ import * as React from "react"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
-import { Link, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
+import { AdminPage } from "@/components/layout/admin-page"
+import {
+  AdminBackLink,
+  AdminPanel,
+  AdminPrimaryButton,
+  adminSelectClass,
+} from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -30,6 +36,7 @@ function rolesForPlant(all: RoleListItem[] | null, plantId: string): RoleListIte
 type OrgUnitPublic = {
   id: number
   name: string
+  code: string
   type: string
   parent_id: number | null
   created_at: string
@@ -157,19 +164,10 @@ export function UserCreatePage() {
   }
 
   return (
-    <div className="w-full space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold tracking-tight">Create user</h2>
-          <p className="text-sm text-muted-foreground">
-            Choose a plant first, then a role allowed for that plant. A strong password will be auto-generated and emailed to the user.
-          </p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="..">Back</Link>
-        </Button>
-      </div>
-
+    <AdminPage
+      description="Choose a plant, then a role for that plant. A temporary password is emailed after approval (if configured)."
+      actions={<AdminBackLink to=".." />}
+    >
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Something went wrong</AlertTitle>
@@ -177,13 +175,8 @@ export function UserCreatePage() {
         </Alert>
       ) : null}
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">User details</CardTitle>
-          <CardDescription>Fields marked required must be provided.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
+      <AdminPanel title="User details" description="All fields are required." contentClassName="px-5 py-5">
+          <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="create-full-name">Full name</Label>
@@ -219,11 +212,11 @@ export function UserCreatePage() {
 
               <div className="space-y-2">
                 <Label>Plant</Label>
-                <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" {...form.register("org_unit_id")}>
+                <select className={adminSelectClass} {...form.register("org_unit_id")}>
                   <option value="">Select a plant…</option>
                   {(plants ?? []).map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name}
+                      {p.code} — {p.name}
                     </option>
                   ))}
                 </select>
@@ -234,7 +227,7 @@ export function UserCreatePage() {
 
               <div className="space-y-2">
                 <Label>Role</Label>
-                <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" {...form.register("role_id")}>
+                <select className={adminSelectClass} {...form.register("role_id")}>
                   <option value="">Select a role…</option>
                   {rolesForPlant(roles, plantId).map((r) => (
                     <option key={r.id} value={r.id}>
@@ -256,18 +249,17 @@ export function UserCreatePage() {
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="outline" onClick={() => navigate("..")}>
+            <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
+              <Button type="button" variant="outline" className="h-9 shadow-sm" onClick={() => navigate("..")}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? "Creating…" : "Create"}
-              </Button>
+              <AdminPrimaryButton type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? "Creating…" : "Create user"}
+              </AdminPrimaryButton>
             </div>
           </form>
-        </CardContent>
-      </Card>
-    </div>
+      </AdminPanel>
+    </AdminPage>
   )
 }
 

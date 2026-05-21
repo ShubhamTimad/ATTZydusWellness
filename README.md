@@ -145,6 +145,8 @@ Open:
 
 - `/login` → backend (`http://localhost:8000`) **only for API/XHR** requests
   - HTML navigations like `/login` stay in the SPA so the React route renders
+- `/dashboard` → backend for API calls (e.g. `GET /dashboard/summary`); HTML navigations stay in the SPA
+- `/tasks`, `/auth`, `/approvals`, `/audit` → backend
 - `/admin/*` → backend **only for API/XHR** requests
   - HTML navigations like `/admin/login` stay in the SPA to avoid redirect loops
 
@@ -152,6 +154,8 @@ This lets frontend call:
 
 - `POST /login`
 - `GET /me`
+- `GET /dashboard/summary`
+- `GET /tasks/my-tasks`
 - `GET /admin/users`, etc.
 
 …without requiring `VITE_API_URL` in dev.

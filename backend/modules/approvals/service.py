@@ -94,6 +94,8 @@ class ApprovalWorkflowService:
         required_approvals: int,
     ) -> ApprovalStep:
         wf = self.get_workflow(workflow_id)
+        if wf.is_active:
+            raise ConflictError("Deactivate the workflow before adding or changing levels.")
         role = self._db.get(Role, approver_role_id)
         if role is None:
             raise NotFoundError("Role", approver_role_id)
@@ -102,8 +104,8 @@ class ApprovalWorkflowService:
         if required_approvals < 1:
             raise ConflictError("required_approvals must be >= 1.")
         existing_orders = [s.step_order for s in wf.steps]
-        if existing_orders and step_order <= max(existing_orders):
-            raise ConflictError("Steps must have increasing step_order.")
+        if step_order in existing_orders:
+            raise ConflictError("That level number already exists.")
         step = ApprovalStep(
             workflow_id=workflow_id,
             step_order=step_order,
@@ -114,8 +116,69 @@ class ApprovalWorkflowService:
         self._db.commit()
         return step
 
+    def update_workflow(
+        self,
+        workflow_id: int,
+        *,
+        name: str | None = None,
+        entity_type: str | None = None,
+    ) -> ApprovalWorkflow:
+        wf = self.get_workflow(workflow_id)
+        if wf.is_active and entity_type is not None:
+            raise ConflictError("Deactivate the workflow before changing entity type.")
+        if name is not None:
+            wf.name = name.strip()
+        if entity_type is not None:
+            wf.entity_type = entity_type.strip()
+        self._db.commit()
+        return self.get_workflow(workflow_id)
+
+    def update_step(
+        self,
+        step_id: int,
+        *,
+        approver_role_id: int | None = None,
+        required_approvals: int | None = None,
+    ) -> ApprovalStep:
+        step = self._db.get(ApprovalStep, step_id)
+        if step is None:
+            raise NotFoundError("ApprovalStep", step_id)
+        wf = self.get_workflow(int(step.workflow_id))
+        if wf.is_active:
+            raise ConflictError("Deactivate the workflow before editing levels.")
+        if approver_role_id is not None:
+            role = self._db.get(Role, approver_role_id)
+            if role is None:
+                raise NotFoundError("Role", approver_role_id)
+            step.approver_role_id = approver_role_id
+        if required_approvals is not None:
+            if required_approvals < 1:
+                raise ConflictError("required_approvals must be >= 1.")
+            step.required_approvals = required_approvals
+        self._db.commit()
+        self._db.refresh(step)
+        return step
+
+    def delete_step(self, step_id: int) -> None:
+        step = self._db.get(ApprovalStep, step_id)
+        if step is None:
+            raise NotFoundError("ApprovalStep", step_id)
+        wf = self.get_workflow(int(step.workflow_id))
+        if wf.is_active:
+            raise ConflictError("Deactivate the workflow before deleting levels.")
+        self._db.delete(step)
+        self._db.commit()
+
+    def deactivate_workflow(self, workflow_id: int) -> ApprovalWorkflow:
+        wf = self.get_workflow(workflow_id)
+        wf.is_active = False
+        self._db.commit()
+        return self.get_workflow(workflow_id)
+
     def activate_workflow(self, workflow_id: int, *, actor_user_id: int | None) -> ApprovalWorkflow:
         wf = self.get_workflow(workflow_id)
+        if wf.is_active:
+            return wf
         if not wf.steps:
             raise ConflictError("Cannot activate a workflow with no steps.")
         self._db.execute(
@@ -536,6 +599,18 @@ class ApprovalEngineService:
             task.status = "rejected"
             task.acted_at = now
 
+            if str(req.entity_type) in ("asset_creation", "asset_import"):
+                from modules.assets.service import reject_asset_after_approval
+
+                reject_asset_after_approval(
+                    self._db,
+                    asset_id=int(req.entity_id),
+                    approver_user_id=actor_user_id,
+                )
+                req.status = "rejected"
+                self._db.commit()
+                return self.get_request(req.id)
+
             # Move request into rework state (do not keep it "pending").
             req.status = "in_rework"
 
@@ -681,6 +756,16 @@ class ApprovalEngineService:
         return self.get_request(req.id)
 
     def _finalize_request(self, req: ApprovalRequest) -> None:
+        if req.entity_type in ("asset_creation", "asset_import"):
+            from modules.assets.service import activate_asset_after_approval
+
+            activate_asset_after_approval(
+                self._db,
+                asset_id=int(req.entity_id),
+                approver_user_id=None,
+            )
+            self._db.commit()
+            return
         if req.entity_type == "user_creation":
             user = self._db.get(User, req.entity_id)
             if user is None:

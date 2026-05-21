@@ -14,6 +14,7 @@ class OrgUnit(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255))
+    code: Mapped[str] = mapped_column(String(64))
     type: Mapped[str] = mapped_column(String(32))
     parent_id: Mapped[int | None] = mapped_column(
         ForeignKey("org_units.id", ondelete="SET NULL"),

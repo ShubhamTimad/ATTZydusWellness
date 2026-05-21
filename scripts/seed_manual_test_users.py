@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Create a few normal (non-superuser) accounts for manual testing.
+"""Create demo accounts with distinct roles for manual testing.
 
-Run from the project root (same as ``create_superuser.py``), e.g.::
+Run from the project root::
 
+    ./venv/bin/python scripts/seed_dummy_data.py   # roles + plant (if needed)
     ./venv/bin/python scripts/seed_manual_test_users.py
 
-Uses the first Role and first OrgUnit in the database. Users are created
-directly (not via approval flow) so they are active immediately.
+Default password: ``ChangeMe@123`` (override with ``--password``).
 
-Default password for all seeded users: ``TestPass123!`` (override with ``--password``).
+Users are created active immediately (bypasses user-creation approval flow).
 """
 
 from __future__ import annotations
@@ -36,26 +36,80 @@ from modules.users.model import User
 
 import db.models  # noqa: F401
 
+DEMO_PLANT_CODE = "DEMO-01"
+DEFAULT_PASSWORD = "ChangeMe@123"
+
+# email, phone, full_name, role name (from seed_dummy_data.py)
+DEMO_USERS: list[tuple[str, str, str, str]] = [
+    ("hr@demo.com", "+15552000001", "HR Demo", "HR Admin"),
+    ("approver@demo.com", "+15552000002", "Approver Demo", "Approver"),
+    ("plantmgr@demo.com", "+15552000003", "Plant Manager Demo", "Plant Manager"),
+    ("operator@demo.com", "+15552000004", "Operator Demo", "Operator"),
+]
+
+
+def _role_by_name(db: Session, name: str) -> Role | None:
+    return db.scalar(select(Role).where(Role.name == name))
+
+
+def _demo_plant(db: Session) -> OrgUnit | None:
+    row = db.scalar(
+        select(OrgUnit).where(OrgUnit.type == "PLANT", OrgUnit.code == DEMO_PLANT_CODE)
+    )
+    if row is not None:
+        return row
+    return db.scalars(select(OrgUnit).where(OrgUnit.type == "PLANT").order_by(OrgUnit.id.asc())).first()
+
 
 def _upsert_user(
     db: Session,
     *,
     email: str,
+    username: str,
     phone: str,
     full_name: str,
     password: str,
     role: Role,
     org: OrgUnit,
-) -> tuple[User, bool]:
-    """Return (user, created)."""
+) -> tuple[User, str]:
+    """Return (user, status) where status is 'created' | 'updated' | 'unchanged'."""
     now = datetime.now(timezone.utc)
-    existing = db.scalar(select(User).where(User.email == email))
+    email_norm = email.strip().lower()
+    existing = db.scalar(select(User).where(User.email == email_norm))
+
     if existing is not None:
-        return existing, False
+        changed = False
+        if existing.full_name != full_name:
+            existing.full_name = full_name
+            changed = True
+        if existing.phone != phone:
+            existing.phone = phone
+            changed = True
+        if existing.username != username:
+            existing.username = username
+            changed = True
+        if not existing.is_active:
+            existing.is_active = True
+            changed = True
+        existing.hashed_password = hash_password(password)
+        existing.password_changed_at = now
+        changed = True
+
+        role_ids = {int(r.id) for r in existing.roles}
+        if role.id not in role_ids:
+            existing.roles.clear()
+            existing.roles.append(role)
+            changed = True
+
+        db.execute(delete(user_org_unit).where(user_org_unit.c.user_id == existing.id))
+        db.execute(user_org_unit.insert().values(user_id=existing.id, org_unit_id=org.id))
+
+        return existing, "updated" if changed else "unchanged"
 
     user = User(
         full_name=full_name,
-        email=email,
+        username=username,
+        email=email_norm,
         phone=phone,
         hashed_password=hash_password(password),
         password_changed_at=now,
@@ -66,17 +120,16 @@ def _upsert_user(
     db.add(user)
     db.flush()
 
-    db.execute(delete(user_org_unit).where(user_org_unit.c.user_id == user.id))
     db.execute(user_org_unit.insert().values(user_id=user.id, org_unit_id=org.id))
-    return user, True
+    return user, "created"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Seed manual test users (non-superuser).")
+    parser = argparse.ArgumentParser(description="Seed demo users (one per role).")
     parser.add_argument(
         "--password",
-        default="TestPass123!",
-        help="Plain password shared by all seeded users (must satisfy password policy).",
+        default=DEFAULT_PASSWORD,
+        help=f"Plain password for all users (default: {DEFAULT_PASSWORD!r}).",
     )
     args = parser.parse_args()
 
@@ -88,28 +141,33 @@ def main() -> int:
 
     db = SessionLocal()
     try:
-        role = db.scalars(select(Role).order_by(Role.id.asc())).first()
-        org = db.scalars(select(OrgUnit).order_by(OrgUnit.id.asc())).first()
-        if role is None:
-            print("error: no Role rows found. Create a role in the admin UI or seed the DB.", file=sys.stderr)
-            return 3
+        org = _demo_plant(db)
         if org is None:
-            print("error: no OrgUnit rows found. Run migrations/sync_modules as in README.", file=sys.stderr)
+            print(
+                "error: no plant found. Run: ./venv/bin/python scripts/seed_dummy_data.py",
+                file=sys.stderr,
+            )
             return 4
 
-        seeds = [
-            ("manual1@example.test", "+15550100001", "Manual Tester 1"),
-            ("manual2@example.test", "+15550100002", "Manual Tester 2"),
-            ("manual3@example.test", "+15550100003", "Manual Tester 3"),
-        ]
-
-        print(f"Using role_id={role.id} ({role.name!r}), org_unit_id={org.id}")
+        print(f"Plant: {org.name!r} (id={org.id}, code={org.code!r})")
+        print(f"Password for all accounts: {args.password!r}")
         print()
-        for email, phone, full_name in seeds:
+
+        for email, phone, full_name, role_name in DEMO_USERS:
+            role = _role_by_name(db, role_name)
+            if role is None:
+                print(
+                    f"error: role {role_name!r} not found. Run scripts/seed_dummy_data.py first.",
+                    file=sys.stderr,
+                )
+                return 3
+
+            username = email.split("@", 1)[0]
             try:
-                user, created = _upsert_user(
+                user, status = _upsert_user(
                     db,
                     email=email,
+                    username=username,
                     phone=phone,
                     full_name=full_name,
                     password=args.password,
@@ -118,17 +176,18 @@ def main() -> int:
                 )
                 db.commit()
                 db.refresh(user)
-            except IntegrityError:
+            except IntegrityError as exc:
                 db.rollback()
-                print(f"error: could not create {email} (unique constraint)", file=sys.stderr)
+                print(f"error: {email}: {exc}", file=sys.stderr)
                 return 5
 
-            status = "created" if created else "already existed"
-            print(f"{status}: id={user.id}  email={user.email}  phone={user.phone}")
+            print(
+                f"{status}: id={user.id}  email={user.email}  username={user.username}  "
+                f"role={role_name!r}  active={user.is_active}"
+            )
 
         print()
-        print("Login with email + password (POST /login JSON body).")
-        print(f"Password for all listed accounts: {args.password!r}")
+        print("Sign in with email + password.")
     finally:
         db.close()
 

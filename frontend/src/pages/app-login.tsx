@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PasswordInput } from "@/components/ui/password-input"
 import { ApiError, getJson, postJson } from "@/lib/api"
+import { loginRequestFields, validateLoginIdentifier } from "@/lib/login-identifier"
 import { clearAuthProfile, persistAuthFromMe } from "@/lib/permissions"
 
 type LoginResponse = {
@@ -40,7 +42,7 @@ export function AppLoginPage() {
   const [searchParams] = useSearchParams()
   const legacyReset = (searchParams.get("reset_token") ?? "").trim()
 
-  const [username, setUsername] = React.useState("")
+  const [identifier, setIdentifier] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [captchaToken, setCaptchaToken] = React.useState("")
   const [otp, setOtp] = React.useState("")
@@ -93,19 +95,22 @@ export function AppLoginPage() {
     e.preventDefault()
     setError(null)
 
-    const u = username.trim()
+    const idErr = validateLoginIdentifier(identifier)
     const p = password
 
-    if (!u || !p) {
-      setError("Email and password are required.")
+    if (idErr) {
+      setError(idErr)
+      return
+    }
+    if (!p) {
+      setError("Password is required.")
       return
     }
 
     setIsSubmitting(true)
     try {
       const res = await postJson<LoginResponse>("/login", {
-        email: u,
-        password: p,
+        ...loginRequestFields(identifier, p),
         captcha_token: policy?.captcha_enabled ? (captchaToken.trim() || undefined) : undefined,
       })
 
@@ -202,14 +207,14 @@ export function AppLoginPage() {
           {step === "password" ? (
             <form onSubmit={onSubmitPassword} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="username">Email</Label>
+                <Label htmlFor="identifier">Email or username</Label>
                 <Input
-                  id="username"
-                  type="email"
-                  inputMode="email"
-                  autoComplete="email"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  id="identifier"
+                  type="text"
+                  autoComplete="username"
+                  placeholder="hr@demo.com or hr"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
                   disabled={isSubmitting}
                   required
                 />
@@ -226,9 +231,8 @@ export function AppLoginPage() {
                     Forgot password?
                   </Link>
                 </div>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"

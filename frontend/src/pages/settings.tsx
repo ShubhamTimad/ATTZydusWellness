@@ -3,14 +3,14 @@ import { toast } from "sonner"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { getJson, putJson } from "@/lib/api"
-import { cn } from "@/lib/utils"
+import { AdminPage } from "@/components/layout/admin-page"
+import { AdminPanel, AdminPrimaryButton, adminSwitchRowClass, adminTabsListClass } from "@/components/layout/admin-ui"
+import { getJson, postJson, putJson } from "@/lib/api"
 
 export type PasswordPolicy = {
   min_length: number
@@ -28,40 +28,41 @@ type AuthPolicy = {
   mfa_enforced: boolean
 }
 
-function isPasswordPolicy(v: unknown): v is PasswordPolicy {
-  if (!v || typeof v !== "object") return false
-  const o = v as Record<string, unknown>
-  return (
-    typeof o.min_length === "number" &&
-    typeof o.require_uppercase === "boolean" &&
-    typeof o.require_lowercase === "boolean" &&
-    typeof o.require_digit === "boolean" &&
-    typeof o.require_special === "boolean" &&
-    typeof o.max_age_days === "number"
-  )
+type EmailDelivery = {
+  delivery_enabled: boolean
+  smtp_host: string
+  smtp_port: number
+  smtp_username: string
+  smtp_password: string
+  password_configured: boolean
+  smtp_use_tls: boolean
+  smtp_from_email: string
+  smtp_from_name: string
 }
 
 export function SettingsPage() {
   const [policy, setPolicy] = React.useState<PasswordPolicy | null>(null)
   const [authPolicy, setAuthPolicy] = React.useState<AuthPolicy | null>(null)
-  const [jsonText, setJsonText] = React.useState("")
-  const [jsonError, setJsonError] = React.useState<string | null>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [savingAuth, setSavingAuth] = React.useState(false)
-  const [tab, setTab] = React.useState<"auth" | "password">("auth")
+  const [emailDelivery, setEmailDelivery] = React.useState<EmailDelivery | null>(null)
+  const [savingEmail, setSavingEmail] = React.useState(false)
+  const [testingEmail, setTestingEmail] = React.useState(false)
+  const [testToEmail, setTestToEmail] = React.useState("")
+  const [tab, setTab] = React.useState<"auth" | "password" | "email">("auth")
 
   async function load() {
     setLoadError(null)
     try {
-      const [data, auth] = await Promise.all([
+      const [data, auth, email] = await Promise.all([
         getJson<PasswordPolicy>("/admin/settings/password-policy"),
         getJson<AuthPolicy>("/admin/settings/auth-policy"),
+        getJson<EmailDelivery>("/admin/settings/email-delivery"),
       ])
       setPolicy(data)
-      setJsonText(JSON.stringify(data, null, 2))
-      setJsonError(null)
       setAuthPolicy(auth)
+      setEmailDelivery(email)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load settings")
       setPolicy(null)
@@ -73,33 +74,6 @@ export function SettingsPage() {
     void load()
   }, [])
 
-  React.useEffect(() => {
-    if (policy) setJsonText(JSON.stringify(policy, null, 2))
-  }, [policy])
-
-  function applyJson() {
-    setJsonError(null)
-    try {
-      const parsed: unknown = JSON.parse(jsonText)
-      if (!isPasswordPolicy(parsed)) {
-        setJsonError("JSON must include all policy fields with correct types.")
-        return
-      }
-      if (parsed.min_length < 1 || parsed.min_length > 256) {
-        setJsonError("min_length must be between 1 and 256.")
-        return
-      }
-      if (parsed.max_age_days < 0 || parsed.max_age_days > 36500) {
-        setJsonError("max_age_days must be between 0 and 36500.")
-        return
-      }
-      setPolicy(parsed)
-      toast.success("JSON applied to form")
-    } catch {
-      setJsonError("Invalid JSON.")
-    }
-  }
-
   async function save() {
     if (!policy) return
     setSaving(true)
@@ -110,7 +84,6 @@ export function SettingsPage() {
         policy as unknown as Record<string, unknown>
       )
       setPolicy(updated)
-      setJsonText(JSON.stringify(updated, null, 2))
       toast.success("Saved", { id: "settings-save" })
     } catch (e) {
       const message = e instanceof Error ? e.message : "Save failed"
@@ -131,32 +104,27 @@ export function SettingsPage() {
 
   if (!policy) {
     return (
-      <p className="text-sm text-muted-foreground">Loading settings…</p>
+      <AdminPage description="Loading settings…">
+        <p className="text-sm text-muted-foreground">Please wait.</p>
+      </AdminPage>
     )
   }
 
   return (
-    <div className="w-full min-w-0 space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold tracking-tight">Settings</h2>
-        <p className="text-sm text-muted-foreground">Security and authentication policy for the organization.</p>
-      </div>
-
-      <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="w-full">
-        <TabsList>
+    <AdminPage description="Security, authentication, and organization-wide email delivery.">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "auth" | "password" | "email")} className="w-full">
+        <TabsList className={adminTabsListClass}>
           <TabsTrigger value="auth">Authentication</TabsTrigger>
           <TabsTrigger value="password">Password policy</TabsTrigger>
+          <TabsTrigger value="email">Email delivery</TabsTrigger>
         </TabsList>
 
         <TabsContent value="auth" className="mt-4 space-y-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Authentication policy</CardTitle>
-              <CardDescription>
-                Org-wide controls for password login, MFA, and captcha. Superusers are not affected.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <AdminPanel
+            title="Authentication policy"
+            description="Org-wide controls for password login, MFA, and captcha. Superusers are not affected."
+            contentClassName="space-y-4 px-5 py-5"
+          >
               {!authPolicy ? (
                 <Alert variant="destructive">
                   <AlertTitle>Auth policy unavailable</AlertTitle>
@@ -165,7 +133,7 @@ export function SettingsPage() {
               ) : (
                 <>
                   <div className="grid gap-3 lg:grid-cols-2">
-                    <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                    <div className={adminSwitchRowClass}>
                       <div className="min-w-0">
                         <div className="text-sm font-medium">Password sign-in</div>
                         <div className="text-xs text-muted-foreground">Allow email/phone + password.</div>
@@ -175,7 +143,7 @@ export function SettingsPage() {
                         onCheckedChange={(v) => setAuthPolicy((p) => (p ? { ...p, password_enabled: Boolean(v) } : p))}
                       />
                     </div>
-                    <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                    <div className={adminSwitchRowClass}>
                       <div className="min-w-0">
                         <div className="text-sm font-medium">Captcha</div>
                         <div className="text-xs text-muted-foreground">Require captcha token on login.</div>
@@ -185,7 +153,7 @@ export function SettingsPage() {
                         onCheckedChange={(v) => setAuthPolicy((p) => (p ? { ...p, captcha_enabled: Boolean(v) } : p))}
                       />
                     </div>
-                    <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                    <div className={adminSwitchRowClass}>
                       <div className="min-w-0">
                         <div className="text-sm font-medium">MFA (TOTP)</div>
                         <div className="text-xs text-muted-foreground">Require authenticator code after password.</div>
@@ -195,7 +163,7 @@ export function SettingsPage() {
                         onCheckedChange={(v) => setAuthPolicy((p) => (p ? { ...p, mfa_enabled: Boolean(v) } : p))}
                       />
                     </div>
-                    <div className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                    <div className={adminSwitchRowClass}>
                       <div className="min-w-0">
                         <div className="text-sm font-medium">MFA enforced</div>
                         <div className="text-xs text-muted-foreground">Block login until MFA is set up.</div>
@@ -208,10 +176,9 @@ export function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="flex justify-end">
-                    <Button
+                  <div className="flex justify-end border-t border-border/60 pt-4">
+                    <AdminPrimaryButton
                       type="button"
-                      size="sm"
                       disabled={savingAuth}
                       onClick={async () => {
                         if (!authPolicy) return
@@ -233,21 +200,19 @@ export function SettingsPage() {
                       }}
                     >
                       {savingAuth ? "Saving…" : "Save auth policy"}
-                    </Button>
+                    </AdminPrimaryButton>
                   </div>
                 </>
               )}
-            </CardContent>
-          </Card>
+          </AdminPanel>
         </TabsContent>
 
         <TabsContent value="password" className="mt-4 space-y-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Password rules</CardTitle>
-              <CardDescription>These rules are enforced on password changes and resets.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <AdminPanel
+            title="Password rules"
+            description="Enforced on password changes and resets."
+            contentClassName="space-y-4 px-5 py-5"
+          >
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="min_length">Minimum length</Label>
@@ -304,39 +269,220 @@ export function SettingsPage() {
                 </div>
               ))}
 
-              <div className="flex justify-end">
-                <Button size="sm" onClick={() => void save()} disabled={saving}>
+              <div className="flex justify-end border-t border-border/60 pt-4">
+                <AdminPrimaryButton type="button" onClick={() => void save()} disabled={saving}>
                   {saving ? "Saving…" : "Save password policy"}
-                </Button>
+                </AdminPrimaryButton>
               </div>
-            </CardContent>
-          </Card>
+          </AdminPanel>
+        </TabsContent>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base">Password policy (JSON)</CardTitle>
-              <CardDescription>Advanced edit. Apply parses JSON into the form above.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <textarea
-                className={cn(
-                  "min-h-[200px] w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 font-mono text-xs leading-relaxed outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
-                  jsonError && "border-destructive"
-                )}
-                spellCheck={false}
-                value={jsonText}
-                onChange={(e) => setJsonText(e.target.value)}
-              />
-              {jsonError ? <p className="text-xs text-destructive">{jsonError}</p> : null}
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={applyJson}>
-                  Apply JSON
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+        <TabsContent value="email" className="mt-4 space-y-4">
+          <AdminPanel
+            title="SMTP & email delivery"
+            description="Used for notifications, password reset, tasks, and user invites. Use an app password when 2FA is enabled."
+            contentClassName="space-y-4 px-5 py-5"
+          >
+              {!emailDelivery ? (
+                <p className="text-sm text-muted-foreground">Loading email settings…</p>
+              ) : (
+                <>
+                  <div className={adminSwitchRowClass}>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">Send real emails</div>
+                      <div className="text-xs text-muted-foreground">
+                        Off = log messages to the API server console (development).
+                      </div>
+                    </div>
+                    <Switch
+                      checked={emailDelivery.delivery_enabled}
+                      onCheckedChange={(v) =>
+                        setEmailDelivery((p) => (p ? { ...p, delivery_enabled: Boolean(v) } : p))
+                      }
+                    />
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor="smtp_host">SMTP host</Label>
+                      <Input
+                        id="smtp_host"
+                        placeholder="smtp.gmail.com (not smtp.google.com)"
+                        value={emailDelivery.smtp_host}
+                        onChange={(e) =>
+                          setEmailDelivery((p) => (p ? { ...p, smtp_host: e.target.value } : p))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="smtp_port">Port</Label>
+                      <Input
+                        id="smtp_port"
+                        type="number"
+                        min={1}
+                        max={65535}
+                        value={emailDelivery.smtp_port}
+                        onChange={(e) => {
+                          const n = Number(e.target.value)
+                          setEmailDelivery((p) =>
+                            p ? { ...p, smtp_port: Number.isFinite(n) ? n : p.smtp_port } : p
+                          )
+                        }}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Gmail: 587 with TLS on, or 465 (implicit SSL).
+                      </p>
+                    </div>
+                    <div className={adminSwitchRowClass}>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">Use TLS (STARTTLS)</div>
+                        <div className="text-xs text-muted-foreground">Typical for port 587.</div>
+                      </div>
+                      <Switch
+                        checked={emailDelivery.smtp_use_tls}
+                        onCheckedChange={(v) =>
+                          setEmailDelivery((p) => (p ? { ...p, smtp_use_tls: Boolean(v) } : p))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="smtp_username">Username / email</Label>
+                      <Input
+                        id="smtp_username"
+                        autoComplete="username"
+                        placeholder="you@company.com"
+                        value={emailDelivery.smtp_username}
+                        onChange={(e) =>
+                          setEmailDelivery((p) => (p ? { ...p, smtp_username: e.target.value } : p))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="smtp_password">App password</Label>
+                      <Input
+                        id="smtp_password"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder={
+                          emailDelivery.password_configured
+                            ? "Leave blank to keep current password"
+                            : "Required when sending mail"
+                        }
+                        value={emailDelivery.smtp_password}
+                        onChange={(e) =>
+                          setEmailDelivery((p) => (p ? { ...p, smtp_password: e.target.value } : p))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="smtp_from_email">From email</Label>
+                      <Input
+                        id="smtp_from_email"
+                        placeholder="noreply@company.com"
+                        value={emailDelivery.smtp_from_email}
+                        onChange={(e) =>
+                          setEmailDelivery((p) => (p ? { ...p, smtp_from_email: e.target.value } : p))
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="smtp_from_name">From name</Label>
+                      <Input
+                        id="smtp_from_name"
+                        placeholder="Ultra Workspace"
+                        value={emailDelivery.smtp_from_name}
+                        onChange={(e) =>
+                          setEmailDelivery((p) => (p ? { ...p, smtp_from_name: e.target.value } : p))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <div className="flex-1 space-y-1.5">
+                      <Label htmlFor="test_to_email">Send test email to</Label>
+                      <Input
+                        id="test_to_email"
+                        type="email"
+                        placeholder="you@example.com"
+                        value={testToEmail}
+                        onChange={(e) => setTestToEmail(e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={testingEmail || !testToEmail.trim()}
+                      onClick={async () => {
+                        if (!emailDelivery) return
+                        setTestingEmail(true)
+                        toast.loading("Sending test…", { id: "email-test" })
+                        const controller = new AbortController()
+                        const timeoutId = window.setTimeout(() => controller.abort(), 25_000)
+                        try {
+                          await postJson(
+                            "/admin/settings/email-delivery/test",
+                            {
+                              to_email: testToEmail.trim(),
+                              config: emailDelivery,
+                            },
+                            { signal: controller.signal }
+                          )
+                          toast.success("Test email sent. Save settings to use for all emails.", {
+                            id: "email-test",
+                          })
+                        } catch (e) {
+                          const aborted = e instanceof DOMException && e.name === "AbortError"
+                          const message = aborted
+                            ? "Request timed out. Check SMTP host/port and network (Gmail: smtp.gmail.com, port 587)."
+                            : e instanceof Error
+                              ? e.message
+                              : "Test send failed"
+                          toast.error(message, { id: "email-test" })
+                        } finally {
+                          window.clearTimeout(timeoutId)
+                          setTestingEmail(false)
+                        }
+                      }}
+                    >
+                      {testingEmail ? "Sending…" : "Send test"}
+                    </Button>
+                  </div>
+
+                  <div className="flex justify-end border-t border-border/60 pt-4">
+                    <AdminPrimaryButton
+                      type="button"
+                      disabled={savingEmail}
+                      onClick={async () => {
+                        if (!emailDelivery) return
+                        setSavingEmail(true)
+                        toast.loading("Saving email settings…", { id: "email-save" })
+                        try {
+                          const updated = await putJson<EmailDelivery>(
+                            "/admin/settings/email-delivery",
+                            emailDelivery as unknown as Record<string, unknown>
+                          )
+                          setEmailDelivery(updated)
+                          toast.success("Saved", { id: "email-save" })
+                        } catch (e) {
+                          const message = e instanceof Error ? e.message : "Save failed"
+                          toast.error(message, { id: "email-save" })
+                        } finally {
+                          setSavingEmail(false)
+                        }
+                      }}
+                    >
+                      {savingEmail ? "Saving…" : "Save email settings"}
+                    </AdminPrimaryButton>
+                  </div>
+                </>
+              )}
+          </AdminPanel>
         </TabsContent>
       </Tabs>
-    </div>
+    </AdminPage>
   )
 }

@@ -1,15 +1,18 @@
 import * as React from "react"
 
+import { AssetDashboard } from "@/components/dashboard/asset-dashboard"
 import { TaskDashboard, type TasksDashboardModule } from "@/components/dashboard/task-dashboard"
 import { UserDashboard, type UsersDashboardModule } from "@/components/dashboard/user-dashboard"
+import type { AssetsDashboardModule } from "@/lib/assets-types"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { getJson } from "@/lib/api"
-import { hasPermission } from "@/lib/permissions"
+import { canAccessTasks, hasPermission } from "@/lib/permissions"
 
 type DashboardSummary = {
   modules: {
     users?: UsersDashboardModule
     tasks?: TasksDashboardModule
+    assets?: AssetsDashboardModule
     [k: string]: unknown
   }
 }
@@ -37,17 +40,18 @@ export function DashboardPage() {
   }, [])
   const usersModule = summary?.modules?.users
   const tasksModule = summary?.modules?.tasks
+  const assetsModule = summary?.modules?.assets
 
   return (
     <div className="grid gap-6">
       <div className="flex items-center gap-2">
         <h1 className="text-lg font-semibold tracking-tight text-zinc-950">Dashboard</h1>
-        <span className="text-emerald-600">•</span>
+        <span className="text-primary">•</span>
         <span className="text-sm font-medium text-muted-foreground">Workspace</span>
       </div>
 
       {loadError ? (
-        <Card className="border-dashed border-emerald-200">
+        <Card className="border-dashed border-primary/25">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Dashboard data unavailable</CardTitle>
             <CardDescription>{loadError}</CardDescription>
@@ -55,22 +59,26 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {!usersModule && !tasksModule && !loadError ? (
-        <Card className="border-dashed border-emerald-200">
+      {!usersModule && !tasksModule && !assetsModule && !loadError ? (
+        <Card className="border-dashed border-primary/25">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">No modules available</CardTitle>
             <CardDescription>
               You don’t have access to any modules. Ask an admin to grant permissions like{" "}
               <code className="rounded bg-muted px-1 py-0.5 text-xs">users.view</code> or{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">task.view</code>.
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">task.view</code>, or{" "}
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">asset.view</code>.
             </CardDescription>
           </CardHeader>
         </Card>
       ) : null}
 
       {usersModule && hasPermission("users.view") ? <UserDashboard data={usersModule} /> : null}
-      {tasksModule && (hasPermission("approval.view") || hasPermission("task.view")) ? (
+      {tasksModule && canAccessTasks() ? (
         <TaskDashboard data={tasksModule} />
+      ) : null}
+      {assetsModule && hasPermission("asset.view") ? (
+        <AssetDashboard data={assetsModule} />
       ) : null}
     </div>
   )

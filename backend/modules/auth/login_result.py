@@ -35,3 +35,19 @@ class PasswordLoginDisabledError(Exception):
 
 class CaptchaInvalidError(Exception):
     """Captcha required by policy and missing/invalid."""
+
+
+class ForgotPasswordUserNotFoundError(Exception):
+    """No user account for the given email."""
+
+
+class ForgotPasswordAccountInactiveError(Exception):
+    """User exists but is not active."""
+
+
+class ForgotPasswordDeliveryError(Exception):
+    """Reset token created but notification email could not be sent."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)

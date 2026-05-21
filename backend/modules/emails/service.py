@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 import re
-import os
-import smtplib
 from dataclasses import dataclass
 from typing import Any
 
 from jinja2 import Environment, StrictUndefined, TemplateError
-from email.mime.text import MIMEText
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from modules.emails.constants import EVENT_CODES
 from modules.emails.model import EmailLog, EmailTemplate, EmailTemplateMapping
+from modules.emails.smtp_transport import send_via_smtp
+from modules.settings.smtp_config import SmtpConfig, get_smtp_config, is_email_delivery_enabled
 
 
 _VAR_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
@@ -48,34 +47,29 @@ class TriggerResult:
 
 
 class EmailSender:
-    """Initial safe sender stub (console log)."""
+    """Send via SMTP when delivery is enabled in Settings; otherwise log to console (dev)."""
 
-    def send_email(self, *, to_email: str, subject: str, body: str) -> None:
-        host = (os.environ.get("SMTP_HOST") or "").strip()
-        if not host:
-            print(f"[email-engine] to={to_email} subject={subject!r}\n{body}\n")
-            return
+    def send_email(
+        self,
+        *,
+        to_email: str,
+        subject: str,
+        body: str,
+        cfg: SmtpConfig | None = None,
+    ) -> None:
+        if cfg is None:
+            if not is_email_delivery_enabled():
+                print(f"[email-engine] (delivery disabled) to={to_email} subject={subject!r}\n{body}\n")
+                return
 
-        port = int((os.environ.get("SMTP_PORT") or "587").strip() or "587")
-        user = (os.environ.get("SMTP_USERNAME") or "").strip() or None
-        password = (os.environ.get("SMTP_PASSWORD") or "").strip() or None
-        use_tls = (os.environ.get("SMTP_USE_TLS") or "true").strip().lower() in ("1", "true", "yes", "on")
-        from_email = (os.environ.get("SMTP_FROM_EMAIL") or user or "").strip()
-        from_name = (os.environ.get("SMTP_FROM_NAME") or "").strip()
-        if not from_email:
-            raise RuntimeError("SMTP_FROM_EMAIL (or SMTP_USERNAME) must be set when SMTP_HOST is enabled")
+            cfg = get_smtp_config()
+            if cfg is None:
+                print(
+                    f"[email-engine] (SMTP not configured) to={to_email} subject={subject!r}\n{body}\n"
+                )
+                return
 
-        msg = MIMEText(body, "html", "utf-8")
-        msg["Subject"] = subject
-        msg["To"] = to_email
-        msg["From"] = f"{from_name} <{from_email}>" if from_name else from_email
-
-        with smtplib.SMTP(host, port, timeout=10) as s:
-            if use_tls:
-                s.starttls()
-            if user and password:
-                s.login(user, password)
-            s.sendmail(from_email, [to_email], msg.as_string())
+        send_via_smtp(cfg, to_email=to_email, subject=subject, body=body)
 
 
 class EmailNotificationService:

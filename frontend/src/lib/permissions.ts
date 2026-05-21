@@ -101,6 +101,20 @@ export function canListOrgUnitsForAssignments(): boolean {
   }
 }
 
+/** Permissions that should show the workspace Tasks nav and routes (matches backend ``task.*`` APIs). */
+export const TASK_ACCESS_PERMISSIONS = [
+  "task.view",
+  "approval.view",
+  "task.act",
+  "task.create",
+  "task.assign",
+  "task.close",
+] as const
+
+export function canAccessTasks(): boolean {
+  return TASK_ACCESS_PERMISSIONS.some((code) => hasPermission(code))
+}
+
 export function hasAnyNonUsersRbacPermission(): boolean {
   try {
     if (localStorage.getItem(LS_IS_SUPERUSER) === "1") return true

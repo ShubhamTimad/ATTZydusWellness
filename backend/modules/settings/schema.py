@@ -20,3 +20,28 @@ class AuthPolicyPublic(BaseModel):
     mfa_enabled: bool = False
     captcha_enabled: bool = False
     mfa_enforced: bool = False
+
+
+class EmailDeliveryPublic(BaseModel):
+    """SMTP settings for onboarding and notification emails (superadmin Settings tab)."""
+
+    delivery_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str = ""
+    smtp_password: str = Field(
+        default="",
+        description="Leave empty on update to keep the stored password.",
+    )
+    password_configured: bool = False
+    smtp_use_tls: bool = True
+    smtp_from_email: str = ""
+    smtp_from_name: str = ""
+
+
+class EmailDeliveryTestRequest(BaseModel):
+    to_email: str = Field(min_length=3, max_length=255)
+    config: EmailDeliveryPublic | None = Field(
+        default=None,
+        description="Current form values; used when testing before save.",
+    )

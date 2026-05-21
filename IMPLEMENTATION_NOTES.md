@@ -3,8 +3,8 @@
 This document describes the work completed so far in this repo:
 
 - **Backend**: RBAC with dotted permission codes, `org_units` (Plants) as its own module, strict route guards, and **OR**-style guards where one API serves multiple workflows.
-- **Frontend**: **User workspace** (`/login` → `/dashboard/*`) with RBAC-gated sidebar; **Superadmin console** (`/admin/login` → `/admin/*`) superuser-only; shared JWT + `/me` permission snapshot in `localStorage`.
-- **Dev ergonomics**: Vite proxy so browser `GET /login` does not hit FastAPI.
+- **Frontend**: **User workspace** (`/login` → `/dashboard/*`) with RBAC-gated sidebar; **Superadmin console** (`/admin/login` → `/admin/*`) superuser-only; shared JWT + `/me` permission snapshot in `localStorage`; **Takeda brand primary** `#E1242A` (not green).
+- **Dev ergonomics**: Vite proxy for app API paths (`/login`, `/dashboard`, `/tasks`, `/auth`, `/approvals`, `/audit`, `/admin/*`) so the SPA does not receive HTML for JSON calls.
 
 ---
 
@@ -23,7 +23,7 @@ This document describes the work completed so far in this repo:
 
 - **`modules/module_config.py` + `modules/rbac_sync.py`**
   - Declarative modules/tabs/actions; sync script seeds **`features`** / **`permissions`** rows.
-  - Modules include: **users**, **org_units** (Plants), **roles**, **permissions**, **settings**, **features**.
+  - Modules include: **users**, **org_units** (Plants), **roles**, **permissions**, **settings**, **features**, **approval**, **task**, **asset**, **order**.
   - Run from project root (with `DATABASE_URL` / same DB as the app):  
     `python scripts/sync_modules.py`
   - With the `backend/` folder structure, Alembic lives under `backend/`:
@@ -71,30 +71,55 @@ This keeps **plant CRUD** under **`org_units.*`** while allowing **user/role ass
 
 ### User workspace shell (`frontend/src/components/layout/app-shell-layout.tsx`)
 
-- Sidebar: Dashboard, Performance, Preferences, then RBAC-gated items (**Users**, **Plants**, **Roles**, **Permissions**, **System settings**).
-- **Plants** nav: any of **`org_units.view|create|update|delete`** (Plants **module** only).
-- **Performance / Preferences**: hidden when the user has **only** `users.*` permissions; shown if they have any **`roles.*`**, **`permissions.*`**, **`settings.*`**, **`features.*`**, or **`org_units.*`** (see **`hasAnyNonUsersRbacPermission`** in `frontend/src/lib/permissions.ts`).
-- **`canListOrgUnitsForAssignments()`** — mirrors **`GET /admin/org-units`** OR rule; used to load plant dropdowns on **Users** / **Roles** pages without requiring **`org_units.view`**.
+- Sidebar (RBAC-gated): **Dashboard**, **Users**, **Assets**, **Orders**, **My tasks**, **Plants**, **Roles**, **Permissions**, **System settings**. (**Performance** / **Preferences** routes are commented out in `App.tsx`.)
+- **My tasks** nav + route: visible when the user has **any** of **`TASK_ACCESS_PERMISSIONS`** (see below) — **not** only `approval.view`.
+- **Plants** nav: any of **`org_units.view|create|update|delete`**.
+- Top bar: large account chip (avatar + email + chevron); dropdown **Signed in as**, **Profile** (opens modal), **Sign out** (brand primary button). No **Preferences** entry.
+- **`canListOrgUnitsForAssignments()`** — mirrors **`GET /admin/org-units`** OR rule; used on **Users** / **Roles** plant pickers.
+
+### Superadmin console shell (`frontend/src/components/layout/admin-layout.tsx`)
+
+- Dark slate sidebar (`.admin-shell` in `index.css`) + neutral **admin canvas**.
+- Grouped nav: Overview, Users, Plants, Roles, Permissions, Settings, **Workflows**, **Email templates**.
+- Top bar matches workspace pattern (avatar chip); dropdown has **Sign out** only (no Profile / Preferences).
+- Reusable page kit: **`AdminPage`**, **`AdminPanel`**, **`AdminTable*`** cells, **`AdminPrimaryButton`**, **`adminSelectClass`**, **`adminSwitchRowClass`** (`frontend/src/components/layout/admin-page.tsx`, `admin-ui.tsx`).
+
+### Profile modal (workspace)
+
+- **`frontend/src/components/profile-dialog.tsx`** — opened from account menu; loads **`GET /me`**; shows name, email, mobile, plant, roles, status, member since. No `/dashboard/profile` route.
 
 ### Auth snapshot (`frontend/src/lib/permissions.ts`)
 
 - **`persistAuthFromMe` / `clearAuthProfile`** — store **`is_superuser`** and **`permissions[]`** from **`/me`** in `localStorage`.
-- **`hasPermission(code)`** — UI checks (superuser = all true).
+- **`hasPermission(code)`** — UI checks (superuser = all true); accepts dotted codes and legacy `module:action` (first separator only).
+- **`TASK_ACCESS_PERMISSIONS`** + **`canAccessTasks()`** — sidebar **My tasks**, `/dashboard/tasks` routes, and task dashboard widget. Includes: `task.view`, `approval.view`, `task.act`, `task.create`, `task.assign`, `task.close`. Backend inbox API requires **`task.view`**; UI must not gate solely on **`approval.view`**.
 - Helpers: **`hasAnyNonUsersRbacPermission`**, **`canListOrgUnitsForAssignments`**.
+
+### Brand + dialogs (global)
+
+- Primary / brand: **`#E1242A`** (`--brand`, `--primary` in `frontend/src/index.css`; `frontend/src/lib/brand.ts` for chart hex).
+- Charts and accents use brand red (no emerald/green dashboard theme).
+- **`frontend/src/components/ui/dialog.tsx`** — blurred overlay, rounded card, slide/zoom animation; forms use **`.dialog-body`** padding utility.
 
 ### Key files
 
 | Area | File |
 |------|------|
 | Routes | `frontend/src/App.tsx` |
-| User login | `frontend/src/pages/app-login.tsx` (superuser blocked; must use `/admin/login`) |
-| Admin login | `frontend/src/pages/login.tsx` |
+| User login | `frontend/src/pages/app-login.tsx` — email **or** username; hold-to-show password; superuser blocked |
+| Admin login | `frontend/src/pages/login.tsx` — same identifier + password UX |
+| Forgot / reset | `frontend/src/pages/forgot-password.tsx`, `reset-password.tsx` |
 | Workspace layout | `frontend/src/components/layout/app-shell-layout.tsx` |
 | Admin layout | `frontend/src/components/layout/admin-layout.tsx` |
+| Profile modal | `frontend/src/components/profile-dialog.tsx` |
 | Permission gate | `frontend/src/components/admin/require-permission.tsx` |
-| Users UI | `frontend/src/pages/users.tsx` — **View** (read-only dialog), **Edit** only with **`users.update`**; plant column and pickers aligned with **`canListOrgUnitsForAssignments`**; table/header styling for workspace |
-| Plants UI | `frontend/src/pages/plants.tsx` — create uses **`org_units.create`** |
-| Roles UI | `frontend/src/pages/roles.tsx` — plant lists when **`canListOrgUnitsForAssignments`** |
+| Users (admin) | `frontend/src/pages/users.tsx` — list → row opens detail; **Create** in toolbar; full-page view/edit/create |
+| Plants | `frontend/src/pages/plants.tsx` |
+| Roles / Permissions / Settings | `frontend/src/pages/roles.tsx`, `permissions.tsx`, `settings.tsx` (auth + password + **email delivery** tabs; password policy JSON block removed from UI) |
+| Workflows | `frontend/src/pages/workflow-assignment.tsx` — list → click row to edit levels; create dialog |
+| Email templates | `frontend/src/pages/email-templates.tsx` — list → edit; preview + variables |
+| Task inbox | `frontend/src/pages/my-tasks.tsx`, `my-task-detail.tsx` — **`GET /tasks/my-tasks`**, unified task APIs |
+| Dashboard | `frontend/src/pages/dashboard.tsx` + `components/dashboard/*` |
 
 ---
 
@@ -117,11 +142,22 @@ This keeps **plant CRUD** under **`org_units.*`** while allowing **user/role ass
 
 ---
 
-## 4) Dev proxy (Vite): `GET /login` vs API
+## 4) Dev proxy (Vite)
 
-**Problem**: Vite proxied browser navigation **`GET /login`** to FastAPI → **405** (only **`POST /login`** exists).
+**Problem**: With `VITE_API_URL` unset, the browser calls the Vite dev server. Paths not proxied return the SPA **`index.html`** → `JSON.parse` fails with **Unrecognized token '<'**.
 
-**Fix**: **`frontend/vite.config.ts`** — proxy **`/login`** to the backend only for API-style requests; HTML navigations serve the SPA.
+**Fix**: **`frontend/vite.config.ts`** proxies API prefixes to `http://localhost:8000`:
+
+| Prefix | Notes |
+|--------|--------|
+| `/login`, `/forgot-password`, `/reset-password`, `/refresh`, `/me` | Auth |
+| `/dashboard` | API only (e.g. `GET /dashboard/summary`); HTML nav to `/dashboard` stays in SPA |
+| `/tasks`, `/auth`, `/approvals`, `/audit` | Workspace task + approval APIs |
+| `/admin` | Admin JSON APIs; HTML nav to `/admin/login` stays in SPA |
+
+**Alternative**: set `frontend/.env` → `VITE_API_URL=http://localhost:8000` to call the backend directly.
+
+**API client**: `frontend/src/lib/api.ts` — `parseResponseBody()` surfaces a clear error when HTML is returned instead of JSON.
 
 ---
 
@@ -148,11 +184,39 @@ This keeps **plant CRUD** under **`org_units.*`** while allowing **user/role ass
 
 ---
 
-## 6) Notes / possible next steps
+## 6) Auth UX (login, forgot password, MFA)
 
-- Flesh out **Performance** and **Preferences** under `/dashboard` beyond placeholders.
-- Optional: backend guardrails for “admin UI only for superuser” in addition to frontend redirects.
-- Tests: pytest fixtures that register **OrgUnit** (and related tables) on **`Base.metadata`** for in-memory runs if you expand integration tests around org-units.
+### Login identifier
+
+- **`POST /login`** accepts normalized **email or username** (frontend: `frontend/src/lib/login-identifier.ts`, `LoginRequest` on backend).
+- User and admin login UIs share **hold eye icon** to reveal password (`PasswordInput`).
+
+### Forgot password
+
+- **`POST /forgot-password`**: **404** if email unknown; **403** if account inactive; **503** if email send fails (no vague-only “if account exists” when delivery fails).
+- Reset emails use template **`FORGOT_PASSWORD`**; payload includes **`company_name`** (from org context) so templates do not fail on missing variables.
+- Routes: `/forgot-password`, `/reset-password`, `/mfa/setup` (frontend pages + Vite proxy where applicable).
+
+### Demo / manual test users
+
+- **`scripts/seed_manual_test_users.py`** — e.g. `hr@demo.com`, `approver@demo.com`, `plantmgr@demo.com`, `operator@demo.com`, password **`ChangeMe@123`**, plant **DEMO-01**, role-appropriate permissions including **task** codes where needed.
+- **`scripts/seed_dummy_data.py`** — roles, plants, workflows, email templates, broader demo data.
+
+---
+
+## 6b) Settings & email delivery
+
+- Admin **Settings** (`/admin/settings`): tabs **Authentication**, **Password policy** (form fields only — no raw JSON editor in UI), **Email delivery** (SMTP fields stored in DB).
+- Backend: settings service + **`EmailSender`** uses DB SMTP with env fallback.
+- Test send: admin can send a test email from the Email tab.
+
+---
+
+## 6c) Notes / possible next steps
+
+- Re-enable or implement **Performance** / **Preferences** under `/dashboard` if product needs them.
+- Optional: backend guardrails for “admin UI only for superuser” in addition to frontend redirects (`ENFORCE_SUPERUSER_ON_ADMIN`).
+- Workflow **action-code mappings** APIs still exist on backend (`/admin/workflow-mappings/*`); superadmin UI currently focuses on **workflow list + step editor** only.
 
 ---
 
@@ -302,9 +366,9 @@ Approval triggering used to be tied to legacy identifiers like `entity_type="use
 
 These endpoints are **superadmin-only** and reuse `approval.manage` alongside the existing workflow configuration routes.
 
-### Admin UI
+### Admin UI (current)
 
-Superadmin sidebar includes **Workflow Assignment**: pick an action from the catalog, pick an active workflow, and save the mapping; the page also lists current mappings.
+- Superadmin **Workflows** (`/admin/workflow-assignment`): **list-first** — create workflow, click row to edit name/entity type/steps, activate/deactivate. No separate mapping screen in the frontend (backend mapping APIs remain for integrations).
 
 ### Backward compatibility
 
@@ -313,11 +377,16 @@ Superadmin sidebar includes **Workflow Assignment**: pick an action from the cat
 
 ---
 
-## 10) Task Inbox & Audit Timeline
+## 10) Unified task inbox & audit timeline
 
 ### My Tasks concept
 
-Approvers with **`approval.view`** see an **inbox** of approval **tasks** assigned to them: each row ties a **task** to an **approval request**, the **entity** under review (for example a pending user creation), and the **workflow step** they are responsible for. **`approval.act`** is required to **approve** or **reject** from the UI or API.
+Workspace **My tasks** (`/dashboard/tasks`) uses the **unified tasks** module:
+
+- List: **`GET /tasks/my-tasks?inbox=active|done`** (requires **`task.view`** on the backend).
+- Detail/actions: **`/tasks/{id}`**, comments, start/complete/close for manual tasks; **`POST /approvals/tasks/{id}/action`** for approval tasks (needs **`approval.act`** / **`task.act`** as applicable).
+
+**Frontend visibility** (sidebar + route guard): **`canAccessTasks()`** — any of **`task.view`**, **`approval.view`**, **`task.act`**, **`task.create`**, **`task.assign`**, **`task.close`**. Assign **Task → view** (or act) in Roles if users should see the tab; re-login after RBAC changes so **`/me`** refreshes `localStorage` permissions.
 
 ### Timeline concept
 
@@ -350,7 +419,7 @@ We added a modular, permission-driven dashboard system for the **user workspace*
 Module detection rules (current):
 
 - **Users dashboard** enabled when the user has `users.view`.
-- **Tasks dashboard** enabled when the user has `approval.view` or `task.view` (the system has both approval-style and unified task permissions).
+- **Tasks dashboard** enabled when the user has any task-access permission (`approval.view`, `task.view`, `task.act`, etc. — same rules as **`canAccessTasks()`**).
 
 Response shape (high-level):
 
@@ -386,4 +455,101 @@ Module components:
 ### Charts + theming
 
 - Chart library: `recharts` (frontend dependency)
-- Dashboard uses an emerald accent / dark header style to keep a “green on black” feel while staying consistent with the rest of the ShadCN UI.
+- Dashboard charts use brand color **`#E1242A`** (`frontend/src/lib/brand.ts`), aligned with global primary tokens in `index.css`.
+
+---
+
+## 12) Superadmin overview & email templates
+
+- **`GET /admin/dashboard/summary`** — counts for users, plants, pending tasks (permission-gated); shown on **`/admin`** overview with quick links.
+- **Email templates** (`/admin/email-templates`): list → edit; variables per event code; preview with sample JSON; events include `USER_CREATED`, `FORGOT_PASSWORD`, `PASSWORD_RESET`, task notifications, etc.
+
+---
+
+## 13) Asset Master Management
+
+Enterprise asset module aligned with existing RBAC, approval workflows, dashboard framework, audit hooks, and workspace UI patterns (Users / Plants / Tasks).
+
+### Database (normalized)
+
+Migration `030_asset_master_foundation` replaces the legacy flat `assets` table with:
+
+| Table | Purpose |
+|-------|---------|
+| `asset_categories` | Lookup (seeded codes e.g. equipment, IT) |
+| `asset_master` | Identity, lifecycle/approval status, ownership, source, soft delete |
+| `asset_information` | Descriptions, allocation, PM equipment id |
+| `asset_location_information` | Plant FK → `org_units`, functional/actual location, building/floor/room/zone |
+| `asset_financial_information` | Cost/profit center, cap date, vendor, PO, currency |
+| `asset_inventory_information` | Counts, verification status/date/remarks |
+| `asset_import_batches` | Bulk import metadata (future async-ready) |
+| `asset_audit_events` | Module-scoped audit rows |
+
+### RBAC
+
+Catalog in `modules/module_config.py` (sync via `python scripts/sync_modules.py`):
+
+- `asset.view`, `asset.create`, `asset.update`, `asset.delete`, `asset.import`, `asset.approve`, `asset.manage`
+
+All `/admin/assets/*` routes use `require_permission`. Workspace routes and sidebar visibility follow the same dotted-permission pattern as Users/Plants.
+
+### Approval workflows
+
+Workflow mapping actions (see `workflow_mapping`):
+
+- `asset.create` → entity type `asset_creation`
+- `asset.import` → entity type `asset_import`
+
+When a mapped workflow exists, create/import sets `lifecycle_status=pending_approval` and `approval_status=pending`, opens `approval_requests` / tasks in the inbox; finalize activates the asset (`approvals/service.py`). Without a workflow, assets activate immediately.
+
+Demo seeds (`scripts/seed_dummy_data.py`): asset workflows + role permission grants for Operator / Plant Manager / Approver.
+
+### Backend API (`/admin/assets`)
+
+| Endpoint | Permission | Notes |
+|----------|------------|-------|
+| `GET /` | `asset.view` | Paginated list, search, filters, sort |
+| `POST /` | `asset.create` | Manual create + optional approval |
+| `GET /{id}` | `asset.view` | Full detail (all child tables) |
+| `PATCH /{id}` | `asset.update` | Section updates |
+| `DELETE /{id}` | `asset.delete` | Soft delete |
+| `POST /import/preview` | `asset.import` | CSV/XLSX upload, validation + duplicates |
+| `POST /import/confirm` | `asset.import` | Commit batch + optional approval |
+| `GET /{id}/audit` | `asset.view` | Module audit events |
+| `GET /categories` | `asset.view` | Category picker |
+
+Files: `backend/modules/assets/` (`model.py`, `schema.py`, `service.py`, `router.py`, `import_parser.py`, `audit_log.py`).
+
+### Dashboard
+
+`GET /dashboard/summary` includes `modules.assets` when the user has `asset.view`:
+
+- Total assets, pending approvals, inventory mismatch, recently added, by category, by plant
+
+Frontend: `frontend/src/components/dashboard/asset-dashboard.tsx` composed from `dashboard.tsx`.
+
+### Frontend (workspace)
+
+Routes under `/dashboard/assets` (parent requires `asset.view`):
+
+- **List** — `assets-list.tsx`: compact sticky table, selection checkboxes (bulk actions placeholder), pagination/filters/search
+- **Detail** — `asset-detail.tsx`: SAP-style sections, edit/read-only, approval banner, workflow/audit/attachment placeholders
+- **Import** — `asset-import.tsx`: upload → preview → confirm (`asset.import` guard)
+
+Types: `frontend/src/lib/assets-types.ts`.
+
+### Audit
+
+`asset_audit_events` for create/update/import/approve/reject and section changes; integrates with global entity timeline where `entity_type` is `asset` / `asset_creation` / `asset_import`.
+
+### Future-ready (not implemented)
+
+Row multi-select and API shape support future bulk transfer, verification, export, RFID; import batch table supports background jobs; detail placeholders for attachments, verification cycles, disposal/transfer workflows.
+
+### Setup after pull
+
+```bash
+alembic -c backend/alembic.ini upgrade head
+python scripts/sync_modules.py
+python scripts/seed_dummy_data.py   # optional demo workflows + permissions on roles
+```

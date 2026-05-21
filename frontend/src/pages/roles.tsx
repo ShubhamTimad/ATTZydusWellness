@@ -1,6 +1,8 @@
 import * as React from "react"
 import { toast } from "sonner"
 
+import { AdminPage } from "@/components/layout/admin-page"
+import { AdminPanel, AdminPrimaryButton, adminPanelClass } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -8,7 +10,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { getJson, patchJson, postJson } from "@/lib/api"
@@ -17,6 +18,7 @@ import { canListOrgUnitsForAssignments, hasPermission, isSuperuser } from "@/lib
 type OrgUnitPublic = {
   id: number
   name: string
+  code: string
   type: string
   parent_id: number | null
   created_at: string
@@ -246,22 +248,18 @@ export function RolesPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-medium">Roles</h2>
-          <p className="text-sm text-muted-foreground">
-            Link roles to plants, assign permissions by module. Leave all plants unchecked for a
-            global role (any plant). Run{" "}
-            <span className="font-mono text-xs">python scripts/sync_modules.py</span> for missing
-            permission rows.
-          </p>
-        </div>
-        <Button size="sm" onClick={save} disabled={!selectedRoleId || !hasDirty || !canSaveRole}>
-          Save
-        </Button>
-      </div>
-
+    <AdminPage
+      description="Link roles to plants and assign permissions by module. No plants selected = global role."
+      actions={
+        <AdminPrimaryButton
+          type="button"
+          onClick={() => void save()}
+          disabled={!selectedRoleId || !hasDirty || !canSaveRole}
+        >
+          {hasDirty ? "Save changes" : "Save"}
+        </AdminPrimaryButton>
+      }
+    >
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Something went wrong</AlertTitle>
@@ -269,10 +267,13 @@ export function RolesPage() {
         </Alert>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-[320px_1fr]">
-        <div className="rounded-lg border">
-          <div className="flex items-center justify-between gap-2 px-3 py-2">
-            <div className="text-sm font-medium">Roles</div>
+      <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+        <AdminPanel
+          title="Roles"
+          description="Select a role to edit permissions"
+          contentClassName="p-0"
+        >
+          <div className="flex items-center justify-end gap-2 border-b border-border/60 px-4 py-2">
             {canCreateRole ? (
               <Dialog
                 open={createOpen}
@@ -282,7 +283,7 @@ export function RolesPage() {
                 }}
               >
                 <DialogTrigger asChild>
-                  <Button type="button" variant="outline" size="sm">
+                  <Button type="button" variant="outline" size="sm" className="h-8 shadow-sm">
                     Create role
                   </Button>
                 </DialogTrigger>
@@ -294,7 +295,7 @@ export function RolesPage() {
                       permissions on the right.
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-3">
+                  <div className="dialog-body">
                     <div className="space-y-1.5">
                       <Label htmlFor="role-name">Name</Label>
                       <Input
@@ -342,7 +343,9 @@ export function RolesPage() {
                                         setCreateOrgUnitIds(next)
                                       }}
                                     />
-                                    <span>{pl.name}</span>
+                                    <span>
+                                      {pl.code} — {pl.name}
+                                    </span>
                                   </label>
                                 )
                               })}
@@ -371,23 +374,17 @@ export function RolesPage() {
               </Dialog>
             ) : null}
           </div>
-          <Separator />
           <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-              </TableRow>
-            </TableHeader>
             <TableBody>
               {roles === null ? (
                 <TableRow>
-                  <TableCell className="py-8 text-center text-sm text-muted-foreground">
+                  <TableCell className="px-4 py-10 text-center text-sm text-muted-foreground">
                     Loading…
                   </TableCell>
                 </TableRow>
               ) : roles.length === 0 ? (
                 <TableRow>
-                  <TableCell className="py-8 text-center text-sm text-muted-foreground">
+                  <TableCell className="px-4 py-10 text-center text-sm text-muted-foreground">
                     No roles found.
                   </TableCell>
                 </TableRow>
@@ -397,16 +394,17 @@ export function RolesPage() {
                   return (
                     <TableRow
                       key={r.id}
-                      className={cn(active && "bg-muted/50")}
+                      className={cn(
+                        "cursor-pointer border-b border-border/40 transition-colors hover:bg-muted/15",
+                        active && "bg-primary/10 hover:bg-primary/15",
+                      )}
                       onClick={() => setSelectedRoleId(r.id)}
                       role="button"
                     >
-                      <TableCell className="cursor-pointer">
-                        <div className="text-sm font-medium">{r.name}</div>
+                      <TableCell className="px-4 py-3">
+                        <div className="text-sm font-semibold text-foreground">{r.name}</div>
                         {r.description ? (
-                          <div className="line-clamp-1 text-sm text-muted-foreground">
-                            {r.description}
-                          </div>
+                          <div className="line-clamp-1 text-xs text-muted-foreground">{r.description}</div>
                         ) : null}
                       </TableCell>
                     </TableRow>
@@ -415,28 +413,20 @@ export function RolesPage() {
               )}
             </TableBody>
           </Table>
-        </div>
+        </AdminPanel>
 
-        <div className="rounded-lg border">
-          <div className="flex items-center justify-between gap-3 px-3 py-2">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">
-                {selectedRole ? selectedRole.name : "Permissions"}
-              </div>
-              <div className="truncate text-sm text-muted-foreground">
-                Adjust plants and permissions, then save.{" "}
-                {!canSaveRole ? "You need roles.update to save." : null}
-              </div>
-            </div>
-            {hasDirty ? (
-              <span className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
-                Unsaved changes
-              </span>
-            ) : null}
-          </div>
-          <Separator />
-
-          <ScrollArea className="h-[540px] p-3">
+        <AdminPanel
+          title={selectedRole ? selectedRole.name : "Permissions"}
+          description={
+            hasDirty
+              ? "Unsaved changes — click Save changes"
+              : canSaveRole
+                ? "Adjust plants and permissions"
+                : "You need roles.update to save"
+          }
+          contentClassName="p-0"
+        >
+          <ScrollArea className="h-[min(540px,70vh)] px-5 py-4">
             {catalog === null ? (
               <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
             ) : selectedRoleId == null ? (
@@ -455,7 +445,7 @@ export function RolesPage() {
                         No selection = role is available at every plant. Otherwise limit to selected
                         plants (used when assigning users).
                       </p>
-                      <div className="rounded-md border p-2">
+                      <div className={cn(adminPanelClass, "p-3 shadow-none")}>
                         {plants === null || plants.length === 0 ? (
                           <p className="text-xs text-muted-foreground">No plants defined.</p>
                         ) : (
@@ -481,7 +471,9 @@ export function RolesPage() {
                                       setLinkedOrgUnitIds(next)
                                     }}
                                   />
-                                  <span>{pl.name}</span>
+                                  <span>
+                                    {pl.code} — {pl.name}
+                                  </span>
                                 </label>
                               )
                             })}
@@ -499,7 +491,7 @@ export function RolesPage() {
                 {catalog.modules.map((mod) => (
                   <div key={mod.key} className="space-y-2">
                     <div className="text-sm font-semibold">{mod.title}</div>
-                    <div className="rounded-md border">
+                    <div className={cn(adminPanelClass, "overflow-x-auto p-0 shadow-none")}>
                       {(() => {
                         const moduleActions = orderedActionColumns(
                           mod.tabs.flatMap((t) => (Array.isArray(t.actions) ? t.actions : []))
@@ -567,8 +559,8 @@ export function RolesPage() {
               </div>
             )}
           </ScrollArea>
-        </div>
+        </AdminPanel>
       </div>
-    </div>
+    </AdminPage>
   )
 }

@@ -6,7 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-ApprovalEntityType = Literal["user_creation"]
+ApprovalEntityType = Literal["user_creation", "asset_creation", "asset_import"]
 ApprovalRequestStatus = Literal["pending", "approved", "rejected", "in_rework"]
 ApprovalTaskStatus = Literal["pending", "approved", "rejected", "open", "closed"]
 ApprovalActionType = Literal["approve", "reject"]
@@ -16,6 +16,16 @@ class ApprovalWorkflowCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     entity_type: str = Field(min_length=1, max_length=64)
     is_active: bool = False
+
+
+class ApprovalWorkflowUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    entity_type: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class ApprovalStepUpdate(BaseModel):
+    approver_role_id: int | None = Field(default=None, ge=1)
+    required_approvals: int | None = Field(default=None, ge=1)
 
 
 class ApprovalWorkflowPublic(BaseModel):

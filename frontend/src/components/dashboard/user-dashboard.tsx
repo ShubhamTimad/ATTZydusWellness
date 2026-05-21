@@ -52,7 +52,7 @@ export function UserDashboard({ data }: { data: UsersDashboardModule }) {
     <section className="grid gap-4">
       <div>
         <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-          User dashboard <span className="text-emerald-600">•</span>
+          User dashboard <span className="text-primary">•</span>
         </h2>
       </div>
 
@@ -64,7 +64,7 @@ export function UserDashboard({ data }: { data: UsersDashboardModule }) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card className="border-emerald-100">
+        <Card className="border-primary/15">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Users by role</CardTitle>
             <CardDescription className="text-xs">Distinct users assigned to each role</CardDescription>
@@ -76,13 +76,13 @@ export function UserDashboard({ data }: { data: UsersDashboardModule }) {
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} interval={0} angle={-20} textAnchor="end" height={50} />
                 <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                 <Tooltip />
-                <Bar dataKey="value" fill="#10b981" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="value" fill="#E1242A" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        <Card className="border-emerald-100">
+        <Card className="border-primary/15">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Active vs inactive</CardTitle>
             <CardDescription className="text-xs">Current user status distribution</CardDescription>
@@ -98,7 +98,7 @@ export function UserDashboard({ data }: { data: UsersDashboardModule }) {
                   innerRadius={55}
                   outerRadius={85}
                   paddingAngle={3}
-                  fill="#10b981"
+                  fill="#E1242A"
                 />
               </PieChart>
             </ResponsiveContainer>

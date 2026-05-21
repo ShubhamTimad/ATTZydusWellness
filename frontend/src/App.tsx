@@ -1,10 +1,9 @@
 import { AdminLayout } from "@/components/layout/admin-layout"
 import { AppShellLayout } from "@/components/layout/app-shell-layout"
 import { AppToaster } from "@/components/app-toaster"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { RequirePermission } from "@/components/admin/require-permission"
 import { AppLoginPage } from "@/pages/app-login"
+import { AdminOverviewPage } from "@/pages/admin-overview"
 import { DashboardPage } from "@/pages/dashboard"
 import { LoginPage } from "@/pages/login"
 import { PermissionsPage } from "@/pages/permissions"
@@ -15,7 +14,6 @@ import { UsersPage } from "@/pages/users"
 import { MyTasksPage } from "@/pages/my-tasks"
 import { WorkflowAssignmentPage } from "@/pages/workflow-assignment"
 import { EmailTemplatesPage } from "@/pages/email-templates"
-import { EmailTemplateEditorPage } from "@/pages/email-template-editor"
 import { UserCreatePage } from "@/pages/user-create"
 import { UserEditPage } from "@/pages/user-edit"
 import { UserViewPage } from "@/pages/user-view"
@@ -23,13 +21,18 @@ import { MyTaskDetailPage } from "@/pages/my-task-detail"
 import { ForgotPasswordPage } from "@/pages/forgot-password"
 import { ResetPasswordPage } from "@/pages/reset-password"
 import { MfaSetupPage } from "@/pages/mfa-setup"
-import AssetsPage from "@/pages/assets"
+import { AssetDetailPage, AssetImportPage, AssetsListPage } from "@/pages/assets"
 import OrdersPage from "@/pages/orders"
 import * as React from "react"
-import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { getJson } from "@/lib/api"
 import { AccessDenied } from "@/components/admin/access-denied"
-import { clearAuthProfile, hasAnyNonUsersRbacPermission, isSuperuser, persistAuthFromMe } from "@/lib/permissions"
+import {
+  clearAuthProfile,
+  hasAnyNonUsersRbacPermission,
+  persistAuthFromMe,
+  TASK_ACCESS_PERMISSIONS,
+} from "@/lib/permissions"
 
 function App() {
   return (
@@ -73,10 +76,21 @@ function App() {
             path="assets"
             element={
               <RequirePermission code="asset.view">
-                <AssetsPage />
+                <Outlet />
               </RequirePermission>
             }
-          />
+          >
+            <Route index element={<AssetsListPage />} />
+            <Route
+              path="import"
+              element={
+                <RequirePermission anyOf={["asset.import", "asset.manage"]}>
+                  <AssetImportPage />
+                </RequirePermission>
+              }
+            />
+            <Route path=":id" element={<AssetDetailPage />} />
+          </Route>
 
           <Route
             path="orders"
@@ -103,7 +117,7 @@ function App() {
           <Route
             path="tasks"
             element={
-              <RequirePermission code="approval.view">
+              <RequirePermission anyOf={[...TASK_ACCESS_PERMISSIONS]}>
                 <Outlet />
               </RequirePermission>
             }
@@ -146,7 +160,7 @@ function App() {
         </Route>
         <Route path="/admin/login" element={<LoginRoute />} />
         <Route path="/admin" element={<AdminRoute />}>
-          <Route index element={<OverviewPage />} />
+          <Route index element={<AdminOverviewPage />} />
           <Route
             path="users"
             element={
@@ -204,13 +218,10 @@ function App() {
             path="email-templates"
             element={
               <RequirePermission anyOf={["email_templates.view", "email_templates.create", "email_templates.update", "email_templates.delete"]}>
-                <Outlet />
+                <EmailTemplatesPage />
               </RequirePermission>
             }
-          >
-            <Route index element={<EmailTemplatesPage />} />
-            <Route path=":templateId" element={<EmailTemplateEditorPage />} />
-          </Route>
+          />
         </Route>
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
@@ -397,10 +408,19 @@ function AdminRoute() {
     }
   }, [navigate])
 
+  const pageTitle = React.useMemo(() => {
+    const p = location.pathname
+    if (/\/admin\/users\/new\/?$/.test(p)) return "Create user"
+    if (/\/admin\/users\/\d+\/edit\/?$/.test(p)) return "Edit user"
+    if (/\/admin\/users\/\d+\/?$/.test(p)) return "User details"
+    return undefined
+  }, [location.pathname])
+
   if (superGate !== "ok") return null
 
   return (
     <AdminLayout
+      pageTitle={pageTitle}
       activeId={activeId}
       onNavigate={(id) => {
         if (id === "overview") navigate("/admin")
@@ -423,40 +443,3 @@ function AdminRoute() {
   )
 }
 
-function OverviewPage() {
-  const superUser = isSuperuser()
-  return (
-    <div className="space-y-4">
-      <Card className="max-w-lg border-dashed">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Superadmin</CardTitle>
-          <CardDescription>
-            This console is only for superusers. Other roles use the workspace at{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">/login</code> — management screens
-            appear in the sidebar there when permitted.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          Admin APIs are mounted at{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">/admin/*</code>.
-        </CardContent>
-      </Card>
-
-      {superUser ? (
-        <Card className="max-w-lg">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Shortcuts</CardTitle>
-            <CardDescription>
-              Create plants and users from the Users screen (Create plant / Create user).
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild size="sm">
-              <Link to="/admin/users">Open Users (plants)</Link>
-            </Button>
-          </CardContent>
-        </Card>
-      ) : null}
-    </div>
-  )
-}

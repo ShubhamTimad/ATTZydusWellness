@@ -10,11 +10,19 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { PasswordInput } from "@/components/ui/password-input"
 import { getJson, postJson } from "@/lib/api"
+import { loginRequestFields, validateLoginIdentifier } from "@/lib/login-identifier"
 import { persistAuthFromMe } from "@/lib/permissions"
 
 const loginSchema = z.object({
-  email: z.string().email("Enter a valid email"),
+  identifier: z
+    .string()
+    .min(1, "Email or username is required")
+    .superRefine((val, ctx) => {
+      const err = validateLoginIdentifier(val)
+      if (err) ctx.addIssue({ code: "custom", message: err })
+    }),
   password: z.string().min(1, "Password is required"),
 })
 
@@ -55,7 +63,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
 
   const form = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { identifier: "", password: "" },
     mode: "onSubmit",
   })
 
@@ -86,7 +94,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
 
     try {
       const res = await postJson<LoginResponse>("/login", {
-        ...values,
+        ...loginRequestFields(values.identifier, values.password),
         captcha_token: policy?.captcha_enabled ? (captchaToken.trim() || undefined) : undefined,
       })
 
@@ -159,7 +167,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
         <CardHeader className="space-y-1">
           <CardTitle className="text-base">{mfaChallenge ? "Authenticator code" : "Admin login"}</CardTitle>
           <CardDescription>
-            {mfaChallenge ? "Enter the code from your app." : "Sign in with your email and password."}
+            {mfaChallenge ? "Enter the code from your app." : "Sign in with email or username and password."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -201,17 +209,17 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
           ) : (
             <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)}>
               <div className="space-y-1.5">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="identifier">Email or username</Label>
                 <Input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="admin@example.com"
-                  aria-invalid={!!form.formState.errors.email}
-                  {...form.register("email")}
+                  id="identifier"
+                  type="text"
+                  autoComplete="username"
+                  placeholder="admin@example.com or admin"
+                  aria-invalid={!!form.formState.errors.identifier}
+                  {...form.register("identifier")}
                 />
-                {form.formState.errors.email?.message ? (
-                  <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
+                {form.formState.errors.identifier?.message ? (
+                  <p className="text-xs text-destructive">{form.formState.errors.identifier.message}</p>
                 ) : null}
               </div>
 
@@ -226,9 +234,8 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
                     Forgot password?
                   </Link>
                 </div>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   autoComplete="current-password"
                   aria-invalid={!!form.formState.errors.password}
                   {...form.register("password")}

@@ -1,6 +1,6 @@
 import * as React from "react"
 import {
-  BarChart3,
+  ChevronDown,
   ClipboardList,
   Factory,
   KeyRound,
@@ -10,7 +10,6 @@ import {
   ShoppingCart,
   PanelLeft,
   Settings,
-  Settings2,
   Shield,
   User2,
   Users,
@@ -18,6 +17,7 @@ import {
 import type { LucideIcon } from "lucide-react"
 import { Link, useLocation } from "react-router-dom"
 
+import { ProfileDialog } from "@/components/profile-dialog"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,7 +29,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
-import { hasAnyNonUsersRbacPermission, hasPermission } from "@/lib/permissions"
+import {
+  canAccessTasks,
+  hasAnyNonUsersRbacPermission,
+  hasPermission,
+  TASK_ACCESS_PERMISSIONS,
+} from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
 type NavPerm = string | string[] | null
@@ -91,7 +96,7 @@ const shellNavItems: ShellNavItem[] = [
     label: "My tasks",
     icon: ClipboardList,
     to: "/dashboard/tasks",
-    permission: "approval.view",
+    permission: [...TASK_ACCESS_PERMISSIONS],
   },
   {
     id: "plants", 
@@ -125,6 +130,7 @@ const shellNavItems: ShellNavItem[] = [
 
 function navItemVisible(item: ShellNavItem): boolean {
   if (item.hideWhenOnlyUsersModule && !hasAnyNonUsersRbacPermission()) return false
+  if (item.id === "tasks") return canAccessTasks()
   const p = item.permission
   if (p === null) return true
   if (Array.isArray(p)) return p.some((c) => hasPermission(c))
@@ -148,7 +154,10 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
 
   const activeItem = visibleNav.find((item) => pathMatchesNav(location.pathname, item.to))
   const title = activeItem?.label ?? "Dashboard"
+  const isAssetsWorkspace = location.pathname.startsWith("/dashboard/assets")
+  const isAssetDetailPage = /^\/dashboard\/assets\/\d+/.test(location.pathname)
 
+  const [profileOpen, setProfileOpen] = React.useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
   React.useEffect(() => {
     try {
@@ -242,64 +251,84 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b bg-white px-5 lg:px-6">
-          <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border/80 bg-white/95 px-5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/80 lg:px-6">
+          <div className="flex min-w-0 items-center gap-3">
             <Button
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="hidden lg:inline-flex"
+              className="hidden shrink-0 lg:inline-flex"
               onClick={toggleSidebar}
               aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
             >
               <PanelLeft className="size-4 opacity-80" aria-hidden />
             </Button>
-            <div className="flex flex-col">
-              <h1 className="truncate text-sm font-medium">{title}</h1>
-              <div className="truncate text-xs text-muted-foreground lg:hidden">Ultra Workspace</div>
-            </div>
+            <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
           </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="rounded-full">
-                <Avatar size="sm">
-                  <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 gap-2.5 rounded-full border-border bg-card py-1.5 pr-3 pl-1.5 shadow-sm hover:bg-muted/40"
+              >
+                <Avatar className="size-9 ring-2 ring-primary/15">
+                  <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
+                    {initials}
+                  </AvatarFallback>
                 </Avatar>
+                <span className="hidden max-w-[160px] truncate text-sm font-medium md:inline">
+                  {userEmail ?? "Account"}
+                </span>
+                <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuLabel className="font-normal">
-                <span className="text-xs text-muted-foreground">Signed in</span>
-                <div className="truncate text-sm font-medium">{userEmail ?? "—"}</div>
+            <DropdownMenuContent align="end" className="w-72 rounded-xl p-3 shadow-lg" sideOffset={8}>
+              <DropdownMenuLabel className="space-y-1 px-1 pb-3 font-normal">
+                <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Signed in as
+                </span>
+                <div className="truncate text-sm font-semibold text-foreground">{userEmail ?? "—"}</div>
               </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <User2 className="mr-2 size-4 opacity-70" aria-hidden />
+              <DropdownMenuItem
+                className="h-10 cursor-pointer gap-2 rounded-lg px-2 text-sm font-medium"
+                onSelect={(e) => {
+                  e.preventDefault()
+                  setProfileOpen(true)
+                }}
+              >
+                <User2 className="size-4 text-muted-foreground" aria-hidden />
                 Profile
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Settings2 className="mr-2 size-4 opacity-70" aria-hidden />
-                Preferences
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              <DropdownMenuSeparator className="my-2" />
               <DropdownMenuItem
+                className="h-10 cursor-pointer justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground"
                 onSelect={(e) => {
                   e.preventDefault()
                   onSignOut?.()
                 }}
               >
-                <LogOut className="mr-2 size-4 opacity-70" aria-hidden />
+                <LogOut className="size-4" aria-hidden />
                 Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-5 lg:px-8 lg:py-6">
+        <main
+          className={cn(
+            "min-h-0 flex-1 overflow-auto",
+            isAssetDetailPage && "px-4 py-3 sm:px-6",
+            isAssetsWorkspace && !isAssetDetailPage && "p-1.5 sm:p-2",
+            !isAssetsWorkspace && "px-4 py-5 sm:px-5 lg:px-8 lg:py-6",
+          )}
+        >
           <div className="w-full">{children}</div>
         </main>
       </div>
+
+      <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
     </div>
   )
 }

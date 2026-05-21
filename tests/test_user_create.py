@@ -27,7 +27,7 @@ def db() -> Session:
 
 
 def test_create_user_assigns_role_and_org(db: Session) -> None:
-    plant = OrgUnit(name="Plant A", type="PLANT")
+    plant = OrgUnit(name="Plant A", code="PLT-A", type="PLANT")
     role = Role(name="Operator", description=None)
     db.add_all([plant, role])
     db.commit()
@@ -55,7 +55,7 @@ def test_create_user_assigns_role_and_org(db: Session) -> None:
 
 
 def test_duplicate_phone_fails(db: Session) -> None:
-    plant = OrgUnit(name="Plant A", type="PLANT")
+    plant = OrgUnit(name="Plant A", code="PLT-A", type="PLANT")
     role = Role(name="Operator", description=None)
     db.add_all([plant, role])
     db.commit()
@@ -89,7 +89,7 @@ def test_duplicate_phone_fails(db: Session) -> None:
 
 
 def test_missing_role_fails(db: Session) -> None:
-    plant = OrgUnit(name="Plant A", type="PLANT")
+    plant = OrgUnit(name="Plant A", code="PLT-A", type="PLANT")
     db.add(plant)
     db.commit()
     db.refresh(plant)

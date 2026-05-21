@@ -79,7 +79,7 @@ def dashboard_summary(
 
     can_users = _has(grants, "users.view")
     can_plants = _has_any(grants, "org_units.view", "org_units.create", "org_units.update", "org_units.delete")
-    can_tasks = _has(grants, "approval.view")
+    can_tasks = _has_any(grants, "approval.view", "task.view", "task.act")
     can_roles = _has_any(grants, "roles.view", "roles.create", "roles.update")
     can_permissions = _has_any(grants, "permissions.view", "permissions.create")
     can_settings = _has(grants, "settings.update")
@@ -101,7 +101,10 @@ def dashboard_summary(
         series["users_created_last_7_days"] = _last_n_days_counts(db, column=User.created_at, select_from=User, n_days=7)
 
     if can_plants:
-        counts["plants_total"] = _scalar_int(db, select(func.count()).select_from(OrgUnit))
+        counts["plants_total"] = _scalar_int(
+            db,
+            select(func.count()).select_from(OrgUnit).where(OrgUnit.type == "PLANT"),
+        )
 
     if can_tasks:
         counts["my_pending_tasks"] = _scalar_int(

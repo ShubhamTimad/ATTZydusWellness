@@ -69,11 +69,18 @@ def get_workflow_for_action(db: Session, action_code: str) -> ApprovalWorkflow |
             if wf is not None:
                 return wf
 
-    # Backward compatibility: old deployments used entity_type workflows for user creation.
-    if (canonical is not None and canonical in users_create_variants) or raw in users_create_variants:
-        from modules.approvals.service import ApprovalWorkflowService
+    # Backward compatibility: entity_type workflows when no mapping row exists.
+    from modules.approvals.service import ApprovalWorkflowService
 
-        return ApprovalWorkflowService(db).get_active_workflow_for_entity("user_creation")
+    wf_svc = ApprovalWorkflowService(db)
+    asset_create_variants = _permission_code_variants("asset.create")
+    asset_import_variants = _permission_code_variants("asset.import")
+    if (canonical is not None and canonical in users_create_variants) or raw in users_create_variants:
+        return wf_svc.get_active_workflow_for_entity("user_creation")
+    if (canonical is not None and canonical in asset_create_variants) or raw in asset_create_variants:
+        return wf_svc.get_active_workflow_for_entity("asset_creation")
+    if (canonical is not None and canonical in asset_import_variants) or raw in asset_import_variants:
+        return wf_svc.get_active_workflow_for_entity("asset_import")
 
     return None
 

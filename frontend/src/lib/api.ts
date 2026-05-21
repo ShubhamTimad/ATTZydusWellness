@@ -51,13 +51,25 @@ export async function getJson<TResponse>(
   })
 
   const text = await res.text()
-  const data = text ? (JSON.parse(text) as unknown) : undefined
+  const data = parseResponseBody(text)
 
   if (!res.ok) {
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 
   return data as TResponse
+}
+
+function parseResponseBody(text: string): unknown {
+  if (!text) return undefined
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    const hint = text.trimStart().startsWith("<")
+      ? "Server returned HTML instead of JSON. In dev, ensure Vite proxies API paths (e.g. /dashboard) to the backend, or set VITE_API_URL=http://localhost:8000."
+      : "Server returned invalid JSON."
+    throw new Error(hint)
+  }
 }
 
 export async function postJson<TResponse>(
@@ -80,7 +92,7 @@ export async function postJson<TResponse>(
   })
 
   const text = await res.text()
-  const data = text ? (JSON.parse(text) as unknown) : undefined
+  const data = parseResponseBody(text)
 
   if (!res.ok) {
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
@@ -109,7 +121,7 @@ export async function patchJson<TResponse>(
   })
 
   const text = await res.text()
-  const data = text ? (JSON.parse(text) as unknown) : undefined
+  const data = parseResponseBody(text)
 
   if (!res.ok) {
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
@@ -138,7 +150,7 @@ export async function putJson<TResponse>(
   })
 
   const text = await res.text()
-  const data = text ? (JSON.parse(text) as unknown) : undefined
+  const data = parseResponseBody(text)
 
   if (!res.ok) {
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
@@ -164,7 +176,7 @@ export async function deleteJson(
   })
 
   const text = await res.text()
-  const data = text ? (JSON.parse(text) as unknown) : undefined
+  const data = parseResponseBody(text)
 
   if (!res.ok) {
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)

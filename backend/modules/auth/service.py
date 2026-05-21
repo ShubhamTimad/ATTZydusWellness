@@ -24,6 +24,9 @@ from modules.auth.model import PasswordResetToken, UserSession
 from core.permissions import get_flat_permission_codes_for_user
 from modules.auth.login_result import (
     CaptchaInvalidError,
+    ForgotPasswordAccountInactiveError,
+    ForgotPasswordDeliveryError,
+    ForgotPasswordUserNotFoundError,
     LoginOutcome,
     LoginOutcomeMfaOtp,
     LoginOutcomeMfaSetup,
@@ -204,10 +207,13 @@ class AuthService:
     def forgot_password(self, *, email: str) -> None:
         email_norm = (email or "").strip().lower()
         if not email_norm or "@" not in email_norm:
-            return
+            raise ForgotPasswordUserNotFoundError()
+
         user = self._db.scalar(select(User).where(User.email == email_norm))
-        if user is None or not user.is_active:
-            return
+        if user is None:
+            raise ForgotPasswordUserNotFoundError()
+        if not user.is_active:
+            raise ForgotPasswordAccountInactiveError()
 
         raw = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -225,14 +231,23 @@ class AuthService:
             "/"
         )
         reset_link = f"{base}/reset-password?token={quote(raw, safe='')}"
-        EmailNotificationService(self._db).trigger_event(
+        result = EmailNotificationService(self._db).trigger_event(
             event_code="FORGOT_PASSWORD",
             payload={
                 "user_name": user.full_name,
                 "email": user.email,
                 "reset_link": reset_link,
+                "company_name": "Ultra Workspace",
             },
         )
+        if result.status != "sent":
+            hint = result.error or "Email could not be sent."
+            if result.status == "skipped":
+                hint = (
+                    "Password reset email is not configured. Enable the FORGOT_PASSWORD template mapping "
+                    "and SMTP in Settings."
+                )
+            raise ForgotPasswordDeliveryError(hint)
 
     def reset_password(self, *, token: str, new_password: str) -> None:
         raw = (token or "").strip()
@@ -264,5 +279,9 @@ class AuthService:
         if user.email:
             EmailNotificationService(self._db).trigger_event(
                 event_code="PASSWORD_RESET",
-                payload={"user_name": user.full_name, "email": user.email},
+                payload={
+                    "user_name": user.full_name,
+                    "email": user.email,
+                    "company_name": "Ultra Workspace",
+                },
             )

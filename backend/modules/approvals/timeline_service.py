@@ -31,6 +31,21 @@ def resolve_db_entity(
         return ("user_creation", entity_id)
     if low == "user_creation":
         return ("user_creation", entity_id)
+    if low == "asset":
+        row = db.execute(
+            select(ApprovalRequest.entity_type, ApprovalRequest.entity_id)
+            .where(
+                ApprovalRequest.entity_id == entity_id,
+                ApprovalRequest.entity_type.in_(("asset_creation", "asset_import")),
+            )
+            .order_by(ApprovalRequest.id.desc())
+            .limit(1)
+        ).first()
+        if row is not None:
+            return (str(row[0]), int(row[1]))
+        return ("asset_creation", entity_id)
+    if low in ("asset_creation", "asset_import"):
+        return (low, entity_id)
     row = db.execute(
         select(ApprovalRequest.entity_type, ApprovalRequest.entity_id)
         .where(

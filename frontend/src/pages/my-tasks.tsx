@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ApiError, getJson } from "@/lib/api"
-import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
+import { canAccessTasks, persistAuthFromMe } from "@/lib/permissions"
 
 type UnifiedTaskRow = {
   id: number
@@ -47,7 +47,7 @@ function InboxTable({ rows, loading, canView, emptyMessage, onOpen }: InboxTable
             {(rows ?? []).length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-muted-foreground">
-                  {!canView ? "Missing permission: task.view" : loading ? "Loading…" : emptyMessage}
+                  {!canView ? "Missing permission: task.view (or related task access)" : loading ? "Loading…" : emptyMessage}
                 </TableCell>
               </TableRow>
             ) : (
@@ -79,7 +79,7 @@ export function MyTasksPage() {
   const navigate = useNavigate()
 
   const [, forcePermRefresh] = React.useReducer((x: number) => x + 1, 0)
-  const canView = hasPermission("task.view")
+  const canView = canAccessTasks()
 
   const syncMe = React.useCallback(async () => {
     try {
