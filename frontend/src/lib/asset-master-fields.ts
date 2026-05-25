@@ -106,6 +106,8 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   asset_category_id: "Asset category",
   functional_location: "Functional location",
   actual_location: "Actual location",
+  building: "Building",
+  floor: "Floor",
   physical_count: "Physical count",
   last_verification_date: "Last verification date",
 }
@@ -127,7 +129,9 @@ export type AssetViewSectionConfig = {
   fieldStorage?: Partial<Record<string, AssetViewSectionId>>
 }
 
-/** Section configs — field counts balanced (~6 per panel) for even 2×2 layout. */
+/**
+ * Four panels, six fields each — 2×2 grid (row 1: information | location, row 2: financial | procurement).
+ */
 export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
   {
     id: "information",
@@ -146,7 +150,13 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
     id: "location",
     title: "Location",
     showPlant: true,
-    keys: ["sub_location", "functional_location", "actual_location"],
+    keys: [
+      "sub_location",
+      "functional_location",
+      "actual_location",
+      "building",
+      "floor",
+    ],
   },
   {
     id: "financial",
@@ -158,12 +168,15 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
       "depreciation_rate",
       "life_span",
       "put_to_use_date",
+      "voucher_date",
+      "grn_no",
+      "grn_date",
     ],
-    dateFields: ["put_to_use_date"],
+    dateFields: ["put_to_use_date", "voucher_date", "grn_date"],
   },
   {
     id: "inventory",
-    title: "Inventory & documents",
+    title: "Inventory & procurement",
     keys: [
       "inventory_count",
       "physical_count",
@@ -171,25 +184,16 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
       "invoice_no",
       "invoice_date",
       "voucher_no",
-      "voucher_date",
-      "grn_no",
-      "grn_date",
     ],
-    dateFields: ["invoice_date", "voucher_date", "grn_date"],
+    dateFields: ["invoice_date"],
     readOnlyKeys: ["inventory_count", "physical_count", "last_verification_date"],
     fieldStorage: {
       invoice_no: "financial",
       invoice_date: "financial",
       voucher_no: "financial",
-      voucher_date: "financial",
-      grn_no: "financial",
-      grn_date: "financial",
     },
   },
 ]
 
-/** Column pairing for asset detail: stacks panels so row heights stay balanced. */
-export const ASSET_VIEW_COLUMNS: AssetViewSectionId[][] = [
-  ["information", "location"],
-  ["financial", "inventory"],
-]
+/** Shared min height so all four panels align in the 2×2 grid (tallest block ≈9 rows). */
+export const ASSET_VIEW_PANEL_MIN_HEIGHT = "min-h-[22.5rem]"

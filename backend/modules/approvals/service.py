@@ -271,13 +271,16 @@ class ApprovalEngineService:
         # Keep a guardrail: if there are zero active users in the role, fail fast (same as legacy).
         if not self._users_for_role(step.approver_role_id):
             raise ConflictError("No active approvers found for the configured approver role.")
+        from modules.assets.lifecycle import approval_task_title
+
+        payload = dict(req.payload) if isinstance(req.payload, dict) else {}
         task = ApprovalTask(
             request_id=req.id,
             step_id=step.id,
             assigned_user_id=None,
             assigned_role_id=step.approver_role_id,
             task_type="approval",
-            title=f"Approval: {req.entity_type}",
+            title=approval_task_title(str(req.entity_type), payload),
             priority="medium",
             status="pending",
             acted_at=None,
@@ -354,28 +357,46 @@ class ApprovalEngineService:
         if req.created_by != actor_user_id and not bool(actor.is_superuser):
             raise ApprovalError("Only the person who submitted this request can resubmit it.")
 
-        if str(req.entity_type) != "user_creation":
-            raise ApprovalError("Resubmit is only implemented for user-creation approvals.")
+        entity_type = str(req.entity_type)
+        if entity_type == "user_creation":
+            user = self._db.scalar(
+                select(User)
+                .where(User.id == int(req.entity_id))
+                .options(selectinload(User.roles), selectinload(User.org_units))
+            )
+            if user is None:
+                raise NotFoundError("User", int(req.entity_id))
 
-        user = self._db.scalar(
-            select(User)
-            .where(User.id == int(req.entity_id))
-            .options(selectinload(User.roles), selectinload(User.org_units))
-        )
-        if user is None:
-            raise NotFoundError("User", int(req.entity_id))
+            prev_temp_password: str | None = None
+            if isinstance(req.payload, dict):
+                raw_prev = req.payload.get("temp_password")
+                if isinstance(raw_prev, str) and raw_prev.strip():
+                    prev_temp_password = raw_prev
 
-        # Preserve original temporary password across resubmits so the final "USER_CREATED"
-        # email can still include the initial credential if the template requires it.
-        prev_temp_password: str | None = None
-        if isinstance(req.payload, dict):
-            raw_prev = req.payload.get("temp_password")
-            if isinstance(raw_prev, str) and raw_prev.strip():
-                prev_temp_password = raw_prev
+            req.payload = self._build_user_creation_payload(user)
+            if prev_temp_password and isinstance(req.payload, dict) and not req.payload.get("temp_password"):
+                req.payload["temp_password"] = prev_temp_password
+        elif entity_type in ("asset_creation", "asset_import"):
+            from modules.assets.lifecycle import refresh_asset_request_payload, set_asset_pending_approval
+            from modules.assets.model import AssetMaster
 
-        req.payload = self._build_user_creation_payload(user)
-        if prev_temp_password and isinstance(req.payload, dict) and not req.payload.get("temp_password"):
-            req.payload["temp_password"] = prev_temp_password
+            asset = self._db.get(AssetMaster, int(req.entity_id))
+            if asset is None:
+                raise NotFoundError("AssetMaster", int(req.entity_id))
+            action_code = "asset.import" if entity_type == "asset_import" else "asset.create"
+            extra: dict[str, Any] = {}
+            if entity_type == "asset_import" and isinstance(req.payload, dict):
+                batch_id = req.payload.get("batch_id")
+                if batch_id is not None:
+                    extra["batch_id"] = batch_id
+            req.payload = refresh_asset_request_payload(asset, action_code=action_code)
+            if extra:
+                req.payload.update(extra)
+            set_asset_pending_approval(asset)
+        else:
+            raise ApprovalError(
+                "Resubmit is only implemented for user creation and asset approval requests."
+            )
 
         now = _now_utc()
         # Close any existing open rework tasks (and log resubmitted on them).
@@ -462,12 +483,10 @@ class ApprovalEngineService:
 
     @staticmethod
     def _entity_name_for_request(req: ApprovalRequest) -> str:
-        if isinstance(req.payload, dict):
-            if req.entity_type == "user_creation":
-                nm = req.payload.get("full_name")
-                if isinstance(nm, str) and nm.strip():
-                    return nm.strip()
-        return f"{req.entity_type}:{req.entity_id}"
+        from modules.assets.lifecycle import entity_display_name
+
+        payload = req.payload if isinstance(req.payload, dict) else {}
+        return entity_display_name(str(req.entity_type), payload, int(req.entity_id))
 
     def _notify_creator_and_peers(self, *, creator_user_id: int, event_code: str, payload: dict[str, Any]) -> None:
         """
@@ -607,9 +626,6 @@ class ApprovalEngineService:
                     asset_id=int(req.entity_id),
                     approver_user_id=actor_user_id,
                 )
-                req.status = "rejected"
-                self._db.commit()
-                return self.get_request(req.id)
 
             # Move request into rework state (do not keep it "pending").
             req.status = "in_rework"
@@ -635,9 +651,17 @@ class ApprovalEngineService:
                 )
             )
             if existing_rework is None and req.created_by is not None:
+                from modules.assets.lifecycle import approval_task_title
+
+                payload = dict(req.payload) if isinstance(req.payload, dict) else {}
+                rework_title = (
+                    f"Rework: {approval_task_title(str(req.entity_type), payload)}"
+                    if str(req.entity_type) in ("asset_creation", "asset_import")
+                    else "Rework required"
+                )
                 rework_task = ApprovalTask(
                     task_type="rework",
-                    title="Rework required",
+                    title=rework_title,
                     description=comment,
                     priority="medium",
                     entity_type=req.entity_type,

@@ -162,9 +162,6 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
 
   const activeItem = visibleNav.find((item) => pathMatchesNav(location.pathname, item.to))
   const title = activeItem?.label ?? "Dashboard"
-  const isAssetsWorkspace = location.pathname.startsWith("/dashboard/assets")
-  const isAssetDetailPage = /^\/dashboard\/assets\/\d+/.test(location.pathname)
-
   const [profileOpen, setProfileOpen] = React.useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
   React.useEffect(() => {
@@ -197,11 +194,11 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
   }, [userEmail])
 
   return (
-    <div className="flex h-svh min-h-0 w-full bg-gray-50 text-foreground">
+    <div className="flex h-svh min-h-0 w-full app-canvas text-foreground">
       <aside
         className={cn(
-          "hidden min-h-0 shrink-0 flex-col border-r bg-white transition-[width] duration-200 lg:flex",
-          isSidebarCollapsed ? "w-16" : "w-64"
+          "hidden min-h-0 shrink-0 flex-col border-r border-border/80 bg-card shadow-[var(--app-shadow-surface)] transition-[width] duration-200 lg:flex",
+          isSidebarCollapsed ? "w-16" : "w-60"
         )}
       >
         <div
@@ -221,7 +218,10 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
         </div>
         <Separator className="shrink-0" />
         <div className="flex min-h-0 flex-1 flex-col">
-          <nav className={cn("flex flex-col gap-0.5", isSidebarCollapsed ? "p-2" : "p-2")} aria-label="Workspace">
+          <nav
+            className={cn("flex flex-col gap-1 px-2 py-3", isSidebarCollapsed && "px-1.5")}
+            aria-label="Workspace"
+          >
             {visibleNav.map((item) => {
               const Icon = item.icon
               const isActive = pathMatchesNav(location.pathname, item.to)
@@ -233,15 +233,23 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
                   size="sm"
                   title={isSidebarCollapsed ? item.label : undefined}
                   className={cn(
-                    "h-9 w-full text-left font-normal",
-                    isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-2",
-                    "hover:bg-muted hover:text-foreground",
-                    isActive && "bg-muted text-foreground hover:bg-muted"
+                    "relative h-9 w-full rounded-[calc(var(--app-radius-surface)-2px)] text-left font-medium",
+                    isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-2.5 pl-3",
+                    "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                    isActive &&
+                      "border-l-2 border-primary bg-primary/8 pl-[calc(0.75rem-2px)] text-primary hover:bg-primary/10 hover:text-primary",
+                    isActive && isSidebarCollapsed && "border-l-0 bg-primary/10 pl-0 text-primary",
                   )}
                   asChild
                 >
                   <Link to={item.to}>
-                    <Icon className="size-4 shrink-0 opacity-70" aria-hidden />
+                    <Icon
+                      className={cn(
+                        "size-4 shrink-0",
+                        isActive ? "text-primary opacity-100" : "opacity-70",
+                      )}
+                      aria-hidden
+                    />
                     {!isSidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
                   </Link>
                 </Button>
@@ -250,7 +258,7 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
           </nav>
           {!isSidebarCollapsed ? (
             <div className="mt-auto border-t border-border/60 p-3">
-              <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-[11px] leading-snug text-muted-foreground">
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/25 px-3 py-2.5 text-[11px] leading-snug text-muted-foreground">
                 Master data and admin tasks appear here when your role allows.
               </div>
             </div>
@@ -259,7 +267,7 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border/80 bg-white/95 px-5 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/80 lg:px-6">
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border/80 bg-card/95 px-[var(--app-page-padding)] shadow-[var(--app-shadow-surface)] backdrop-blur supports-[backdrop-filter]:bg-card/90">
           <div className="flex min-w-0 items-center gap-3">
             <Button
               type="button"
@@ -271,7 +279,7 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
             >
               <PanelLeft className="size-4 opacity-80" aria-hidden />
             </Button>
-            <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
+            <h1 className="truncate text-base font-semibold tracking-tight text-foreground">{title}</h1>
           </div>
 
           <DropdownMenu>
@@ -324,15 +332,8 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
           </DropdownMenu>
         </header>
 
-        <main
-          className={cn(
-            "min-h-0 flex-1 overflow-auto",
-            isAssetDetailPage && "px-4 py-3 sm:px-6",
-            isAssetsWorkspace && !isAssetDetailPage && "p-1.5 sm:p-2",
-            !isAssetsWorkspace && "px-4 py-5 sm:px-5 lg:px-8 lg:py-6",
-          )}
-        >
-          <div className="w-full">{children}</div>
+        <main className="flex min-h-0 flex-1 flex-col overflow-auto p-[var(--app-page-padding)]">
+          <div className="flex min-h-0 w-full flex-1 flex-col">{children}</div>
         </main>
       </div>
 

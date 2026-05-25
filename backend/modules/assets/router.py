@@ -18,6 +18,8 @@ from modules.assets.schema import (
     ImportConfirmResponse,
     ImportPreviewResponse,
     ImportValidateRequest,
+    SubmitForApprovalRequest,
+    SubmitForApprovalResponse,
 )
 from modules.assets.service import (
     AssetMasterService,
@@ -68,6 +70,34 @@ def list_assets(
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
+
+
+@router.post("/submit-for-approval", response_model=SubmitForApprovalResponse)
+def submit_assets_for_approval(
+    body: SubmitForApprovalRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.create"))],
+) -> SubmitForApprovalResponse:
+    try:
+        return svc.submit_for_approval(body.asset_ids, actor_user_id=int(current.subject))
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/{asset_id}/submit-for-approval", response_model=SubmitForApprovalResponse)
+def submit_asset_for_approval(
+    asset_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.create"))],
+) -> SubmitForApprovalResponse:
+    try:
+        return svc.submit_for_approval([asset_id], actor_user_id=int(current.subject))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.get("/{asset_id}", response_model=AssetDetailPublic)

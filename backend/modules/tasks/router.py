@@ -10,6 +10,8 @@ from core.auth import CurrentUser, get_current_user
 from core.permissions import require_permission
 from db.session import get_db
 from modules.errors import NotFoundError
+from modules.assets.schema import AssetDetailPublic
+from modules.assets.service import AssetMasterService
 from modules.tasks.schema import (
     TaskAssignRequest,
     TaskCommentCreateRequest,
@@ -18,6 +20,13 @@ from modules.tasks.schema import (
     TaskInboxItem,
 )
 from modules.tasks.service import TaskService, build_task_detail_public
+
+
+def get_asset_service(db: Session = Depends(get_db)) -> AssetMasterService:
+    return AssetMasterService(db)
+
+
+_ASSET_APPROVAL_ENTITY_TYPES = frozenset({"asset_creation", "asset_import"})
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -51,12 +60,19 @@ def my_tasks(
         limit=limit,
         inbox=inbox,
     )
+    from modules.assets.lifecycle import approval_task_title
+
     out: list[TaskInboxItem] = []
     for t in rows:
         title = t.title
         if not title:
             if str(t.task_type) == "approval" and t.request is not None:
-                title = f"Approval: {t.request.entity_type} #{t.request.entity_id}"
+                payload = t.request.payload if isinstance(t.request.payload, dict) else {}
+                title = approval_task_title(str(t.request.entity_type), payload)
+            elif str(t.task_type) == "rework" and t.request is not None:
+                payload = t.request.payload if isinstance(t.request.payload, dict) else {}
+                base = approval_task_title(str(t.request.entity_type), payload)
+                title = f"Rework: {base}"
             elif str(t.task_type) == "manual":
                 title = "Manual task"
             else:
@@ -101,6 +117,33 @@ def get_task(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
 
     return build_task_detail_public(db, t)
+
+
+@router.get("/{task_id}/asset", response_model=AssetDetailPublic)
+def get_task_asset_detail(
+    task_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[TaskService, Depends(get_task_service)],
+    asset_svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("task.view"))],
+) -> AssetDetailPublic:
+    """Full asset master record for approvers (does not require ``asset.view``)."""
+    try:
+        t = svc.get_task(task_id=task_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    if not svc.viewer_can_access_task(task=t, viewer_id=int(current.subject)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied")
+
+    req = t.request
+    if req is None or str(req.entity_type) not in _ASSET_APPROVAL_ENTITY_TYPES:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task is not linked to an asset.")
+
+    try:
+        return asset_svc.get_asset(int(req.entity_id))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.post("", response_model=TaskDetailPublic, status_code=status.HTTP_201_CREATED)

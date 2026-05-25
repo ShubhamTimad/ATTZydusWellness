@@ -8,20 +8,22 @@ import { TableCell, TableHead, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
 /** Shared panel surface for tables, forms, and detail blocks. */
-export const adminPanelClass =
-  "overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm"
+export const adminPanelClass = "app-panel"
 
 export const adminSelectClass =
-  "flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm shadow-sm transition-colors outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15"
+  "flex h-9 w-full rounded-lg border border-input bg-background px-3 text-sm shadow-sm transition-colors outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15"
 
 export const adminTextareaClass =
-  "min-h-[120px] w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-sm shadow-sm transition-colors outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15"
+  "min-h-[120px] w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm shadow-sm transition-colors outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15"
 
 export const adminSwitchRowClass =
-  "flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-muted/10 px-4 py-3"
+  "flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-muted/15 px-4 py-3"
 
-/** Standard admin tabs list styling */
-export const adminTabsListClass = "h-10 rounded-lg bg-muted/40 p-1"
+/** Workspace tab bar — compact, no stretched triggers */
+export const adminTabsListClass =
+  "h-auto min-h-10 w-fit max-w-full flex-wrap gap-1 rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/35 p-1"
+
+export const adminTabsTriggerClass = "h-8 shrink-0 px-3.5"
 
 export function AdminPanel({
   title,
@@ -43,21 +45,19 @@ export function AdminPanel({
   return (
     <div className={cn(adminPanelClass, className)}>
       {title || description || headerActions ? (
-        <div className="flex items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
+        <div className="app-panel-header">
           <div className="min-w-0">
-            {title ? <h3 className="text-sm font-semibold text-foreground">{title}</h3> : null}
+            {title ? <h3 className="app-panel-title">{title}</h3> : null}
             {description ? (
-              <p className={cn("text-xs leading-relaxed text-muted-foreground", title && "mt-1")}>
-                {description}
-              </p>
+              <p className={cn("app-panel-description", title && "mt-1")}>{description}</p>
             ) : null}
           </div>
-          {headerActions ? <div className="shrink-0">{headerActions}</div> : null}
+          {headerActions ? <div className="flex shrink-0 items-center gap-2">{headerActions}</div> : null}
         </div>
       ) : null}
       <div className={cn(contentClassName)}>{children}</div>
       {footer ? (
-        <div className="border-t border-border/60 bg-muted/20 px-5 py-3 text-xs text-muted-foreground">
+        <div className="border-t border-border/60 bg-muted/20 px-[var(--app-card-padding)] py-3 text-xs text-muted-foreground">
           {footer}
         </div>
       ) : null}
@@ -73,7 +73,12 @@ export function AdminTableHeaderRow({
   className?: string
 }) {
   return (
-    <TableRow className={cn("border-b border-border/60 bg-muted/20 hover:bg-muted/20", className)}>
+    <TableRow
+      className={cn(
+        "border-b border-border/70 bg-muted/30 hover:bg-muted/30",
+        className,
+      )}
+    >
       {children}
     </TableRow>
   )
@@ -89,7 +94,7 @@ export function AdminTableHeadCell({
   return (
     <TableHead
       className={cn(
-        "h-11 px-5 text-xs font-semibold tracking-wide text-muted-foreground",
+        "h-11 px-4 text-xs font-semibold tracking-wide text-muted-foreground",
         className,
       )}
     >
@@ -105,7 +110,16 @@ export function AdminTableCell({
   children: React.ReactNode
   className?: string
 }) {
-  return <TableCell className={cn("px-5 py-4 align-middle text-sm", className)}>{children}</TableCell>
+  return (
+    <TableCell
+      className={cn(
+        "h-[var(--app-table-row-height)] px-4 py-0 align-middle text-sm",
+        className,
+      )}
+    >
+      {children}
+    </TableCell>
+  )
 }
 
 export function AdminStatusBadge({ active }: { active: boolean }) {
@@ -129,7 +143,7 @@ export function AdminDetailGrid({
   children: React.ReactNode
   className?: string
 }) {
-  return <dl className={cn("grid gap-5 sm:grid-cols-2", className)}>{children}</dl>
+  return <dl className={cn("grid gap-4 sm:grid-cols-2", className)}>{children}</dl>
 }
 
 export function AdminDetailField({
@@ -151,9 +165,9 @@ export function AdminDetailField({
 
 export function AdminBackLink({ to, children = "Back" }: { to: string; children?: React.ReactNode }) {
   return (
-    <Button asChild variant="outline" size="sm" className="h-9 gap-1.5 shadow-sm">
+    <Button asChild variant="outline" size="sm">
       <Link to={to}>
-        <ArrowLeft className="size-3.5" aria-hidden />
+        <ArrowLeft className="size-4" aria-hidden />
         {children}
       </Link>
     </Button>
@@ -164,13 +178,7 @@ export function AdminPrimaryButton({
   className,
   ...props
 }: React.ComponentProps<typeof Button>) {
-  return (
-    <Button
-      size="sm"
-      className={cn("h-9 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90", className)}
-      {...props}
-    />
-  )
+  return <Button size="sm" className={cn(className)} {...props} />
 }
 
 export function AdminDangerButton({
@@ -181,10 +189,27 @@ export function AdminDangerButton({
     <Button
       size="sm"
       className={cn(
-        "h-9 bg-red-600 text-white shadow-sm hover:bg-red-700 focus-visible:ring-red-600/30",
+        "bg-red-600 text-white shadow-sm hover:bg-red-700 focus-visible:ring-red-600/30",
         className,
       )}
       {...props}
     />
+  )
+}
+
+/** Centered empty row for data tables */
+export function AdminTableEmptyRow({
+  colSpan,
+  children,
+}: {
+  colSpan: number
+  children: React.ReactNode
+}) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="app-empty-state">
+        {children}
+      </td>
+    </tr>
   )
 }

@@ -11,7 +11,8 @@ import {
   YAxis,
 } from "recharts"
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ChartPanel, DashboardSectionTitle, KpiCard } from "@/components/dashboard/dashboard-kpi"
+import { BRAND_COLOR } from "@/lib/brand"
 
 export type UsersByRoleRow = { role: string; count: number }
 
@@ -23,71 +24,62 @@ export type UsersDashboardModule = {
   users_by_role: UsersByRoleRow[]
 }
 
-function StatCard({ title, value, hint }: { title: string; value: React.ReactNode; hint?: string }) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-        {hint ? <CardDescription className="text-xs">{hint}</CardDescription> : null}
-      </CardHeader>
-      <CardContent className="text-2xl font-semibold tracking-tight">{value}</CardContent>
-    </Card>
-  )
-}
-
 export function UserDashboard({ data }: { data: UsersDashboardModule }) {
   const roleData = React.useMemo(
     () => (data.users_by_role ?? []).map((r) => ({ name: r.role, value: r.count })),
-    [data.users_by_role]
+    [data.users_by_role],
   )
   const activeInactive = React.useMemo(
     () => [
       { name: "Active", value: data.active_users },
       { name: "Inactive", value: data.inactive_users },
     ],
-    [data.active_users, data.inactive_users]
+    [data.active_users, data.inactive_users],
   )
 
   return (
-    <section className="grid gap-4">
-      <div>
-        <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-          User dashboard <span className="text-primary">•</span>
-        </h2>
+    <section className="app-section">
+      <DashboardSectionTitle>
+        User dashboard <span className="app-brand-dot">•</span>
+      </DashboardSectionTitle>
+
+      <div className="app-grid app-grid-4">
+        <KpiCard label="Total users" value={data.total_users} />
+        <KpiCard label="Active users" value={data.active_users} />
+        <KpiCard label="Inactive users" value={data.inactive_users} />
+        <KpiCard label="New users" value={data.new_users_last_7_days} hint="Last 7 days" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Total users" value={data.total_users} />
-        <StatCard title="Active users" value={data.active_users} />
-        <StatCard title="Inactive users" value={data.inactive_users} />
-        <StatCard title="New users" hint="Last 7 days" value={data.new_users_last_7_days} />
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <Card className="border-primary/15">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Users by role</CardTitle>
-            <CardDescription className="text-xs">Distinct users assigned to each role</CardDescription>
-          </CardHeader>
-          <CardContent className="h-64">
+      <div className="app-grid app-grid-2">
+        <ChartPanel
+          title="Users by role"
+          description="Distinct users assigned to each role"
+        >
+          <div className="h-52 w-full sm:h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={roleData} margin={{ left: 8, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} interval={0} angle={-20} textAnchor="end" height={50} />
-                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+              <BarChart data={roleData} margin={{ left: 4, right: 8, top: 4, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} className="opacity-25" />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 12 }}
+                  interval={0}
+                  angle={-18}
+                  textAnchor="end"
+                  height={44}
+                />
+                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} width={32} />
                 <Tooltip />
-                <Bar dataKey="value" fill="#E1242A" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="value" fill={BRAND_COLOR} radius={[4, 4, 0, 0]} maxBarSize={48} />
               </BarChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          </div>
+        </ChartPanel>
 
-        <Card className="border-primary/15">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Active vs inactive</CardTitle>
-            <CardDescription className="text-xs">Current user status distribution</CardDescription>
-          </CardHeader>
-          <CardContent className="h-64">
+        <ChartPanel
+          title="Active vs inactive"
+          description="Current user status distribution"
+        >
+          <div className="h-52 w-full sm:h-56">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Tooltip />
@@ -95,17 +87,16 @@ export function UserDashboard({ data }: { data: UsersDashboardModule }) {
                   data={activeInactive}
                   dataKey="value"
                   nameKey="name"
-                  innerRadius={55}
-                  outerRadius={85}
+                  innerRadius={52}
+                  outerRadius={80}
                   paddingAngle={3}
-                  fill="#E1242A"
+                  fill={BRAND_COLOR}
                 />
               </PieChart>
             </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          </div>
+        </ChartPanel>
       </div>
     </section>
   )
 }
-

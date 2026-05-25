@@ -8,7 +8,27 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from modules.approvals.assignment_service import get_workflow_for_action
+from modules.approvals.model import ApprovalTask, TaskAuditLog
 from modules.approvals.service import ApprovalEngineService
+from modules.assets.lifecycle import (
+    APPROVAL_DRAFT,
+    APPROVAL_PENDING,
+    APPROVAL_REJECTED,
+    LIFECYCLE_ACTIVE,
+    LIFECYCLE_INACTIVE,
+    LIFECYCLE_PENDING_LEGACY,
+    action_codes_for_asset,
+    asset_approval_payload,
+    can_submit_for_approval,
+    find_open_asset_approval_request,
+    find_pending_asset_approval_request,
+    is_awaiting_approval,
+    set_asset_active_immediate,
+    set_asset_approved_active,
+    set_asset_inactive_draft,
+    set_asset_pending_approval,
+    set_asset_rejected_inactive,
+)
 from modules.assets.audit_helpers import (
     actor_display,
     activity_verb_for_action,
@@ -48,6 +68,7 @@ from modules.assets.schema import (
     ImportConfirmRequest,
     ImportConfirmResponse,
     ImportPreviewResponse,
+    SubmitForApprovalResponse,
 )
 from modules.errors import ConflictError, NotFoundError
 from modules.org_units.model import OrgUnit
@@ -169,33 +190,78 @@ class AssetMasterService:
             return int(org.id) if org else None
         return None
 
-    def _maybe_start_approval(
-        self,
-        *,
-        asset: AssetMaster,
-        action_code: str,
-        entity_type: str,
-        actor_user_id: int | None,
-        extra_payload: dict[str, Any] | None = None,
-    ) -> bool:
+    def _submit_one_asset_for_approval(
+        self, asset: AssetMaster, *, actor_user_id: int | None
+    ) -> str:
+        """
+        Send one asset into approval. Returns ``submitted`` (workflow tasks created) or
+        ``activated`` (no workflow configured — immediately active).
+        """
+        if not can_submit_for_approval(asset):
+            raise ConflictError(
+                f"Asset {asset.asset_code} cannot be submitted "
+                f"(status: {asset.lifecycle_status} / {asset.approval_status})."
+            )
+
+        if find_pending_asset_approval_request(self._db, asset_id=int(asset.id)) is not None:
+            raise ConflictError(f"Asset {asset.asset_code} is already pending approval.")
+
+        action_code, entity_type = action_codes_for_asset(asset)
+
+        if (asset.approval_status or "").strip().lower() == APPROVAL_REJECTED:
+            req = find_open_asset_approval_request(self._db, asset_id=int(asset.id))
+            if req is None:
+                raise ConflictError(
+                    f"Asset {asset.asset_code} was rejected but has no approval request to resubmit."
+                )
+            if actor_user_id is None:
+                raise ConflictError("Authentication required to resubmit for approval.")
+            ApprovalEngineService(self._db).resubmit_rejected_request(
+                request_id=int(req.id),
+                actor_user_id=int(actor_user_id),
+            )
+            set_asset_pending_approval(asset)
+            log_asset_event(
+                self._db,
+                asset_id=asset.id,
+                actor_user_id=actor_user_id,
+                action="submitted_for_approval",
+                new_value={
+                    "action_code": action_code,
+                    "resubmit": True,
+                    "lifecycle_status": asset.lifecycle_status,
+                    "approval_status": asset.approval_status,
+                },
+            )
+            return "submitted"
+
+        extra: dict[str, Any] | None = None
+        if entity_type == "asset_import" and asset.import_batch_id is not None:
+            extra = {"batch_id": int(asset.import_batch_id)}
+
         wf = get_workflow_for_action(self._db, action_code)
         if wf is None:
-            asset.lifecycle_status = "active"
-            asset.approval_status = "not_required"
-            return False
-        asset.lifecycle_status = "pending_approval"
-        asset.approval_status = "pending"
-        payload: dict[str, Any] = {
-            "action_code": action_code,
-            "asset_name": asset.asset_name,
-            "asset_code": asset.asset_code,
-            "rfid_code": asset.rfid_code,
-            "serial_no": asset.serial_no,
-            "asset_category_id": asset.asset_category_id,
-            "source_type": asset.source_type,
-        }
-        if extra_payload:
-            payload.update(extra_payload)
+            before = {
+                "lifecycle_status": asset.lifecycle_status,
+                "approval_status": asset.approval_status,
+            }
+            set_asset_active_immediate(asset)
+            log_asset_event(
+                self._db,
+                asset_id=asset.id,
+                actor_user_id=actor_user_id,
+                action="activated",
+                old_value=before,
+                new_value={
+                    "lifecycle_status": asset.lifecycle_status,
+                    "approval_status": asset.approval_status,
+                    "note": "No approval workflow configured",
+                },
+            )
+            return "activated"
+
+        set_asset_pending_approval(asset)
+        payload = asset_approval_payload(asset, action_code=action_code, extra=extra)
         ApprovalEngineService(self._db).create_request_for_entity(
             workflow=wf,
             entity_type=entity_type,
@@ -203,7 +269,57 @@ class AssetMasterService:
             payload=payload,
             created_by=actor_user_id,
         )
-        return True
+        log_asset_event(
+            self._db,
+            asset_id=asset.id,
+            actor_user_id=actor_user_id,
+            action="submitted_for_approval",
+            new_value={
+                "action_code": action_code,
+                "lifecycle_status": asset.lifecycle_status,
+                "approval_status": asset.approval_status,
+            },
+        )
+        return "submitted"
+
+    def submit_for_approval(
+        self, asset_ids: list[int], *, actor_user_id: int | None
+    ) -> SubmitForApprovalResponse:
+        submitted_count = 0
+        activated_count = 0
+        errors: list[str] = []
+        seen: set[int] = set()
+        for raw_id in asset_ids:
+            aid = int(raw_id)
+            if aid in seen:
+                continue
+            seen.add(aid)
+            try:
+                asset = self._load_asset(aid)
+                outcome = self._submit_one_asset_for_approval(asset, actor_user_id=actor_user_id)
+                if outcome == "submitted":
+                    submitted_count += 1
+                else:
+                    activated_count += 1
+            except NotFoundError:
+                errors.append(f"Asset #{aid}: not found.")
+            except ConflictError as exc:
+                errors.append(str(exc))
+            except Exception as exc:
+                errors.append(f"Asset #{aid}: {exc}")
+        if submitted_count or activated_count:
+            try:
+                self._db.commit()
+            except Exception as exc:
+                self._db.rollback()
+                raise ConflictError(f"Submit for approval failed: {exc}") from exc
+        elif errors:
+            self._db.rollback()
+        return SubmitForApprovalResponse(
+            submitted_count=submitted_count,
+            activated_count=activated_count,
+            errors=errors,
+        )
 
     def create_asset(
         self, data: AssetCreateRequest, *, actor_user_id: int | None
@@ -228,10 +344,9 @@ class AssetMasterService:
             asset_type=data.asset_type.strip() if data.asset_type else None,
             ownership_type=data.ownership_type,
             source_type="manual",
-            lifecycle_status="draft",
-            approval_status="not_required",
             created_by=actor_user_id,
         )
+        set_asset_inactive_draft(asset)
         self._db.add(asset)
         self._db.flush()
 
@@ -243,12 +358,6 @@ class AssetMasterService:
         self._db.add(_apply_financial(asset.id, data.financial))
         self._db.add(_apply_inventory(asset.id, data.inventory))
 
-        pending = self._maybe_start_approval(
-            asset=asset,
-            action_code="asset.create",
-            entity_type="asset_creation",
-            actor_user_id=actor_user_id,
-        )
         log_asset_event(
             self._db,
             asset_id=asset.id,
@@ -257,7 +366,8 @@ class AssetMasterService:
             new_value={
                 "source": "manual",
                 "asset_code": code,
-                "pending_approval": pending,
+                "lifecycle_status": asset.lifecycle_status,
+                "approval_status": asset.approval_status,
             },
         )
         try:
@@ -307,7 +417,15 @@ class AssetMasterService:
         if category_id is not None:
             base = base.where(AssetMaster.asset_category_id == category_id)
         if lifecycle_status:
-            base = base.where(AssetMaster.lifecycle_status == lifecycle_status)
+            ls = lifecycle_status.strip().lower()
+            if ls == LIFECYCLE_INACTIVE:
+                from modules.assets.lifecycle import LIFECYCLE_PENDING_LEGACY
+
+                base = base.where(
+                    AssetMaster.lifecycle_status.in_((LIFECYCLE_INACTIVE, LIFECYCLE_PENDING_LEGACY))
+                )
+            else:
+                base = base.where(AssetMaster.lifecycle_status == lifecycle_status)
         if approval_status:
             base = base.where(AssetMaster.approval_status == approval_status)
         if plant_id is not None:
@@ -410,7 +528,7 @@ class AssetMasterService:
         self, asset_id: int, data: AssetUpdateRequest, *, actor_user_id: int | None
     ) -> AssetDetailPublic:
         asset = self._load_asset(asset_id)
-        if asset.approval_status == "pending":
+        if (asset.approval_status or "").strip().lower() == APPROVAL_PENDING:
             raise ConflictError("Cannot edit asset while approval is pending.")
 
         before = snapshot_asset(asset)
@@ -448,9 +566,6 @@ class AssetMasterService:
             asset.asset_type = data.asset_type.strip() or None
         if data.ownership_type is not None:
             asset.ownership_type = data.ownership_type
-        if data.lifecycle_status is not None:
-            asset.lifecycle_status = data.lifecycle_status
-
         if data.information is not None:
             if asset.information is None:
                 asset.information = _apply_information(asset.id, data.information)
@@ -500,17 +615,70 @@ class AssetMasterService:
             if "rfid" in str(exc).lower():
                 raise DuplicateRfidError() from exc
             raise DuplicateAssetCodeError() from exc
+
+        self._maybe_auto_resubmit_asset_after_update(
+            asset_id=asset.id,
+            actor_user_id=actor_user_id,
+            before_snapshot=before,
+            after_asset=self._load_asset(asset.id),
+        )
         return self.get_asset(asset.id)
+
+    def _maybe_auto_resubmit_asset_after_update(
+        self,
+        *,
+        asset_id: int,
+        actor_user_id: int | None,
+        before_snapshot: dict[str, Any],
+        after_asset: AssetMaster,
+    ) -> None:
+        """Mirror user-creation rework: log task changes and resubmit when the creator saves edits."""
+        if actor_user_id is None:
+            return
+        after_snapshot = snapshot_asset(after_asset)
+        if not diff_snapshots(before_snapshot, after_snapshot):
+            return
+        req = find_open_asset_approval_request(self._db, asset_id=asset_id)
+        if req is None or req.created_by is None:
+            return
+        if int(req.created_by) != int(actor_user_id):
+            return
+        rework_task_id = self._db.scalar(
+            select(ApprovalTask.id).where(
+                ApprovalTask.request_id == req.id,
+                ApprovalTask.task_type == "rework",
+                ApprovalTask.status.in_(("open", "pending")),
+            )
+        )
+        if rework_task_id is not None:
+            self._db.add(
+                TaskAuditLog(
+                    task_id=int(rework_task_id),
+                    action="entity_updated",
+                    actor_user_id=actor_user_id,
+                    old_value=before_snapshot,
+                    new_value=after_snapshot,
+                )
+            )
+            self._db.commit()
+        try:
+            ApprovalEngineService(self._db).resubmit_rejected_request(
+                request_id=int(req.id),
+                actor_user_id=int(actor_user_id),
+            )
+        except Exception:
+            self._db.rollback()
 
     def soft_delete(self, asset_id: int, *, actor_user_id: int | None) -> None:
         asset = self._load_asset(asset_id)
         asset.deleted_at = _now()
-        asset.lifecycle_status = "inactive"
+        asset.lifecycle_status = LIFECYCLE_INACTIVE
         log_asset_event(
             self._db,
             asset_id=asset.id,
             actor_user_id=actor_user_id,
             action="deleted",
+            new_value={"lifecycle_status": LIFECYCLE_INACTIVE},
         )
         self._db.commit()
 
@@ -604,10 +772,8 @@ class AssetMasterService:
         self._db.add(batch)
         self._db.flush()
 
-        wf = get_workflow_for_action(self._db, "asset.import") if body.initiate_approval else None
         created = 0
         errors: list[str] = []
-        pending = wf is not None
 
         for idx, raw in enumerate(validated.rows, start=1):
             try:
@@ -653,10 +819,9 @@ class AssetMasterService:
                     ownership_type=str(raw.data.get("ownership_type") or "").strip() or None,
                     source_type="import",
                     import_batch_id=batch.id,
-                    lifecycle_status="active" if not pending else "pending_approval",
-                    approval_status="not_required" if not pending else "pending",
                     created_by=actor_user_id,
                 )
+                set_asset_inactive_draft(asset)
                 self._db.add(asset)
                 self._db.flush()
                 info = mapped.get("information")
@@ -673,25 +838,17 @@ class AssetMasterService:
                 if fin:
                     self._db.add(_apply_financial(asset.id, fin))
                 self._db.add(_apply_inventory(asset.id, None))
-                if pending and wf:
-                    ApprovalEngineService(self._db).create_request_for_entity(
-                        workflow=wf,
-                        entity_type="asset_import",
-                        entity_id=asset.id,
-                        payload={
-                            "action_code": "asset.import",
-                            "batch_id": batch.id,
-                            "asset_code": code,
-                            "asset_name": name,
-                        },
-                        created_by=actor_user_id,
-                    )
                 log_asset_event(
                     self._db,
                     asset_id=asset.id,
                     actor_user_id=actor_user_id,
                     action="imported",
-                    new_value={"source": "import", "batch_id": batch.id},
+                    new_value={
+                        "source": "import",
+                        "batch_id": batch.id,
+                        "lifecycle_status": asset.lifecycle_status,
+                        "approval_status": asset.approval_status,
+                    },
                 )
                 created += 1
             except (DuplicateAssetCodeError, DuplicateRfidError):
@@ -702,13 +859,11 @@ class AssetMasterService:
         batch.valid_rows = created
         batch.error_rows = len(errors)
         batch.status = "completed" if not errors else "completed_with_errors"
-        if pending and created:
-            batch.status = "pending_approval"
         self._db.commit()
         return ImportConfirmResponse(
             batch_id=batch.id,
             created_count=created,
-            pending_approval=pending and created > 0,
+            pending_approval=False,
             errors=errors,
         )
 
@@ -717,15 +872,25 @@ def activate_asset_after_approval(db: Session, *, asset_id: int, approver_user_i
     asset = db.get(AssetMaster, asset_id)
     if asset is None:
         return
-    asset.lifecycle_status = "active"
-    asset.approval_status = "approved"
-    asset.approved_by = approver_user_id
+    transition = set_asset_approved_active(asset, approver_user_id=approver_user_id)
     log_asset_event(
         db,
         asset_id=asset.id,
         actor_user_id=approver_user_id,
         action="approved",
-        new_value={"source": asset.source_type},
+        old_value=transition["before"],
+        new_value={
+            "source": asset.source_type,
+            **transition["after"],
+        },
+    )
+    log_asset_event(
+        db,
+        asset_id=asset.id,
+        actor_user_id=approver_user_id,
+        action="activated",
+        old_value=transition["before"],
+        new_value=transition["after"],
     )
 
 
@@ -733,12 +898,13 @@ def reject_asset_after_approval(db: Session, *, asset_id: int, approver_user_id:
     asset = db.get(AssetMaster, asset_id)
     if asset is None:
         return
-    asset.lifecycle_status = "inactive"
-    asset.approval_status = "rejected"
+    transition = set_asset_rejected_inactive(asset)
     log_asset_event(
         db,
         asset_id=asset.id,
         actor_user_id=approver_user_id,
         action="rejected",
         section="workflow",
+        old_value=transition["before"],
+        new_value=transition["after"],
     )

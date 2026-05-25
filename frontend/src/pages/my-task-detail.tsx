@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
+import { FileSearch } from "lucide-react"
 import { toast } from "sonner"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -8,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import { AssetMasterDetailDialog } from "@/components/assets/asset-master-detail-dialog"
 import { ApprovalWorkflowTimeline, type TaskApprovalStepLine } from "@/components/approval-workflow-timeline"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
@@ -203,6 +205,24 @@ function actorLine(ev: TaskAuditLog): string {
 
 function approvalPayloadEntries(payload: Record<string, unknown>, entityType: string): { key: string; label: string; value: string }[] {
   const p = payload ?? {}
+  if (entityType === "asset_creation" || entityType === "asset_import") {
+    const rows: { key: string; label: string; value: string }[] = []
+    const ordered: [string, string][] = [
+      ["asset_name", "Asset name"],
+      ["asset_code", "Asset code"],
+      ["rfid_code", "RFID"],
+      ["category_name", "Category"],
+      ["source_type", "Source"],
+      ["lifecycle_status", "Lifecycle"],
+      ["approval_status", "Approval"],
+      ["action_code", "Action"],
+    ]
+    for (const [key, label] of ordered) {
+      const v = p[key]
+      if (v != null && String(v).trim() !== "") rows.push({ key, label, value: formatPayloadValue(v) })
+    }
+    return rows
+  }
   if (entityType === "user_creation") {
     const rows: { key: string; label: string; value: string }[] = []
     if (p.full_name != null && String(p.full_name).trim() !== "")
@@ -245,6 +265,7 @@ export function MyTaskDetailPage() {
   const [commenting, setCommenting] = React.useState(false)
   const [acting, setActing] = React.useState(false)
   const [actionComment, setActionComment] = React.useState("")
+  const [assetDetailOpen, setAssetDetailOpen] = React.useState(false)
 
   const [, forcePermRefresh] = React.useReducer((x: number) => x + 1, 0)
   const canApprovalAct = hasPermission("approval.act")
@@ -409,6 +430,20 @@ export function MyTaskDetailPage() {
       ? `/dashboard/users/${task.approval.entity_id}/edit`
       : null
 
+  const assetEditPath =
+    task?.approval?.entity_type &&
+    ["asset_creation", "asset_import"].includes(task.approval.entity_type) &&
+    task.approval.entity_id != null
+      ? `/dashboard/assets/${task.approval.entity_id}`
+      : null
+
+  const isAssetApprovalTask = Boolean(
+    task?.approval &&
+      ["asset_creation", "asset_import"].includes(task.approval.entity_type) &&
+      task.approval.entity_id != null,
+  )
+  const assetApprovalEntityId = task?.approval?.entity_id ?? null
+
   const isApprovalLike = Boolean(task && (task.task_type === "approval" || task.task_type === "rework") && task.approval)
 
   async function resubmitForApproval() {
@@ -449,6 +484,13 @@ export function MyTaskDetailPage() {
                 if (task.approval.entity_type === "user_creation" && typeof p.full_name === "string" && p.full_name.trim() !== "")
                   return p.full_name
                 if (task.approval.entity_type === "user_creation") return "New user account"
+                if (task.approval.entity_type === "asset_creation") {
+                  const p = task.approval.payload as { asset_name?: unknown; asset_code?: unknown }
+                  if (typeof p.asset_name === "string" && p.asset_name.trim()) return p.asset_name
+                  if (typeof p.asset_code === "string" && p.asset_code.trim()) return p.asset_code
+                  return "New asset"
+                }
+                if (task.approval.entity_type === "asset_import") return "Imported asset approval"
                 return task.approval.entity_type.replace(/_/g, " ")
               }
               return task.title ?? "Task"
@@ -484,6 +526,11 @@ export function MyTaskDetailPage() {
                   <Link to={userCreationEditPath}>Edit user details</Link>
                 </Button>
               ) : null}
+              {assetEditPath ? (
+                <Button asChild type="button" size="sm" variant="outline">
+                  <Link to={assetEditPath}>Edit asset</Link>
+                </Button>
+              ) : null}
               <Button type="button" size="sm" onClick={() => void resubmitForApproval()} disabled={acting}>
                 {acting ? "Submitting…" : "Resubmit for approval"}
               </Button>
@@ -504,6 +551,11 @@ export function MyTaskDetailPage() {
               {userCreationEditPath ? (
                 <Button asChild type="button" size="sm" variant="outline">
                   <Link to={userCreationEditPath}>Edit user details</Link>
+                </Button>
+              ) : null}
+              {assetEditPath ? (
+                <Button asChild type="button" size="sm" variant="outline">
+                  <Link to={assetEditPath}>Edit asset</Link>
                 </Button>
               ) : null}
               <Button type="button" size="sm" onClick={() => void resubmitForApproval()} disabled={acting}>
@@ -531,8 +583,20 @@ export function MyTaskDetailPage() {
             <>
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:items-start">
                 <Card className="min-w-0 overflow-hidden border-border/80 shadow-sm">
-                <CardHeader className="space-y-0 border-b border-border/60 bg-muted/20 py-3">
+                <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 border-b border-border/60 bg-muted/20 py-3">
                   <CardTitle className="text-base">What you&apos;re approving</CardTitle>
+                  {isAssetApprovalTask && assetApprovalEntityId != null ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => setAssetDetailOpen(true)}
+                    >
+                      <FileSearch className="size-4" aria-hidden />
+                      View full asset details
+                    </Button>
+                  ) : null}
                 </CardHeader>
                 <CardContent className="pt-3">
                   {(() => {
@@ -806,6 +870,15 @@ export function MyTaskDetailPage() {
           })()}
         </div>
       )}
+
+      {isAssetApprovalTask && task && assetApprovalEntityId != null ? (
+        <AssetMasterDetailDialog
+          taskId={task.id}
+          assetId={assetApprovalEntityId}
+          open={assetDetailOpen}
+          onOpenChange={setAssetDetailOpen}
+        />
+      ) : null}
     </div>
   )
 }

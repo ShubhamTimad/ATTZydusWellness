@@ -8,24 +8,14 @@ import {
   YAxis,
 } from "recharts"
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { ChartPanel, DashboardSectionTitle, KpiCard } from "@/components/dashboard/dashboard-kpi"
+import { BRAND_COLOR } from "@/lib/brand"
 
 export type TasksDashboardModule = {
   pending: number
   approved: number
   rejected: number
   completed: number
-}
-
-function StatCard({ title, value }: { title: string; value: number }) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-2xl font-semibold tracking-tight">{value}</CardContent>
-    </Card>
-  )
 }
 
 export function TaskDashboard({ data }: { data: TasksDashboardModule }) {
@@ -37,38 +27,31 @@ export function TaskDashboard({ data }: { data: TasksDashboardModule }) {
   ]
 
   return (
-    <section className="grid gap-4">
-      <div>
-        <h2 className="text-base font-semibold tracking-tight text-zinc-950">
-          Task dashboard <span className="text-primary">•</span>
-        </h2>
+    <section className="app-section">
+      <DashboardSectionTitle>
+        Task dashboard <span className="app-brand-dot">•</span>
+      </DashboardSectionTitle>
+
+      <div className="app-grid app-grid-4">
+        <KpiCard label="Pending" value={data.pending} />
+        <KpiCard label="Approved" value={data.approved} />
+        <KpiCard label="Rejected" value={data.rejected} />
+        <KpiCard label="Completed" value={data.completed} />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard title="Pending" value={data.pending} />
-        <StatCard title="Approved" value={data.approved} />
-        <StatCard title="Rejected" value={data.rejected} />
-        <StatCard title="Completed" value={data.completed} />
-      </div>
-
-      <Card className="border-primary/15">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Status breakdown</CardTitle>
-          <CardDescription className="text-xs">Counts across your assigned tasks</CardDescription>
-        </CardHeader>
-        <CardContent className="h-64">
+      <ChartPanel title="Status breakdown" description="Counts across your assigned tasks">
+        <div className="h-52 w-full sm:h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ left: 8, right: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+            <BarChart data={chartData} margin={{ left: 4, right: 8, top: 4, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} className="opacity-25" />
               <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+              <YAxis tick={{ fontSize: 12 }} allowDecimals={false} width={32} />
               <Tooltip />
-              <Bar dataKey="value" fill="#E1242A" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="value" fill={BRAND_COLOR} radius={[4, 4, 0, 0]} maxBarSize={48} />
             </BarChart>
           </ResponsiveContainer>
-        </CardContent>
-      </Card>
+        </div>
+      </ChartPanel>
     </section>
   )
 }
-

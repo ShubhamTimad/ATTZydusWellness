@@ -6,6 +6,7 @@ import { AssetImportGrid, type ImportGridRow } from "@/components/assets/asset-i
 import { AdminPage } from "@/components/layout/admin-page"
 import { AdminPanel, AdminPrimaryButton } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { API_BASE_URL, postJson } from "@/lib/api"
@@ -51,6 +52,8 @@ export function AssetImportPage() {
   const [result, setResult] = React.useState<{ created_count: number; pending_approval: boolean } | null>(
     null,
   )
+  const [errorsOnly, setErrorsOnly] = React.useState(false)
+  const [rowSearch, setRowSearch] = React.useState("")
 
   async function runPreview() {
     if (!file) {
@@ -127,7 +130,7 @@ export function AssetImportPage() {
         body: JSON.stringify({
           rows: rowsForValidate(preview.rows),
           filename: preview.filename,
-          initiate_approval: true,
+          initiate_approval: false,
         }),
       })
       const text = await res.text()
@@ -151,6 +154,37 @@ export function AssetImportPage() {
   }
 
   const allValid = preview ? preview.error_rows === 0 && preview.valid_rows > 0 : false
+
+  const handleCellChange = React.useCallback((rowIndex: number, key: string, value: string) => {
+    React.startTransition(() => {
+      setPreview((p) => {
+        if (!p) return p
+        const row = p.rows[rowIndex]
+        if (!row) return p
+        const nextData = { ...row.data }
+        if (!value.trim()) {
+          delete nextData[key]
+        } else {
+          nextData[key] = value
+        }
+        const nextRows = p.rows.slice()
+        const wasValid = row.valid
+        nextRows[rowIndex] = {
+          ...row,
+          valid: false,
+          errors: [],
+          field_errors: {},
+          data: nextData,
+        }
+        return {
+          ...p,
+          rows: nextRows,
+          valid_rows: wasValid ? Math.max(0, p.valid_rows - 1) : p.valid_rows,
+          error_rows: wasValid ? p.error_rows + 1 : p.error_rows,
+        }
+      })
+    })
+  }, [])
 
   return (
     <AdminPage
@@ -206,20 +240,33 @@ export function AssetImportPage() {
                 All rows passed validation. Click <strong>Submit import</strong> to create assets.
               </p>
             )}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative min-w-[12rem] flex-1">
+                <Input
+                  value={rowSearch}
+                  onChange={(e) => setRowSearch(e.target.value)}
+                  placeholder="Filter by row, code, name, or RFID…"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                <Checkbox
+                  checked={errorsOnly}
+                  onCheckedChange={(v) => setErrorsOnly(Boolean(v))}
+                />
+                Errors only
+              </label>
+              {preview.total_rows > 200 ? (
+                <span className="text-xs text-muted-foreground">
+                  {preview.total_rows.toLocaleString()} rows · virtual scroll
+                </span>
+              ) : null}
+            </div>
             <AssetImportGrid
               rows={preview.rows}
-              onChange={(rows) =>
-                setPreview((p) =>
-                  p
-                    ? {
-                        ...p,
-                        rows,
-                        valid_rows: rows.filter((r) => r.valid).length,
-                        error_rows: rows.filter((r) => !r.valid).length,
-                      }
-                    : p,
-                )
-              }
+              onCellChange={handleCellChange}
+              errorsOnly={errorsOnly}
+              search={rowSearch}
             />
           </div>
           <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 px-4 py-3">
@@ -252,8 +299,8 @@ export function AssetImportPage() {
         <AdminPanel title="Import complete">
           <div className="dialog-body space-y-3">
             <p className="text-sm">
-              Created <strong>{result.created_count}</strong> assets.
-              {result.pending_approval ? " They are pending approval." : " They are active."}
+              Created <strong>{result.created_count}</strong> assets as inactive. Submit them for
+              approval from the asset list or each asset detail page when ready.
             </p>
             <AdminPrimaryButton type="button" onClick={() => navigate("/dashboard/assets")}>
               Go to asset list

@@ -1,9 +1,10 @@
 import * as React from "react"
 import { Link, useParams } from "react-router-dom"
-import { ClipboardList, Clock, DollarSign, MapPin, Package, Pencil } from "lucide-react"
+import { ClipboardList, Clock, DollarSign, MapPin, Package } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { AssetDetailSectionPanel } from "@/components/assets/asset-detail-section-panel"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
@@ -13,13 +14,11 @@ import {
   adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ApiError, getJson, patchJson } from "@/lib/api"
-import type { AssetAuditEvent, AssetDetail } from "@/lib/assets-types"
+import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import type { AssetAuditEvent, AssetDetail, SubmitForApprovalResult } from "@/lib/assets-types"
 import {
-  ASSET_VIEW_COLUMNS,
   ASSET_VIEW_SECTIONS,
   type AssetViewSectionConfig,
   type AssetViewSectionId,
@@ -31,6 +30,8 @@ import {
   plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
+import { buildAssetDetailActionItems } from "@/lib/asset-actions"
+import { assetStatusLabel, canSubmitForApproval } from "@/lib/asset-lifecycle"
 import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
@@ -70,37 +71,13 @@ function formatDateTime(iso: string | undefined) {
   return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
 }
 
-function statusBanner(asset: AssetDetail) {
-  if (asset.approval_status === "pending") {
-    return (
-      <Alert className="rounded-lg border-amber-300/50 bg-amber-50/90 px-4 py-3">
-        <AlertTitle className="text-sm">Pending approval</AlertTitle>
-        <AlertDescription className="text-sm">
-          This asset is not active until the workflow is completed.
-        </AlertDescription>
-      </Alert>
-    )
-  }
-  if (asset.approval_status === "rejected") {
-    return (
-      <Alert variant="destructive" className="rounded-lg px-4 py-3">
-        <AlertTitle className="text-sm">Rejected</AlertTitle>
-        <AlertDescription className="text-sm">
-          Approval was rejected. Contact your process owner to resubmit.
-        </AlertDescription>
-      </Alert>
-    )
-  }
-  return null
-}
-
 type SummaryItem = { label: string; value: React.ReactNode; mono?: boolean }
 
 function SummaryStrip({ items }: { items: SummaryItem[] }) {
   return (
-    <div className="grid grid-cols-2 divide-x divide-border/60 overflow-hidden rounded-lg border border-border/80 bg-card shadow-sm sm:grid-cols-3 lg:grid-cols-6">
+    <div className="app-panel grid grid-cols-2 divide-x divide-border/60 overflow-hidden sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
       {items.map((item) => (
-        <div key={item.label} className="min-w-0 px-3 py-2.5">
+        <div key={item.label} className="min-w-0 px-[var(--app-card-padding)] py-3">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             {item.label}
           </p>
@@ -124,10 +101,12 @@ export function AssetDetailPage() {
   const [loading, setLoading] = React.useState(true)
   const [editing, setEditing] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  const [submittingApproval, setSubmittingApproval] = React.useState(false)
   const [auditRows, setAuditRows] = React.useState<AuditLogRow[]>([])
   const [auditLoading, setAuditLoading] = React.useState(false)
 
   const canUpdate = hasPermission("asset.update") || hasPermission("asset.manage")
+  const canSubmitApproval = hasPermission("asset.create")
 
   const load = React.useCallback(async () => {
     if (!id) return
@@ -176,6 +155,29 @@ export function AssetDetailPage() {
   React.useEffect(() => {
     if (asset?.id) void loadAudit(asset.id)
   }, [asset?.id, loadAudit])
+
+  async function submitForApproval() {
+    if (!asset) return
+    setSubmittingApproval(true)
+    try {
+      const res = await postJson<SubmitForApprovalResult>(
+        `/admin/assets/${asset.id}/submit-for-approval`,
+        {},
+      )
+      if (res.errors.length > 0) {
+        toast.error(res.errors[0] ?? "Could not submit for approval.")
+      } else if (res.activated_count > 0) {
+        toast.success("No approval workflow is configured — asset is now active.")
+      } else {
+        toast.success("Submitted for approval. Approvers will see it in My tasks.")
+      }
+      await load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Submit for approval failed.")
+    } finally {
+      setSubmittingApproval(false)
+    }
+  }
 
   async function save() {
     if (!asset) return
@@ -310,25 +312,47 @@ export function AssetDetailPage() {
     return "—"
   }
 
+  const canEdit = Boolean(asset && asset.approval_status !== "pending")
+  const canSubmit = Boolean(
+    asset && canSubmitForApproval(asset.lifecycle_status, asset.approval_status),
+  )
+  const detailActions = React.useMemo(
+    () =>
+      buildAssetDetailActionItems({
+        canSubmitApproval,
+        canSubmit,
+        canUpdate,
+        canEdit,
+        editing,
+      }),
+    [canSubmitApproval, canSubmit, canUpdate, canEdit, editing],
+  )
+
+  function handleDetailAction(actionId: string) {
+    if (actionId === "submit-for-approval") {
+      void submitForApproval()
+      return
+    }
+    if (actionId === "edit") {
+      if (editing) setEditing(false)
+      else setEditing(true)
+    }
+  }
+
   const toolbar = (
     <div className="flex flex-wrap items-center gap-1.5">
       <AdminBackLink to="/dashboard/assets">Assets</AdminBackLink>
-      {asset && canUpdate && asset.approval_status !== "pending" ? (
-        editing ? (
-          <>
-            <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
-            <AdminPrimaryButton type="button" className="h-8" disabled={saving} onClick={() => void save()}>
-              {saving ? "Saving…" : "Save changes"}
-            </AdminPrimaryButton>
-          </>
-        ) : (
-          <AdminPrimaryButton type="button" className="h-8 gap-1.5" onClick={() => setEditing(true)}>
-            <Pencil className="size-3.5" aria-hidden />
-            Edit
-          </AdminPrimaryButton>
-        )
+      {asset && detailActions.length > 0 ? (
+        <AssetActionsMenu
+          actions={detailActions}
+          busy={submittingApproval || saving}
+          onAction={handleDetailAction}
+        />
+      ) : null}
+      {editing ? (
+        <AdminPrimaryButton type="button" disabled={saving} onClick={() => void save()}>
+          {saving ? "Saving…" : "Save changes"}
+        </AdminPrimaryButton>
       ) : null}
     </div>
   )
@@ -366,6 +390,7 @@ export function AssetDetailPage() {
   const a: AssetDetail = asset
 
   const summaryItems: SummaryItem[] = [
+    { label: "Status", value: assetStatusLabel(a.lifecycle_status, a.approval_status) },
     { label: "Asset code", value: a.asset_code, mono: true },
     { label: "Class / type", value: [a.asset_class, a.asset_type].filter(Boolean).join(" · ") || "—" },
     { label: "Category", value: a.category_name ?? "—" },
@@ -390,6 +415,7 @@ export function AssetDetailPage() {
       return (
         <AssetDetailSectionPanel
           key={sec.id}
+          className="h-full"
           config={sec}
           title={sec.title}
           icon={Icon}
@@ -409,6 +435,7 @@ export function AssetDetailPage() {
       return (
         <AssetDetailSectionPanel
           key={sec.id}
+          className="h-full"
           config={sec}
           title={sec.title}
           icon={Icon}
@@ -460,6 +487,7 @@ export function AssetDetailPage() {
       return (
         <AssetDetailSectionPanel
           key={sec.id}
+          className="h-full"
           config={sec}
           title={sec.title}
           icon={Icon}
@@ -481,6 +509,7 @@ export function AssetDetailPage() {
     return (
       <AssetDetailSectionPanel
         key={sec.id}
+        className="h-full"
         config={sec}
         title={sec.title}
         icon={Icon}
@@ -502,12 +531,10 @@ export function AssetDetailPage() {
   }
 
   return (
-    <AdminPage fullWidth actions={toolbar} className="w-full space-y-4 pb-8">
-      {statusBanner(a)}
-
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border/50 pb-3">
+    <AdminPage fullWidth actions={toolbar} className="w-full pb-4">
+      <header className="flex flex-wrap items-end justify-between gap-[var(--app-grid-gap)] border-b border-border/60 pb-[var(--app-grid-gap)]">
         <div className="min-w-0">
-          <h1 className="truncate text-xl font-semibold tracking-tight text-foreground">
+          <h1 className="app-page-heading truncate">
             {a.asset_name}
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
@@ -523,12 +550,8 @@ export function AssetDetailPage() {
 
       <SummaryStrip items={summaryItems} />
 
-      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-        {ASSET_VIEW_COLUMNS.map((columnIds, colIdx) => (
-          <div key={colIdx} className="flex flex-col gap-4">
-            {columnIds.map((sectionId) => renderAssetViewSection(sectionId))}
-          </div>
-        ))}
+      <div className="app-grid app-grid-2 lg:items-stretch">
+        {ASSET_VIEW_SECTIONS.map((sec) => renderAssetViewSection(sec.id))}
       </div>
 
       <AssetAuditLog rows={auditRows} loading={auditLoading} />
@@ -578,8 +601,8 @@ function AssetAuditLog({ rows, loading }: { rows: AuditLogRow[]; loading: boolea
         ) : rows.length === 0 ? (
           <p className="px-5 py-6 text-sm text-muted-foreground">No audit events recorded yet.</p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 z-[1] border-b border-border/60 bg-muted/25">
+          <table className="app-table-head-sticky w-full text-left text-sm">
+            <thead>
               <tr>
                 <th className="w-40 px-4 py-2.5 text-xs font-semibold text-muted-foreground">When</th>
                 <th className="w-36 px-4 py-2.5 text-xs font-semibold text-muted-foreground">By</th>

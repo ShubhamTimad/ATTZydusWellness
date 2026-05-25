@@ -6,6 +6,7 @@ import {
   AdminPanel,
   AdminPrimaryButton,
   AdminTableCell,
+  AdminTableEmptyRow,
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
@@ -155,7 +156,7 @@ export function MasterCrudPanel({
   }
 
   const addButton = canCreate ? (
-    <AdminPrimaryButton type="button" className="h-8 gap-1.5" onClick={openCreate}>
+    <AdminPrimaryButton type="button" onClick={openCreate}>
       <Plus className="size-3.5" />
       Add
     </AdminPrimaryButton>
@@ -163,7 +164,7 @@ export function MasterCrudPanel({
 
   return (
     <AdminPanel title={title} headerActions={addButton}>
-      <Table>
+      <Table className="app-table-head-sticky">
         <TableHeader>
           <AdminTableHeaderRow>
             <AdminTableHeadCell>Code</AdminTableHeadCell>
@@ -176,14 +177,10 @@ export function MasterCrudPanel({
         </TableHeader>
         <TableBody>
           {rows.length === 0 ? (
-            <tr>
-              <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
-                No records yet.
-              </td>
-            </tr>
+            <AdminTableEmptyRow colSpan={6}>No records yet.</AdminTableEmptyRow>
           ) : (
             rows.map((row) => (
-              <tr key={row.id} className="border-b border-border/40">
+              <tr key={row.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
                 <AdminTableCell className="font-mono text-xs">{row.code}</AdminTableCell>
                 <AdminTableCell>{kind === "category" ? row.name ?? "—" : row.description}</AdminTableCell>
                 {kind === "location" ? (
@@ -195,7 +192,7 @@ export function MasterCrudPanel({
                 <AdminTableCell className="text-xs">{row.is_active ? "Active" : "Inactive"}</AdminTableCell>
                 {canUpdate ? (
                   <AdminTableCell>
-                    <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => openEdit(row)}>
+                    <Button type="button" variant="ghost" size="icon-sm" onClick={() => openEdit(row)}>
                       <Pencil className="size-3.5" />
                     </Button>
                   </AdminTableCell>
@@ -226,7 +223,7 @@ export function MasterCrudPanel({
             setLocationType={setLocationType}
             plants={plants}
           />
-          <div className="flex justify-end gap-2">
+          <div className="dialog-footer-actions">
             <Button type="button" variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
               Cancel
             </Button>
@@ -256,7 +253,7 @@ export function MasterCrudPanel({
             setLocationType={setLocationType}
             plants={plants}
           />
-          <div className="flex justify-end gap-2">
+          <div className="dialog-footer-actions">
             <Button type="button" variant="outline" size="sm" onClick={() => setEditRow(null)}>
               Cancel
             </Button>
@@ -298,32 +295,32 @@ function MasterForm({
   plants: PlantOption[]
 }) {
   return (
-    <div className="dialog-body space-y-3">
-      <div className="space-y-1.5">
-        <Label>Code *</Label>
-        <Input className="h-9 font-mono uppercase" value={code} onChange={(e) => setCode(e.target.value)} />
+    <div className="dialog-body app-form-stack">
+      <div className="app-form-field">
+        <Label className="app-form-label">Code *</Label>
+        <Input className="font-mono uppercase" value={code} onChange={(e) => setCode(e.target.value)} />
       </div>
       {kind === "category" ? (
         <>
-          <div className="space-y-1.5">
-            <Label>Name *</Label>
-            <Input className="h-9" value={name} onChange={(e) => setName(e.target.value)} />
+          <div className="app-form-field">
+            <Label className="app-form-label">Name *</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="space-y-1.5">
-            <Label>Description</Label>
-            <Input className="h-9" value={desc} onChange={(e) => setDesc(e.target.value)} />
+          <div className="app-form-field">
+            <Label className="app-form-label">Description</Label>
+            <Input value={desc} onChange={(e) => setDesc(e.target.value)} />
           </div>
         </>
       ) : (
-        <div className="space-y-1.5">
-          <Label>Description *</Label>
-          <Input className="h-9" value={desc} onChange={(e) => setDesc(e.target.value)} />
+        <div className="app-form-field">
+          <Label className="app-form-label">Description *</Label>
+          <Input value={desc} onChange={(e) => setDesc(e.target.value)} />
         </div>
       )}
       {kind === "location" ? (
         <>
-          <div className="space-y-1.5">
-            <Label>Plant (optional)</Label>
+          <div className="app-form-field">
+            <Label className="app-form-label">Plant (optional)</Label>
             <select className={adminSelectClass} value={plantId} onChange={(e) => setPlantId(e.target.value)}>
               <option value="">All plants</option>
               {plants.map((p) => (
@@ -333,8 +330,8 @@ function MasterForm({
               ))}
             </select>
           </div>
-          <div className="space-y-1.5">
-            <Label>Location type</Label>
+          <div className="app-form-field">
+            <Label className="app-form-label">Location type</Label>
             <select
               className={adminSelectClass}
               value={locationType}

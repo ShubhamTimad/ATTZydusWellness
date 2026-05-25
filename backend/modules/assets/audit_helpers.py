@@ -190,6 +190,10 @@ def activity_verb_for_action(action: str, new_value: dict[str, Any] | None, sour
         return "Edited by"
     if action == "approved":
         return "Approved by"
+    if action == "activated":
+        return "Activated by"
+    if action == "submitted_for_approval":
+        return "Submitted for approval by"
     if action == "rejected":
         return "Rejected by"
     if action == "deleted":
@@ -233,8 +237,8 @@ def build_audit_summary(
             return f"Imported by {actor_name}"
         if source == "seed":
             return f"Created (seed data) by {actor_name}"
-        if nv.get("pending_approval"):
-            return f"Created manually by {actor_name} (pending approval)"
+        if nv.get("approval_status") == "draft" or nv.get("pending_approval"):
+            return f"Created manually by {actor_name} (inactive — submit for approval when ready)"
         return f"Created manually by {actor_name}"
     if action == "imported":
         return f"Imported by {actor_name}"
@@ -256,8 +260,12 @@ def build_audit_summary(
         return f"Edited by {actor_name}"
     if action == "approved":
         return f"Approved by {actor_name}"
+    if action == "activated":
+        return f"Activated by {actor_name} (asset is now active)"
+    if action == "submitted_for_approval":
+        return f"Submitted for approval by {actor_name} (asset remains inactive until approved)"
     if action == "rejected":
-        return f"Rejected by {actor_name}"
+        return f"Rejected by {actor_name} (asset remains inactive)"
     if action == "deleted":
         return f"Deleted by {actor_name}"
     return f"{action.replace('_', ' ').title()} by {actor_name}"

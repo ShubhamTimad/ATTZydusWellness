@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { HierarchicalMasterPanel } from "@/components/masters/hierarchical-master-panel"
 import { MasterCrudPanel } from "@/components/masters/master-crud-panel"
 import { AdminPage } from "@/components/layout/admin-page"
+import { adminTabsListClass, adminTabsTriggerClass } from "@/components/layout/admin-ui"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getJson } from "@/lib/api"
 import type { PlantOption } from "@/lib/masters-types"
@@ -21,43 +22,53 @@ export function MastersPage() {
 
   return (
     <AdminPage fullWidth>
-      <Tabs defaultValue="categories" className="w-full">
-        <TabsList className="h-9 flex-wrap">
-          <TabsTrigger value="categories">Categories</TabsTrigger>
-          <TabsTrigger value="functional">Functional locations</TabsTrigger>
-          <TabsTrigger value="actual">Actual locations</TabsTrigger>
-          <TabsTrigger value="cost-centers">Cost centers</TabsTrigger>
-          <TabsTrigger value="profit-centers">Profit centers</TabsTrigger>
+      <Tabs defaultValue="categories" className="w-full gap-[var(--app-section-gap)]">
+        <TabsList className={adminTabsListClass}>
+          <TabsTrigger value="categories" className={adminTabsTriggerClass}>
+            Categories
+          </TabsTrigger>
+          <TabsTrigger value="functional" className={adminTabsTriggerClass}>
+            Functional locations
+          </TabsTrigger>
+          <TabsTrigger value="actual" className={adminTabsTriggerClass}>
+            Actual locations
+          </TabsTrigger>
+          <TabsTrigger value="cost-centers" className={adminTabsTriggerClass}>
+            Cost centers
+          </TabsTrigger>
+          <TabsTrigger value="profit-centers" className={adminTabsTriggerClass}>
+            Profit centers
+          </TabsTrigger>
         </TabsList>
-        <TabsContent value="categories" className="mt-3">
+        <TabsContent value="categories" className="mt-0">
           <MasterCrudPanel
             title="Asset category"
             listUrl="/admin/asset-masters/categories?active_only=false"
             kind="category"
           />
         </TabsContent>
-        <TabsContent value="functional" className="mt-3">
+        <TabsContent value="functional" className="mt-0">
           <HierarchicalMasterPanel
             title="Functional location"
             kind="functional-location"
             plants={plants}
           />
         </TabsContent>
-        <TabsContent value="actual" className="mt-3">
+        <TabsContent value="actual" className="mt-0">
           <HierarchicalMasterPanel
             title="Actual location"
             kind="actual-location"
             plants={plants}
           />
         </TabsContent>
-        <TabsContent value="cost-centers" className="mt-3">
+        <TabsContent value="cost-centers" className="mt-0">
           <HierarchicalMasterPanel
             title="Cost center"
             kind="cost-center"
             plants={plants}
           />
         </TabsContent>
-        <TabsContent value="profit-centers" className="mt-3">
+        <TabsContent value="profit-centers" className="mt-0">
           <HierarchicalMasterPanel
             title="Profit center"
             kind="profit-center"

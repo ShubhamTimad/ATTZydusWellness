@@ -18,6 +18,12 @@ export type AssetListItem = {
   created_at: string
 }
 
+export type SubmitForApprovalResult = {
+  submitted_count: number
+  activated_count: number
+  errors: string[]
+}
+
 export type AssetListResponse = {
   items: AssetListItem[]
   total: number

@@ -43,10 +43,10 @@ export function DashboardPage() {
   const assetsModule = summary?.modules?.assets
 
   return (
-    <div className="grid gap-6">
-      <div className="flex items-center gap-2">
-        <h1 className="text-lg font-semibold tracking-tight text-zinc-950">Dashboard</h1>
-        <span className="text-primary">•</span>
+    <div className="app-page">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <h1 className="app-page-heading">Dashboard</h1>
+        <span className="app-brand-dot">•</span>
         <span className="text-sm font-medium text-muted-foreground">Workspace</span>
       </div>
 

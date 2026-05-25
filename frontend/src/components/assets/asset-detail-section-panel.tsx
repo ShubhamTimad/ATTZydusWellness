@@ -6,7 +6,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import type { AssetDetail } from "@/lib/assets-types"
-import { ASSET_FIELD_LABELS, isAssetMasterDateField } from "@/lib/asset-master-fields"
+import {
+  ASSET_FIELD_LABELS,
+  ASSET_VIEW_PANEL_MIN_HEIGHT,
+  isAssetMasterDateField,
+} from "@/lib/asset-master-fields"
 import type { AssetViewSectionConfig } from "@/lib/asset-master-fields"
 
 function formatDate(iso: string | null | undefined) {
@@ -22,18 +26,31 @@ function formatLabel(key: string) {
 
 type DetailRow = { label: string; value: React.ReactNode; highlight?: boolean }
 
-function DetailFieldList({ rows, className }: { rows: DetailRow[]; className?: string }) {
+function DetailFieldList({
+  rows,
+  className,
+  layout = "inline",
+}: {
+  rows: DetailRow[]
+  className?: string
+  layout?: "inline" | "stacked"
+}) {
   return (
     <dl className={cn("divide-y divide-border/60", className)}>
       {rows.map((row) => (
         <div
           key={row.label}
-          className="grid grid-cols-[minmax(9rem,34%)_1fr] items-baseline gap-x-4 px-5 py-2.5"
+          className={cn(
+            "px-[var(--app-card-padding)] py-3",
+            layout === "stacked"
+              ? "space-y-1"
+              : "grid grid-cols-1 items-baseline gap-x-4 gap-y-1 sm:grid-cols-[minmax(8rem,32%)_1fr]",
+          )}
         >
           <dt className="text-xs font-medium text-muted-foreground">{row.label}</dt>
           <dd
             className={cn(
-              "text-sm font-medium leading-snug text-foreground",
+              "text-sm font-medium leading-snug break-words text-foreground",
               row.highlight && "text-primary",
             )}
           >
@@ -58,6 +75,7 @@ export function AssetDetailSectionPanel({
   selectPlaceholders = {},
   inventoryDisplay,
   highlightMismatch,
+  fieldLayout = "inline",
   className,
 }: {
   config: AssetViewSectionConfig
@@ -72,6 +90,8 @@ export function AssetDetailSectionPanel({
   selectPlaceholders?: Record<string, string>
   inventoryDisplay?: (key: string, asset: AssetDetail) => React.ReactNode
   highlightMismatch?: boolean
+  /** Stacked label/value rows — better in narrow containers (e.g. approval dialog). */
+  fieldLayout?: "inline" | "stacked"
   className?: string
 }) {
   const dateFields = config.dateFields ?? []
@@ -122,13 +142,16 @@ export function AssetDetailSectionPanel({
   }
 
   return (
-    <AdminPanel className={cn(className)} contentClassName="p-0">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-5 py-3">
+    <AdminPanel
+      className={cn("flex h-full flex-col", ASSET_VIEW_PANEL_MIN_HEIGHT, className)}
+      contentClassName="flex flex-1 flex-col p-0"
+    >
+      <div className="app-panel-header shrink-0 border-b border-border/60 py-3">
         <Icon className="size-4 text-primary" aria-hidden />
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       </div>
       {editing ? (
-        <div className="grid gap-3 px-5 py-4 sm:grid-cols-2 sm:content-start">
+        <div className="grid gap-[var(--app-form-gap)] p-[var(--app-card-padding)] sm:grid-cols-2 sm:content-start">
           {extra}
           {keys.map((k) => {
             const opts = selectOptions[k]
@@ -141,13 +164,13 @@ export function AssetDetailSectionPanel({
                 : String(rawVal ?? "")
             const mono = k === "asset_code" || k === "rfid_code"
             return (
-              <div key={k} className="space-y-1.5">
-                <Label className="text-xs">{formatLabel(k)}</Label>
+              <div key={k} className="app-form-field">
+                <Label className="app-form-label">{formatLabel(k)}</Label>
                 {readonly ? (
-                  <Input className="h-9 bg-muted/40" value={val} readOnly disabled />
+                  <Input className="bg-muted/40" value={val} readOnly disabled />
                 ) : opts && opts.length > 0 ? (
                   <select
-                    className={cn(adminSelectClass, "h-9 text-sm")}
+                    className={adminSelectClass}
                     value={val}
                     onChange={(e) =>
                       onSection(
@@ -169,14 +192,13 @@ export function AssetDetailSectionPanel({
                   </select>
                 ) : dateFields.includes(k) || isAssetMasterDateField(k) ? (
                   <Input
-                    className="h-9"
                     type="date"
                     value={val ? val.slice(0, 10) : ""}
                     onChange={(e) => onSection(k, e.target.value || null)}
                   />
                 ) : (
                   <Input
-                    className={cn("h-9", mono && "font-mono")}
+                    className={cn(mono && "font-mono")}
                     value={val}
                     onChange={(e) => onSection(k, e.target.value || null)}
                   />
@@ -187,6 +209,8 @@ export function AssetDetailSectionPanel({
         </div>
       ) : (
         <DetailFieldList
+          className="flex-1"
+          layout={fieldLayout}
           rows={[
             ...(config.showPlant && plantName
               ? [{ label: "Plant name", value: plantName }]

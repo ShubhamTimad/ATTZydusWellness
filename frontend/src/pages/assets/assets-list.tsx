@@ -8,6 +8,7 @@ import {
   AdminPanel,
   AdminPrimaryButton,
   AdminTableCell,
+  AdminTableEmptyRow,
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
@@ -25,8 +26,14 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, getJson, postJson } from "@/lib/api"
-import type { AssetDetail, AssetListResponse } from "@/lib/assets-types"
+import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
+import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
+import {
+  buildAssetListActionItems,
+  countSubmittableSelected,
+  selectedAssetsFromList,
+} from "@/lib/asset-actions"
+import type { AssetDetail, AssetListResponse, SubmitForApprovalResult } from "@/lib/assets-types"
 import {
   categoryLabel,
   costCenterChildLabel,
@@ -34,6 +41,7 @@ import {
   plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
+import { assetStatusLabel, assetStatusVariant, canSubmitForApproval } from "@/lib/asset-lifecycle"
 import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
@@ -93,6 +101,7 @@ export function AssetsListPage() {
   const [createOpen, setCreateOpen] = React.useState(false)
   const [creating, setCreating] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
+  const [bulkActionBusy, setBulkActionBusy] = React.useState(false)
 
   const [form, setForm] = React.useState({
     asset_name: "",
@@ -121,6 +130,8 @@ export function AssetsListPage() {
 
   const canCreate = hasPermission("asset.create")
   const canImport = hasPermission("asset.import")
+  const canSubmitApproval = hasPermission("asset.create")
+  const canDelete = hasPermission("asset.delete") || hasPermission("asset.manage")
   const activeFilterCount = countActiveFilters(filters)
 
   const load = React.useCallback(async () => {
@@ -207,6 +218,103 @@ export function AssetsListPage() {
   }
 
   const items = data?.items ?? []
+  const selectedRows = React.useMemo(
+    () => selectedAssetsFromList(items, selected),
+    [items, selected],
+  )
+  const submittableCount = React.useMemo(
+    () => countSubmittableSelected(selectedRows, canSubmitApproval),
+    [selectedRows, canSubmitApproval],
+  )
+  const listActions = React.useMemo(
+    () =>
+      buildAssetListActionItems({
+        selectedCount: selected.size,
+        submittableCount,
+        canSubmitApproval,
+        canDelete,
+      }),
+    [selected.size, submittableCount, canSubmitApproval, canDelete],
+  )
+
+  async function submitSelectedForApproval() {
+    const ids = selectedRows
+      .filter((row) => canSubmitForApproval(row.lifecycle_status, row.approval_status))
+      .map((r) => r.id)
+    if (ids.length === 0) {
+      toast.error("No selected assets can be submitted for approval.")
+      return
+    }
+    setBulkActionBusy(true)
+    try {
+      const res = await postJson<SubmitForApprovalResult>("/admin/assets/submit-for-approval", {
+        asset_ids: ids,
+      })
+      if (res.submitted_count > 0) {
+        toast.success(
+          `${res.submitted_count} asset(s) submitted for approval.${res.activated_count > 0 ? ` ${res.activated_count} activated (no workflow).` : ""}`,
+        )
+      } else if (res.activated_count > 0) {
+        toast.success(`${res.activated_count} asset(s) activated (no approval workflow configured).`)
+      }
+      if (res.errors.length > 0) {
+        toast.error(res.errors.slice(0, 2).join(" "))
+      }
+      setSelected(new Set())
+      await load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Submit for approval failed.")
+    } finally {
+      setBulkActionBusy(false)
+    }
+  }
+
+  async function deleteSelected() {
+    const ids = selectedRows.map((r) => r.id)
+    if (ids.length === 0) return
+    if (!window.confirm(`Delete ${ids.length} selected asset(s)? This cannot be undone.`)) return
+    setBulkActionBusy(true)
+    try {
+      const errors: string[] = []
+      for (const id of ids) {
+        try {
+          await deleteJson(`/admin/assets/${id}`)
+        } catch (e) {
+          errors.push(e instanceof ApiError ? e.message : `Asset ${id}`)
+        }
+      }
+      if (errors.length === 0) {
+        toast.success(`Deleted ${ids.length} asset(s).`)
+      } else if (errors.length < ids.length) {
+        toast.warning(`Deleted ${ids.length - errors.length} of ${ids.length}. Some failed.`)
+      } else {
+        toast.error(errors[0] ?? "Delete failed.")
+      }
+      setSelected(new Set())
+      await load()
+    } finally {
+      setBulkActionBusy(false)
+    }
+  }
+
+  function handleListAction(actionId: string) {
+    if (actionId === "submit-for-approval") {
+      void submitSelectedForApproval()
+      return
+    }
+    if (actionId === "open") {
+      const id = selectedRows[0]?.id
+      if (id != null) navigate(String(id))
+      return
+    }
+    if (actionId === "delete") {
+      void deleteSelected()
+      return
+    }
+    if (actionId === "clear-selection") {
+      setSelected(new Set())
+    }
+  }
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -214,7 +322,7 @@ export function AssetsListPage() {
   const actionButtons = (
     <>
       {canImport ? (
-        <Button variant="outline" size="sm" className="h-9 shrink-0 px-3" asChild>
+        <Button variant="outline" size="sm" className="shrink-0" asChild>
           <Link to="/dashboard/assets/import">
             <Upload className="size-4" aria-hidden />
             Import
@@ -222,7 +330,7 @@ export function AssetsListPage() {
         </Button>
       ) : null}
       {canCreate ? (
-        <AdminPrimaryButton type="button" className="h-9 shrink-0 px-3" onClick={() => setCreateOpen(true)}>
+        <AdminPrimaryButton type="button" className="shrink-0" onClick={() => setCreateOpen(true)}>
           <Plus className="size-4" aria-hidden />
           Create asset
         </AdminPrimaryButton>
@@ -231,9 +339,9 @@ export function AssetsListPage() {
   )
 
   return (
-    <AdminPage fullWidth dense className="flex h-[calc(100vh-4rem)] min-h-0 flex-col gap-2">
-      <div className="flex shrink-0 flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
+    <AdminPage fullWidth className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 flex-col gap-[var(--app-grid-gap)]">
+        <div className="app-toolbar">
           <div className="relative min-w-[16rem] flex-1">
             <Search
               className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
@@ -244,7 +352,7 @@ export function AssetsListPage() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search by name, code, serial, or RFID…"
-              className="h-9 w-full pl-9 text-sm shadow-sm"
+              className="w-full pl-9"
               aria-label="Search assets"
             />
             {searchInput ? (
@@ -263,10 +371,7 @@ export function AssetsListPage() {
             type="button"
             variant="outline"
             size="sm"
-            className={cn(
-              "h-9 shrink-0 gap-1.5 px-3 shadow-sm",
-              filtersOpen && "border-primary/40 bg-primary/5",
-            )}
+            className={cn("shrink-0", filtersOpen && "border-primary/40 bg-primary/5")}
             onClick={() => {
               setDraftFilters(filters)
               setFiltersOpen((o) => !o)
@@ -284,17 +389,22 @@ export function AssetsListPage() {
           {actionButtons}
 
           {selected.size > 0 ? (
-            <span className="text-xs text-muted-foreground">{selected.size} selected</span>
+            <AssetActionsMenu
+              actions={listActions}
+              selectedCount={selected.size}
+              busy={bulkActionBusy}
+              onAction={handleListAction}
+            />
           ) : null}
         </div>
 
         {filtersOpen ? (
-          <div className="rounded-lg border border-border/70 bg-muted/10 p-3 shadow-sm">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Plant</Label>
+          <div className="app-panel rounded-[var(--app-radius-surface)] bg-muted/15 p-[var(--app-card-padding)] shadow-none">
+            <div className="app-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Plant</Label>
                 <select
-                  className={cn(adminSelectClass, "h-9 text-sm")}
+                  className={adminSelectClass}
                   value={draftFilters.plant_id}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, plant_id: e.target.value }))}
                 >
@@ -306,10 +416,10 @@ export function AssetsListPage() {
                   ))}
                 </select>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Category</Label>
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Category</Label>
                 <select
-                  className={cn(adminSelectClass, "h-9 text-sm")}
+                  className={adminSelectClass}
                   value={draftFilters.category_id}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, category_id: e.target.value }))}
                 >
@@ -321,10 +431,10 @@ export function AssetsListPage() {
                   ))}
                 </select>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Lifecycle</Label>
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Lifecycle</Label>
                 <select
-                  className={cn(adminSelectClass, "h-9 text-sm")}
+                  className={adminSelectClass}
                   value={draftFilters.lifecycle_status}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, lifecycle_status: e.target.value }))}
                 >
@@ -335,24 +445,25 @@ export function AssetsListPage() {
                   <option value="draft">Draft</option>
                 </select>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Approval</Label>
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Approval</Label>
                 <select
-                  className={cn(adminSelectClass, "h-9 text-sm")}
+                  className={adminSelectClass}
                   value={draftFilters.approval_status}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, approval_status: e.target.value }))}
                 >
                   <option value="">All</option>
+                  <option value="draft">Draft (not submitted)</option>
+                  <option value="pending">Pending approval</option>
                   <option value="approved">Approved</option>
-                  <option value="pending">Pending</option>
                   <option value="rejected">Rejected</option>
                   <option value="not_required">Not required</option>
                 </select>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Sort by</Label>
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Sort by</Label>
                 <select
-                  className={cn(adminSelectClass, "h-9 text-sm")}
+                  className={adminSelectClass}
                   value={draftFilters.sort_by}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, sort_by: e.target.value }))}
                 >
@@ -361,10 +472,10 @@ export function AssetsListPage() {
                   <option value="asset_code">Asset code</option>
                 </select>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Order</Label>
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Order</Label>
                 <select
-                  className={cn(adminSelectClass, "h-9 text-sm")}
+                  className={adminSelectClass}
                   value={draftFilters.sort_dir}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, sort_dir: e.target.value }))}
                 >
@@ -373,15 +484,14 @@ export function AssetsListPage() {
                 </select>
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap items-center justify-end gap-2 border-t border-border/50 pt-3">
-              <Button type="button" variant="ghost" size="sm" className="h-8" onClick={clearFilters}>
+            <div className="mt-[var(--app-grid-gap)] flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-[var(--app-grid-gap)]">
+              <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
                 Clear all
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8"
                 onClick={() => {
                   setDraftFilters(filters)
                   setFiltersOpen(false)
@@ -389,7 +499,7 @@ export function AssetsListPage() {
               >
                 Cancel
               </Button>
-              <AdminPrimaryButton type="button" className="h-8" onClick={applyFilters}>
+              <AdminPrimaryButton type="button" onClick={applyFilters}>
                 Apply filters
               </AdminPrimaryButton>
             </div>
@@ -442,50 +552,45 @@ export function AssetsListPage() {
         ) : null}
       </div>
 
-      <AdminPanel className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
+      <AdminPanel className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-auto">
-          <Table>
-            <TableHeader className="sticky top-0 z-[1] bg-card shadow-sm">
+          <Table className="app-table-head-sticky">
+            <TableHeader>
               <AdminTableHeaderRow>
-                <AdminTableHeadCell className="h-9 w-9 px-2">
+                <AdminTableHeadCell className="w-10 px-3">
                   <Checkbox
                     checked={items.length > 0 && selected.size === items.length}
                     onCheckedChange={(v) => toggleAll(Boolean(v))}
                     aria-label="Select all"
                   />
                 </AdminTableHeadCell>
-                <AdminTableHeadCell className="h-9 px-3">Asset name</AdminTableHeadCell>
-                <AdminTableHeadCell className="h-9 px-3">Category</AdminTableHeadCell>
-                <AdminTableHeadCell className="h-9 px-3">Plant</AdminTableHeadCell>
-                <AdminTableHeadCell className="h-9 px-3">Functional loc.</AdminTableHeadCell>
-                <AdminTableHeadCell className="h-9 px-3">Actual loc.</AdminTableHeadCell>
-                <AdminTableHeadCell className="h-9 px-3">Cost center</AdminTableHeadCell>
-                <AdminTableHeadCell className="h-9 px-3 text-right">Inv.</AdminTableHeadCell>
-                <AdminTableHeadCell className="h-9 px-3 text-right">Phys.</AdminTableHeadCell>
-                <AdminTableHeadCell className="h-9 px-3">Verified</AdminTableHeadCell>
+                <AdminTableHeadCell>Asset name</AdminTableHeadCell>
+                <AdminTableHeadCell>Status</AdminTableHeadCell>
+                <AdminTableHeadCell>Category</AdminTableHeadCell>
+                <AdminTableHeadCell>Plant</AdminTableHeadCell>
+                <AdminTableHeadCell>Functional loc.</AdminTableHeadCell>
+                <AdminTableHeadCell>Actual loc.</AdminTableHeadCell>
+                <AdminTableHeadCell>Cost center</AdminTableHeadCell>
+                <AdminTableHeadCell className="text-right">Inv.</AdminTableHeadCell>
+                <AdminTableHeadCell className="text-right">Phys.</AdminTableHeadCell>
+                <AdminTableHeadCell>Verified</AdminTableHeadCell>
               </AdminTableHeaderRow>
             </TableHeader>
             <TableBody>
               {loading && items.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="px-3 py-8 text-center text-sm text-muted-foreground">
-                    Loading assets…
-                  </td>
-                </tr>
+                <AdminTableEmptyRow colSpan={12}>Loading assets…</AdminTableEmptyRow>
               ) : items.length === 0 ? (
-                <tr>
-                  <td colSpan={11} className="px-3 py-8 text-center text-sm text-muted-foreground">
-                    No assets match your search or filters.
-                  </td>
-                </tr>
+                <AdminTableEmptyRow colSpan={12}>
+                  No assets match your search or filters.
+                </AdminTableEmptyRow>
               ) : (
                 items.map((row) => (
                   <tr
                     key={row.id}
-                    className="cursor-pointer border-b border-border/40 hover:bg-muted/25"
+                    className="cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/40"
                     onClick={() => navigate(String(row.id))}
                   >
-                    <AdminTableCell className="px-2 py-2">
+                    <AdminTableCell className="w-10 px-3">
                       <div
                         className="flex items-center"
                         onClick={(e) => e.stopPropagation()}
@@ -499,15 +604,20 @@ export function AssetsListPage() {
                         />
                       </div>
                     </AdminTableCell>
-                    <AdminTableCell className="px-3 py-2">
+                    <AdminTableCell>
                       <span className="font-medium text-foreground">{row.asset_name}</span>
                       <div className="font-mono text-[11px] text-muted-foreground">{row.asset_code}</div>
                     </AdminTableCell>
-                    <AdminTableCell className="px-3 py-2 text-muted-foreground">{row.category_name ?? "—"}</AdminTableCell>
-                    <AdminTableCell className="px-3 py-2">{row.plant_name ?? "—"}</AdminTableCell>
+                    <AdminTableCell>
+                      <Badge variant={assetStatusVariant(row.lifecycle_status, row.approval_status)} className="font-normal">
+                        {assetStatusLabel(row.lifecycle_status, row.approval_status)}
+                      </Badge>
+                    </AdminTableCell>
+                    <AdminTableCell className="text-muted-foreground">{row.category_name ?? "—"}</AdminTableCell>
+                    <AdminTableCell>{row.plant_name ?? "—"}</AdminTableCell>
                     <AdminTableCell className="max-w-[12rem] truncate px-3 py-2">{row.functional_location ?? "—"}</AdminTableCell>
                     <AdminTableCell className="max-w-[12rem] truncate px-3 py-2">{row.actual_location ?? "—"}</AdminTableCell>
-                    <AdminTableCell className="px-3 py-2">{row.cost_center ?? "—"}</AdminTableCell>
+                    <AdminTableCell>{row.cost_center ?? "—"}</AdminTableCell>
                     <AdminTableCell className="px-3 py-2 text-right tabular-nums">{row.inventory_count ?? "—"}</AdminTableCell>
                     <AdminTableCell className="px-3 py-2 text-right tabular-nums">
                       {row.physical_count ?? 0}
@@ -523,7 +633,7 @@ export function AssetsListPage() {
             </TableBody>
           </Table>
         </div>
-        <div className="flex shrink-0 items-center justify-between border-t border-border/60 px-3 py-1.5 text-xs text-muted-foreground">
+        <div className="flex shrink-0 items-center justify-between border-t border-border/60 px-[var(--app-card-padding)] py-3 text-xs text-muted-foreground">
           <span>
             {loading ? "Loading…" : `${total} assets · page ${page} of ${totalPages}`}
           </span>
@@ -532,7 +642,6 @@ export function AssetsListPage() {
               type="button"
               variant="outline"
               size="sm"
-              className="h-7 px-2.5 text-xs"
               disabled={page <= 1 || loading}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
@@ -542,7 +651,6 @@ export function AssetsListPage() {
               type="button"
               variant="outline"
               size="sm"
-              className="h-7 px-2.5 text-xs"
               disabled={page >= totalPages || loading}
               onClick={() => setPage((p) => p + 1)}
             >
@@ -558,21 +666,21 @@ export function AssetsListPage() {
             <DialogTitle>Create asset</DialogTitle>
             <DialogDescription>Manual creation. Approval workflow applies when configured.</DialogDescription>
           </DialogHeader>
-          <div className="dialog-body grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label>Asset name *</Label>
+          <div className="dialog-body grid sm:grid-cols-2">
+            <div className="app-form-field sm:col-span-2">
+              <Label className="app-form-label">Asset name *</Label>
               <Input value={form.asset_name} onChange={(e) => setForm((f) => ({ ...f, asset_name: e.target.value }))} />
             </div>
-            <div className="space-y-1.5">
-              <Label>Asset code *</Label>
+            <div className="app-form-field">
+              <Label className="app-form-label">Asset code *</Label>
               <Input value={form.asset_code} onChange={(e) => setForm((f) => ({ ...f, asset_code: e.target.value }))} />
             </div>
-            <div className="space-y-1.5">
-              <Label>RFID</Label>
+            <div className="app-form-field">
+              <Label className="app-form-label">RFID</Label>
               <Input value={form.rfid_code} onChange={(e) => setForm((f) => ({ ...f, rfid_code: e.target.value }))} />
             </div>
-            <div className="space-y-1.5">
-              <Label>Category</Label>
+            <div className="app-form-field">
+              <Label className="app-form-label">Category</Label>
               <select
                 className={adminSelectClass}
                 value={form.asset_category_id}
@@ -586,8 +694,8 @@ export function AssetsListPage() {
                 ))}
               </select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Plant</Label>
+            <div className="app-form-field">
+              <Label className="app-form-label">Plant</Label>
               <select
                 className={adminSelectClass}
                 value={form.plant_id}
@@ -610,8 +718,8 @@ export function AssetsListPage() {
                 ))}
               </select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Functional location</Label>
+            <div className="app-form-field">
+              <Label className="app-form-label">Functional location</Label>
               <select
                 className={adminSelectClass}
                 value={form.functional_location}
@@ -631,8 +739,8 @@ export function AssetsListPage() {
                 ))}
               </select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Actual location</Label>
+            <div className="app-form-field">
+              <Label className="app-form-label">Actual location</Label>
               <select
                 className={adminSelectClass}
                 value={form.actual_location}
@@ -648,8 +756,8 @@ export function AssetsListPage() {
                 ))}
               </select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Cost center</Label>
+            <div className="app-form-field">
+              <Label className="app-form-label">Cost center</Label>
               <select
                 className={adminSelectClass}
                 value={form.cost_center}
@@ -669,12 +777,12 @@ export function AssetsListPage() {
                 ))}
               </select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Cost center descript</Label>
-              <Input className="h-9 bg-muted/40" value={createCostCenterDesc} readOnly disabled />
+            <div className="app-form-field">
+              <Label className="app-form-label">Cost center descript</Label>
+              <Input className="bg-muted/40" value={createCostCenterDesc} readOnly disabled />
             </div>
-            <div className="space-y-1.5">
-              <Label>Profit center</Label>
+            <div className="app-form-field">
+              <Label className="app-form-label">Profit center</Label>
               <select
                 className={adminSelectClass}
                 value={form.profit_center}
@@ -690,18 +798,18 @@ export function AssetsListPage() {
                 ))}
               </select>
             </div>
-            <div className="space-y-1.5">
-              <Label>Profit center descript</Label>
-              <Input className="h-9 bg-muted/40" value={createProfitCenterDesc} readOnly disabled />
+            <div className="app-form-field">
+              <Label className="app-form-label">Profit center descript</Label>
+              <Input className="bg-muted/40" value={createProfitCenterDesc} readOnly disabled />
             </div>
-            <div className="flex justify-end gap-2 border-t border-border/60 pt-3 sm:col-span-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
-                Cancel
-              </Button>
-              <AdminPrimaryButton type="button" disabled={creating} onClick={() => void createAsset()}>
-                {creating ? "Creating…" : "Create"}
-              </AdminPrimaryButton>
-            </div>
+          </div>
+          <div className="dialog-footer-actions">
+            <Button type="button" variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
+              Cancel
+            </Button>
+            <AdminPrimaryButton type="button" disabled={creating} onClick={() => void createAsset()}>
+              {creating ? "Creating…" : "Create"}
+            </AdminPrimaryButton>
           </div>
         </DialogContent>
       </Dialog>

@@ -27,9 +27,9 @@ export function AdminPage({
   return (
     <div
       className={cn(
-        "mx-auto w-full",
+        "app-page mx-auto w-full",
         fullWidth ? "max-w-none" : "max-w-7xl",
-        dense ? "space-y-1" : "space-y-6",
+        dense ? "gap-[var(--app-grid-gap)]" : "gap-[var(--app-section-gap)]",
         className,
       )}
     >
@@ -72,11 +72,11 @@ export function AdminSection({
   className?: string
 }) {
   return (
-    <section className={cn("space-y-3", className)}>
+    <section className={cn("app-section", className)}>
       {title ? (
-        <div className="space-y-0.5">
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          {description ? <p className="text-xs text-muted-foreground">{description}</p> : null}
+        <div className="space-y-1">
+          <h3 className="app-section-heading">{title}</h3>
+          {description ? <p className="text-xs leading-relaxed text-muted-foreground">{description}</p> : null}
         </div>
       ) : null}
       {children}

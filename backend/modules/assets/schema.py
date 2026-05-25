@@ -206,7 +206,17 @@ class ImportPreviewResponse(BaseModel):
 class ImportConfirmRequest(BaseModel):
     rows: list[dict[str, Any]] = Field(min_length=1)
     filename: str | None = None
-    initiate_approval: bool = True
+    initiate_approval: bool = False
+
+
+class SubmitForApprovalRequest(BaseModel):
+    asset_ids: list[int] = Field(min_length=1)
+
+
+class SubmitForApprovalResponse(BaseModel):
+    submitted_count: int
+    activated_count: int
+    errors: list[str] = Field(default_factory=list)
 
 
 class ImportConfirmResponse(BaseModel):

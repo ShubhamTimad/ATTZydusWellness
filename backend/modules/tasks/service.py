@@ -420,6 +420,20 @@ def build_task_detail_public(db: Session, t: ApprovalTask) -> TaskDetailPublic:
                 o = db.get(OrgUnit, int(oid))
                 if o is not None:
                     payload["org_unit_name"] = o.name
+        elif req.entity_type in ("asset_creation", "asset_import"):
+            from modules.assets.model import AssetCategory, AssetMaster
+
+            asset = db.get(AssetMaster, int(req.entity_id))
+            if asset is not None:
+                payload.setdefault("asset_name", asset.asset_name)
+                payload.setdefault("asset_code", asset.asset_code)
+                payload.setdefault("rfid_code", asset.rfid_code)
+                payload.setdefault("lifecycle_status", asset.lifecycle_status)
+                payload.setdefault("approval_status", asset.approval_status)
+                if asset.asset_category_id is not None:
+                    cat = db.get(AssetCategory, int(asset.asset_category_id))
+                    if cat is not None:
+                        payload["category_name"] = f"{cat.code} — {cat.name}"
         step_order: int | None = None
         required: int | None = None
         approver_role_id: int | None = None

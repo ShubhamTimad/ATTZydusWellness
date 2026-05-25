@@ -21,7 +21,15 @@ def safe_payload_preview(payload: dict[str, Any] | None) -> dict[str, Any]:
     if not payload:
         return {}
     out: dict[str, Any] = {}
-    for key in ("full_name", "email", "action_code"):
+    for key in (
+        "full_name",
+        "email",
+        "action_code",
+        "asset_name",
+        "asset_code",
+        "rfid_code",
+        "source_type",
+    ):
         if key in payload and payload[key] is not None:
             out[key] = payload[key]
     return out
@@ -96,12 +104,20 @@ def _action_code_from_request(req: ApprovalRequest) -> str:
         return code.strip()
     if req.entity_type == "user_creation":
         return "users.create"
+    if req.entity_type == "asset_creation":
+        return "asset.create"
+    if req.entity_type == "asset_import":
+        return "asset.import"
     return "unknown"
 
 
 def _action_label(action_code: str) -> str:
     if action_code == "users.create":
         return "Create user"
+    if action_code == "asset.create":
+        return "Create asset"
+    if action_code == "asset.import":
+        return "Import assets"
     return action_code.replace(".", " ").replace(":", " ").title()
 
 
