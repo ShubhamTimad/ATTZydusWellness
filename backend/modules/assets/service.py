@@ -524,6 +524,62 @@ class AssetMasterService:
             inventory=AssetInventoryPayload.model_validate(inv) if inv else None,
         )
 
+    def update_rfid(
+    self,
+    asset_id: int,
+    rfid_code: str,
+    actor_user_id: int,
+) -> AssetDetailPublic:
+
+        asset = (
+            self._db.query(AssetMaster)
+            .filter(
+                AssetMaster.id == asset_id,
+                AssetMaster.deleted_at.is_(None),
+            )
+            .first()
+        )
+
+        if not asset:
+            raise NotFoundError("Asset", asset_id)
+
+        rfid = rfid_code.strip()
+
+        existing_rfid = (
+            self._db.query(AssetMaster)
+            .filter(
+                AssetMaster.rfid_code == rfid,
+                AssetMaster.id != asset_id,
+                AssetMaster.deleted_at.is_(None),
+            )
+            .first()
+        )
+
+        if existing_rfid:
+            raise DuplicateRfidError()
+
+        before = snapshot_asset(asset)
+
+        asset.rfid_code = rfid
+        asset.updated_at = _now()
+
+        self._db.flush()
+
+        changes = diff_snapshots(before, snapshot_asset(asset))
+
+        if changes:
+            log_asset_event(
+                self._db,
+                asset_id=asset.id,
+                actor_user_id=actor_user_id,
+                action="updated",
+                old_value=before,
+                new_value={"changes": changes},
+            )
+
+        self._db.commit()
+
+        return self.get_asset(asset.id)
     def update_asset(
         self, asset_id: int, data: AssetUpdateRequest, *, actor_user_id: int | None
     ) -> AssetDetailPublic:

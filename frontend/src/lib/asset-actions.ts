@@ -1,8 +1,7 @@
 import type { LucideIcon } from "lucide-react"
-import { ExternalLink, Pencil, Send, Trash2, X } from "lucide-react"
-
 import type { AssetListItem } from "@/lib/assets-types"
 import { canSubmitForApproval } from "@/lib/asset-lifecycle"
+import { ExternalLink, Pencil, Send, Trash2, X, ScanLine } from "lucide-react"
 
 export type AssetActionItem = {
   id: string
@@ -103,6 +102,15 @@ export function buildAssetDetailActionItems(opts: {
 
   if (canUpdate) {
     actions.push({
+      id: "update-rfid",
+      label: "Attach / Update RFID",
+      icon: ScanLine,
+    })
+  }
+
+
+  if (canUpdate) {
+    actions.push({
       id: "edit",
       label: editing ? "Cancel edit" : "Edit asset",
       hint: canEdit ? undefined : "Cannot edit while approval is pending",
@@ -110,6 +118,8 @@ export function buildAssetDetailActionItems(opts: {
       icon: Pencil,
     })
   }
+
+
 
   return actions
 }

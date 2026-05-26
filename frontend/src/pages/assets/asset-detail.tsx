@@ -34,6 +34,7 @@ import { buildAssetDetailActionItems } from "@/lib/asset-actions"
 import { assetStatusLabel, canSubmitForApproval } from "@/lib/asset-lifecycle"
 import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
+import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
   information: Package,
@@ -63,6 +64,7 @@ const INVENTORY_READONLY = new Set([
   "physical_count",
   "last_verification_date",
 ])
+
 
 function formatDateTime(iso: string | undefined) {
   if (!iso) return "—"
@@ -104,6 +106,10 @@ export function AssetDetailPage() {
   const [submittingApproval, setSubmittingApproval] = React.useState(false)
   const [auditRows, setAuditRows] = React.useState<AuditLogRow[]>([])
   const [auditLoading, setAuditLoading] = React.useState(false)
+
+  const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
+  const [rfidValue, setRfidValue] = React.useState("")
+  const [rfidSaving, setRfidSaving] = React.useState(false)
 
   const canUpdate = hasPermission("asset.update") || hasPermission("asset.manage")
   const canSubmitApproval = hasPermission("asset.create")
@@ -209,6 +215,42 @@ export function AssetDetailPage() {
       toast.error(e instanceof ApiError ? e.message : "Save failed.")
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function saveRfid() {
+    if (!asset) return
+
+    try {
+      setRfidSaving(true)
+
+      const updated = await patchJson<AssetDetail>(
+        `/admin/assets/${asset.id}/rfid`,
+        {
+          rfid_code: rfidValue,
+        },
+      )
+
+      setAsset(updated)
+
+      toast.success(
+        asset.rfid_code
+          ? "RFID updated successfully."
+          : "RFID attached successfully.",
+      )
+
+      setRfidDialogOpen(false)
+
+      void loadAudit(updated.id)
+
+    } catch (e) {
+      toast.error(
+        e instanceof ApiError
+          ? e.message
+          : "Failed to update RFID.",
+      )
+    } finally {
+      setRfidSaving(false)
     }
   }
 
@@ -333,12 +375,18 @@ export function AssetDetailPage() {
       void submitForApproval()
       return
     }
+
+    if (actionId === "update-rfid") {
+      setRfidValue(asset?.rfid_code ?? "")
+      setRfidDialogOpen(true)
+      return
+    }
+
     if (actionId === "edit") {
       if (editing) setEditing(false)
       else setEditing(true)
     }
   }
-
   const toolbar = (
     <div className="flex flex-wrap items-center gap-1.5">
       <AdminBackLink to="/dashboard/assets">Assets</AdminBackLink>
@@ -359,31 +407,55 @@ export function AssetDetailPage() {
 
   if (loading) {
     return (
-      <AdminPage fullWidth actions={toolbar} className="space-y-4">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-14 w-full rounded-lg" />
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Skeleton className="h-52 rounded-lg" />
-          <Skeleton className="h-52 rounded-lg" />
-          <Skeleton className="h-52 rounded-lg" />
-          <Skeleton className="h-52 rounded-lg" />
-        </div>
-      </AdminPage>
+      <>
+        <AdminPage fullWidth actions={toolbar} className="space-y-4">
+          <Skeleton className="h-8 w-64" />
+          <Skeleton className="h-14 w-full rounded-lg" />
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Skeleton className="h-52 rounded-lg" />
+            <Skeleton className="h-52 rounded-lg" />
+            <Skeleton className="h-52 rounded-lg" />
+            <Skeleton className="h-52 rounded-lg" />
+          </div>
+        </AdminPage>
+
+        <AssetRfidDialog
+          open={rfidDialogOpen}
+          onOpenChange={setRfidDialogOpen}
+          value={rfidValue}
+          onChange={setRfidValue}
+          onSave={() => void saveRfid()}
+          saving={rfidSaving}
+        />
+      </>
     )
   }
 
   if (!asset) {
     return (
-      <AdminPage fullWidth actions={toolbar}>
-        <Alert>
-          <AlertTitle>Asset not found</AlertTitle>
-          <AlertDescription>
-            <Link to="/dashboard/assets" className="text-primary underline-offset-2 hover:underline">
-              Return to the asset list
-            </Link>
-          </AlertDescription>
-        </Alert>
-      </AdminPage>
+
+      <>
+        <AdminPage fullWidth actions={toolbar}>
+          <Alert>
+            <AlertTitle>Asset not found</AlertTitle>
+            <AlertDescription>
+              <Link to="/dashboard/assets" className="text-primary underline-offset-2 hover:underline">
+                Return to the asset list
+              </Link>
+            </AlertDescription>
+          </Alert>
+        </AdminPage>
+
+        <AssetRfidDialog
+          open={rfidDialogOpen}
+          onOpenChange={setRfidDialogOpen}
+          value={rfidValue}
+          onChange={setRfidValue}
+          onSave={() => void saveRfid()}
+          saving={rfidSaving}
+        />
+
+      </>
     )
   }
 
@@ -531,31 +603,44 @@ export function AssetDetailPage() {
   }
 
   return (
-    <AdminPage fullWidth actions={toolbar} className="w-full pb-4">
-      <header className="flex flex-wrap items-end justify-between gap-[var(--app-grid-gap)] border-b border-border/60 pb-[var(--app-grid-gap)]">
-        <div className="min-w-0">
-          <h1 className="app-page-heading truncate">
-            {a.asset_name}
-          </h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {a.location?.functional_location ?? a.asset_code}
-            {a.plant_name ? ` · ${a.plant_name}` : ""}
-          </p>
+    <>
+      <AdminPage fullWidth actions={toolbar} className="w-full pb-4">
+        <header className="flex flex-wrap items-end justify-between gap-[var(--app-grid-gap)] border-b border-border/60 pb-[var(--app-grid-gap)]">
+          <div className="min-w-0">
+            <h1 className="app-page-heading truncate">
+              {a.asset_name}
+            </h1>
+
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {a.location?.functional_location ?? a.asset_code}
+              {a.plant_name ? ` · ${a.plant_name}` : ""}
+            </p>
+          </div>
+
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <Clock className="size-3.5 shrink-0" aria-hidden />
+            Updated {formatDateTime(a.updated_at)}
+          </span>
+        </header>
+
+        <SummaryStrip items={summaryItems} />
+
+        <div className="app-grid app-grid-2 lg:items-stretch">
+          {ASSET_VIEW_SECTIONS.map((sec) => renderAssetViewSection(sec.id))}
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <Clock className="size-3.5 shrink-0" aria-hidden />
-          Updated {formatDateTime(a.updated_at)}
-        </span>
-      </header>
 
-      <SummaryStrip items={summaryItems} />
+        <AssetAuditLog rows={auditRows} loading={auditLoading} />
+      </AdminPage>
 
-      <div className="app-grid app-grid-2 lg:items-stretch">
-        {ASSET_VIEW_SECTIONS.map((sec) => renderAssetViewSection(sec.id))}
-      </div>
-
-      <AssetAuditLog rows={auditRows} loading={auditLoading} />
-    </AdminPage>
+      <AssetRfidDialog
+        open={rfidDialogOpen}
+        onOpenChange={setRfidDialogOpen}
+        value={rfidValue}
+        onChange={setRfidValue}
+        onSave={() => void saveRfid()}
+        saving={rfidSaving}
+      />
+    </>
   )
 }
 

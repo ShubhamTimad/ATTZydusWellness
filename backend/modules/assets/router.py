@@ -20,6 +20,7 @@ from modules.assets.schema import (
     ImportValidateRequest,
     SubmitForApprovalRequest,
     SubmitForApprovalResponse,
+    AssetRfidUpdateRequest,
 )
 from modules.assets.service import (
     AssetMasterService,
@@ -206,3 +207,31 @@ def import_confirm(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=exc.preview.model_dump(mode="json"),
         ) from exc
+
+@router.patch("/{asset_id}/rfid", response_model=AssetDetailPublic)
+def update_asset_rfid(
+    asset_id: int,
+    payload: AssetRfidUpdateRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_any_permission("asset.update", "asset.manage"))],
+) -> AssetDetailPublic:
+    try:
+        return svc.update_rfid(
+            asset_id=asset_id,
+            rfid_code=payload.rfid_code,
+            actor_user_id=int(current.subject),
+        )
+
+    except NotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except DuplicateRfidError:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="RFID code already exists.",
+        ) from None
+

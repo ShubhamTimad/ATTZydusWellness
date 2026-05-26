@@ -105,6 +105,8 @@ class AssetUpdateRequest(BaseModel):
     financial: AssetFinancialPayload | None = None
     inventory: AssetInventoryPayload | None = None
 
+class AssetRfidUpdateRequest(BaseModel):
+    rfid_code: str
 
 class AssetListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
