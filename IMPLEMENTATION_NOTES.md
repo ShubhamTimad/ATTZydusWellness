@@ -423,10 +423,10 @@ Module detection rules (current):
 
 Response shape (high-level):
 
-- `modules.users`
+- `modules.platform.users`
   - `total_users`, `active_users`, `inactive_users`, `new_users_last_7_days`
   - `users_by_role`: distinct user counts per role
-- `modules.tasks`
+- `modules.platform.tasks`
   - `pending`, `approved`, `rejected`, `completed`
   - `completed` is treated as “finished work” and aggregates `approved + completed + closed` statuses for tasks assigned to the current user.
 

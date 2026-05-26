@@ -7,9 +7,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from modules.approvals.assignment_service import get_workflow_for_action
-from modules.approvals.model import ApprovalTask, TaskAuditLog
-from modules.approvals.service import ApprovalEngineService
+from modules.platform.approvals.assignment_service import get_workflow_for_action
+from modules.platform.approvals.model import ApprovalTask, TaskAuditLog
+from modules.platform.approvals.service import ApprovalEngineService
 from modules.assets.lifecycle import (
     APPROVAL_DRAFT,
     APPROVAL_PENDING,
@@ -71,7 +71,7 @@ from modules.assets.schema import (
     SubmitForApprovalResponse,
 )
 from modules.errors import ConflictError, NotFoundError
-from modules.org_units.model import OrgUnit
+from modules.platform.org_units.model import OrgUnit
 
 
 class DuplicateAssetCodeError(Exception):
@@ -684,7 +684,7 @@ class AssetMasterService:
 
     def list_audit(self, asset_id: int) -> list:
         from modules.assets.schema import AssetAuditChangeLine, AssetAuditEventPublic
-        from modules.users.model import User
+        from modules.platform.users.model import User
 
         asset = self._load_asset(asset_id)
         events = list(

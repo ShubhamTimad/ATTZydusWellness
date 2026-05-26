@@ -24,7 +24,7 @@ from modules.asset_masters.schema import (
     PlantChildUpdate,
 )
 from modules.errors import ConflictError, NotFoundError
-from modules.org_units.model import OrgUnit
+from modules.platform.org_units.model import OrgUnit
 
 
 class DuplicateMasterCodeError(ConflictError):

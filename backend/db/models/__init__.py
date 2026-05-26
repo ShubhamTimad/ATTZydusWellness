@@ -1,13 +1,13 @@
 """Import models so SQLAlchemy registers them on Base.metadata."""
 
-from modules.audit.model import AuditLog
-from modules.auth.model import PasswordResetToken, UserSession
-from modules.auth_policy.model import AuthPolicy
-from modules.mfa.model import MfaChallenge, MfaSetupToken, UserMfa
-from modules.features.model import Feature
-from modules.org_units.model import OrgUnit
-from modules.permissions.model import Permission
-from modules.approvals.model import (
+from modules.platform.audit.model import AuditLog
+from modules.platform.auth.model import PasswordResetToken, UserSession
+from modules.platform.auth_policy.model import AuthPolicy
+from modules.platform.auth.model import MfaChallenge, MfaSetupToken, UserMfa
+from modules.platform.features.model import Feature
+from modules.platform.org_units.model import OrgUnit
+from modules.platform.permissions.model import Permission
+from modules.platform.approvals.model import (
     ApprovalAction,
     ApprovalRequest,
     ApprovalStep,
@@ -15,12 +15,12 @@ from modules.approvals.model import (
     ApprovalWorkflow,
     ApprovalWorkflowMapping,
 )
-from modules.rbac_audit.model import RbacAuditLog
-from modules.rbac_versioning.model import RbacCompanyPermissionVersion, RbacUserPermissionVersion
+from modules.platform.rbac_audit.model import RbacAuditLog
+from modules.platform.rbac_versioning.model import RbacCompanyPermissionVersion, RbacUserPermissionVersion
 from modules.rbac_association import role_org_unit, role_permission, user_org_unit, user_role  # noqa: F401
-from modules.roles.model import Role
-from modules.settings.model import Setting
-from modules.users.model import User
+from modules.platform.roles.model import Role
+from modules.platform.settings.model import Setting
+from modules.platform.users.model import User
 
 __all__ = [
     "AuditLog",

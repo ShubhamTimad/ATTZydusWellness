@@ -19,7 +19,7 @@ from sqlalchemy import delete, select, update
 
 import db.models  # noqa: F401
 from db.session import SessionLocal
-from modules.approvals.model import (
+from modules.platform.approvals.model import (
     ApprovalAction,
     ApprovalRequest,
     ApprovalTask,

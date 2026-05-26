@@ -11,11 +11,11 @@ from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
 from db.session import get_db
-from modules.permissions.model import Permission
+from modules.platform.permissions.model import Permission
 from modules.rbac_association import role_permission, user_role
-from modules.roles.model import Role
-from modules.rbac_versioning.service import get_permission_version_pair
-from modules.users.model import User
+from modules.platform.roles.model import Role
+from modules.platform.rbac_versioning.service import get_permission_version_pair
+from modules.platform.users.model import User
 
 
 def _permission_code_variants(required: str) -> set[str]:

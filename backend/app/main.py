@@ -6,7 +6,10 @@ from starlette.middleware.cors import CORSMiddleware
 
 from admin_api.routes import router as admin_api_router
 from app_api.routes import router as app_api_router
-from modules.audit import AdminAuditMiddleware
+from modules.platform.audit import AdminAuditMiddleware
+
+from db.session import SessionLocal
+from modules.rbac_sync import sync_all_modules_to_db
 
 app = FastAPI()
 app.add_middleware(AdminAuditMiddleware)
@@ -39,6 +42,10 @@ def admin_login_redirect() -> RedirectResponse:
     target = os.getenv("FRONTEND_ADMIN_URL", "http://localhost:5173/admin")
     return RedirectResponse(url=f"{target.rstrip('/')}/login", status_code=307)
 
+
+db = SessionLocal()
+sync_all_modules_to_db(db)
+db.close()
 
 app.include_router(app_api_router)
 app.include_router(admin_api_router, prefix="/admin")

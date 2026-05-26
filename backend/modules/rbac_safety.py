@@ -6,10 +6,10 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from modules.errors import RbacSafetyError
-from modules.permissions.model import Permission
+from modules.platform.permissions.model import Permission
 from modules.rbac_association import role_permission, user_role
-from modules.roles.model import Role
-from modules.users.model import User
+from modules.platform.roles.model import Role
+from modules.platform.users.model import User
 
 
 def _permission_code_variants(code: str) -> set[str]:

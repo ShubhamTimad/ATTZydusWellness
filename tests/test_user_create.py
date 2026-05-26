@@ -7,14 +7,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from db.base import Base
-from modules.auth.model import UserSession  # noqa: F401
-from modules.features.model import Feature  # noqa: F401
-from modules.org_units.model import OrgUnit
-from modules.permissions.model import Permission
-from modules.roles.model import Role
-from modules.users.model import User
-from modules.users.schema import UserCreate
-from modules.users.service import DuplicatePhoneError, UserService
+from modules.platform.auth.model import UserSession  # noqa: F401
+from modules.platform.features.model import Feature  # noqa: F401
+from modules.platform.org_units.model import OrgUnit
+from modules.platform.permissions.model import Permission
+from modules.platform.roles.model import Role
+from modules.platform.users.model import User
+from modules.platform.users.schema import UserCreate
+from modules.platform.users.service import DuplicatePhoneError, UserService
 
 
 @pytest.fixture()

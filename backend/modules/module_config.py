@@ -113,7 +113,6 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
             },
         ],
     },
-
     {
         "key": "asset",
         "title": "Asset Master",
@@ -144,7 +143,6 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
             },
         ],
     },
-
     {
         "key": "order",
         "title": "Orders",
@@ -161,11 +159,7 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
             },
         ],
     },
-
-
 ]
-
-
 def flatten_config_actions() -> frozenset[str]:
     """All action strings referenced by MODULE_CONFIG (normalized storage names)."""
     out: set[str] = set()
@@ -181,3 +175,4 @@ def _normalize_action_token(raw: str) -> str:
     if s == "edit":
         return "update"
     return s
+ 

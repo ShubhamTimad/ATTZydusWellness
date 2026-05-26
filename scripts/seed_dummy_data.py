@@ -44,15 +44,15 @@ from modules.assets.model import (
     AssetLocationInformation,
     AssetMaster,
 )
-from modules.approvals.assignment_service import WorkflowMappingService
-from modules.approvals.model import ApprovalStep, ApprovalWorkflow, ApprovalWorkflowMapping
-from modules.approvals.service import ApprovalWorkflowService
-from modules.emails.model import EmailTemplate, EmailTemplateMapping
+from modules.platform.approvals.assignment_service import WorkflowMappingService
+from modules.platform.approvals.model import ApprovalStep, ApprovalWorkflow, ApprovalWorkflowMapping
+from modules.platform.approvals.service import ApprovalWorkflowService
+from modules.platform.emails.model import EmailTemplate, EmailTemplateMapping
 from modules.errors import ConflictError
-from modules.org_units.model import OrgUnit
-from modules.permissions.model import Permission
+from modules.platform.org_units.model import OrgUnit
+from modules.platform.permissions.model import Permission
 from modules.rbac_sync import sync_all_modules_to_db
-from modules.roles.model import Role
+from modules.platform.roles.model import Role
 
 # --- Email templates (one password in welcome mail only) ---
 

@@ -6,9 +6,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from core.permissions import invalidate_permission_cache
-from modules.features.model import Feature
+from modules.platform.features.model import Feature
 from modules.module_config import MODULE_CONFIG, _normalize_action_token
-from modules.permissions.model import Permission
+from modules.platform.permissions.model import Permission
 from modules.rbac_constants import build_permission_code, feature_storage_key
 
 

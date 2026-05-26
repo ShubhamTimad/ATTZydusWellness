@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from core.permissions import invalidate_permission_cache, require_permission
 from db.base import Base
-from modules.auth.model import UserSession  # noqa: F401
-from modules.features.model import Feature  # noqa: F401
-from modules.permissions.model import Permission
+from modules.platform.auth.model import UserSession  # noqa: F401
+from modules.platform.features.model import Feature  # noqa: F401
+from modules.platform.permissions.model import Permission
 from modules.rbac_sync import sync_all_modules_to_db
 
 
@@ -46,8 +46,8 @@ def test_sync_updates_legacy_colon_code_in_place(db: Session) -> None:
 
 def test_require_permission_dotted_matches_legacy_colon_in_db(db: Session) -> None:
     from core.auth import CurrentUser
-    from modules.roles.model import Role
-    from modules.users.model import User
+    from modules.platform.roles.model import Role
+    from modules.platform.users.model import User
     from datetime import datetime, timezone
 
     feature = Feature(key="users", name="Users", description=None)

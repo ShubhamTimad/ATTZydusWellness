@@ -11,14 +11,14 @@ if config.config_file_name is not None:
 
 from db.base import Base
 from db.session import DATABASE_URL
-from modules.audit.model import AuditLog  # noqa: F401
-from modules.auth.model import UserSession  # noqa: F401
-from modules.features.model import Feature  # noqa: F401
-from modules.permissions.model import Permission  # noqa: F401
+from modules.platform.audit.model import AuditLog  # noqa: F401
+from modules.platform.auth.model import UserSession  # noqa: F401
+from modules.platform.features.model import Feature  # noqa: F401
+from modules.platform.permissions.model import Permission  # noqa: F401
 from modules.rbac_association import role_org_unit, role_permission, user_role  # noqa: F401
-from modules.roles.model import Role  # noqa: F401
-from modules.settings.model import Setting  # noqa: F401
-from modules.users.model import User  # noqa: F401
+from modules.platform.roles.model import Role  # noqa: F401
+from modules.platform.settings.model import Setting  # noqa: F401
+from modules.platform.users.model import User  # noqa: F401
 
 config.set_main_option("sqlalchemy.url", DATABASE_URL)
 

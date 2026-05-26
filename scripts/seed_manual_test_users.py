@@ -29,10 +29,10 @@ from sqlalchemy.orm import Session
 from core.password_policy import PasswordPolicyError, validate_password
 from core.security import hash_password
 from db.session import SessionLocal
-from modules.org_units.model import OrgUnit
+from modules.platform.org_units.model import OrgUnit
 from modules.rbac_association import user_org_unit
-from modules.roles.model import Role
-from modules.users.model import User
+from modules.platform.roles.model import Role
+from modules.platform.users.model import User
 
 import db.models  # noqa: F401
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 
-from modules.settings import get_setting
-from modules.users.model import User
+from modules.platform.settings import get_setting
+from modules.platform.users.model import User
 
 
 class PasswordPolicyError(Exception):

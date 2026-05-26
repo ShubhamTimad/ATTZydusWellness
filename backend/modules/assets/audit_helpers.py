@@ -6,7 +6,7 @@ from typing import Any
 
 from modules.assets.field_definitions import ASSET_FIELD_LABELS
 from modules.assets.model import AssetMaster
-from modules.users.model import User
+from modules.platform.users.model import User
 
 AUDIT_FIELD_LABELS: dict[str, str] = {
     **ASSET_FIELD_LABELS,

@@ -9,11 +9,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from core.auth import CurrentUser
 from core.permissions import invalidate_permission_cache, require_permission
 from db.base import Base
-from modules.auth.model import UserSession  # noqa: F401
-from modules.features.model import Feature
-from modules.permissions.model import Permission
-from modules.roles.model import Role
-from modules.users.model import User
+from modules.platform.auth.model import UserSession  # noqa: F401
+from modules.platform.features.model import Feature
+from modules.platform.permissions.model import Permission
+from modules.platform.roles.model import Role
+from modules.platform.users.model import User
 
 
 @pytest.fixture()

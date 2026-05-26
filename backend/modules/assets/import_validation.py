@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from modules.assets.import_row_mapper import normalize_import_row
 from modules.assets.model import AssetCategory, AssetMaster
-from modules.org_units.model import OrgUnit
+from modules.platform.org_units.model import OrgUnit
 from modules.assets.schema import ImportPreviewRow
 
 

@@ -24,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from core.password_policy import PasswordPolicyError, validate_password
 from core.security import hash_password
 from db.session import SessionLocal
-from modules.users.model import User
+from modules.platform.users.model import User
 import db.models  # noqa: F401
 
 

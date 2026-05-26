@@ -12,7 +12,7 @@ export function AppAuthMarketingLayout({ children }: AppAuthMarketingLayoutProps
       <div
         className="absolute inset-0 bg-cover bg-center"
         style={{
-          backgroundImage: "url('/auth-bg.png')",
+          backgroundImage: "url('modules.platform.settings')",
         }}
       />
 

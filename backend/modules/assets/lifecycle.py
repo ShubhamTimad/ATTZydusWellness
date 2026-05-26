@@ -158,7 +158,7 @@ def entity_display_name(entity_type: str, payload: dict[str, Any] | None, entity
 
 
 def find_open_asset_approval_request(db: Session, *, asset_id: int):
-    from modules.approvals.model import ApprovalRequest
+    from modules.platform.approvals.model import ApprovalRequest
 
     return db.scalar(
         select(ApprovalRequest)
@@ -173,7 +173,7 @@ def find_open_asset_approval_request(db: Session, *, asset_id: int):
 
 
 def find_pending_asset_approval_request(db: Session, *, asset_id: int):
-    from modules.approvals.model import ApprovalRequest
+    from modules.platform.approvals.model import ApprovalRequest
 
     return db.scalar(
         select(ApprovalRequest)
