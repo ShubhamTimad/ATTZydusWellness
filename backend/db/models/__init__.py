@@ -3,7 +3,7 @@
 from modules.platform.audit.model import AuditLog
 from modules.platform.auth.model import PasswordResetToken, UserSession
 from modules.platform.auth_policy.model import AuthPolicy
-from modules.platform.auth.model import MfaChallenge, MfaSetupToken, UserMfa
+from modules.platform.mfa.model import MfaChallenge, MfaSetupToken, UserMfa
 from modules.platform.features.model import Feature
 from modules.platform.org_units.model import OrgUnit
 from modules.platform.permissions.model import Permission
