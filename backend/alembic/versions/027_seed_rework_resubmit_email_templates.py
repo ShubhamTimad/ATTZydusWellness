@@ -8,6 +8,7 @@ Create Date: 2026-04-27
 from __future__ import annotations
 
 from collections.abc import Sequence
+import os
 
 import sqlalchemy as sa
 from alembic import op
@@ -16,6 +17,13 @@ revision: str = "027"
 down_revision: str | None = "026"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+
+def _should_seed_templates() -> bool:
+    raw = os.getenv("SEED_SYSTEM_EMAIL_TEMPLATES")
+    if raw is None:
+        return True
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _seed_template(*, name: str, event_code: str, subject: str, body_html: str) -> None:
@@ -47,6 +55,9 @@ def _seed_template(*, name: str, event_code: str, subject: str, body_html: str) 
 
 
 def upgrade() -> None:
+    if not _should_seed_templates():
+        return
+
     _seed_template(
         name="Task rework required",
         event_code="TASK_REWORK_REQUIRED",
@@ -73,4 +84,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     for name in ("Task rework required", "Task resubmitted"):
         op.execute(sa.text("DELETE FROM email_templates WHERE name = :name").bindparams(name=name))
-

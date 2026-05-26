@@ -24,6 +24,13 @@ app.add_middleware(
 )
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @app.get("/admin", include_in_schema=False)
 @app.get("/admin/", include_in_schema=False)
 def admin_root_redirect() -> RedirectResponse:
@@ -43,9 +50,10 @@ def admin_login_redirect() -> RedirectResponse:
     return RedirectResponse(url=f"{target.rstrip('/')}/login", status_code=307)
 
 
-db = SessionLocal()
-sync_all_modules_to_db(db)
-db.close()
+if _env_flag("SYNC_MODULES_ON_STARTUP", True):
+    db = SessionLocal()
+    sync_all_modules_to_db(db)
+    db.close()
 
 app.include_router(app_api_router)
 app.include_router(admin_api_router, prefix="/admin")

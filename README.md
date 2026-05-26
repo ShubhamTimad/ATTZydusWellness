@@ -102,6 +102,36 @@ In dev we use Vite proxy, so you can usually leave `VITE_API_URL` **unset**.
 - If `VITE_API_URL` is set, requests go directly to that origin.
 - If `VITE_API_URL` is empty/unset, requests go to same-origin paths like `/login` and `/admin/*` (and Vite proxies them in dev).
 
+## Deployment (Docker/server)
+
+This repo now includes a server-focused compose file: `docker-compose.server.yml`.
+
+- Default host port: `8083`
+- Default host bind: `127.0.0.1` so it does not open a new public port by accident
+- Backend and Postgres stay private inside the Docker network
+- No demo scripts are executed during container startup
+
+Basic flow:
+
+```bash
+cp .env.docker.example .env.docker
+docker compose --env-file .env.docker up -d --build
+```
+
+After first boot, create the admin user manually:
+
+```bash
+docker compose --env-file .env.docker exec backend \
+  python create_superuser.py --email admin@example.com --password 'ChangeMe@123'
+```
+
+Notes:
+
+- If your server already has Nginx/Caddy on ports `80` or `443`, keep `APP_HOST_BIND=127.0.0.1` and proxy your domain to `127.0.0.1:8083`.
+- If you need direct access without a reverse proxy, set `APP_HOST_BIND=0.0.0.0`.
+- `SYNC_MODULES_ON_STARTUP=false` and `SEED_SYSTEM_EMAIL_TEMPLATES=false` keep startup-created rows out of the Docker Postgres database.
+- If you later want the RBAC feature/permission catalog, run `docker compose --env-file .env.docker exec backend python scripts/sync_modules.py`.
+
 ---
 
 ## How to run (development)
@@ -360,4 +390,3 @@ Was caused by nested routers not rendering an `<Outlet />`. The `/admin` route n
 - Add refresh-token handling (auto refresh on 401).
 - Add audit log page (`/admin/audit`) backed by API.
 - Improve user app routes under `/dashboard/*` (master data, planning, performance, etc.).
-
