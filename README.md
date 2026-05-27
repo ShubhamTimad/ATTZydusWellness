@@ -104,7 +104,12 @@ In dev we use Vite proxy, so you can usually leave `VITE_API_URL` **unset**.
 
 ## Deployment (Docker/server)
 
-This repo now includes a server-focused compose file: `docker-compose.server.yml`.
+| Mode | Frontend | Backend API |
+|------|----------|-------------|
+| **Local dev** (uvicorn + Vite) | `http://localhost:5173` | `http://localhost:8000` |
+| **Docker** (`docker-compose.yml` or `docker-compose.server.yml`) | `http://localhost:8083` | internal `9005` (proxied via `/api`) |
+
+This repo includes a server-focused compose file: `docker-compose.server.yml`.
 
 - Default host port: `8083`
 - Default host bind: `127.0.0.1` so it does not open a new public port by accident
