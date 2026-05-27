@@ -142,7 +142,7 @@ From repo root:
 
 ```bash
 source venv/bin/activate
-uvicorn app.main:app --reload --app-dir backend
+uvicorn app.main:app --reload --app-dir backend --port 9005
 ```
 
 Useful URLs:
@@ -173,7 +173,7 @@ Open:
 
 `frontend/vite.config.ts` proxies:
 
-- `/login` → backend (`http://localhost:8000`) **only for API/XHR** requests
+- `/login` → backend (`http://localhost:9005`) **only for API/XHR** requests
   - HTML navigations like `/login` stay in the SPA so the React route renders
 - `/dashboard` → backend for API calls (e.g. `GET /dashboard/summary`); HTML navigations stay in the SPA
 - `/tasks`, `/auth`, `/approvals`, `/audit` → backend

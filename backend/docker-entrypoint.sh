@@ -13,4 +13,5 @@ done
 
 alembic -c backend/alembic.ini upgrade head
 python /app/scripts/ensure_system_email_templates.py
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --app-dir backend
+BACKEND_PORT="${BACKEND_PORT:-9005}"
+exec uvicorn app.main:app --host 0.0.0.0 --port "${BACKEND_PORT}" --app-dir backend

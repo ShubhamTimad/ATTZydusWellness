@@ -146,7 +146,7 @@ This keeps **plant CRUD** under **`org_units.*`** while allowing **user/role ass
 
 **Problem**: With `VITE_API_URL` unset, the browser calls the Vite dev server. Paths not proxied return the SPA **`index.html`** → `JSON.parse` fails with **Unrecognized token '<'**.
 
-**Fix**: **`frontend/vite.config.ts`** proxies API prefixes to `http://localhost:8000`:
+**Fix**: **`frontend/vite.config.ts`** proxies API prefixes to `http://localhost:9005` (or `BACKEND_PORT`):
 
 | Prefix | Notes |
 |--------|--------|
@@ -155,7 +155,7 @@ This keeps **plant CRUD** under **`org_units.*`** while allowing **user/role ass
 | `/tasks`, `/auth`, `/approvals`, `/audit` | Workspace task + approval APIs |
 | `/admin` | Admin JSON APIs; HTML nav to `/admin/login` stays in SPA |
 
-**Alternative**: set `frontend/.env` → `VITE_API_URL=http://localhost:8000` to call the backend directly.
+**Alternative**: set `frontend/.env` → `VITE_API_URL=http://localhost:9005` to call the backend directly.
 
 **API client**: `frontend/src/lib/api.ts` — `parseResponseBody()` surfaces a clear error when HTML is returned instead of JSON.
 

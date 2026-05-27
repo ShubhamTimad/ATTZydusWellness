@@ -3,13 +3,15 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 
+const backendTarget = `http://localhost:${process.env.BACKEND_PORT ?? '9005'}`
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
       '/login': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
         bypass: (req) => {
           const accept = req.headers?.accept ?? ''
@@ -21,11 +23,11 @@ export default defineConfig({
         },
       },
       '/forgot-password': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/reset-password': {
-          target: 'http://localhost:8000',
+          target: backendTarget,
           changeOrigin: true,
           bypass: (req) => {
             const accept = req.headers?.accept ?? ''
@@ -39,23 +41,23 @@ export default defineConfig({
           },
         },
       '/refresh': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/me': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/approvals': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/audit': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/dashboard': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
         bypass: (req) => {
           const accept = req.headers?.accept ?? ''
@@ -67,15 +69,15 @@ export default defineConfig({
         },
       },
       '/tasks': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/auth': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
       },
       '/admin': {
-        target: 'http://localhost:8000',
+        target: backendTarget,
         changeOrigin: true,
         bypass: (req) => {
           const accept = req.headers?.accept ?? ''

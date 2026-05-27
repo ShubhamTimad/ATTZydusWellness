@@ -66,7 +66,7 @@ function parseResponseBody(text: string): unknown {
     return JSON.parse(text) as unknown
   } catch {
     const hint = text.trimStart().startsWith("<")
-      ? "Server returned HTML instead of JSON. In dev, ensure Vite proxies API paths (e.g. /dashboard) to the backend, or set VITE_API_URL=http://localhost:8000."
+      ? "Server returned HTML instead of JSON. In dev, ensure Vite proxies API paths (e.g. /dashboard) to the backend, or set VITE_API_URL=http://localhost:9005."
       : "Server returned invalid JSON."
     throw new Error(hint)
   }
