@@ -120,13 +120,13 @@ Basic flow:
 
 ```bash
 cp .env.docker.example .env.docker
-docker compose --env-file .env.docker up -d --build
+docker compose --env-file .env.docker -f docker-compose.server.yml up -d --build
 ```
 
 After first boot, create the admin user manually:
 
 ```bash
-docker compose --env-file .env.docker exec backend \
+docker compose --env-file .env.docker -f docker-compose.server.yml exec backend \
   python create_superuser.py --email admin@example.com --password 'ChangeMe@123'
 ```
 
@@ -134,8 +134,10 @@ Notes:
 
 - If your server already has Nginx/Caddy on ports `80` or `443`, keep `APP_HOST_BIND=127.0.0.1` and proxy your domain to `127.0.0.1:8083`.
 - If you need direct access without a reverse proxy, set `APP_HOST_BIND=0.0.0.0`.
-- `SYNC_MODULES_ON_STARTUP=false` and `SEED_SYSTEM_EMAIL_TEMPLATES=false` keep startup-created rows out of the Docker Postgres database.
-- If you later want the RBAC feature/permission catalog, run `docker compose --env-file .env.docker exec backend python scripts/sync_modules.py`.
+- Always include `--env-file .env.docker` on server deploy commands. Without it, Compose falls back to defaults for `DATABASE_URL`, DB password, ports, and URLs.
+- `SYNC_MODULES_ON_STARTUP=false` keeps startup-created module rows out of the Docker Postgres database.
+- `SEED_SYSTEM_EMAIL_TEMPLATES=true` plus the backend entrypoint ensures core email templates and mappings exist for forgot-password and onboarding flows.
+- If you later want the RBAC feature/permission catalog, run `docker compose --env-file .env.docker -f docker-compose.server.yml exec backend python scripts/sync_modules.py`.
 
 ---
 

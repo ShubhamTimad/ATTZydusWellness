@@ -46,9 +46,21 @@ CORE_TEMPLATES: list[dict[str, str]] = [
         "subject": "Reset your password",
         "body_html": """
 <p>Hello {{user_name}},</p>
-<p>We received a request to reset your password.</p>
-<p><a href="{{reset_link}}">Click here to reset your password</a></p>
-<p>If you didn't request this, you can ignore this email.</p>
+<p>We received a request to reset your password for {{company_name}}.</p>
+<p>Click the button below to choose a new password:</p>
+<p>
+  <a
+    href="{{reset_link}}"
+    style="display:inline-block;padding:10px 18px;background:#d71920;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;"
+  >
+    Reset Password
+  </a>
+</p>
+<p>This link expires in {{expiry_minutes}} minutes.</p>
+<p>If the button does not work, copy and paste this URL into your browser:</p>
+<p><a href="{{reset_link}}">{{reset_link}}</a></p>
+<p>If you did not request this, you can safely ignore this email.</p>
+<p>Regards,<br>{{company_name}}</p>
 """.strip(),
     },
     {
