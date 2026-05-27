@@ -11,7 +11,7 @@ git checkout docker-setup-updates
 git pull origin docker-setup-updates
 
 cp -n .env.docker.example .env.docker   # skip if .env.docker already exists
-# Edit .env.docker: JWT_SECRET_KEY, POSTGRES_PASSWORD, FRONTEND_APP_URL, SMTP_* 
+# Edit .env.docker: JWT_SECRET_KEY, POSTGRES_PASSWORD, FRONTEND_APP_URL, SMTP_*, BACKEND_PORT=9005 
 
 docker compose -f docker-compose.server.yml build
 docker compose -f docker-compose.server.yml up -d

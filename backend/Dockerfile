@@ -19,6 +19,6 @@ COPY scripts ./scripts
 
 RUN mkdir -p /app/backend/uploads && chmod +x /app/backend/docker-entrypoint.sh
 
-EXPOSE 9005
+EXPOSE 8000
 
 CMD ["/app/backend/docker-entrypoint.sh"]

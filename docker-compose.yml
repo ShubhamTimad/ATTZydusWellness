@@ -48,13 +48,13 @@ services:
       SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Takeda Workspace}
-      BACKEND_PORT: ${BACKEND_PORT:-9005}
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
     expose:
-      - "9005"
+      - "8000"
     volumes:
       - takeda_att_uploads:/app/backend/uploads
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('BACKEND_PORT','9005')+'/docs').read(1)\""]
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('BACKEND_PORT','8000')+'/docs').read(1)\""]
       interval: 20s
       timeout: 5s
       retries: 10
@@ -68,6 +68,7 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
+        BACKEND_UPSTREAM_PORT: ${BACKEND_PORT:-8000}
     restart: unless-stopped
     depends_on:
       backend:

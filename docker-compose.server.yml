@@ -68,6 +68,7 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
+        BACKEND_UPSTREAM_PORT: ${BACKEND_PORT:-9005}
     restart: unless-stopped
     depends_on:
       backend:
