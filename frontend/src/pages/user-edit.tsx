@@ -281,6 +281,10 @@ export function UserEditPage() {
                   {form.formState.errors.role_id?.message ? (
                     <p className="text-xs text-destructive">{form.formState.errors.role_id.message}</p>
                   ) : null}
+                  <p className="text-xs text-muted-foreground">
+                    Permissions are inherited from the selected role. To change permissions, update the role from the
+                    Roles screen.
+                  </p>
                 </div>
 
                 <div className="flex items-center justify-between gap-3 sm:col-span-2">
@@ -316,4 +320,3 @@ export function UserEditPage() {
     </AdminPage>
   )
 }
-

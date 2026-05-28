@@ -116,11 +116,73 @@ This repo includes a server-focused compose file: `docker-compose.server.yml`.
 - Backend and Postgres stay private inside the Docker network
 - No demo scripts are executed during container startup
 
-Basic flow:
+### First start on server
+
+From the repo root:
 
 ```bash
 cp .env.docker.example .env.docker
+```
+
+Edit `.env.docker` before first start:
+
+- `JWT_SECRET_KEY`
+- `POSTGRES_PASSWORD`
+- `FRONTEND_APP_URL`
+- `FRONTEND_ORIGIN`
+- `FRONTEND_ADMIN_URL`
+- `SMTP_*` if you want real email delivery
+- `APP_HOST_BIND=0.0.0.0` only if you want direct public access on port `8083`
+
+Build images:
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.server.yml build
+```
+
+Start all services:
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.server.yml up -d
+```
+
+Or build and start in one command:
+
+```bash
 docker compose --env-file .env.docker -f docker-compose.server.yml up -d --build
+```
+
+Check status:
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.server.yml ps
+```
+
+See logs:
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.server.yml logs -f backend
+docker compose --env-file .env.docker -f docker-compose.server.yml logs -f frontend
+```
+
+Stop all services:
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.server.yml down
+```
+
+Clean rebuild:
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.server.yml down
+docker compose --env-file .env.docker -f docker-compose.server.yml build --no-cache
+docker compose --env-file .env.docker -f docker-compose.server.yml up -d
+```
+
+Remove containers and database volume too:
+
+```bash
+docker compose --env-file .env.docker -f docker-compose.server.yml down -v
 ```
 
 After first boot, create the admin user manually:
@@ -129,6 +191,11 @@ After first boot, create the admin user manually:
 docker compose --env-file .env.docker -f docker-compose.server.yml exec backend \
   python create_superuser.py --email admin@example.com --password 'ChangeMe@123'
 ```
+
+Then open:
+
+- Admin login: `http://your-server-ip:8083/admin/login`
+- User login: `http://your-server-ip:8083/login`
 
 Notes:
 

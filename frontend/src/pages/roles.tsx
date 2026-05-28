@@ -437,6 +437,18 @@ export function RolesPage() {
               </div>
             ) : (
               <div className="space-y-6">
+                <div className="space-y-1">
+                  <div className="text-sm font-semibold">Assignment model</div>
+                  <p className="text-xs text-muted-foreground">
+                    Permissions are assigned to roles, and users inherit permissions from their assigned role.
+                  </p>
+                  {!canSaveRole ? (
+                    <p className="text-xs text-muted-foreground">
+                      This screen is read-only for your account. You need <span className="font-medium">roles.update</span>{" "}
+                      or superuser access to change role permissions.
+                    </p>
+                  ) : null}
+                </div>
                 <div className="space-y-2">
                   <div className="text-sm font-semibold">Plants for this role</div>
                   {canLoadPlantList ? (
