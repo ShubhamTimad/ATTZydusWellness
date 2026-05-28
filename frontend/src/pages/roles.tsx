@@ -75,6 +75,12 @@ type PermissionCatalog = {
   modules: CatalogModule[]
 }
 
+type PermissionCatalogSyncResult = {
+  features_created: number
+  permissions_created: number
+  permission_codes_updated: number
+}
+
 /** Column order and header labels for standard CRUD actions. */
 const ACTION_COLUMNS = ["view", "create", "update", "delete"] as const
 const ACTION_LABEL: Record<string, string> = {
@@ -120,6 +126,8 @@ export function RolesPage() {
   const [createDescription, setCreateDescription] = React.useState("")
   const [creating, setCreating] = React.useState(false)
   const [createOrgUnitIds, setCreateOrgUnitIds] = React.useState<Set<number>>(() => new Set())
+  const [syncingCatalog, setSyncingCatalog] = React.useState(false)
+  const [autoSyncAttempted, setAutoSyncAttempted] = React.useState(false)
 
   const canCreateRole = hasPermission("roles.create") || isSuperuser()
   /** Same as ``GET /admin/org-units`` (plant pickers for roles vs. Plants admin module). */
@@ -197,6 +205,12 @@ export function RolesPage() {
   const hasDirty = hasDirtyPermissions || hasDirtyPlants
 
   const canSaveRole = hasPermission("roles.update") || isSuperuser()
+  const hasMissingCatalogPermissions = React.useMemo(() => {
+    if (!catalog) return false
+    return catalog.modules.some((mod) =>
+      mod.tabs.some((tab) => tab.permissions.some((perm) => perm.id == null))
+    )
+  }, [catalog])
 
   async function createRole() {
     const name = createName.trim()
@@ -246,6 +260,34 @@ export function RolesPage() {
       setError(message)
     }
   }
+
+  async function syncCatalog() {
+    setSyncingCatalog(true)
+    toast.loading("Syncing permissions…", { id: "sync-perms" })
+    try {
+      const result = await postJson<PermissionCatalogSyncResult>("/admin/permissions/sync", {})
+      await loadBase()
+      if (selectedRoleId != null) await loadRole(selectedRoleId)
+      const changed =
+        result.features_created + result.permissions_created + result.permission_codes_updated
+      toast.success(changed > 0 ? "Permission catalog synced" : "Permission catalog already up to date", {
+        id: "sync-perms",
+      })
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed to sync permissions"
+      toast.error(message, { id: "sync-perms" })
+      setError(message)
+    } finally {
+      setSyncingCatalog(false)
+    }
+  }
+
+  React.useEffect(() => {
+    if (!canSaveRole || !hasMissingCatalogPermissions || syncingCatalog || autoSyncAttempted) return
+    setAutoSyncAttempted(true)
+    void syncCatalog()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canSaveRole, hasMissingCatalogPermissions, syncingCatalog, autoSyncAttempted])
 
   return (
     <AdminPage
@@ -442,6 +484,23 @@ export function RolesPage() {
                   <p className="text-xs text-muted-foreground">
                     Permissions are assigned to roles, and users inherit permissions from their assigned role.
                   </p>
+                  {hasMissingCatalogPermissions ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span>Some permission rows are missing from the database, so those cells stay disabled.</span>
+                      {canSaveRole ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 shadow-sm"
+                          disabled={syncingCatalog}
+                          onClick={() => void syncCatalog()}
+                        >
+                          {syncingCatalog ? "Syncing…" : "Sync missing permissions"}
+                        </Button>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {!canSaveRole ? (
                     <p className="text-xs text-muted-foreground">
                       This screen is read-only for your account. You need <span className="font-medium">roles.update</span>{" "}
@@ -544,7 +603,7 @@ export function RolesPage() {
                                         disabled={disabled}
                                         title={
                                           id == null
-                                            ? "Run scripts/sync_modules.py to create this permission"
+                                            ? "Sync missing permissions to enable this cell"
                                             : cell.code
                                         }
                                         onCheckedChange={(v) => {

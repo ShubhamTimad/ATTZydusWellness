@@ -4,11 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
-from core.permissions import require_permission
+from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.errors import ConflictError, NotFoundError, RbacSafetyError
 from modules.platform.permissions.model import Permission
 from modules.platform.permissions.schema import (
+    PermissionCatalogSyncResult,
     PermissionCatalogPublic,
     PermissionCreate,
     PermissionPublic,
@@ -29,6 +30,15 @@ def permission_catalog(
 ) -> PermissionCatalogPublic:
     """Grouped permission definitions merged with database ids (for admin UI)."""
     return svc.build_permission_catalog()
+
+
+@router.post("/sync", response_model=PermissionCatalogSyncResult)
+def sync_permission_catalog(
+    svc: Annotated[PermissionService, Depends(get_permission_service)],
+    _: Annotated[CurrentUser, Depends(require_any_permission("permissions.create", "roles.update"))],
+) -> PermissionCatalogSyncResult:
+    """Create any missing permission rows from MODULE_CONFIG so role assignment stays editable."""
+    return svc.sync_permission_catalog()
 
 
 @router.post("", response_model=PermissionPublic, status_code=status.HTTP_201_CREATED)

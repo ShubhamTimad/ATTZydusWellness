@@ -48,3 +48,9 @@ class CatalogModuleItem(BaseModel):
 
 class PermissionCatalogPublic(BaseModel):
     modules: list[CatalogModuleItem]
+
+
+class PermissionCatalogSyncResult(BaseModel):
+    features_created: int
+    permissions_created: int
+    permission_codes_updated: int

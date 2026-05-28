@@ -16,10 +16,12 @@ from modules.platform.permissions.schema import (
     CatalogModuleItem,
     CatalogPermissionItem,
     CatalogTabItem,
+    PermissionCatalogSyncResult,
     PermissionCatalogPublic,
     PermissionCreate,
     PermissionUpdate,
 )
+from modules.rbac_sync import sync_all_modules_to_db
 from modules.rbac_constants import DEFAULT_PERMISSION_ACTIONS, build_permission_code, permission_code
 
 _ALLOWED_ACTIONS: frozenset[str] = frozenset(DEFAULT_PERMISSION_ACTIONS) | flatten_config_actions()
@@ -176,6 +178,10 @@ class PermissionService:
                     key=module_key,
                     title=mod["title"].strip(),
                     tabs=tabs_out,
+                    )
                 )
-            )
         return PermissionCatalogPublic(modules=modules_out)
+
+    def sync_permission_catalog(self) -> PermissionCatalogSyncResult:
+        result = sync_all_modules_to_db(self._db)
+        return PermissionCatalogSyncResult(**result)
