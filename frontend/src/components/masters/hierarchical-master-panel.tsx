@@ -3,13 +3,17 @@ import { Pencil, Plus } from "lucide-react"
 import { toast } from "sonner"
 
 import {
-  AdminPanel,
   AdminPrimaryButton,
   AdminTableCell,
+  AdminTableEmptyRow,
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
+import {
+  AdminDataTable,
+  AdminTableBodyRow,
+} from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -202,51 +206,51 @@ export function HierarchicalMasterPanel({
   ) : null
 
   return (
-    <AdminPanel title={title} headerActions={addButton}>
-      <Table>
-        <TableHeader>
-          <AdminTableHeaderRow>
-            <AdminTableHeadCell>Code</AdminTableHeadCell>
-            <AdminTableHeadCell>Description</AdminTableHeadCell>
-            <AdminTableHeadCell>Plant</AdminTableHeadCell>
-            {parentColumn ? <AdminTableHeadCell>{parentColumn}</AdminTableHeadCell> : null}
-            <AdminTableHeadCell>Status</AdminTableHeadCell>
-            {canUpdate ? <AdminTableHeadCell className="w-20"> </AdminTableHeadCell> : null}
-          </AdminTableHeaderRow>
-        </TableHeader>
-        <TableBody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+    <>
+      <AdminDataTable title={title} headerActions={addButton}>
+        <Table className="app-table-head-sticky">
+          <TableHeader>
+            <AdminTableHeaderRow>
+              <AdminTableHeadCell>Code</AdminTableHeadCell>
+              <AdminTableHeadCell>Description</AdminTableHeadCell>
+              <AdminTableHeadCell>Plant</AdminTableHeadCell>
+              {parentColumn ? <AdminTableHeadCell>{parentColumn}</AdminTableHeadCell> : null}
+              <AdminTableHeadCell>Status</AdminTableHeadCell>
+              {canUpdate ? <AdminTableHeadCell className="w-20"> </AdminTableHeadCell> : null}
+            </AdminTableHeaderRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <AdminTableEmptyRow colSpan={parentColumn ? (canUpdate ? 6 : 5) : canUpdate ? 5 : 4}>
                 No records yet.
-              </td>
-            </tr>
-          ) : (
-            rows.map((row) => (
-              <tr key={row.id} className="border-b border-border/40">
-                <AdminTableCell className="font-mono text-xs">{row.code}</AdminTableCell>
-                <AdminTableCell>{row.description}</AdminTableCell>
-                <AdminTableCell className="text-muted-foreground text-xs">
-                  {row.plant_label ?? "—"}
-                </AdminTableCell>
-                {parentColumn ? (
-                  <AdminTableCell className="text-muted-foreground text-xs">
-                    {row.parent_label ?? "—"}
+              </AdminTableEmptyRow>
+            ) : (
+              rows.map((row) => (
+                <AdminTableBodyRow key={row.id} interactive={false}>
+                  <AdminTableCell className="font-mono text-xs">{row.code}</AdminTableCell>
+                  <AdminTableCell>{row.description}</AdminTableCell>
+                  <AdminTableCell className="text-xs text-muted-foreground">
+                    {row.plant_label ?? "—"}
                   </AdminTableCell>
-                ) : null}
-                <AdminTableCell className="text-xs">{row.is_active ? "Active" : "Inactive"}</AdminTableCell>
-                {canUpdate ? (
-                  <AdminTableCell>
-                    <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => openEdit(row)}>
-                      <Pencil className="size-3.5" />
-                    </Button>
-                  </AdminTableCell>
-                ) : null}
-              </tr>
-            ))
-          )}
-        </TableBody>
-      </Table>
+                  {parentColumn ? (
+                    <AdminTableCell className="text-xs text-muted-foreground">
+                      {row.parent_label ?? "—"}
+                    </AdminTableCell>
+                  ) : null}
+                  <AdminTableCell className="text-xs">{row.is_active ? "Active" : "Inactive"}</AdminTableCell>
+                  {canUpdate ? (
+                    <AdminTableCell>
+                      <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => openEdit(row)}>
+                        <Pencil className="size-3.5" />
+                      </Button>
+                    </AdminTableCell>
+                  ) : null}
+                </AdminTableBodyRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </AdminDataTable>
 
       <HierarchyDialog
         open={createOpen}
@@ -289,7 +293,7 @@ export function HierarchicalMasterPanel({
         parentHint={editRow?.parent_label}
         plantHint={editRow?.plant_label}
       />
-    </AdminPanel>
+    </>
   )
 }
 

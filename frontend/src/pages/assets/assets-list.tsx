@@ -5,10 +5,16 @@ import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
 import {
-  AdminPanel,
-  AdminPrimaryButton,
-  AdminTableCell,
+  AdminDataTable,
+  AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTablePagination,
+  ListPageHeader,
+} from "@/components/layout/list-page-ui"
+import {
+  AdminPrimaryButton,
+  AdminPillBadge,
+  AdminTableCell,
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
@@ -41,7 +47,7 @@ import type {
   SubmitForApprovalResult,
 } from "@/lib/assets-types"
 import { categoryLabel, plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
-import { assetStatusLabel, assetStatusVariant, canSubmitForApproval } from "@/lib/asset-lifecycle"
+import { assetStatusLabel, assetStatusPillTone, canSubmitForApproval } from "@/lib/asset-lifecycle"
 import { hasPermission } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
 import { orderStatusLabel } from "@/lib/orders-types"
@@ -478,8 +484,14 @@ export function AssetsListPage() {
 
   return (
     <AdminPage fullWidth className="flex min-h-0 flex-1 flex-col">
+      <ListPageHeader
+        title="Assets"
+        description="Search, filter, and manage assets across plants. Select rows for bulk actions."
+        actions={actionButtons}
+      />
+
       <div className="flex shrink-0 flex-col gap-[var(--app-grid-gap)]">
-        <div className="app-toolbar">
+        <div className="app-list-toolbar">
           <div className="relative min-w-[16rem] flex-1">
             <Search
               className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
@@ -536,8 +548,6 @@ export function AssetsListPage() {
               Attach RFID
             </Button>
           ) : null}
-
-          {actionButtons}
 
           {selected.size > 0 ? (
             <AssetActionsMenu
@@ -703,9 +713,21 @@ export function AssetsListPage() {
         ) : null}
       </div>
 
-      <AdminPanel className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-auto">
-          <Table className="app-table-head-sticky">
+      <AdminDataTable
+        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        footer={
+          <AdminTablePagination
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            pageSize={pageSize}
+            loading={loading}
+            itemLabel="assets"
+            onPageChange={setPage}
+          />
+        }
+      >
+        <Table className="app-table-head-sticky">
             <TableHeader>
               <AdminTableHeaderRow>
                 <AdminTableHeadCell className="w-10 px-3">
@@ -737,9 +759,8 @@ export function AssetsListPage() {
                 </AdminTableEmptyRow>
               ) : (
                 items.map((row) => (
-                  <tr
+                  <AdminTableBodyRow
                     key={row.id}
-                    className="cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/40"
                     onClick={() => navigate(String(row.id))}
                   >
                     <AdminTableCell className="w-10 px-3">
@@ -770,9 +791,9 @@ export function AssetsListPage() {
                       )}
                     </AdminTableCell>
                     <AdminTableCell>
-                      <Badge variant={assetStatusVariant(row.lifecycle_status, row.approval_status)} className="font-normal">
+                      <AdminPillBadge tone={assetStatusPillTone(row.lifecycle_status, row.approval_status)}>
                         {assetStatusLabel(row.lifecycle_status, row.approval_status)}
-                      </Badge>
+                      </AdminPillBadge>
                     </AdminTableCell>
                     <AdminTableCell className="text-muted-foreground">{row.category_name ?? "—"}</AdminTableCell>
                     <AdminTableCell className="max-w-[11rem]">
@@ -816,38 +837,12 @@ export function AssetsListPage() {
                         ? new Date(row.last_verification_date).toLocaleDateString()
                         : "—"}
                     </AdminTableCell>
-                  </tr>
+                  </AdminTableBodyRow>
                 ))
               )}
             </TableBody>
           </Table>
-        </div>
-        <div className="flex shrink-0 items-center justify-between border-t border-border/60 px-[var(--app-card-padding)] py-3 text-xs text-muted-foreground">
-          <span>
-            {loading ? "Loading…" : `${total} assets · page ${page} of ${totalPages}`}
-          </span>
-          <div className="flex gap-1.5">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Previous
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      </AdminPanel>
+      </AdminDataTable>
 
       <Dialog open={activeConflictOpen} onOpenChange={setActiveConflictOpen}>
         <DialogContent className="max-w-lg">

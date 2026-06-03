@@ -7,9 +7,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AdminPage } from "@/components/layout/admin-page"
-import { AdminPanel, AdminPrimaryButton, adminSwitchRowClass, adminTabsListClass } from "@/components/layout/admin-ui"
+import { AdminPanel, AdminPrimaryButton, adminSwitchRowClass } from "@/components/layout/admin-ui"
+import {
+  WorkspaceTabs,
+  WorkspaceTabsContent,
+  WorkspaceTabsList,
+  WorkspaceTabsTrigger,
+} from "@/components/layout/list-page-ui"
 import { getJson, postJson, putJson } from "@/lib/api"
 
 export type PasswordPolicy = {
@@ -112,14 +117,14 @@ export function SettingsPage() {
 
   return (
     <AdminPage description="Security, authentication, and organization-wide email delivery.">
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "auth" | "password" | "email")} className="w-full">
-        <TabsList className={adminTabsListClass}>
-          <TabsTrigger value="auth">Authentication</TabsTrigger>
-          <TabsTrigger value="password">Password policy</TabsTrigger>
-          <TabsTrigger value="email">Email delivery</TabsTrigger>
-        </TabsList>
+      <WorkspaceTabs value={tab} onValueChange={(v) => setTab(v as "auth" | "password" | "email")}>
+        <WorkspaceTabsList>
+          <WorkspaceTabsTrigger value="auth">Authentication</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="password">Password policy</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="email">Email delivery</WorkspaceTabsTrigger>
+        </WorkspaceTabsList>
 
-        <TabsContent value="auth" className="mt-4 space-y-4">
+        <WorkspaceTabsContent value="auth" className="space-y-4">
           <AdminPanel
             title="Authentication policy"
             description="Org-wide controls for password login, MFA, and captcha. Superusers are not affected."
@@ -205,9 +210,9 @@ export function SettingsPage() {
                 </>
               )}
           </AdminPanel>
-        </TabsContent>
+        </WorkspaceTabsContent>
 
-        <TabsContent value="password" className="mt-4 space-y-4">
+        <WorkspaceTabsContent value="password" className="space-y-4">
           <AdminPanel
             title="Password rules"
             description="Enforced on password changes and resets."
@@ -275,9 +280,9 @@ export function SettingsPage() {
                 </AdminPrimaryButton>
               </div>
           </AdminPanel>
-        </TabsContent>
+        </WorkspaceTabsContent>
 
-        <TabsContent value="email" className="mt-4 space-y-4">
+        <WorkspaceTabsContent value="email" className="space-y-4">
           <AdminPanel
             title="SMTP & email delivery"
             description="Used for notifications, password reset, tasks, and user invites. Use an app password when 2FA is enabled."
@@ -481,8 +486,8 @@ export function SettingsPage() {
                 </>
               )}
           </AdminPanel>
-        </TabsContent>
-      </Tabs>
+        </WorkspaceTabsContent>
+      </WorkspaceTabs>
     </AdminPage>
   )
 }

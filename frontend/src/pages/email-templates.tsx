@@ -14,8 +14,13 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
-import { Table, TableBody, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { AdminPage } from "@/components/layout/admin-page"
+import {
+  AdminDataTable,
+  AdminTableBodyRow,
+  AdminTableEmptyRow,
+} from "@/components/layout/list-page-ui"
 import {
   AdminPanel,
   AdminPrimaryButton,
@@ -420,8 +425,8 @@ export function EmailTemplatesPage() {
         ) : undefined
       }
     >
-      <AdminPanel>
-        <Table>
+      <AdminDataTable>
+        <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>
               <AdminTableHeadCell>Name</AdminTableHeadCell>
@@ -432,24 +437,14 @@ export function EmailTemplatesPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <tr>
-                <td colSpan={4} className="px-5 py-12 text-center text-sm text-muted-foreground">
-                  Loading…
-                </td>
-              </tr>
+              <AdminTableEmptyRow colSpan={4}>Loading templates…</AdminTableEmptyRow>
             ) : sortedTemplates.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="px-5 py-12 text-center text-sm text-muted-foreground">
-                  No templates yet. Click Create template.
-                </td>
-              </tr>
+              <AdminTableEmptyRow colSpan={4}>
+                No templates yet. Click Create template.
+              </AdminTableEmptyRow>
             ) : (
               sortedTemplates.map((t) => (
-                <TableRow
-                  key={t.id}
-                  className="cursor-pointer border-border/40 hover:bg-muted/30"
-                  onClick={() => openTemplate(t.id)}
-                >
+                <AdminTableBodyRow key={t.id} onClick={() => openTemplate(t.id)}>
                   <AdminTableCell className="font-medium">{t.name}</AdminTableCell>
                   <AdminTableCell className="font-mono text-xs text-muted-foreground">
                     {t.event_code}
@@ -460,12 +455,12 @@ export function EmailTemplatesPage() {
                   <AdminTableCell className="max-w-md truncate text-muted-foreground">
                     {t.subject}
                   </AdminTableCell>
-                </TableRow>
+                </AdminTableBodyRow>
               ))
             )}
           </TableBody>
         </Table>
-      </AdminPanel>
+      </AdminDataTable>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">

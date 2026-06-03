@@ -16,6 +16,11 @@ import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
+  AdminDataTable,
+  AdminTableBodyRow,
+  AdminTableEmptyRow,
+} from "@/components/layout/list-page-ui"
+import {
   AdminPanel,
   AdminPrimaryButton,
   AdminStatusBadge,
@@ -412,8 +417,8 @@ export function WorkflowAssignmentPage() {
         </AdminPrimaryButton>
       }
     >
-      <AdminPanel>
-        <Table>
+      <AdminDataTable>
+        <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>
               <AdminTableHeadCell>Name</AdminTableHeadCell>
@@ -424,24 +429,14 @@ export function WorkflowAssignmentPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <tr>
-                <td colSpan={4} className="px-5 py-12 text-center text-sm text-muted-foreground">
-                  Loading…
-                </td>
-              </tr>
+              <AdminTableEmptyRow colSpan={4}>Loading workflows…</AdminTableEmptyRow>
             ) : sortedWorkflows.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="px-5 py-12 text-center text-sm text-muted-foreground">
-                  No workflows yet. Click Create workflow.
-                </td>
-              </tr>
+              <AdminTableEmptyRow colSpan={4}>
+                No workflows yet. Click Create workflow.
+              </AdminTableEmptyRow>
             ) : (
               sortedWorkflows.map((w) => (
-                <TableRow
-                  key={w.id}
-                  className="cursor-pointer border-border/40 hover:bg-muted/30"
-                  onClick={() => openWorkflow(w.id)}
-                >
+                <AdminTableBodyRow key={w.id} onClick={() => openWorkflow(w.id)}>
                   <AdminTableCell className="font-medium">{w.name}</AdminTableCell>
                   <AdminTableCell className="font-mono text-xs text-muted-foreground">
                     {w.entity_type}
@@ -458,12 +453,12 @@ export function WorkflowAssignmentPage() {
                   <AdminTableCell className="max-w-md truncate text-xs text-muted-foreground">
                     {stepsSummary(w, roles)}
                   </AdminTableCell>
-                </TableRow>
+                </AdminTableBodyRow>
               ))
             )}
           </TableBody>
         </Table>
-      </AdminPanel>
+      </AdminDataTable>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md">

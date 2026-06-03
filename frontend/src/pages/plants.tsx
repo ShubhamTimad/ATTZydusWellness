@@ -4,12 +4,16 @@ import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
 import {
-  AdminPanel,
   AdminPrimaryButton,
   AdminTableCell,
   AdminTableHeadCell,
   AdminTableHeaderRow,
 } from "@/components/layout/admin-ui"
+import {
+  AdminDataTable,
+  AdminTableBodyRow,
+  AdminTableEmptyRow,
+} from "@/components/layout/list-page-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -203,8 +207,8 @@ export function PlantsPage() {
         </Alert>
       ) : null}
 
-      <AdminPanel title="All plants" description="Sorted by plant code">
-        <Table>
+      <AdminDataTable title="All plants" description="Sorted by plant code">
+        <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>
               <AdminTableHeadCell>Code</AdminTableHeadCell>
@@ -217,32 +221,15 @@ export function PlantsPage() {
           </TableHeader>
           <TableBody>
             {plants === null ? (
-              <tr>
-                <td
-                  colSpan={canUpdate ? 4 : 3}
-                  className="px-5 py-12 text-center text-sm text-muted-foreground"
-                >
-                  Loading…
-                </td>
-              </tr>
+              <AdminTableEmptyRow colSpan={canUpdate ? 4 : 3}>Loading plants…</AdminTableEmptyRow>
             ) : plants.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={canUpdate ? 4 : 3}
-                  className="px-5 py-12 text-center text-sm text-muted-foreground"
-                >
-                  No plants found.
-                </td>
-              </tr>
+              <AdminTableEmptyRow colSpan={canUpdate ? 4 : 3}>No plants found.</AdminTableEmptyRow>
             ) : (
               plants
                 .slice()
                 .sort((a, b) => a.code.localeCompare(b.code))
                 .map((p) => (
-                  <tr
-                    key={p.id}
-                    className="border-b border-border/40 transition-colors last:border-0 hover:bg-muted/15"
-                  >
+                  <AdminTableBodyRow key={p.id} interactive={false}>
                     <AdminTableCell className="font-mono text-sm font-medium">{p.code}</AdminTableCell>
                     <AdminTableCell className="font-medium">{p.name}</AdminTableCell>
                     <AdminTableCell className="font-mono text-xs text-muted-foreground">{p.type}</AdminTableCell>
@@ -260,12 +247,12 @@ export function PlantsPage() {
                         </Button>
                       </AdminTableCell>
                     ) : null}
-                  </tr>
+                  </AdminTableBodyRow>
                 ))
             )}
           </TableBody>
         </Table>
-      </AdminPanel>
+      </AdminDataTable>
 
       {createDialog}
 

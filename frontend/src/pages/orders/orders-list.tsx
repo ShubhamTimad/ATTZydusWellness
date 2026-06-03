@@ -4,17 +4,23 @@ import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
 import {
-  AdminPanel,
-  AdminTableCell,
+  AdminDataTable,
+  AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTablePagination,
+  ListPageHeader,
+  WorkspaceTabs,
+  WorkspaceTabsContent,
+  WorkspaceTabsList,
+  WorkspaceTabsTrigger,
+} from "@/components/layout/list-page-ui"
+import {
+  AdminPillBadge,
+  AdminTableCell,
   AdminTableHeadCell,
   AdminTableHeaderRow,
-  adminTabsListClass,
-  adminTabsTriggerClass,
 } from "@/components/layout/admin-ui"
-import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getJson } from "@/lib/api"
 import {
   ORDER_TABS,
@@ -53,103 +59,95 @@ export function OrdersListPage() {
 
   return (
     <AdminPage fullWidth>
-      <h1 className="app-page-heading">Physical verification orders</h1>
-      <Tabs
+      <ListPageHeader
+        title="Physical verification orders"
+        description="Track verification assignments from approval through completion."
+      />
+
+      <WorkspaceTabs
         value={tab}
         onValueChange={(v) => {
           setTab(v)
           setPage(1)
         }}
       >
-        <TabsList className={adminTabsListClass}>
+        <WorkspaceTabsList>
           {ORDER_TABS.map((t) => (
-            <TabsTrigger key={t.key} value={t.key} className={adminTabsTriggerClass}>
+            <WorkspaceTabsTrigger key={t.key} value={t.key}>
               {t.label}
-            </TabsTrigger>
+            </WorkspaceTabsTrigger>
           ))}
-        </TabsList>
+        </WorkspaceTabsList>
 
         {ORDER_TABS.map((t) => (
-          <TabsContent key={t.key} value={t.key} className="mt-4">
-            <AdminPanel className="min-h-0 flex-1 overflow-hidden p-0">
-              <div className="overflow-auto">
-                <Table>
-                  <TableHeader className="sticky top-0 z-10 bg-card">
-                    <AdminTableHeaderRow>
-                      <AdminTableHeadCell>Order number</AdminTableHeadCell>
-                      <AdminTableHeadCell>Plant</AdminTableHeadCell>
-                      <AdminTableHeadCell>Cost center</AdminTableHeadCell>
-                      <AdminTableHeadCell>Assets</AdminTableHeadCell>
-                      <AdminTableHeadCell>Status</AdminTableHeadCell>
-                      <AdminTableHeadCell>Assigned to</AdminTableHeadCell>
-                      <AdminTableHeadCell>Created by</AdminTableHeadCell>
-                      <AdminTableHeadCell>Created</AdminTableHeadCell>
-                    </AdminTableHeaderRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      <AdminTableEmptyRow colSpan={8}>Loading…</AdminTableEmptyRow>
-                    ) : items.length === 0 ? (
-                      <AdminTableEmptyRow colSpan={8}>No orders in this tab.</AdminTableEmptyRow>
-                    ) : (
-                      items.map((row) => (
-                        <tr
-                          key={row.id}
-                          className="cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/40"
-                          onClick={() => navigate(String(row.id))}
-                        >
-                          <AdminTableCell className="font-mono text-xs">{row.order_number}</AdminTableCell>
-                          <AdminTableCell>{row.plant_name}</AdminTableCell>
-                          <AdminTableCell>
-                            {row.cost_center_code}
-                            <span className="block text-xs text-muted-foreground">
-                              {row.cost_center_description}
-                            </span>
-                          </AdminTableCell>
-                          <AdminTableCell>{row.asset_count}</AdminTableCell>
-                          <AdminTableCell>
-                            <Badge variant="secondary">{orderStatusLabel(row.status)}</Badge>
-                          </AdminTableCell>
-                          <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>
-                          <AdminTableCell>{row.created_by_name ?? "—"}</AdminTableCell>
-                          <AdminTableCell>
-                            {new Date(row.created_at).toLocaleDateString()}
-                          </AdminTableCell>
-                        </tr>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-              {totalPages > 1 ? (
-                <div className="flex items-center justify-between border-t border-border/60 px-4 py-2 text-sm">
-                  <span className="text-muted-foreground">
-                    Page {page} of {totalPages} ({total} orders)
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      className="text-primary disabled:opacity-40"
-                      disabled={page <= 1}
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    >
-                      Previous
-                    </button>
-                    <button
-                      type="button"
-                      className="text-primary disabled:opacity-40"
-                      disabled={page >= totalPages}
-                      onClick={() => setPage((p) => p + 1)}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-            </AdminPanel>
-          </TabsContent>
+          <WorkspaceTabsContent key={t.key} value={t.key}>
+            <AdminDataTable
+              footer={
+                <AdminTablePagination
+                  page={page}
+                  totalPages={totalPages}
+                  total={total}
+                  pageSize={pageSize}
+                  loading={loading}
+                  itemLabel="orders"
+                  onPageChange={setPage}
+                />
+              }
+            >
+              <Table className="app-table-head-sticky">
+                <TableHeader>
+                  <AdminTableHeaderRow>
+                    <AdminTableHeadCell>Order number</AdminTableHeadCell>
+                    <AdminTableHeadCell>Plant</AdminTableHeadCell>
+                    <AdminTableHeadCell>Cost center</AdminTableHeadCell>
+                    <AdminTableHeadCell>Assets</AdminTableHeadCell>
+                    <AdminTableHeadCell>Status</AdminTableHeadCell>
+                    <AdminTableHeadCell>Assigned to</AdminTableHeadCell>
+                    <AdminTableHeadCell>Created by</AdminTableHeadCell>
+                    <AdminTableHeadCell>Created</AdminTableHeadCell>
+                  </AdminTableHeaderRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <AdminTableEmptyRow colSpan={8}>Loading orders…</AdminTableEmptyRow>
+                  ) : items.length === 0 ? (
+                    <AdminTableEmptyRow colSpan={8}>No orders in this tab.</AdminTableEmptyRow>
+                  ) : (
+                    items.map((row) => (
+                      <AdminTableBodyRow
+                        key={row.id}
+                        onClick={() => navigate(String(row.id))}
+                      >
+                        <AdminTableCell className="font-mono text-xs font-medium">
+                          {row.order_number}
+                        </AdminTableCell>
+                        <AdminTableCell>{row.plant_name}</AdminTableCell>
+                        <AdminTableCell>
+                          {row.cost_center_code}
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {row.cost_center_description}
+                          </span>
+                        </AdminTableCell>
+                        <AdminTableCell className="tabular-nums">{row.asset_count}</AdminTableCell>
+                        <AdminTableCell>
+                          <AdminPillBadge tone="neutral" className="font-normal">
+                            {orderStatusLabel(row.status)}
+                          </AdminPillBadge>
+                        </AdminTableCell>
+                        <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>
+                        <AdminTableCell>{row.created_by_name ?? "—"}</AdminTableCell>
+                        <AdminTableCell>
+                          {new Date(row.created_at).toLocaleDateString()}
+                        </AdminTableCell>
+                      </AdminTableBodyRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </AdminDataTable>
+          </WorkspaceTabsContent>
         ))}
-      </Tabs>
+      </WorkspaceTabs>
     </AdminPage>
   )
 }

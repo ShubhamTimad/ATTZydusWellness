@@ -1,10 +1,9 @@
 import * as React from "react"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, type LucideIcon } from "lucide-react"
 import { Link } from "react-router-dom"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { TableCell, TableHead, TableRow } from "@/components/ui/table"
+import { TableCell, TableHead } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
 /** Shared panel surface for tables, forms, and detail blocks. */
@@ -19,7 +18,7 @@ export const adminTextareaClass =
 export const adminSwitchRowClass =
   "flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-muted/15 px-4 py-3"
 
-/** Workspace tab bar — compact, no stretched triggers */
+/** Workspace tab bar — prefer WorkspaceTabsList from list-page-ui for list pages */
 export const adminTabsListClass =
   "h-auto min-h-10 w-fit max-w-full flex-wrap gap-1 rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/35 p-1"
 
@@ -72,16 +71,7 @@ export function AdminTableHeaderRow({
   children: React.ReactNode
   className?: string
 }) {
-  return (
-    <TableRow
-      className={cn(
-        "border-b border-border/70 bg-muted/30 hover:bg-muted/30",
-        className,
-      )}
-    >
-      {children}
-    </TableRow>
-  )
+  return <tr className={cn("hover:bg-transparent", className)}>{children}</tr>
 }
 
 export function AdminTableHeadCell({
@@ -94,7 +84,8 @@ export function AdminTableHeadCell({
   return (
     <TableHead
       className={cn(
-        "h-11 px-4 text-xs font-semibold tracking-wide text-muted-foreground",
+        "h-auto px-5 py-3 text-[11px] font-semibold tracking-[0.08em] uppercase",
+        "text-muted-foreground/85 whitespace-nowrap",
         className,
       )}
     >
@@ -113,7 +104,7 @@ export function AdminTableCell({
   return (
     <TableCell
       className={cn(
-        "h-[var(--app-table-row-height)] px-4 py-0 align-middle text-sm",
+        "h-auto min-h-[var(--app-table-row-height)] px-5 py-3.5 align-middle text-sm leading-snug",
         className,
       )}
     >
@@ -122,17 +113,125 @@ export function AdminTableCell({
   )
 }
 
-export function AdminStatusBadge({ active }: { active: boolean }) {
+export type AdminPillTone = "primary" | "success" | "warning" | "danger" | "neutral" | "info"
+
+const pillToneClass: Record<AdminPillTone, string> = {
+  primary: "border-primary/30 bg-primary/10 text-primary",
+  success: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-300",
+  warning: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200",
+  danger: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300",
+  neutral: "border-border/70 bg-muted/35 text-muted-foreground",
+  info: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/40 dark:text-sky-300",
+}
+
+/** Outline pill badge — reference-style status chips. */
+export function AdminPillBadge({
+  children,
+  tone = "neutral",
+  className,
+}: {
+  children: React.ReactNode
+  tone?: AdminPillTone
+  className?: string
+}) {
   return (
-    <Badge
-      variant={active ? "default" : "secondary"}
+    <span
       className={cn(
-        "rounded-md px-2.5 font-medium",
-        !active && "border-border/80 bg-muted text-muted-foreground",
+        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium leading-none",
+        pillToneClass[tone],
+        className,
       )}
     >
-      {active ? "Active" : "Inactive"}
-    </Badge>
+      {children}
+    </span>
+  )
+}
+
+export function AdminStatusBadge({ active }: { active: boolean }) {
+  if (active) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground shadow-sm">
+        Active
+      </span>
+    )
+  }
+  return <AdminPillBadge tone="neutral">Inactive</AdminPillBadge>
+}
+
+export function AdminRowActions({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div className={cn("inline-flex items-center justify-end gap-0.5", className)}>{children}</div>
+  )
+}
+
+export function AdminRowAction({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  className,
+}: {
+  icon: LucideIcon
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  className?: string
+}) {
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      disabled={disabled}
+      className={cn(
+        "h-8 gap-1.5 px-2.5 font-normal text-foreground/75 hover:bg-muted/50 hover:text-foreground",
+        className,
+      )}
+      onClick={onClick}
+    >
+      <Icon className="size-3.5 shrink-0" aria-hidden />
+      {label}
+    </Button>
+  )
+}
+
+/** Stacked primary + secondary line — e.g. name + email. */
+export function AdminTablePrimaryCell({
+  primary,
+  secondary,
+  onPrimaryClick,
+  className,
+}: {
+  primary: React.ReactNode
+  secondary?: React.ReactNode
+  onPrimaryClick?: () => void
+  className?: string
+}) {
+  const primaryNode = onPrimaryClick ? (
+    <button
+      type="button"
+      className="block max-w-[16rem] truncate text-left text-sm font-semibold text-foreground transition-colors hover:text-primary"
+      onClick={onPrimaryClick}
+    >
+      {primary}
+    </button>
+  ) : (
+    <span className="block max-w-[16rem] truncate text-sm font-semibold text-foreground">{primary}</span>
+  )
+
+  return (
+    <div className={cn("min-w-0", className)}>
+      {primaryNode}
+      {secondary ? (
+        <div className="mt-0.5 max-w-[16rem] truncate text-xs text-muted-foreground">{secondary}</div>
+      ) : null}
+    </div>
   )
 }
 

@@ -17,6 +17,18 @@ export function assetStatusVariant(
   return "secondary"
 }
 
+export type AssetStatusPillTone = "primary" | "success" | "warning" | "danger" | "neutral"
+
+export function assetStatusPillTone(
+  lifecycleStatus: string,
+  approvalStatus: string,
+): AssetStatusPillTone {
+  if (isAssetActive(lifecycleStatus, approvalStatus)) return "success"
+  if (approvalStatus === "rejected") return "danger"
+  if (approvalStatus === "pending") return "warning"
+  return "neutral"
+}
+
 export function canSubmitForApproval(lifecycleStatus: string, approvalStatus: string): boolean {
   if (isAssetActive(lifecycleStatus, approvalStatus)) return false
   const approval = approvalStatus.toLowerCase()

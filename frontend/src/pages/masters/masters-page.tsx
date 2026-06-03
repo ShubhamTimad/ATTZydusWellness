@@ -4,8 +4,13 @@ import { toast } from "sonner"
 import { HierarchicalMasterPanel } from "@/components/masters/hierarchical-master-panel"
 import { MasterCrudPanel } from "@/components/masters/master-crud-panel"
 import { AdminPage } from "@/components/layout/admin-page"
-import { adminTabsListClass, adminTabsTriggerClass } from "@/components/layout/admin-ui"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  ListPageHeader,
+  WorkspaceTabs,
+  WorkspaceTabsContent,
+  WorkspaceTabsList,
+  WorkspaceTabsTrigger,
+} from "@/components/layout/list-page-ui"
 import { getJson } from "@/lib/api"
 import type { PlantOption } from "@/lib/masters-types"
 import { canListOrgUnitsForAssignments } from "@/lib/permissions"
@@ -22,70 +27,64 @@ export function MastersPage() {
 
   return (
     <AdminPage fullWidth>
-      <Tabs defaultValue="categories" className="w-full gap-[var(--app-section-gap)]">
-        <TabsList className={adminTabsListClass}>
-          <TabsTrigger value="categories" className={adminTabsTriggerClass}>
-            Categories
-          </TabsTrigger>
-          <TabsTrigger value="functional" className={adminTabsTriggerClass}>
-            Functional locations
-          </TabsTrigger>
-          <TabsTrigger value="actual" className={adminTabsTriggerClass}>
-            Actual locations
-          </TabsTrigger>
-          <TabsTrigger value="cost-centers" className={adminTabsTriggerClass}>
-            Cost centers
-          </TabsTrigger>
-          <TabsTrigger value="profit-centers" className={adminTabsTriggerClass}>
-            Profit centers
-          </TabsTrigger>
-          <TabsTrigger value="tag-colors" className={adminTabsTriggerClass}>
-            Tag colors
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="categories" className="mt-0">
+      <ListPageHeader
+        title="Asset masters"
+        description="Maintain reference data used across asset creation, import, and verification."
+      />
+
+      <WorkspaceTabs defaultValue="categories">
+        <WorkspaceTabsList>
+          <WorkspaceTabsTrigger value="categories">Categories</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="functional">Functional locations</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="actual">Actual locations</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="cost-centers">Cost centers</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="profit-centers">Profit centers</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="tag-colors">Tag colors</WorkspaceTabsTrigger>
+        </WorkspaceTabsList>
+
+        <WorkspaceTabsContent value="categories">
           <MasterCrudPanel
             title="Asset category"
             listUrl="/admin/asset-masters/categories?active_only=false"
             kind="category"
           />
-        </TabsContent>
-        <TabsContent value="functional" className="mt-0">
+        </WorkspaceTabsContent>
+        <WorkspaceTabsContent value="functional">
           <HierarchicalMasterPanel
             title="Functional location"
             kind="functional-location"
             plants={plants}
           />
-        </TabsContent>
-        <TabsContent value="actual" className="mt-0">
+        </WorkspaceTabsContent>
+        <WorkspaceTabsContent value="actual">
           <HierarchicalMasterPanel
             title="Actual location"
             kind="actual-location"
             plants={plants}
           />
-        </TabsContent>
-        <TabsContent value="cost-centers" className="mt-0">
+        </WorkspaceTabsContent>
+        <WorkspaceTabsContent value="cost-centers">
           <HierarchicalMasterPanel
             title="Cost center"
             kind="cost-center"
             plants={plants}
           />
-        </TabsContent>
-        <TabsContent value="profit-centers" className="mt-0">
+        </WorkspaceTabsContent>
+        <WorkspaceTabsContent value="profit-centers">
           <HierarchicalMasterPanel
             title="Profit center"
             kind="profit-center"
             plants={plants}
           />
-        </TabsContent>
-        <TabsContent value="tag-colors" className="mt-0">
+        </WorkspaceTabsContent>
+        <WorkspaceTabsContent value="tag-colors">
           <MasterCrudPanel
             title="Tag color"
             listUrl="/admin/asset-masters/tag-colors?active_only=false"
             kind="tag-color"
           />
-        </TabsContent>
-      </Tabs>
+        </WorkspaceTabsContent>
+      </WorkspaceTabs>
     </AdminPage>
   )
 }

@@ -3,20 +3,25 @@ import { Eye, Pencil, Plus } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 
 import {
-  AdminPanel,
   AdminPrimaryButton,
+  AdminRowAction,
+  AdminRowActions,
   AdminStatusBadge,
   AdminTableCell,
   AdminTableHeadCell,
   AdminTableHeaderRow,
+  AdminTablePrimaryCell,
 } from "@/components/layout/admin-ui"
 import { AdminPage } from "@/components/layout/admin-page"
+import {
+  AdminDataTable,
+  AdminTableBodyRow,
+  AdminTableEmptyRow,
+} from "@/components/layout/list-page-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { getJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
-import { cn } from "@/lib/utils"
 
 type UserPublic = {
   id: number
@@ -60,7 +65,7 @@ export function UsersPage() {
       description="Manage accounts, roles, and plant assignments."
       actions={
         canCreate ? (
-          <AdminPrimaryButton asChild>
+          <AdminPrimaryButton asChild className="h-9 px-4 font-semibold shadow-sm">
             <Link to="new">
               <Plus className="size-4" aria-hidden />
               Create user
@@ -76,8 +81,8 @@ export function UsersPage() {
         </Alert>
       ) : null}
 
-      <AdminPanel>
-        <Table>
+      <AdminDataTable>
+        <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>
               <AdminTableHeadCell>Name</AdminTableHeadCell>
@@ -85,39 +90,23 @@ export function UsersPage() {
               <AdminTableHeadCell>Role</AdminTableHeadCell>
               <AdminTableHeadCell>Plant</AdminTableHeadCell>
               <AdminTableHeadCell className="w-[110px]">Status</AdminTableHeadCell>
-              <AdminTableHeadCell className="w-[140px] text-right">Actions</AdminTableHeadCell>
+              <AdminTableHeadCell className="w-[150px] text-right">Actions</AdminTableHeadCell>
             </AdminTableHeaderRow>
           </TableHeader>
           <TableBody>
             {users === null ? (
-              <tr>
-                <td colSpan={6} className="px-5 py-12 text-center text-sm text-muted-foreground">
-                  Loading users…
-                </td>
-              </tr>
+              <AdminTableEmptyRow colSpan={6}>Loading users…</AdminTableEmptyRow>
             ) : users.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-5 py-12 text-center text-sm text-muted-foreground">
-                  No users found.
-                </td>
-              </tr>
+              <AdminTableEmptyRow colSpan={6}>No users found.</AdminTableEmptyRow>
             ) : (
               users.map((u) => (
-                <tr
-                  key={u.id}
-                  className="border-b border-border/40 transition-colors last:border-0 hover:bg-muted/15"
-                >
+                <AdminTableBodyRow key={u.id} interactive={false}>
                   <AdminTableCell>
-                    <button
-                      type="button"
-                      className="block max-w-[240px] truncate text-left font-semibold text-foreground transition-colors hover:text-primary"
-                      onClick={() => navigate(String(u.id))}
-                    >
-                      {u.full_name}
-                    </button>
-                    <div className="mt-0.5 max-w-[240px] truncate text-xs text-muted-foreground">
-                      {u.email ?? "—"}
-                    </div>
+                    <AdminTablePrimaryCell
+                      primary={u.full_name}
+                      secondary={u.email ?? "—"}
+                      onPrimaryClick={() => navigate(String(u.id))}
+                    />
                   </AdminTableCell>
                   <AdminTableCell className="text-muted-foreground">{u.phone ?? "—"}</AdminTableCell>
                   <AdminTableCell>{u.role?.name ?? "—"}</AdminTableCell>
@@ -126,41 +115,28 @@ export function UsersPage() {
                     <AdminStatusBadge active={u.is_active} />
                   </AdminTableCell>
                   <AdminTableCell className="text-right">
-                    <div className="inline-flex items-center justify-end gap-0.5">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
+                    <AdminRowActions>
+                      <AdminRowAction
+                        icon={Eye}
+                        label="View"
                         onClick={() => navigate(String(u.id))}
-                      >
-                        <Eye className="size-3.5" aria-hidden />
-                        View
-                      </Button>
+                      />
                       {canUpdate ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className={cn(
-                            "h-8 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground",
-                            u.is_superuser && "pointer-events-none opacity-40",
-                          )}
+                        <AdminRowAction
+                          icon={Pencil}
+                          label="Edit"
                           onClick={() => navigate(`${u.id}/edit`)}
                           disabled={u.is_superuser}
-                        >
-                          <Pencil className="size-3.5" aria-hidden />
-                          Edit
-                        </Button>
+                        />
                       ) : null}
-                    </div>
+                    </AdminRowActions>
                   </AdminTableCell>
-                </tr>
+                </AdminTableBodyRow>
               ))
             )}
           </TableBody>
         </Table>
-      </AdminPanel>
+      </AdminDataTable>
     </AdminPage>
   )
 }

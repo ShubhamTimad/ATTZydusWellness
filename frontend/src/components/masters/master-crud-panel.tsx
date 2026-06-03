@@ -3,7 +3,6 @@ import { Pencil, Plus } from "lucide-react"
 import { toast } from "sonner"
 
 import {
-  AdminPanel,
   AdminPrimaryButton,
   AdminTableCell,
   AdminTableEmptyRow,
@@ -11,6 +10,10 @@ import {
   AdminTableHeaderRow,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
+import {
+  AdminDataTable,
+  AdminTableBodyRow,
+} from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -176,7 +179,7 @@ export function MasterCrudPanel({
     kind === "category" || kind === "tag-color" ? "Name" : "Description"
 
   return (
-    <AdminPanel title={title} headerActions={addButton}>
+    <AdminDataTable title={title} headerActions={addButton}>
       <Table className="app-table-head-sticky">
         <TableHeader>
           <AdminTableHeaderRow>
@@ -196,7 +199,7 @@ export function MasterCrudPanel({
             </AdminTableEmptyRow>
           ) : (
             rows.map((row) => (
-              <tr key={row.id} className="border-b border-border/40 hover:bg-muted/20">
+              <AdminTableBodyRow key={row.id} interactive={false}>
                 <AdminTableCell className="font-mono text-xs">{row.code}</AdminTableCell>
                 <AdminTableCell>
                   {kind === "category" || kind === "tag-color"
@@ -230,7 +233,7 @@ export function MasterCrudPanel({
                     </Button>
                   </AdminTableCell>
                 ) : null}
-              </tr>
+              </AdminTableBodyRow>
             ))
           )}
         </TableBody>
@@ -300,7 +303,7 @@ export function MasterCrudPanel({
           </div>
         </DialogContent>
       </Dialog>
-    </AdminPanel>
+    </AdminDataTable>
   )
 }
 

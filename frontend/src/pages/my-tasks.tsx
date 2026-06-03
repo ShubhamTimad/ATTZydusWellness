@@ -2,15 +2,24 @@ import * as React from "react"
 import { toast } from "sonner"
 import { useNavigate } from "react-router-dom"
 
+import { AdminPage } from "@/components/layout/admin-page"
 import {
-  AdminPanel,
+  AdminDataTable,
+  AdminTableBodyRow,
   AdminTableEmptyRow,
-  adminTabsListClass,
-  adminTabsTriggerClass,
+  ListPageHeader,
+  WorkspaceTabs,
+  WorkspaceTabsContent,
+  WorkspaceTabsList,
+  WorkspaceTabsTrigger,
+} from "@/components/layout/list-page-ui"
+import {
+  AdminTableCell,
+  AdminTableHeadCell,
+  AdminTableHeaderRow,
 } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson } from "@/lib/api"
 import { canAccessTasks, persistAuthFromMe } from "@/lib/permissions"
 
@@ -32,20 +41,19 @@ type InboxTableProps = {
 
 function InboxTable({ rows, loading, canView, emptyMessage, onOpen }: InboxTableProps) {
   return (
-    <AdminPanel
+    <AdminDataTable
       title="Inbox"
-      description="Tasks you are assigned to or that you created — open a row for details, comments, and history."
-      contentClassName="p-0"
+      description="Open a row for details, comments, and history."
     >
       <Table className="app-table-head-sticky">
         <TableHeader>
-          <TableRow>
-            <TableHead>Title</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Priority</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
+          <AdminTableHeaderRow>
+            <AdminTableHeadCell>Title</AdminTableHeadCell>
+            <AdminTableHeadCell>Type</AdminTableHeadCell>
+            <AdminTableHeadCell>Priority</AdminTableHeadCell>
+            <AdminTableHeadCell>Status</AdminTableHeadCell>
+            <AdminTableHeadCell className="text-right">Actions</AdminTableHeadCell>
+          </AdminTableHeaderRow>
         </TableHeader>
         <TableBody>
           {(rows ?? []).length === 0 ? (
@@ -53,27 +61,27 @@ function InboxTable({ rows, loading, canView, emptyMessage, onOpen }: InboxTable
               {!canView
                 ? "Missing permission: task.view (or related task access)"
                 : loading
-                  ? "Loading…"
+                  ? "Loading tasks…"
                   : emptyMessage}
             </AdminTableEmptyRow>
           ) : (
-              (rows ?? []).map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className="font-medium">{r.title ?? "(untitled)"}</TableCell>
-                  <TableCell className="text-sm capitalize">{r.task_type}</TableCell>
-                  <TableCell className="text-sm capitalize">{r.priority ?? "—"}</TableCell>
-                  <TableCell className="text-sm capitalize">{r.status}</TableCell>
-                  <TableCell className="text-right space-x-2">
-                    <Button type="button" size="sm" variant="outline" onClick={() => onOpen(r.id)}>
-                      View
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
+            (rows ?? []).map((r) => (
+              <AdminTableBodyRow key={r.id}>
+                <AdminTableCell className="font-medium">{r.title ?? "(untitled)"}</AdminTableCell>
+                <AdminTableCell className="capitalize">{r.task_type}</AdminTableCell>
+                <AdminTableCell className="capitalize">{r.priority ?? "—"}</AdminTableCell>
+                <AdminTableCell className="capitalize">{r.status}</AdminTableCell>
+                <AdminTableCell className="text-right">
+                  <Button type="button" size="sm" variant="outline" onClick={() => onOpen(r.id)}>
+                    View
+                  </Button>
+                </AdminTableCell>
+              </AdminTableBodyRow>
+            ))
+          )}
         </TableBody>
       </Table>
-    </AdminPanel>
+    </AdminDataTable>
   )
 }
 
@@ -119,25 +127,19 @@ export function MyTasksPage() {
   }, [load, syncMe])
 
   return (
-    <div className="app-page w-full">
-      <div className="space-y-1">
-        <h1 className="app-page-heading">My tasks</h1>
-        <p className="app-page-subheading">
-          Open items that need you, and a <strong>Done</strong> list for things you or others already finished
-          (approvals, rejections, completed manual work).
-        </p>
-      </div>
+    <AdminPage fullWidth>
+      <ListPageHeader
+        title="My tasks"
+        description="Active items that need you, and a Done list for completed approvals and manual work."
+      />
 
-      <Tabs value={inbox} onValueChange={(v) => setInbox(v as "active" | "done")} className="gap-[var(--app-section-gap)]">
-        <TabsList className={adminTabsListClass}>
-          <TabsTrigger value="active" className={adminTabsTriggerClass}>
-            Active
-          </TabsTrigger>
-          <TabsTrigger value="done" className={adminTabsTriggerClass}>
-            Done
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="active" className="mt-0">
+      <WorkspaceTabs value={inbox} onValueChange={(v) => setInbox(v as "active" | "done")}>
+        <WorkspaceTabsList>
+          <WorkspaceTabsTrigger value="active">Active</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="done">Done</WorkspaceTabsTrigger>
+        </WorkspaceTabsList>
+
+        <WorkspaceTabsContent value="active">
           <InboxTable
             rows={rows}
             loading={loading}
@@ -145,8 +147,8 @@ export function MyTasksPage() {
             onOpen={(id) => void navigate(String(id))}
             emptyMessage="No active tasks. Approvals and manual items that need you appear here."
           />
-        </TabsContent>
-        <TabsContent value="done" className="mt-0">
+        </WorkspaceTabsContent>
+        <WorkspaceTabsContent value="done">
           <InboxTable
             rows={rows}
             loading={loading}
@@ -154,8 +156,8 @@ export function MyTasksPage() {
             onOpen={(id) => void navigate(String(id))}
             emptyMessage="No completed items yet. Finished approvals, rejections, and closed manual tasks show here."
           />
-        </TabsContent>
-      </Tabs>
-    </div>
+        </WorkspaceTabsContent>
+      </WorkspaceTabs>
+    </AdminPage>
   )
 }
