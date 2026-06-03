@@ -45,3 +45,11 @@ export type PlantOption = {
   name: string
   code: string
 }
+
+export type TagColorMaster = {
+  id: number
+  code: string
+  name: string
+  color_hex: string | null
+  is_active: boolean
+}

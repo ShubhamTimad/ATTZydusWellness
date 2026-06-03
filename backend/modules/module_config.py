@@ -145,7 +145,7 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
     },
     {
         "key": "order",
-        "title": "Orders",
+        "title": "Physical verification orders",
         "tabs": [
             {
                 "key": "order",
@@ -153,8 +153,12 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
                 "actions": [
                     "view",
                     "create",
-                    "archive",
-                    "unarchive",
+                    "update",
+                    "approve",
+                    "execute",
+                    "close",
+                    "complete",
+                    "manage",
                 ],
             },
         ],

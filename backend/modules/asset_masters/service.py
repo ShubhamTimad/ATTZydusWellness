@@ -10,6 +10,7 @@ from modules.asset_masters.model import (
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
+    TagColorMaster,
 )
 from modules.asset_masters.schema import (
     CategoryCreate,
@@ -22,6 +23,9 @@ from modules.asset_masters.schema import (
     PlantChildCreate,
     PlantChildPublic,
     PlantChildUpdate,
+    TagColorCreate,
+    TagColorPublic,
+    TagColorUpdate,
 )
 from modules.errors import ConflictError, NotFoundError
 from modules.platform.org_units.model import OrgUnit
@@ -79,6 +83,51 @@ class AssetMastersService:
             raise DuplicateMasterCodeError("Category code already exists.") from exc
         self._db.refresh(row)
         return CategoryPublic.model_validate(row)
+
+    # --- Tag colors ---
+
+    def list_tag_colors(self, *, active_only: bool = True) -> list[TagColorPublic]:
+        stmt = select(TagColorMaster).order_by(TagColorMaster.name)
+        if active_only:
+            stmt = stmt.where(TagColorMaster.is_active.is_(True))
+        rows = list(self._db.scalars(stmt).all())
+        return [TagColorPublic.model_validate(r) for r in rows]
+
+    def create_tag_color(self, data: TagColorCreate) -> TagColorPublic:
+        row = TagColorMaster(
+            code=data.code,
+            name=data.name.strip(),
+            color_hex=data.color_hex.strip() if data.color_hex else None,
+            is_active=True,
+        )
+        self._db.add(row)
+        try:
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            raise DuplicateMasterCodeError("Tag color code already exists.") from exc
+        self._db.refresh(row)
+        return TagColorPublic.model_validate(row)
+
+    def update_tag_color(self, row_id: int, data: TagColorUpdate) -> TagColorPublic:
+        row = self._db.get(TagColorMaster, row_id)
+        if row is None:
+            raise NotFoundError("Tag color", row_id)
+        if data.code is not None:
+            row.code = data.code
+        if data.name is not None:
+            row.name = data.name.strip()
+        if data.color_hex is not None:
+            row.color_hex = data.color_hex.strip() or None
+        if data.is_active is not None:
+            row.is_active = data.is_active
+        try:
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            raise DuplicateMasterCodeError("Tag color code already exists.") from exc
+        self._db.refresh(row)
+        return TagColorPublic.model_validate(row)
 
     # --- Cost centers (under plant) ---
 

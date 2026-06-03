@@ -21,6 +21,15 @@ from modules.rbac_association import role_org_unit, role_permission, user_org_un
 from modules.platform.roles.model import Role
 from modules.platform.settings.model import Setting
 from modules.platform.users.model import User
+from modules.asset_masters.model import (
+    ActualLocationMaster,
+    CostCenterMaster,
+    FunctionalLocationMaster,
+    ProfitCenterMaster,
+    TagColorMaster,
+)
+from modules.assets.model import AssetCategory, AssetMaster  # noqa: F401
+from modules.orders.model import PhysicalOrder, PhysicalOrderAudit, PhysicalOrderItem
 
 __all__ = [
     "AuditLog",
@@ -46,4 +55,14 @@ __all__ = [
     "MfaChallenge",
     "MfaSetupToken",
     "role_permission",
+    "PhysicalOrder",
+    "PhysicalOrderItem",
+    "PhysicalOrderAudit",
+    "CostCenterMaster",
+    "FunctionalLocationMaster",
+    "ActualLocationMaster",
+    "ProfitCenterMaster",
+    "TagColorMaster",
+    "AssetMaster",
+    "AssetCategory",
 ]

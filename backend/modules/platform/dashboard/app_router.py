@@ -17,6 +17,7 @@ from modules.assets.model import (
     AssetLocationInformation,
     AssetMaster,
 )
+from modules.orders.model import PhysicalOrder
 from modules.rbac_association import user_role
 from modules.platform.roles.model import Role
 from modules.platform.org_units.model import OrgUnit
@@ -67,6 +68,7 @@ def get_dashboard_summary(
         "asset.import",
         "asset.manage",
     )
+    has_orders = _has(grants, "order.view")
 
     modules: dict[str, Any] = {}
 
@@ -181,6 +183,32 @@ def get_dashboard_summary(
             "recently_added": recent,
             "by_category": [{"category": str(n or "Uncategorized"), "count": int(c)} for n, c in by_cat_rows],
             "by_plant": [{"plant": str(n or "Unassigned"), "count": int(c)} for n, c in by_plant_rows],
+        }
+
+    if has_orders:
+        status_rows = db.execute(
+            select(PhysicalOrder.status, func.count())
+            .select_from(PhysicalOrder)
+            .group_by(PhysicalOrder.status)
+        ).all()
+        by_status = {str(s): int(c) for s, c in status_rows if s}
+        by_plant_order_rows = db.execute(
+            select(OrgUnit.name, func.count())
+            .select_from(PhysicalOrder)
+            .join(OrgUnit, OrgUnit.id == PhysicalOrder.plant_id, isouter=True)
+            .group_by(OrgUnit.name)
+            .order_by(func.count().desc())
+        ).all()
+        modules["orders"] = {
+            "total_orders": sum(by_status.values()),
+            "pending_approval": by_status.get("pending_approval", 0),
+            "approved": by_status.get("approved", 0),
+            "in_progress": by_status.get("in_progress", 0),
+            "pending_closure_approval": by_status.get("pending_closure_approval", 0),
+            "completed": by_status.get("completed", 0),
+            "rejected": by_status.get("rejected", 0),
+            "by_status": [{"status": k.replace("_", " ").title(), "count": v} for k, v in sorted(by_status.items())],
+            "by_plant": [{"plant": str(n or "Unassigned"), "count": int(c)} for n, c in by_plant_order_rows],
         }
 
     return {"modules": modules}

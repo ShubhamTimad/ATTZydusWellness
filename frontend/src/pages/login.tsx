@@ -4,10 +4,12 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
+import { ShieldCheck } from "lucide-react"
 
+import { AuthFormShell } from "@/components/auth/auth-form-shell"
+import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
@@ -162,109 +164,127 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
   }
 
   return (
-    <div className="flex min-h-svh items-center justify-center bg-background px-4 py-10">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-base">{mfaChallenge ? "Authenticator code" : "Admin login"}</CardTitle>
-          <CardDescription>
-            {mfaChallenge ? "Enter the code from your app." : "Sign in with email or username and password."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {serverError ? (
-            <Alert variant="destructive">
-              <AlertTitle>Couldn’t sign in</AlertTitle>
-              <AlertDescription>{serverError}</AlertDescription>
-            </Alert>
-          ) : null}
+    <AppAuthMarketingLayout variant="admin">
+      <AuthFormShell
+        title={mfaChallenge ? "Authenticator code" : "Admin sign in"}
+        description={
+          mfaChallenge
+            ? "Enter the code from your authenticator app."
+            : "Superadmin access to platform settings, users, and workflows."
+        }
+        footer={
+          !mfaChallenge ? (
+            <span className="inline-flex items-center justify-center gap-1.5">
+              <ShieldCheck className="size-3.5 shrink-0 text-primary/80" aria-hidden />
+              Restricted to platform administrators
+            </span>
+          ) : undefined
+        }
+      >
+        {serverError ? (
+          <Alert variant="destructive">
+            <AlertTitle>Couldn&apos;t sign in</AlertTitle>
+            <AlertDescription>{serverError}</AlertDescription>
+          </Alert>
+        ) : null}
 
-          {mfaChallenge ? (
-            <form className="space-y-3" onSubmit={submitOtp}>
-              <div className="space-y-1.5">
-                <Label htmlFor="otp">6-digit code</Label>
-                <Input
-                  id="otp"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                />
-              </div>
-              <Button type="submit" className="w-full">
-                Continue
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  setMfaChallenge(null)
-                  setOtp("")
-                  setServerError(null)
-                }}
-              >
-                Back
-              </Button>
-            </form>
-          ) : (
-            <form className="space-y-3" onSubmit={form.handleSubmit(onSubmit)}>
-              <div className="space-y-1.5">
-                <Label htmlFor="identifier">Email or username</Label>
-                <Input
-                  id="identifier"
-                  type="text"
-                  autoComplete="username"
-                  placeholder="admin@example.com or admin"
-                  aria-invalid={!!form.formState.errors.identifier}
-                  {...form.register("identifier")}
-                />
-                {form.formState.errors.identifier?.message ? (
-                  <p className="text-xs text-destructive">{form.formState.errors.identifier.message}</p>
-                ) : null}
-              </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Link
-                    to="/forgot-password?returnTo=%2Fadmin%2Flogin"
-                    className="text-xs text-primary underline-offset-2 hover:underline"
-                    tabIndex={-1}
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
-                <PasswordInput
-                  id="password"
-                  autoComplete="current-password"
-                  aria-invalid={!!form.formState.errors.password}
-                  {...form.register("password")}
-                />
-                {form.formState.errors.password?.message ? (
-                  <p className="text-xs text-destructive">{form.formState.errors.password.message}</p>
-                ) : null}
-              </div>
-
-              {policy?.captcha_enabled ? (
-                <div className="space-y-1.5">
-                  <Label htmlFor="captcha_token">Captcha token</Label>
-                  <Input
-                    id="captcha_token"
-                    autoComplete="off"
-                    value={captchaToken}
-                    onChange={(e) => setCaptchaToken(e.target.value)}
-                    placeholder="e.g. captcha-ok"
-                  />
-                </div>
+        {mfaChallenge ? (
+          <form className="space-y-4" onSubmit={submitOtp}>
+            <div className="app-form-field">
+              <Label htmlFor="otp">6-digit code</Label>
+              <Input
+                id="otp"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                placeholder="000000"
+                className="h-11 text-center font-mono text-lg tracking-[0.35em]"
+              />
+            </div>
+            <Button type="submit" className="h-11 w-full text-sm font-semibold">
+              Continue
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full"
+              onClick={() => {
+                setMfaChallenge(null)
+                setOtp("")
+                setServerError(null)
+              }}
+            >
+              Back to sign in
+            </Button>
+          </form>
+        ) : (
+          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
+            <div className="app-form-field">
+              <Label htmlFor="identifier">Email or username</Label>
+              <Input
+                id="identifier"
+                type="text"
+                autoComplete="username"
+                placeholder="admin@example.com"
+                aria-invalid={!!form.formState.errors.identifier}
+                className="h-11"
+                {...form.register("identifier")}
+              />
+              {form.formState.errors.identifier?.message ? (
+                <p className="text-xs text-destructive">{form.formState.errors.identifier.message}</p>
               ) : null}
+            </div>
 
-              <Button type="submit" className="w-full" disabled={isSubmitting}>
-                {isSubmitting ? "Signing in…" : "Sign in"}
-              </Button>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+            <div className="app-form-field">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  to="/forgot-password?returnTo=%2Fadmin%2Flogin"
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                  tabIndex={-1}
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <PasswordInput
+                id="password"
+                autoComplete="current-password"
+                aria-invalid={!!form.formState.errors.password}
+                className="h-11"
+                {...form.register("password")}
+              />
+              {form.formState.errors.password?.message ? (
+                <p className="text-xs text-destructive">{form.formState.errors.password.message}</p>
+              ) : null}
+            </div>
+
+            {policy?.captcha_enabled ? (
+              <div className="app-form-field">
+                <Label htmlFor="captcha_token">Captcha token</Label>
+                <Input
+                  id="captcha_token"
+                  autoComplete="off"
+                  value={captchaToken}
+                  onChange={(e) => setCaptchaToken(e.target.value)}
+                  placeholder="e.g. captcha-ok"
+                  className="h-11"
+                />
+              </div>
+            ) : null}
+
+            <Button type="submit" className="h-11 w-full text-sm font-semibold" disabled={isSubmitting}>
+              {isSubmitting ? "Signing in…" : "Sign in"}
+            </Button>
+
+            <p className="text-center text-sm text-muted-foreground">
+              <Link to="/login" className="font-medium text-primary underline-offset-2 hover:underline">
+                Workspace sign in
+              </Link>
+            </p>
+          </form>
+        )}
+      </AuthFormShell>
+    </AppAuthMarketingLayout>
   )
 }

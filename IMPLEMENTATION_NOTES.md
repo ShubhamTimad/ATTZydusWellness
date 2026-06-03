@@ -11,7 +11,7 @@ This document describes the work completed so far in this repo:
 ## 1) Backend: RBAC and permission enforcement
 
 ### Core mechanics
-
+http://localhost:5173/dashboard/assets
 - **`core/permissions.py`**
   - **`require_permission(code, *more)`** — caller must have **all** listed codes (typically one code).
   - **`require_any_permission(code, *alternatives)`** — caller must have **at least one** of the listed codes (OR). Used where a single endpoint supports more than one product flow.

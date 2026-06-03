@@ -61,6 +61,42 @@ class CategoryPublic(BaseModel):
     created_at: datetime | None = None
 
 
+class TagColorCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+    color_hex: str | None = Field(default=None, max_length=16)
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str) -> str:
+        return _norm_code(value)
+
+
+class TagColorUpdate(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=64)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    color_hex: str | None = Field(default=None, max_length=16)
+    is_active: bool | None = None
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _norm_code(value)
+
+
+class TagColorPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    color_hex: str | None
+    is_active: bool
+    created_at: datetime | None = None
+
+
 class PlantChildCreate(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     description: str = Field(min_length=1, max_length=512)

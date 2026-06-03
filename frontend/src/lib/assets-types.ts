@@ -4,11 +4,21 @@ export type AssetListItem = {
   id: number
   asset_name: string
   asset_code: string
+  rfid_code: string | null
+  tag_color_id?: number | null
+  tag_color_code?: string | null
+  tag_color_name?: string | null
+  tag_color_hex?: string | null
   category_name: string | null
+  plant_id: number | null
+  plant_code: string | null
   plant_name: string | null
   functional_location: string | null
+  functional_location_description: string | null
   actual_location: string | null
+  actual_location_description: string | null
   cost_center: string | null
+  cost_center_description: string | null
   inventory_count: number | null
   physical_count: number | null
   last_verification_date: string | null
@@ -16,6 +26,19 @@ export type AssetListItem = {
   approval_status: string
   source_type: string
   created_at: string
+}
+
+export type AssetRfidAttachResult = {
+  asset_id: number
+  asset_code: string
+  asset_name: string
+  rfid_code: string
+  previous_rfid_code: string | null
+  operation: "attached" | "updated"
+  tag_color_id?: number | null
+  tag_color_code?: string | null
+  tag_color_name?: string | null
+  tag_color_hex?: string | null
 }
 
 export type SubmitForApprovalResult = {
@@ -82,6 +105,10 @@ export type AssetDetail = {
   asset_class: string | null
   asset_type: string | null
   category_name: string | null
+  tag_color_id: number | null
+  tag_color_code: string | null
+  tag_color_name: string | null
+  tag_color_hex: string | null
   lifecycle_status: string
   approval_status: string
   ownership_type: string | null

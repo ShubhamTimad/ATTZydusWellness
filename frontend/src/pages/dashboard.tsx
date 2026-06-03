@@ -1,9 +1,11 @@
 import * as React from "react"
 
 import { AssetDashboard } from "@/components/dashboard/asset-dashboard"
+import { OrdersDashboard } from "@/components/dashboard/orders-dashboard"
 import { TaskDashboard, type TasksDashboardModule } from "@/components/dashboard/task-dashboard"
 import { UserDashboard, type UsersDashboardModule } from "@/components/dashboard/user-dashboard"
 import type { AssetsDashboardModule } from "@/lib/assets-types"
+import type { OrdersDashboardModule } from "@/lib/orders-types"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { getJson } from "@/lib/api"
 import { canAccessTasks, hasPermission } from "@/lib/permissions"
@@ -41,6 +43,7 @@ export function DashboardPage() {
   const usersModule = summary?.modules?.users
   const tasksModule = summary?.modules?.tasks
   const assetsModule = summary?.modules?.assets
+  const ordersModule = summary?.modules?.orders as OrdersDashboardModule | undefined
 
   return (
     <div className="app-page">
@@ -59,7 +62,7 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {!usersModule && !tasksModule && !assetsModule && !loadError ? (
+      {!usersModule && !tasksModule && !assetsModule && !ordersModule && !loadError ? (
         <Card className="border-dashed border-primary/25">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">No modules available</CardTitle>
@@ -79,6 +82,9 @@ export function DashboardPage() {
       ) : null}
       {assetsModule && hasPermission("asset.view") ? (
         <AssetDashboard data={assetsModule} />
+      ) : null}
+      {ordersModule && hasPermission("order.view") ? (
+        <OrdersDashboard data={ordersModule} />
       ) : null}
     </div>
   )

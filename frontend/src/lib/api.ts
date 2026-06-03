@@ -28,6 +28,10 @@ function parseErrorMessage(data: unknown, status: number): string {
   if (data && typeof data === "object") {
     const detail = (data as { detail?: unknown }).detail
     if (typeof detail === "string") return detail
+    if (detail && typeof detail === "object" && detail !== null) {
+      const msg = (detail as { message?: unknown }).message
+      if (typeof msg === "string" && msg.trim()) return msg
+    }
     const err = (data as { error?: unknown }).error
     if (typeof err === "string") return err
   }

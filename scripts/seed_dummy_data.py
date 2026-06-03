@@ -19,10 +19,10 @@ _BACKEND_ROOT = Path(__file__).resolve().parents[1] / "backend"
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -49,10 +49,25 @@ from modules.platform.approvals.model import ApprovalStep, ApprovalWorkflow, App
 from modules.platform.approvals.service import ApprovalWorkflowService
 from modules.platform.emails.model import EmailTemplate, EmailTemplateMapping
 from modules.errors import ConflictError
+from modules.orders.model import PhysicalOrder
 from modules.platform.org_units.model import OrgUnit
+from modules.rbac_association import user_org_unit
 from modules.platform.permissions.model import Permission
 from modules.rbac_sync import sync_all_modules_to_db
 from modules.platform.roles.model import Role
+from modules.orders.audit import log_order_event
+from modules.orders.constants import (
+    ITEM_STATUS_APPROVED,
+    ITEM_STATUS_PENDING,
+    ITEM_STATUS_REJECTED,
+    ORDER_STATUS_APPROVED,
+    ORDER_STATUS_COMPLETED,
+    ORDER_STATUS_IN_PROGRESS,
+    ORDER_STATUS_PENDING_APPROVAL,
+    ORDER_STATUS_PENDING_CLOSURE,
+    ORDER_STATUS_REJECTED,
+)
+from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 
 # --- Email templates (one password in welcome mail only) ---
 
@@ -130,19 +145,8 @@ ROLE_SPECS: list[dict[str, object]] = [
     },
     {
         "name": "Operator",
-        "description": "Day-to-day workspace access.",
-        "permissions": [
-            "task.view",
-            "task.act",
-            "asset.view",
-            "asset.create",
-            "asset.update",
-            "asset.import",
-            "masters.view",
-            "masters.create",
-            "masters.update",
-            "masters.delete",
-        ],
+        "description": "Full workspace access — all module permissions.",
+        "permissions": "__all__",
     },
     {
         "name": "HR Admin",
@@ -153,9 +157,90 @@ ROLE_SPECS: list[dict[str, object]] = [
             "users.update",
         ],
     },
+    {
+        "name": "Physical Order Creator",
+        "description": "Create physical verification orders.",
+        "permissions": ["order.create", "order.view"],
+    },
+    {
+        "name": "Physical Order Executor",
+        "description": "Execute physical verification on assigned orders.",
+        "permissions": ["order.execute", "order.view"],
+    },
+    {
+        "name": "Physical Order Approver",
+        "description": "Approve physical verification orders and closures.",
+        "permissions": ["order.approve", "order.view", "approval.view", "approval.act"],
+    },
 ]
 
-DEMO_PLANT = {"code": "DEMO-01", "name": "Demo Plant A", "type": "PLANT"}
+TAKEDA_PLANT = {"code": "TAKEDA", "name": "Takeda", "type": "PLANT"}
+LEGACY_PLANT_CODES = ("DEMO-01",)
+
+# Reference masters for Takeda plant: functional / actual locations and cost / profit centers.
+REFERENCE_MASTER_SPECS: dict[str, object] = {
+    "functional_locations": [
+        ("PROD/BLD-A/LINE-01", "Production line A — Building A"),
+        ("QC/LAB-02", "QC laboratory — Building B"),
+        ("IT/ENG", "Engineering & IT — Office wing"),
+        ("WH/RECEIVING", "Warehouse receiving & logistics"),
+        ("FAC/CR-HVAC", "Clean room HVAC & utilities"),
+    ],
+    "actual_locations": [
+        # (functional_location_code, actual_code, description)
+        ("PROD/BLD-A/LINE-01", "BLD-A-F2-R201", "Building A, floor 2, room 201"),
+        ("PROD/BLD-A/LINE-01", "BLD-A-F2-R202", "Building A, floor 2, room 202"),
+        ("PROD/BLD-A/LINE-01", "BLD-A-F1-BAY1", "Building A, floor 1, bay 1"),
+        ("PROD/BLD-A/LINE-01", "LINE-A-BAY2", "Line A — bay 2"),
+        ("QC/LAB-02", "QC-BENCH-01", "QC lab bench 1"),
+        ("QC/LAB-02", "QC-BENCH-02", "QC lab bench 2"),
+        ("QC/LAB-02", "QC-BENCH-03", "QC lab bench 3"),
+        ("QC/LAB-02", "QC-SAMPLE-STORE", "QC sample storage"),
+        ("IT/ENG", "OFF-WING-C-305", "Office wing C, room 305"),
+        ("IT/ENG", "OFF-WING-C-306", "Office wing C, room 306"),
+        ("IT/ENG", "OFF-WING-B-210", "Office wing B, room 210"),
+        ("IT/ENG", "IT-SERVER-ROOM", "IT server room"),
+        ("WH/RECEIVING", "WH-DOCK-01", "Warehouse dock 1"),
+        ("WH/RECEIVING", "WH-DOCK-02", "Warehouse dock 2"),
+        ("WH/RECEIVING", "WH-STAGING", "Warehouse staging area"),
+        ("WH/RECEIVING", "WH-COLD-STORE", "Cold storage"),
+        ("FAC/CR-HVAC", "CR-ROOF-PLANT", "Clean room roof plant"),
+        ("FAC/CR-HVAC", "CR-MEZZ-09", "Clean room mezzanine 9"),
+        ("FAC/CR-HVAC", "UTIL-ROOF-N", "Utilities roof — north"),
+        ("FAC/CR-HVAC", "UTIL-ROOF-S", "Utilities roof — south"),
+    ],
+    "cost_centers": [
+        ("CC-4100", "Production cost center"),
+        ("CC-4200", "QC & quality cost center"),
+        ("CC-4300", "Logistics & warehouse cost center"),
+        ("CC-4400", "Utilities & facilities cost center"),
+        ("CC-5100", "IT & engineering cost center"),
+    ],
+    "profit_centers": [
+        ("CC-4100", "PC-100", "Corporate profit center"),
+        ("CC-4100", "PC-200", "Plant production profit center"),
+        ("CC-4200", "PC-300", "QC profit center"),
+        ("CC-4300", "PC-400", "Logistics profit center"),
+        ("CC-5100", "PC-500", "IT profit center"),
+        ("CC-4400", "PC-440", "Utilities profit center"),
+    ],
+}
+
+# Profit center code per cost center (must exist in REFERENCE_MASTER_SPECS).
+_COST_CENTER_TO_PROFIT_CENTER: dict[str, str] = {
+    "CC-4100": "PC-200",
+    "CC-4200": "PC-300",
+    "CC-4300": "PC-400",
+    "CC-4400": "PC-440",
+    "CC-5100": "PC-500",
+}
+
+_CATEGORY_DEMO_META: dict[str, tuple[str, str, str, Decimal, Decimal]] = {
+    "EQUIPMENT": ("Production Equipment", "Machinery", "Manufacturing", Decimal("125000.00"), Decimal("10.0000")),
+    "IT": ("IT Equipment", "Computer Hardware", "IT Systems", Decimal("3500.00"), Decimal("25.0000")),
+    "VEHICLE": ("Fleet Asset", "Material Handling", "Logistics", Decimal("52000.00"), Decimal("15.0000")),
+    "FACILITY": ("Facility Asset", "Building Services", "Utilities", Decimal("185000.00"), Decimal("8.0000")),
+}
 
 # Each step: (level, role name, required approvals)
 WORKFLOW_SPECS: list[dict[str, object]] = [
@@ -200,6 +285,26 @@ WORKFLOW_SPECS: list[dict[str, object]] = [
         "map_action": "asset.import",
         "steps": [(1, "Plant Manager", 1)],
     },
+    {
+        "name": "Physical Order Creation Approval",
+        "entity_type": "physical_order_creation",
+        "activate": True,
+        "map_action": "order.create",
+        "steps": [
+            (1, "Plant Manager", 1),
+            (2, "Approver", 1),
+        ],
+    },
+    {
+        "name": "Physical Order Completion Approval",
+        "entity_type": "physical_order_closure",
+        "activate": True,
+        "map_action": "order.complete",
+        "steps": [
+            (1, "Approver", 1),
+            (2, "Plant Manager", 1),
+        ],
+    },
 ]
 
 # Demo assets (active, no pending approval) for workspace list/detail testing.
@@ -214,7 +319,7 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
         "serial_no": "TP-2024-001",
         "sub_location": "Line A — Bay 2",
         "functional_location": "PROD/BLD-A/LINE-01",
-        "actual_location": "Building A, Floor 2",
+        "actual_location": "BLD-A-F2-R201",
         "building": "A",
         "floor": "2",
         "room": "201",
@@ -224,8 +329,6 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
         "invoice_no": "INV-2024-1001",
         "voucher_no": "VCH-4100-01",
         "grn_no": "GRN-2024-501",
-        "inventory_count": 1,
-        "physical_count": 0,
     },
     {
         "asset_code": "DEMO-AST-002",
@@ -234,30 +337,25 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
         "rfid_code": "RFID-DEMO-002",
         "serial_no": "HPLC-8832",
         "functional_location": "QC/LAB-02",
-        "actual_location": "QC Lab, Bench 3",
+        "actual_location": "QC-BENCH-03",
         "building": "B",
         "floor": "1",
         "room": "QC-12",
         "zone": "Quality",
         "cost_center": "CC-4200",
-        "inventory_count": 1,
-        "physical_count": 0,
     },
     {
         "asset_code": "DEMO-AST-003",
         "asset_name": "Laptop — Engineering",
         "category_code": "IT",
-        "rfid_code": None,
         "serial_no": "DL-99201",
         "functional_location": "IT/ENG",
-        "actual_location": "Office Wing C",
+        "actual_location": "OFF-WING-C-305",
         "building": "C",
         "floor": "3",
         "room": "305",
         "zone": "Office",
         "cost_center": "CC-5100",
-        "inventory_count": 1,
-        "physical_count": 0,
     },
     {
         "asset_code": "DEMO-AST-004",
@@ -265,33 +363,107 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
         "category_code": "VEHICLE",
         "rfid_code": "RFID-DEMO-004",
         "serial_no": "FL-7781",
-        "functional_location": "WH/DOCK-01",
-        "actual_location": "Warehouse Dock 1",
+        "functional_location": "WH/RECEIVING",
+        "actual_location": "WH-DOCK-01",
         "building": "WH",
         "floor": "G",
-        "room": None,
+        "room": "DOCK",
         "zone": "Logistics",
         "cost_center": "CC-4300",
-        "inventory_count": 1,
-        "physical_count": 0,
     },
     {
         "asset_code": "DEMO-AST-005",
         "asset_name": "HVAC Unit — Clean Room",
         "category_code": "FACILITY",
-        "rfid_code": None,
         "serial_no": "HVAC-CR-09",
         "functional_location": "FAC/CR-HVAC",
-        "actual_location": "Clean Room Roof Plant",
+        "actual_location": "CR-ROOF-PLANT",
         "building": "A",
         "floor": "R",
-        "room": None,
+        "room": "ROOF",
         "zone": "Utilities",
         "cost_center": "CC-4400",
-        "inventory_count": 1,
-        "physical_count": 0,
+    },
+    {
+        "asset_code": "DEMO-AST-006",
+        "asset_name": "Autoclave — Sterile Supply",
+        "category_code": "EQUIPMENT",
+        "rfid_code": "RFID-DEMO-006",
+        "serial_no": "AC-6601",
+        "functional_location": "PROD/BLD-A/LINE-01",
+        "actual_location": "BLD-A-F2-R202",
+        "cost_center": "CC-4100",
+    },
+    {
+        "asset_code": "DEMO-AST-007",
+        "asset_name": "Balances — QC Weighing",
+        "category_code": "EQUIPMENT",
+        "rfid_code": "RFID-DEMO-007",
+        "serial_no": "BAL-2200",
+        "functional_location": "QC/LAB-02",
+        "actual_location": "QC-BENCH-01",
+        "cost_center": "CC-4200",
+    },
+    {
+        "asset_code": "DEMO-AST-008",
+        "asset_name": "Monitor — QC Lab",
+        "category_code": "IT",
+        "serial_no": "MON-8812",
+        "functional_location": "QC/LAB-02",
+        "actual_location": "QC-BENCH-02",
+        "cost_center": "CC-4200",
+    },
+    {
+        "asset_code": "DEMO-AST-009",
+        "asset_name": "Pallet Jack — Warehouse",
+        "category_code": "VEHICLE",
+        "serial_no": "PJ-4410",
+        "functional_location": "WH/RECEIVING",
+        "actual_location": "WH-STAGING",
+        "cost_center": "CC-4300",
+    },
+    {
+        "asset_code": "DEMO-AST-010",
+        "asset_name": "Chiller — Utilities",
+        "category_code": "FACILITY",
+        "rfid_code": "RFID-DEMO-010",
+        "serial_no": "CH-9901",
+        "functional_location": "FAC/CR-HVAC",
+        "actual_location": "UTIL-ROOF-N",
+        "cost_center": "CC-4400",
+    },
+    {
+        "asset_code": "DEMO-AST-011",
+        "asset_name": "Conference AV System",
+        "category_code": "IT",
+        "serial_no": "AV-1102",
+        "functional_location": "IT/ENG",
+        "actual_location": "OFF-WING-C-306",
+        "cost_center": "CC-5100",
+    },
+    {
+        "asset_code": "DEMO-AST-012",
+        "asset_name": "Packaging Line B",
+        "category_code": "EQUIPMENT",
+        "rfid_code": "RFID-DEMO-012",
+        "serial_no": "PKG-B-02",
+        "functional_location": "PROD/BLD-A/LINE-01",
+        "actual_location": "LINE-A-BAY2",
+        "cost_center": "CC-4100",
     },
 ]
+
+
+def _all_permission_codes(db: Session) -> list[str]:
+    """Every permission code in the catalog (after sync_modules)."""
+    return sorted({str(c) for c in db.scalars(select(Permission.code)).all() if c})
+
+
+def _resolve_role_permission_codes(db: Session, spec: dict[str, object]) -> list[str]:
+    perms = spec.get("permissions")
+    if perms == "__all__":
+        return _all_permission_codes(db)
+    return list(perms)  # type: ignore[arg-type]
 
 
 def _permission_ids(db: Session, codes: list[str]) -> list[int]:
@@ -309,18 +481,71 @@ def _permission_ids(db: Session, codes: list[str]) -> list[int]:
 
 
 def _upsert_plant(db: Session) -> OrgUnit:
-    row = db.scalar(
-        select(OrgUnit).where(OrgUnit.type == "PLANT", OrgUnit.code == DEMO_PLANT["code"])
+    """Single canonical plant — migrate legacy DEMO-01 and remove extras."""
+    code = str(TAKEDA_PLANT["code"])
+    row = db.scalar(select(OrgUnit).where(OrgUnit.type == "PLANT", OrgUnit.code == code))
+    if row is None:
+        for legacy in LEGACY_PLANT_CODES:
+            legacy_row = db.scalar(
+                select(OrgUnit).where(OrgUnit.type == "PLANT", OrgUnit.code == legacy)
+            )
+            if legacy_row is not None:
+                legacy_row.code = code
+                legacy_row.name = str(TAKEDA_PLANT["name"])
+                row = legacy_row
+                break
+    if row is None:
+        row = OrgUnit(
+            name=str(TAKEDA_PLANT["name"]),
+            code=code,
+            type=str(TAKEDA_PLANT["type"]),
+            parent_id=None,
+        )
+        db.add(row)
+        db.flush()
+    else:
+        row.name = str(TAKEDA_PLANT["name"])
+
+    others = list(
+        db.scalars(select(OrgUnit).where(OrgUnit.type == "PLANT", OrgUnit.id != row.id)).all()
     )
-    if row is not None:
-        return row
-    row = OrgUnit(
-        name=str(DEMO_PLANT["name"]),
-        code=str(DEMO_PLANT["code"]),
-        type=str(DEMO_PLANT["type"]),
-        parent_id=None,
+    fallback_cc = db.scalar(
+        select(CostCenterMaster.id).where(CostCenterMaster.plant_id == row.id).limit(1)
     )
-    db.add(row)
+    for other in others:
+        db.execute(
+            update(AssetLocationInformation)
+            .where(AssetLocationInformation.plant_id == other.id)
+            .values(plant_id=row.id)
+        )
+        other_cc_rows = list(
+            db.scalars(select(CostCenterMaster).where(CostCenterMaster.plant_id == other.id)).all()
+        )
+        for occ in other_cc_rows:
+            target_cc = db.scalar(
+                select(CostCenterMaster.id).where(
+                    CostCenterMaster.plant_id == row.id,
+                    CostCenterMaster.code == occ.code,
+                )
+            )
+            mapped_cc = int(target_cc) if target_cc is not None else int(fallback_cc) if fallback_cc else None
+            if mapped_cc is not None:
+                db.execute(
+                    update(PhysicalOrder)
+                    .where(PhysicalOrder.cost_center_id == occ.id)
+                    .values(cost_center_id=mapped_cc, plant_id=row.id)
+                )
+        db.execute(
+            update(PhysicalOrder)
+            .where(PhysicalOrder.plant_id == other.id)
+            .values(plant_id=row.id)
+        )
+        db.execute(
+            update(user_org_unit)
+            .where(user_org_unit.c.org_unit_id == other.id)
+            .values(org_unit_id=row.id)
+        )
+        db.delete(other)
     db.flush()
     return row
 
@@ -458,12 +683,162 @@ def _category_id(db: Session, code: str) -> int | None:
     return db.scalar(select(AssetCategory.id).where(AssetCategory.code == code))
 
 
+def _demo_asset_number(asset_code: str) -> int:
+    return int(str(asset_code).rsplit("-", 1)[-1])
+
+
+def _enrich_demo_asset_spec(spec: dict[str, object], *, today: date) -> dict[str, object]:
+    """Fill every optional demo field so list/detail views show no blanks."""
+    s = dict(spec)
+    code = str(s["asset_code"]).upper()
+    n = _demo_asset_number(code)
+    cat = str(s["category_code"])
+    meta = _CATEGORY_DEMO_META.get(cat, _CATEGORY_DEMO_META["EQUIPMENT"])
+    cc = str(s["cost_center"])
+
+    s.setdefault("asset_class", meta[0])
+    s.setdefault("asset_type", meta[1])
+    if not s.get("rfid_code"):
+        s["rfid_code"] = f"RFID-DEMO-{n:03d}"
+    if not s.get("serial_no"):
+        s["serial_no"] = f"SN-{code}"
+
+    s.setdefault("sub_location", f"Sub-location — {s['asset_name']}")
+    s.setdefault("building", "A")
+    s.setdefault("floor", "1")
+    if not s.get("room"):
+        s["room"] = str(200 + n)
+    s.setdefault("zone", meta[2])
+
+    s["profit_center"] = _COST_CENTER_TO_PROFIT_CENTER.get(cc, "PC-100")
+    s.setdefault("laboratory", meta[2])
+    s.setdefault("party_details", f"Supplier — {s['asset_name']}")
+    s.setdefault("invoice_no", f"INV-2024-{1000 + n}")
+    s.setdefault("voucher_no", f"VCH-{cc.replace('CC-', '')}-{n:02d}")
+    s.setdefault("grn_no", f"GRN-2024-{500 + n}")
+    s.setdefault("vendor_name", "Takeda Demo Vendor")
+    s.setdefault("po_number", f"PO-{code}")
+    s.setdefault("currency", "USD")
+    s.setdefault("life_span", "10 years")
+    s.setdefault("gross_block", meta[3])
+    s.setdefault("depreciation_rate", meta[4])
+
+    base = date(2024, 3, 1)
+    s.setdefault("invoice_date", base + timedelta(days=n * 7))
+    s.setdefault("voucher_date", base + timedelta(days=n * 7 + 3))
+    s.setdefault("grn_date", base + timedelta(days=n * 7 + 5))
+    s.setdefault("put_to_use_date", base + timedelta(days=n * 7 + 14))
+    s.setdefault("cap_date", s["put_to_use_date"])
+
+    s.setdefault("inventory_count", 1)
+    # Physical count / verification only change after a physical order scan (see orders service).
+    s.setdefault("physical_count", 0)
+    s.setdefault("last_verification_date", None)
+    s.setdefault("verification_status", None)
+    s.setdefault("verification_remarks", None)
+
+    s.setdefault("inventory_no", f"INV-{code}")
+    s.setdefault("asset_description", f"Operational asset — {s['asset_name']}")
+    s.setdefault("engineering_description", f"Engineering install and calibration notes for {code}.")
+    s.setdefault("qa_description", f"QA classification per internal SOP for {cat} assets.")
+    s.setdefault("is_local_finance_user", False)
+    s.setdefault("asset_allocation", f"Allocated to {cc}")
+    s.setdefault("pm_equipment_id", f"PM-{n:04d}")
+
+    return s
+
+
+def _apply_demo_asset_spec(
+    db: Session,
+    asset_id: int,
+    spec: dict[str, object],
+    *,
+    plant_id: int,
+) -> None:
+    """Upsert all asset sections from an enriched demo spec."""
+    code = str(spec["asset_code"]).upper()
+    cat_id = _category_id(db, str(spec["category_code"]))
+
+    asset = db.get(AssetMaster, asset_id)
+    if asset is None:
+        return
+    asset.asset_name = str(spec["asset_name"])
+    asset.asset_class = str(spec["asset_class"])
+    asset.asset_type = str(spec["asset_type"])
+    asset.rfid_code = str(spec["rfid_code"])
+    asset.serial_no = str(spec["serial_no"])
+    asset.asset_category_id = int(cat_id) if cat_id else None
+    asset.lifecycle_status = "active"
+    asset.approval_status = "approved"
+    asset.ownership_type = "owned"
+
+    info = db.scalar(select(AssetInformation).where(AssetInformation.asset_id == asset_id))
+    if info is None:
+        info = AssetInformation(asset_id=asset_id)
+        db.add(info)
+    info.inventory_no = str(spec["inventory_no"])
+    info.asset_description = str(spec["asset_description"])
+    info.engineering_description = str(spec["engineering_description"])
+    info.qa_description = str(spec["qa_description"])
+    info.is_local_finance_user = bool(spec["is_local_finance_user"])
+    info.asset_allocation = str(spec["asset_allocation"])
+    info.pm_equipment_id = str(spec["pm_equipment_id"])
+
+    loc = db.scalar(select(AssetLocationInformation).where(AssetLocationInformation.asset_id == asset_id))
+    if loc is None:
+        loc = AssetLocationInformation(asset_id=asset_id)
+        db.add(loc)
+    loc.plant_id = plant_id
+    loc.sub_location = str(spec["sub_location"])
+    loc.functional_location = str(spec["functional_location"])
+    loc.actual_location = str(spec["actual_location"])
+    loc.building = str(spec["building"])
+    loc.floor = str(spec["floor"])
+    loc.room = str(spec["room"])
+    loc.zone = str(spec["zone"])
+
+    fin = db.scalar(select(AssetFinancialInformation).where(AssetFinancialInformation.asset_id == asset_id))
+    if fin is None:
+        fin = AssetFinancialInformation(asset_id=asset_id)
+        db.add(fin)
+    fin.cost_center = str(spec["cost_center"])
+    fin.profit_center = str(spec["profit_center"])
+    fin.laboratory = str(spec["laboratory"])
+    fin.cap_date = spec["cap_date"]  # type: ignore[assignment]
+    fin.gross_block = spec["gross_block"]  # type: ignore[assignment]
+    fin.party_details = str(spec["party_details"])
+    fin.invoice_no = str(spec["invoice_no"])
+    fin.invoice_date = spec["invoice_date"]  # type: ignore[assignment]
+    fin.voucher_no = str(spec["voucher_no"])
+    fin.voucher_date = spec["voucher_date"]  # type: ignore[assignment]
+    fin.grn_no = str(spec["grn_no"])
+    fin.grn_date = spec["grn_date"]  # type: ignore[assignment]
+    fin.put_to_use_date = spec["put_to_use_date"]  # type: ignore[assignment]
+    fin.depreciation_rate = spec["depreciation_rate"]  # type: ignore[assignment]
+    fin.life_span = str(spec["life_span"])
+    fin.vendor_name = str(spec["vendor_name"])
+    fin.po_number = str(spec["po_number"])
+    fin.currency = str(spec["currency"])
+
+    inv = db.scalar(select(AssetInventoryInformation).where(AssetInventoryInformation.asset_id == asset_id))
+    if inv is None:
+        inv = AssetInventoryInformation(asset_id=asset_id)
+        db.add(inv)
+    inv.inventory_count = int(spec["inventory_count"])
+    inv.physical_count = int(spec["physical_count"])
+    inv.last_verification_date = spec["last_verification_date"]  # type: ignore[assignment]
+    inv.verification_status = str(spec["verification_status"])
+    inv.verification_remarks = str(spec["verification_remarks"])
+
+
 def _seed_reference_masters(db: Session, *, plant_id: int) -> None:
     """Hierarchical masters: plant→functional→actual and plant→cost→profit."""
-    fl_specs = [
-        ("PROD/BLD-A/LINE-01", "Production line A"),
-        ("QC/LAB-02", "QC laboratory bench"),
-    ]
+    fl_specs = list(REFERENCE_MASTER_SPECS["functional_locations"])  # type: ignore[arg-type]
+    al_specs = list(REFERENCE_MASTER_SPECS["actual_locations"])  # type: ignore[arg-type]
+    cc_specs = list(REFERENCE_MASTER_SPECS["cost_centers"])  # type: ignore[arg-type]
+    pc_specs = list(REFERENCE_MASTER_SPECS["profit_centers"])  # type: ignore[arg-type]
+
+    fl_created = fl_updated = 0
     fl_by_code: dict[str, FunctionalLocationMaster] = {}
     for code, desc in fl_specs:
         row = db.scalar(
@@ -474,82 +849,99 @@ def _seed_reference_masters(db: Session, *, plant_id: int) -> None:
         )
         if row is None:
             row = FunctionalLocationMaster(
-                code=code, description=desc, plant_id=plant_id, is_active=True
+                code=str(code), description=str(desc), plant_id=plant_id, is_active=True
             )
             db.add(row)
             db.flush()
-        fl_by_code[code] = row
+            fl_created += 1
+        else:
+            row.description = str(desc)
+            row.is_active = True
+            fl_updated += 1
+        fl_by_code[str(code)] = row
 
-    al_specs = [
-        ("PROD/BLD-A/LINE-01", "WH/DOCK-01", "Warehouse dock 1"),
-        ("QC/LAB-02", "BLD-A-F2-R201", "Building A floor 2 room 201"),
-    ]
+    al_created = 0
     for fl_code, code, desc in al_specs:
-        fl = fl_by_code.get(fl_code)
+        fl = fl_by_code.get(str(fl_code))
         if fl is None:
             continue
-        exists = db.scalar(
-            select(ActualLocationMaster.id).where(
+        row = db.scalar(
+            select(ActualLocationMaster).where(
                 ActualLocationMaster.functional_location_id == fl.id,
-                ActualLocationMaster.code == code,
+                ActualLocationMaster.code == str(code),
             )
         )
-        if exists is None:
+        if row is None:
             db.add(
                 ActualLocationMaster(
-                    code=code,
-                    description=desc,
+                    code=str(code),
+                    description=str(desc),
                     functional_location_id=fl.id,
                     is_active=True,
                 )
             )
+            al_created += 1
+        else:
+            row.description = str(desc)
+            row.is_active = True
 
-    cc_specs = [
-        ("CC-4100", "Production cost center"),
-        ("CC-4200", "QC cost center"),
-        ("CC-5100", "IT cost center"),
-    ]
+    cc_created = cc_updated = 0
     cc_by_code: dict[str, CostCenterMaster] = {}
     for code, desc in cc_specs:
         row = db.scalar(
             select(CostCenterMaster).where(
                 CostCenterMaster.plant_id == plant_id,
-                CostCenterMaster.code == code,
+                CostCenterMaster.code == str(code),
             )
         )
         if row is None:
-            row = CostCenterMaster(code=code, description=desc, plant_id=plant_id, is_active=True)
+            row = CostCenterMaster(
+                code=str(code), description=str(desc), plant_id=plant_id, is_active=True
+            )
             db.add(row)
             db.flush()
-        cc_by_code[code] = row
+            cc_created += 1
+        else:
+            row.description = str(desc)
+            row.is_active = True
+            cc_updated += 1
+        cc_by_code[str(code)] = row
 
-    pc_specs = [
-        ("CC-4100", "PC-100", "Corporate profit center"),
-        ("CC-4100", "PC-200", "Plant profit center"),
-    ]
+    pc_created = 0
     for cc_code, code, desc in pc_specs:
-        cc = cc_by_code.get(cc_code)
+        cc = cc_by_code.get(str(cc_code))
         if cc is None:
             continue
-        exists = db.scalar(
-            select(ProfitCenterMaster.id).where(
+        row = db.scalar(
+            select(ProfitCenterMaster).where(
                 ProfitCenterMaster.cost_center_id == cc.id,
-                ProfitCenterMaster.code == code,
+                ProfitCenterMaster.code == str(code),
             )
         )
-        if exists is None:
+        if row is None:
             db.add(
                 ProfitCenterMaster(
-                    code=code, description=desc, cost_center_id=cc.id, is_active=True
+                    code=str(code), description=str(desc), cost_center_id=cc.id, is_active=True
                 )
             )
+            pc_created += 1
+        else:
+            row.description = str(desc)
+            row.is_active = True
+
     db.commit()
-    print("  reference masters: functional/actual locations, cost/profit centers")
+    print(
+        f"  reference masters: {len(fl_specs)} functional (+{fl_created} new, {fl_updated} updated), "
+        f"{len(al_specs)} actual (+{al_created} new), "
+        f"{len(cc_specs)} cost centers (+{cc_created} new, {cc_updated} updated), "
+        f"{len(pc_specs)} profit centers (+{pc_created} new)"
+    )
 
 
 def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
     today = date.today()
-    for spec in DEMO_ASSET_SPECS:
+    for raw in DEMO_ASSET_SPECS:
+        spec = _enrich_demo_asset_spec(raw, today=today)
         code = str(spec["asset_code"]).upper()
         existing = db.scalar(
             select(AssetMaster.id).where(
@@ -558,17 +950,7 @@ def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
             )
         )
         if existing is not None:
-            inv = db.scalar(
-                select(AssetInventoryInformation).where(
-                    AssetInventoryInformation.asset_id == int(existing)
-                )
-            )
-            if inv is not None:
-                inv.inventory_count = 1
-                inv.physical_count = 0
-                inv.last_verification_date = None
-                inv.verification_status = None
-                inv.verification_remarks = None
+            _apply_demo_asset_spec(db, int(existing), spec, plant_id=plant_id)
             has_audit = db.scalar(
                 select(AssetAuditEvent.id).where(AssetAuditEvent.asset_id == existing).limit(1)
             )
@@ -580,84 +962,20 @@ def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
                     action="created",
                     new_value={"asset_code": code, "source": "seed"},
                 )
-                print(f"  audit: {code} (backfilled)")
-            else:
-                print(f"  skip: {code} (inventory reset, already exists)")
             db.commit()
+            print(f"  updated: {code} (all fields populated)")
             continue
 
-        cat_id = _category_id(db, str(spec["category_code"]))
         asset = AssetMaster(
-            asset_name=str(spec["asset_name"]),
             asset_code=code,
-            asset_class=str(spec["asset_class"]) if spec.get("asset_class") else None,
-            asset_type=str(spec["asset_type"]) if spec.get("asset_type") else None,
-            rfid_code=str(spec["rfid_code"]) if spec.get("rfid_code") else None,
-            serial_no=str(spec["serial_no"]) if spec.get("serial_no") else None,
-            asset_category_id=int(cat_id) if cat_id else None,
-            lifecycle_status="active",
-            approval_status="approved",
-            ownership_type="owned",
+            asset_name=str(spec["asset_name"]),
             source_type="manual",
             created_by=None,
             approved_by=None,
         )
         db.add(asset)
         db.flush()
-
-        db.add(
-            AssetInformation(
-                asset_id=asset.id,
-                inventory_no=f"INV-{code}",
-                asset_description=f"Demo asset — {spec['asset_name']}",
-                engineering_description="Seeded for UI testing.",
-            )
-        )
-        db.add(
-            AssetLocationInformation(
-                asset_id=asset.id,
-                plant_id=plant_id,
-                sub_location=str(spec["sub_location"]) if spec.get("sub_location") else None,
-                functional_location=str(spec["functional_location"]),
-                actual_location=str(spec["actual_location"]),
-                building=str(spec["building"]) if spec.get("building") else None,
-                floor=str(spec["floor"]) if spec.get("floor") else None,
-                room=str(spec["room"]) if spec.get("room") else None,
-                zone=str(spec["zone"]) if spec.get("zone") else None,
-            )
-        )
-        db.add(
-            AssetFinancialInformation(
-                asset_id=asset.id,
-                cost_center=str(spec["cost_center"]),
-                profit_center="PC-100",
-                party_details=str(spec["party_details"]) if spec.get("party_details") else None,
-                invoice_no=str(spec["invoice_no"]) if spec.get("invoice_no") else None,
-                invoice_date=today,
-                voucher_no=str(spec["voucher_no"]) if spec.get("voucher_no") else None,
-                voucher_date=today,
-                grn_no=str(spec["grn_no"]) if spec.get("grn_no") else None,
-                grn_date=today,
-                put_to_use_date=today,
-                depreciation_rate=Decimal("10.00"),
-                cap_date=today,
-                gross_block=Decimal("125000.00"),
-                life_span="10 years",
-                vendor_name="Takeda Demo Vendor",
-                po_number=f"PO-{code}",
-                currency="USD",
-            )
-        )
-        db.add(
-            AssetInventoryInformation(
-                asset_id=asset.id,
-                inventory_count=1,
-                physical_count=0,
-                last_verification_date=None,
-                verification_status=None,
-                verification_remarks=None,
-            )
-        )
+        _apply_demo_asset_spec(db, asset.id, spec, plant_id=plant_id)
         log_asset_event(
             db,
             asset_id=asset.id,
@@ -665,7 +983,127 @@ def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
             action="created",
             new_value={"asset_code": code, "source": "seed"},
         )
+        db.commit()
         print(f"  created: {code} — {spec['asset_name']}")
+
+
+def _cost_center_id(db: Session, *, plant_id: int, code: str) -> int:
+    cid = db.scalar(
+        select(CostCenterMaster.id).where(
+            CostCenterMaster.plant_id == plant_id,
+            CostCenterMaster.code == code,
+        )
+    )
+    if cid is None:
+        raise RuntimeError(f"Cost center {code!r} missing for plant {plant_id}")
+    return int(cid)
+
+
+def _asset_ids_for_codes(db: Session, codes: list[str]) -> list[int]:
+    out: list[int] = []
+    for code in codes:
+        aid = db.scalar(
+            select(AssetMaster.id).where(
+                AssetMaster.asset_code == code.upper(),
+                AssetMaster.deleted_at.is_(None),
+            )
+        )
+        if aid is not None:
+            out.append(int(aid))
+    return out
+
+
+def _seed_demo_orders(db: Session, *, plant_id: int) -> None:
+    """Sample physical orders across lifecycle states for UI testing."""
+    from datetime import datetime, timezone
+
+    cc4100 = _cost_center_id(db, plant_id=plant_id, code="CC-4100")
+    cc4200 = _cost_center_id(db, plant_id=plant_id, code="CC-4200")
+    now = datetime.now(timezone.utc)
+
+    specs: list[dict[str, object]] = [
+        {
+            "order_number": "PVO-SEED-00001",
+            "status": ORDER_STATUS_PENDING_APPROVAL,
+            "cost_center_id": cc4100,
+            "assets": ["DEMO-AST-001"],
+        },
+        {
+            "order_number": "PVO-SEED-00002",
+            "status": ORDER_STATUS_APPROVED,
+            "cost_center_id": cc4100,
+            "assets": ["DEMO-AST-002"],
+        },
+        {
+            "order_number": "PVO-SEED-00003",
+            "status": ORDER_STATUS_IN_PROGRESS,
+            "cost_center_id": cc4200,
+            "assets": ["DEMO-AST-003"],
+            "verified": True,
+        },
+        {
+            "order_number": "PVO-SEED-00004",
+            "status": ORDER_STATUS_PENDING_CLOSURE,
+            "cost_center_id": cc4200,
+            "assets": ["DEMO-AST-004"],
+            "all_verified": True,
+        },
+        {
+            "order_number": "PVO-SEED-00005",
+            "status": ORDER_STATUS_COMPLETED,
+            "cost_center_id": cc4100,
+            "assets": ["DEMO-AST-005"],
+            "all_verified": True,
+        },
+    ]
+
+    for spec in specs:
+        onum = str(spec["order_number"])
+        existing = db.scalar(select(PhysicalOrder.id).where(PhysicalOrder.order_number == onum))
+        if existing is not None:
+            print(f"  skip order: {onum}")
+            continue
+        asset_codes = list(spec["assets"])  # type: ignore[arg-type]
+        asset_ids = _asset_ids_for_codes(db, asset_codes)
+        if not asset_ids:
+            print(f"  skip order {onum}: assets missing")
+            continue
+        order = PhysicalOrder(
+            order_number=onum,
+            plant_id=plant_id,
+            cost_center_id=int(spec["cost_center_id"]),
+            created_by=None,
+            assigned_to=None,
+            status=str(spec["status"]),
+            remarks="Seeded demo order",
+        )
+        if spec.get("all_verified") or spec.get("verified"):
+            order.started_at = now
+            order.completed_at = now if spec["status"] == ORDER_STATUS_COMPLETED else None
+        db.add(order)
+        db.flush()
+        for aid in asset_ids:
+            vstatus = ITEM_STATUS_PENDING
+            if spec.get("rejected"):
+                vstatus = ITEM_STATUS_REJECTED
+            elif spec.get("all_verified") or (spec.get("verified") and aid == asset_ids[0]):
+                vstatus = ITEM_STATUS_APPROVED
+            item = PhysicalOrderItem(
+                order_id=int(order.id),
+                asset_id=aid,
+                verification_status=vstatus,
+                rejection_reason="Demo rejection" if spec.get("rejected") else None,
+                scan_time=now if vstatus == ITEM_STATUS_APPROVED else None,
+            )
+            db.add(item)
+        log_order_event(
+            db,
+            order_id=int(order.id),
+            action="order_created",
+            actor_user_id=None,
+            new_value={"order_number": onum, "seed": True},
+        )
+        print(f"  order: {onum} ({spec['status']})")
 
 
 def main() -> int:
@@ -684,7 +1122,7 @@ def main() -> int:
         for spec in ROLE_SPECS:
             pname = str(spec["name"])
             desc = str(spec["description"]) if spec.get("description") else None
-            codes = list(spec["permissions"])  # type: ignore[arg-type]
+            codes = _resolve_role_permission_codes(db, spec)
             try:
                 pids = _permission_ids(db, codes)
                 role, created = _upsert_role(
@@ -758,8 +1196,17 @@ def main() -> int:
             print(f"  error: {exc}", file=sys.stderr)
             return 4
 
+        print("\nDemo physical orders:")
+        try:
+            _seed_demo_orders(db, plant_id=int(plant.id))
+            db.commit()
+        except (IntegrityError, RuntimeError) as exc:
+            db.rollback()
+            print(f"  error: {exc}", file=sys.stderr)
+
         print("\nDone.")
         print("Active user-creation workflow is mapped to users.create (new users need approval).")
+        print("Physical order workflows mapped to order.create and order.complete.")
         print("USER_CREATED email uses one temporary password ({{temp_password}}).")
         return 0
     finally:

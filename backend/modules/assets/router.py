@@ -20,6 +20,9 @@ from modules.assets.schema import (
     ImportValidateRequest,
     SubmitForApprovalRequest,
     SubmitForApprovalResponse,
+    AssetRfidAttachByCodeRequest,
+    AssetRfidAttachPublic,
+    AssetRfidAttachRequest,
     AssetRfidUpdateRequest,
 )
 from modules.assets.service import (
@@ -27,6 +30,8 @@ from modules.assets.service import (
     DuplicateAssetCodeError,
     DuplicateRfidError,
     ImportValidationError,
+    InvalidRfidError,
+    InvalidTagColorError,
 )
 from modules.assets.schema import AssetAuditEventPublic
 from modules.errors import ConflictError, NotFoundError
@@ -126,6 +131,11 @@ def create_asset(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Asset code already exists.") from None
     except DuplicateRfidError:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="RFID code already exists.") from None
+    except InvalidTagColorError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "invalid_tag_color", "message": exc.message},
+        ) from exc
 
 
 @router.patch("/{asset_id}", response_model=AssetDetailPublic)
@@ -144,6 +154,11 @@ def update_asset(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except DuplicateAssetCodeError:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Asset code already exists.") from None
+    except InvalidTagColorError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "invalid_tag_color", "message": exc.message},
+        ) from exc
 
 
 @router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -208,6 +223,78 @@ def import_confirm(
             detail=exc.preview.model_dump(mode="json"),
         ) from exc
 
+def _rfid_error_response(exc: DuplicateRfidError | InvalidRfidError) -> HTTPException:
+    if isinstance(exc, DuplicateRfidError):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "duplicate_rfid",
+                "message": exc.message,
+                "rfid_code": exc.rfid_code,
+                "existing_asset_id": exc.existing_asset_id,
+                "existing_asset_code": exc.existing_asset_code,
+            },
+        )
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={"code": "invalid_rfid", "message": exc.message},
+    )
+
+
+def _tag_color_error_response(exc: InvalidTagColorError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail={"code": "invalid_tag_color", "message": exc.message},
+    )
+
+
+@router.post("/rfid/attach-by-code", response_model=AssetRfidAttachPublic)
+def attach_asset_rfid_by_code(
+    payload: AssetRfidAttachByCodeRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_any_permission("asset.update", "asset.manage"))],
+) -> AssetRfidAttachPublic:
+    """Attach or update RFID when the operator knows asset code + tag (no row selection)."""
+    try:
+        return svc.attach_rfid_by_asset_code(
+            asset_code=payload.asset_code,
+            rfid_code=payload.rfid_code,
+            tag_color_id=payload.tag_color_id,
+            actor_user_id=int(current.subject),
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidTagColorError as exc:
+        raise _tag_color_error_response(exc) from exc
+    except (DuplicateRfidError, InvalidRfidError) as exc:
+        raise _rfid_error_response(exc) from exc
+
+
+@router.post("/{asset_id}/rfid/attach", response_model=AssetRfidAttachPublic)
+def attach_asset_rfid(
+    asset_id: int,
+    payload: AssetRfidAttachRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_any_permission("asset.update", "asset.manage"))],
+) -> AssetRfidAttachPublic:
+    """Dedicated endpoint: attach or update RFID on a single asset (unique per asset)."""
+    try:
+        return svc.attach_rfid(
+            asset_id=asset_id,
+            rfid_code=payload.rfid_code,
+            tag_color_id=payload.tag_color_id,
+            actor_user_id=int(current.subject),
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidTagColorError as exc:
+        raise _tag_color_error_response(exc) from exc
+    except (DuplicateRfidError, InvalidRfidError) as exc:
+        raise _rfid_error_response(exc) from exc
+
+
 @router.patch("/{asset_id}/rfid", response_model=AssetDetailPublic)
 def update_asset_rfid(
     asset_id: int,
@@ -222,16 +309,8 @@ def update_asset_rfid(
             rfid_code=payload.rfid_code,
             actor_user_id=int(current.subject),
         )
-
     except NotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
-        ) from exc
-
-    except DuplicateRfidError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="RFID code already exists.",
-        ) from None
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (DuplicateRfidError, InvalidRfidError) as exc:
+        raise _rfid_error_response(exc) from exc
 

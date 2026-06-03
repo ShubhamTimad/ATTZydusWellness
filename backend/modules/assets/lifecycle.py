@@ -136,6 +136,16 @@ def approval_task_title(entity_type: str, payload: dict[str, Any] | None) -> str
         if isinstance(nm, str) and nm.strip():
             return f"Approve new user: {nm.strip()}"
         return "Approve new user"
+    if entity_type == "physical_order_creation":
+        onum = p.get("order_number")
+        if isinstance(onum, str) and onum.strip():
+            return f"Approve physical order: {onum.strip()}"
+        return "Approve physical order"
+    if entity_type == "physical_order_closure":
+        onum = p.get("order_number")
+        if isinstance(onum, str) and onum.strip():
+            return f"Approve order closure: {onum.strip()}"
+        return "Approve order closure"
     return f"Approval: {entity_type.replace('_', ' ')}"
 
 

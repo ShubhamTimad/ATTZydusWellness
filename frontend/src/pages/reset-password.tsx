@@ -2,9 +2,9 @@ import * as React from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import { AuthFormShell } from "@/components/auth/auth-form-shell"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, postJson } from "@/lib/api"
@@ -81,29 +81,23 @@ export function ResetPasswordPage() {
   if (!token) {
     return (
       <AppAuthMarketingLayout>
-        <Card className="w-full max-w-md rounded-2xl p-8 shadow-lg">
-          <CardHeader className="space-y-2 p-0 pb-4">
-            <CardTitle className="text-2xl">Invalid link</CardTitle>
-            <CardDescription>This page needs a valid reset token from your email.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 p-0 text-sm text-muted-foreground">
-            <Button
-              asChild
-              className="w-full bg-red-700 text-white hover:bg-red-800"
-            >
-              <Link to={forgotHref}>Request a new reset link</Link>
-            </Button>
-            <p className="text-center">
-              <Link to="/login" className="text-primary underline-offset-2 hover:underline">
-                Workspace sign in
-              </Link>
-              {" · "}
-              <Link to="/admin/login" className="text-primary underline-offset-2 hover:underline">
-                Admin sign in
-              </Link>
-            </p>
-          </CardContent>
-        </Card>
+        <AuthFormShell
+          title="Invalid link"
+          description="This page needs a valid reset token from your email."
+        >
+          <Button asChild className="h-11 w-full text-sm font-semibold">
+            <Link to={forgotHref}>Request a new reset link</Link>
+          </Button>
+          <p className="text-center text-sm text-muted-foreground">
+            <Link to="/login" className="font-medium text-primary underline-offset-2 hover:underline">
+              Workspace sign in
+            </Link>
+            {" · "}
+            <Link to="/admin/login" className="font-medium text-primary underline-offset-2 hover:underline">
+              Admin sign in
+            </Link>
+          </p>
+        </AuthFormShell>
       </AppAuthMarketingLayout>
     )
   }
@@ -111,91 +105,77 @@ export function ResetPasswordPage() {
   if (success) {
     return (
       <AppAuthMarketingLayout>
-        <Card className="w-full max-w-md rounded-2xl p-8 shadow-lg">
-          <CardHeader className="space-y-2 p-0 pb-4">
-            <CardTitle className="text-2xl">Password updated</CardTitle>
-            <CardDescription>You can sign in with your new password.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 p-0">
-            <Button
-              asChild
-              className="w-full bg-red-700 text-white hover:bg-red-800"
-            >
-              <Link to={backLogin}>Continue to sign in</Link>
-            </Button>
-            {backLogin !== "/login" ? (
-              <p className="text-center text-sm text-muted-foreground">
-                <Link to="/login" className="text-primary underline-offset-2 hover:underline">
-                  Workspace sign in
-                </Link>
-                {" instead"}
-              </p>
-            ) : (
-              <p className="text-center text-sm text-muted-foreground">
-                <Link to="/admin/login" className="text-primary underline-offset-2 hover:underline">
-                  Superadmin sign in
-                </Link>
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <AuthFormShell
+          title="Password updated"
+          description="You can sign in with your new password."
+        >
+          <Button asChild className="h-11 w-full text-sm font-semibold">
+            <Link to={backLogin}>Continue to sign in</Link>
+          </Button>
+          {backLogin !== "/login" ? (
+            <p className="text-center text-sm text-muted-foreground">
+              <Link to="/login" className="font-medium text-primary underline-offset-2 hover:underline">
+                Workspace sign in
+              </Link>
+              {" instead"}
+            </p>
+          ) : (
+            <p className="text-center text-sm text-muted-foreground">
+              <Link to="/admin/login" className="font-medium text-primary underline-offset-2 hover:underline">
+                Superadmin sign in
+              </Link>
+            </p>
+          )}
+        </AuthFormShell>
       </AppAuthMarketingLayout>
     )
   }
 
   return (
     <AppAuthMarketingLayout>
-      <Card className="w-full max-w-md rounded-2xl p-8 shadow-lg">
-        <CardHeader className="space-y-2 p-0 pb-6">
-          <CardTitle className="text-2xl">Set a new password</CardTitle>
-          <CardDescription>Choose a strong password for your account.</CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-password">New password</Label>
-              <Input
-                id="new-password"
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(ev) => setPassword(ev.target.value)}
-                disabled={isSubmitting}
-                minLength={8}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm password</Label>
-              <Input
-                id="confirm-password"
-                type="password"
-                autoComplete="new-password"
-                value={confirm}
-                onChange={(ev) => setConfirm(ev.target.value)}
-                disabled={isSubmitting}
-                minLength={8}
-                required
-              />
-            </div>
-            <Button
-              type="submit"
-              className="w-full bg-red-700 text-white hover:bg-red-800"
+      <AuthFormShell
+        title="Set a new password"
+        description="Choose a strong password for your account."
+      >
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="app-form-field">
+            <Label htmlFor="new-password">New password</Label>
+            <Input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(ev) => setPassword(ev.target.value)}
               disabled={isSubmitting}
-            >
-              {isSubmitting ? "Saving…" : "Update password"}
-            </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              <Link
-                to={backLogin}
-                className="text-red-700 underline-offset-2 hover:text-red-800 hover:underline"
-              >
-                Back to sign in
-              </Link>
-            </p>
-          </form>
-        </CardContent>
-      </Card>
+              minLength={8}
+              className="h-11"
+              required
+            />
+          </div>
+          <div className="app-form-field">
+            <Label htmlFor="confirm-password">Confirm password</Label>
+            <Input
+              id="confirm-password"
+              type="password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(ev) => setConfirm(ev.target.value)}
+              disabled={isSubmitting}
+              minLength={8}
+              className="h-11"
+              required
+            />
+          </div>
+          <Button type="submit" className="h-11 w-full text-sm font-semibold" disabled={isSubmitting}>
+            {isSubmitting ? "Saving…" : "Update password"}
+          </Button>
+          <p className="text-center text-sm text-muted-foreground">
+            <Link to={backLogin} className="font-medium text-primary underline-offset-2 hover:underline">
+              Back to sign in
+            </Link>
+          </p>
+        </form>
+      </AuthFormShell>
     </AppAuthMarketingLayout>
   )
 }

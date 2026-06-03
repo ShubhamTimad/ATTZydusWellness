@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from modules.assets.import_row_mapper import normalize_import_row
 from modules.assets.model import AssetCategory, AssetMaster
+from modules.asset_masters.model import TagColorMaster
 from modules.platform.org_units.model import OrgUnit
 from modules.assets.schema import ImportPreviewRow
 
@@ -93,6 +94,20 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
             )
             if plant is None:
                 field_errors["plant_code"] = "Unknown plant code."
+
+        tag_color_code = _cell_str(row.data.get("tag_color_code"))
+        if tag_color_code:
+            if not rfid:
+                field_errors["tag_color_code"] = "Tag color is only allowed when an RFID code is provided."
+            else:
+                tc = db.scalar(
+                    select(TagColorMaster).where(
+                        func.lower(TagColorMaster.code) == tag_color_code.lower(),
+                        TagColorMaster.is_active.is_(True),
+                    )
+                )
+                if tc is None:
+                    field_errors["tag_color_code"] = "Unknown tag color code."
 
         if field_errors:
             errors = list(dict.fromkeys(field_errors.values()))

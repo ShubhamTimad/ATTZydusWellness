@@ -21,9 +21,9 @@ import { MyTaskDetailPage } from "@/pages/my-task-detail"
 import { ForgotPasswordPage } from "@/pages/forgot-password"
 import { ResetPasswordPage } from "@/pages/reset-password"
 import { MfaSetupPage } from "@/pages/mfa-setup"
-import { AssetDetailPage, AssetImportPage, AssetsListPage } from "@/pages/assets"
+import { AssetCreatePage, AssetDetailPage, AssetImportPage, AssetsListPage } from "@/pages/assets"
 import { MastersPage } from "@/pages/masters/masters-page"
-import OrdersPage from "@/pages/orders"
+import { OrderDetailPage, OrdersListPage } from "@/pages/orders"
 import * as React from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { getJson } from "@/lib/api"
@@ -83,6 +83,14 @@ function App() {
           >
             <Route index element={<AssetsListPage />} />
             <Route
+              path="new"
+              element={
+                <RequirePermission code="asset.create">
+                  <AssetCreatePage />
+                </RequirePermission>
+              }
+            />
+            <Route
               path="import"
               element={
                 <RequirePermission anyOf={["asset.import", "asset.manage"]}>
@@ -106,10 +114,13 @@ function App() {
             path="orders"
             element={
               <RequirePermission code="order.view">
-                <OrdersPage />
+                <Outlet />
               </RequirePermission>
             }
-          />
+          >
+            <Route index element={<OrdersListPage />} />
+            <Route path=":id" element={<OrderDetailPage />} />
+          </Route>
 
           <Route
             path="users"

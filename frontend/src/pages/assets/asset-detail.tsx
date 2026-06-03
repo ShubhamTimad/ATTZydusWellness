@@ -17,7 +17,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
-import type { AssetAuditEvent, AssetDetail, SubmitForApprovalResult } from "@/lib/assets-types"
+import type {
+  AssetAuditEvent,
+  AssetDetail,
+  AssetRfidAttachResult,
+  SubmitForApprovalResult,
+} from "@/lib/assets-types"
 import {
   ASSET_VIEW_SECTIONS,
   type AssetViewSectionConfig,
@@ -28,6 +33,7 @@ import {
   functionalChildLabel,
   plantChildLabel,
   plantLabel,
+  tagColorLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { buildAssetDetailActionItems } from "@/lib/asset-actions"
@@ -109,6 +115,7 @@ export function AssetDetailPage() {
 
   const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
   const [rfidValue, setRfidValue] = React.useState("")
+  const [rfidTagColorId, setRfidTagColorId] = React.useState("")
   const [rfidSaving, setRfidSaving] = React.useState(false)
 
   const canUpdate = hasPermission("asset.update") || hasPermission("asset.manage")
@@ -197,6 +204,7 @@ export function AssetDetailPage() {
         asset_name: asset.asset_name,
         asset_code: asset.asset_code,
         rfid_code: asset.rfid_code,
+        tag_color_id: asset.tag_color_id,
         serial_no: asset.serial_no,
         asset_class: asset.asset_class,
         asset_type: asset.asset_type,
@@ -224,19 +232,21 @@ export function AssetDetailPage() {
     try {
       setRfidSaving(true)
 
-      const updated = await patchJson<AssetDetail>(
-        `/admin/assets/${asset.id}/rfid`,
+      const res = await postJson<AssetRfidAttachResult>(
+        `/admin/assets/${asset.id}/rfid/attach`,
         {
-          rfid_code: rfidValue,
+          rfid_code: rfidValue.trim(),
+          tag_color_id: rfidTagColorId ? Number(rfidTagColorId) : null,
         },
       )
 
+      const updated = await getJson<AssetDetail>(`/admin/assets/${asset.id}`)
       setAsset(updated)
 
       toast.success(
-        asset.rfid_code
-          ? "RFID updated successfully."
-          : "RFID attached successfully.",
+        res.operation === "updated"
+          ? `RFID updated on ${res.asset_code}.`
+          : `RFID attached to ${res.asset_code}.`,
       )
 
       setRfidDialogOpen(false)
@@ -332,7 +342,48 @@ export function AssetDetailPage() {
       set({ asset_category_id: value as number | null })
       return
     }
+    if (field === "rfid_code") {
+      const rfid = value as string | null
+      if (!rfid?.trim()) {
+        set({
+          rfid_code: rfid,
+          tag_color_id: null,
+          tag_color_code: null,
+          tag_color_name: null,
+          tag_color_hex: null,
+        })
+        return
+      }
+      set({ rfid_code: rfid })
+      return
+    }
+    if (field === "tag_color_id") {
+      const id = value ? Number(value) : null
+      const color = id ? masters.tagColors.find((c) => c.id === id) : null
+      set({
+        tag_color_id: id,
+        tag_color_code: color?.code ?? null,
+        tag_color_name: color?.name ?? null,
+        tag_color_hex: color?.color_hex ?? null,
+      })
+      return
+    }
     set({ [field]: value } as Partial<AssetDetail>)
+  }
+
+  const rfidDialogProps = {
+    open: rfidDialogOpen,
+    onOpenChange: setRfidDialogOpen,
+    value: rfidValue,
+    onChange: (v: string) => {
+      setRfidValue(v)
+      if (!v.trim()) setRfidTagColorId("")
+    },
+    onSave: () => void saveRfid(),
+    saving: rfidSaving,
+    tagColorId: rfidTagColorId,
+    onTagColorChange: setRfidTagColorId,
+    tagColors: masters.tagColors,
   }
 
   const inv = asset?.inventory?.inventory_count
@@ -378,6 +429,7 @@ export function AssetDetailPage() {
 
     if (actionId === "update-rfid") {
       setRfidValue(asset?.rfid_code ?? "")
+      setRfidTagColorId(asset?.tag_color_id != null ? String(asset.tag_color_id) : "")
       setRfidDialogOpen(true)
       return
     }
@@ -419,14 +471,7 @@ export function AssetDetailPage() {
           </div>
         </AdminPage>
 
-        <AssetRfidDialog
-          open={rfidDialogOpen}
-          onOpenChange={setRfidDialogOpen}
-          value={rfidValue}
-          onChange={setRfidValue}
-          onSave={() => void saveRfid()}
-          saving={rfidSaving}
-        />
+        <AssetRfidDialog {...rfidDialogProps} />
       </>
     )
   }
@@ -446,14 +491,7 @@ export function AssetDetailPage() {
           </Alert>
         </AdminPage>
 
-        <AssetRfidDialog
-          open={rfidDialogOpen}
-          onOpenChange={setRfidDialogOpen}
-          value={rfidValue}
-          onChange={setRfidValue}
-          onSave={() => void saveRfid()}
-          saving={rfidSaving}
-        />
+        <AssetRfidDialog {...rfidDialogProps} />
 
       </>
     )
@@ -484,11 +522,17 @@ export function AssetDetailPage() {
     const Icon = SECTION_ICONS[sec.id] ?? Package
 
     if (sec.id === "information") {
+      const infoConfig: AssetViewSectionConfig = {
+        ...sec,
+        keys: sec.keys.filter(
+          (k) => k !== "tag_color_id" || Boolean(a.rfid_code?.trim()),
+        ),
+      }
       return (
         <AssetDetailSectionPanel
           key={sec.id}
           className="h-full"
-          config={sec}
+          config={infoConfig}
           title={sec.title}
           icon={Icon}
           editing={editing}
@@ -499,6 +543,14 @@ export function AssetDetailPage() {
               value: String(c.id),
               label: categoryLabel(c),
             })),
+            ...(a.rfid_code?.trim()
+              ? {
+                  tag_color_id: masters.tagColors.map((c) => ({
+                    value: String(c.id),
+                    label: tagColorLabel(c),
+                  })),
+                }
+              : {}),
           }}
         />
       )
@@ -632,14 +684,7 @@ export function AssetDetailPage() {
         <AssetAuditLog rows={auditRows} loading={auditLoading} />
       </AdminPage>
 
-      <AssetRfidDialog
-        open={rfidDialogOpen}
-        onOpenChange={setRfidDialogOpen}
-        value={rfidValue}
-        onChange={setRfidValue}
-        onSave={() => void saveRfid()}
-        saving={rfidSaving}
-      />
+      <AssetRfidDialog {...rfidDialogProps} />
     </>
   )
 }

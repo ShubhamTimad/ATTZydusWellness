@@ -93,3 +93,17 @@ class ActualLocationMaster(Base):
     )
 
     functional_location = relationship("FunctionalLocationMaster", back_populates="actual_locations")
+
+
+class TagColorMaster(Base):
+    __tablename__ = "tag_color_masters"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    color_hex: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

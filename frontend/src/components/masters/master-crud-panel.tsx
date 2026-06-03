@@ -31,6 +31,7 @@ type Row = {
   code: string
   description: string
   name?: string
+  color_hex?: string | null
   is_active: boolean
   plant_name?: string | null
   location_type?: string
@@ -39,7 +40,7 @@ type Row = {
 type MasterCrudPanelProps = {
   title: string
   listUrl: string
-  kind: "simple" | "category" | "location"
+  kind: "simple" | "category" | "location" | "tag-color"
   plants?: PlantOption[]
 }
 
@@ -55,6 +56,7 @@ export function MasterCrudPanel({
   const [code, setCode] = React.useState("")
   const [desc, setDesc] = React.useState("")
   const [name, setName] = React.useState("")
+  const [colorHex, setColorHex] = React.useState("")
   const [plantId, setPlantId] = React.useState("")
   const [locationType, setLocationType] = React.useState("both")
   const [saving, setSaving] = React.useState(false)
@@ -69,7 +71,8 @@ export function MasterCrudPanel({
         id: Number(r.id),
         code: String(r.code),
         name: r.name != null ? String(r.name) : undefined,
-        description: String(r.description ?? ""),
+        description: String(r.description ?? r.name ?? ""),
+        color_hex: r.color_hex != null ? String(r.color_hex) : null,
         is_active: Boolean(r.is_active),
         plant_name: r.plant_name != null ? String(r.plant_name) : null,
         location_type: r.location_type != null ? String(r.location_type) : undefined,
@@ -85,6 +88,7 @@ export function MasterCrudPanel({
     setCode("")
     setDesc("")
     setName("")
+    setColorHex("")
     setPlantId("")
     setLocationType("both")
     setCreateOpen(true)
@@ -96,6 +100,10 @@ export function MasterCrudPanel({
     if (kind === "category") {
       setName(row.name ?? "")
       setDesc(row.description)
+    } else if (kind === "tag-color") {
+      setName(row.name ?? row.description)
+      setColorHex(row.color_hex ?? "")
+      setDesc("")
     } else {
       setDesc(row.description)
       setName("")
@@ -107,6 +115,13 @@ export function MasterCrudPanel({
   function buildPayload() {
     if (kind === "category") {
       return { code: code.trim(), name: name.trim(), description: desc.trim() || null }
+    }
+    if (kind === "tag-color") {
+      return {
+        code: code.trim(),
+        name: name.trim(),
+        color_hex: colorHex.trim() || null,
+      }
     }
     if (kind === "location") {
       return {
@@ -137,12 +152,7 @@ export function MasterCrudPanel({
     if (!editRow) return
     setSaving(true)
     const base = listUrl.replace(/\?.*$/, "").replace(/\/$/, "")
-    const patchUrl =
-      kind === "category"
-        ? `${base}/${editRow.id}`
-        : kind === "location"
-          ? `${base}/${editRow.id}`
-          : `${base}/${editRow.id}`
+    const patchUrl = `${base}/${editRow.id}`
     try {
       await patchJson(patchUrl, buildPayload())
       toast.success("Saved.")
@@ -162,13 +172,17 @@ export function MasterCrudPanel({
     </AdminPrimaryButton>
   ) : null
 
+  const nameColumnLabel =
+    kind === "category" || kind === "tag-color" ? "Name" : "Description"
+
   return (
     <AdminPanel title={title} headerActions={addButton}>
       <Table className="app-table-head-sticky">
         <TableHeader>
           <AdminTableHeaderRow>
             <AdminTableHeadCell>Code</AdminTableHeadCell>
-            <AdminTableHeadCell>{kind === "category" ? "Name" : "Description"}</AdminTableHeadCell>
+            <AdminTableHeadCell>{nameColumnLabel}</AdminTableHeadCell>
+            {kind === "tag-color" ? <AdminTableHeadCell>Color</AdminTableHeadCell> : null}
             {kind === "location" ? <AdminTableHeadCell>Plant</AdminTableHeadCell> : null}
             {kind === "location" ? <AdminTableHeadCell>Type</AdminTableHeadCell> : null}
             <AdminTableHeadCell>Status</AdminTableHeadCell>
@@ -177,23 +191,42 @@ export function MasterCrudPanel({
         </TableHeader>
         <TableBody>
           {rows.length === 0 ? (
-            <AdminTableEmptyRow colSpan={6}>No records yet.</AdminTableEmptyRow>
+            <AdminTableEmptyRow colSpan={kind === "tag-color" ? 5 : kind === "location" ? 6 : 4}>
+              No records yet.
+            </AdminTableEmptyRow>
           ) : (
             rows.map((row) => (
-              <tr key={row.id} className="border-b border-border/60 transition-colors hover:bg-muted/40">
+              <tr key={row.id} className="border-b border-border/40 hover:bg-muted/20">
                 <AdminTableCell className="font-mono text-xs">{row.code}</AdminTableCell>
-                <AdminTableCell>{kind === "category" ? row.name ?? "—" : row.description}</AdminTableCell>
-                {kind === "location" ? (
-                  <AdminTableCell className="text-muted-foreground">{row.plant_name ?? "All plants"}</AdminTableCell>
+                <AdminTableCell>
+                  {kind === "category" || kind === "tag-color"
+                    ? row.name ?? row.description
+                    : row.description}
+                </AdminTableCell>
+                {kind === "tag-color" ? (
+                  <AdminTableCell>
+                    <span className="inline-flex items-center gap-2">
+                      <span
+                        className="inline-block size-4 rounded-full border border-border/60"
+                        style={{ backgroundColor: row.color_hex ?? "#94a3b8" }}
+                        aria-hidden
+                      />
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {row.color_hex ?? "—"}
+                      </span>
+                    </span>
+                  </AdminTableCell>
                 ) : null}
+                {kind === "location" ? <AdminTableCell>{row.plant_name ?? "—"}</AdminTableCell> : null}
                 {kind === "location" ? (
-                  <AdminTableCell className="capitalize text-xs">{row.location_type ?? "—"}</AdminTableCell>
+                  <AdminTableCell className="capitalize">{row.location_type ?? "—"}</AdminTableCell>
                 ) : null}
-                <AdminTableCell className="text-xs">{row.is_active ? "Active" : "Inactive"}</AdminTableCell>
+                <AdminTableCell>{row.is_active ? "Active" : "Inactive"}</AdminTableCell>
                 {canUpdate ? (
                   <AdminTableCell>
                     <Button type="button" variant="ghost" size="icon-sm" onClick={() => openEdit(row)}>
                       <Pencil className="size-3.5" />
+                      <span className="sr-only">Edit</span>
                     </Button>
                   </AdminTableCell>
                 ) : null}
@@ -217,6 +250,8 @@ export function MasterCrudPanel({
             setDesc={setDesc}
             name={name}
             setName={setName}
+            colorHex={colorHex}
+            setColorHex={setColorHex}
             plantId={plantId}
             setPlantId={setPlantId}
             locationType={locationType}
@@ -247,6 +282,8 @@ export function MasterCrudPanel({
             setDesc={setDesc}
             name={name}
             setName={setName}
+            colorHex={colorHex}
+            setColorHex={setColorHex}
             plantId={plantId}
             setPlantId={setPlantId}
             locationType={locationType}
@@ -275,6 +312,8 @@ function MasterForm({
   setDesc,
   name,
   setName,
+  colorHex,
+  setColorHex,
   plantId,
   setPlantId,
   locationType,
@@ -288,6 +327,8 @@ function MasterForm({
   setDesc: (v: string) => void
   name: string
   setName: (v: string) => void
+  colorHex: string
+  setColorHex: (v: string) => void
   plantId: string
   setPlantId: (v: string) => void
   locationType: string
@@ -311,6 +352,22 @@ function MasterForm({
             <Input value={desc} onChange={(e) => setDesc(e.target.value)} />
           </div>
         </>
+      ) : kind === "tag-color" ? (
+        <>
+          <div className="app-form-field">
+            <Label className="app-form-label">Name *</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="app-form-field">
+            <Label className="app-form-label">Color hex</Label>
+            <Input
+              value={colorHex}
+              onChange={(e) => setColorHex(e.target.value)}
+              placeholder="#E1242A"
+              className="font-mono"
+            />
+          </div>
+        </>
       ) : (
         <div className="app-form-field">
           <Label className="app-form-label">Description *</Label>
@@ -320,9 +377,13 @@ function MasterForm({
       {kind === "location" ? (
         <>
           <div className="app-form-field">
-            <Label className="app-form-label">Plant (optional)</Label>
-            <select className={adminSelectClass} value={plantId} onChange={(e) => setPlantId(e.target.value)}>
-              <option value="">All plants</option>
+            <Label className="app-form-label">Plant *</Label>
+            <select
+              className={adminSelectClass}
+              value={plantId}
+              onChange={(e) => setPlantId(e.target.value)}
+            >
+              <option value="">Select plant…</option>
               {plants.map((p) => (
                 <option key={p.id} value={String(p.id)}>
                   {p.code} — {p.name}
@@ -337,9 +398,9 @@ function MasterForm({
               value={locationType}
               onChange={(e) => setLocationType(e.target.value)}
             >
-              <option value="both">Functional & actual</option>
-              <option value="functional">Functional only</option>
-              <option value="actual">Actual only</option>
+              <option value="both">Both</option>
+              <option value="functional">Functional</option>
+              <option value="actual">Actual</option>
             </select>
           </div>
         </>

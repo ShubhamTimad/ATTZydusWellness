@@ -39,6 +39,9 @@ export function MastersPage() {
           <TabsTrigger value="profit-centers" className={adminTabsTriggerClass}>
             Profit centers
           </TabsTrigger>
+          <TabsTrigger value="tag-colors" className={adminTabsTriggerClass}>
+            Tag colors
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="categories" className="mt-0">
           <MasterCrudPanel
@@ -73,6 +76,13 @@ export function MastersPage() {
             title="Profit center"
             kind="profit-center"
             plants={plants}
+          />
+        </TabsContent>
+        <TabsContent value="tag-colors" className="mt-0">
+          <MasterCrudPanel
+            title="Tag color"
+            listUrl="/admin/asset-masters/tag-colors?active_only=false"
+            kind="tag-color"
           />
         </TabsContent>
       </Tabs>

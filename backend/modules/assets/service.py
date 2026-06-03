@@ -46,6 +46,12 @@ from modules.assets.import_validation import (
     build_preview_response,
     rows_from_raw_dicts,
 )
+from modules.asset_masters.model import (
+    ActualLocationMaster,
+    CostCenterMaster,
+    FunctionalLocationMaster,
+    TagColorMaster,
+)
 from modules.assets.model import (
     AssetCategory,
     AssetFinancialInformation,
@@ -79,7 +85,60 @@ class DuplicateAssetCodeError(Exception):
 
 
 class DuplicateRfidError(Exception):
-    pass
+    """RFID is already assigned to another asset."""
+
+    def __init__(
+        self,
+        *,
+        rfid_code: str,
+        existing_asset_id: int,
+        existing_asset_code: str,
+    ) -> None:
+        self.rfid_code = rfid_code
+        self.existing_asset_id = existing_asset_id
+        self.existing_asset_code = existing_asset_code
+        self.message = (
+            f"RFID code '{rfid_code}' is already assigned to asset "
+            f"{existing_asset_code} (id {existing_asset_id})."
+        )
+        super().__init__(self.message)
+
+
+class InvalidRfidError(Exception):
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+class InvalidTagColorError(Exception):
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+def _normalize_rfid(raw: str) -> str:
+    return (raw or "").strip()
+
+
+def _assert_rfid_available(
+    db: Session,
+    *,
+    rfid: str,
+    exclude_asset_id: int | None,
+) -> None:
+    stmt = select(AssetMaster.id, AssetMaster.asset_code).where(
+        AssetMaster.rfid_code == rfid,
+        AssetMaster.deleted_at.is_(None),
+    )
+    if exclude_asset_id is not None:
+        stmt = stmt.where(AssetMaster.id != exclude_asset_id)
+    row = db.execute(stmt).first()
+    if row is not None:
+        raise DuplicateRfidError(
+            rfid_code=rfid,
+            existing_asset_id=int(row[0]),
+            existing_asset_code=str(row[1]),
+        )
 
 
 class ImportValidationError(Exception):
@@ -173,6 +232,38 @@ class AssetMasterService:
             )
             return int(cat.id) if cat else None
         return None
+
+    def _resolve_tag_color_id(
+        self, *, tag_color_id: int | None, tag_color_code: str | None
+    ) -> int | None:
+        if tag_color_id is not None:
+            row = self._db.get(TagColorMaster, tag_color_id)
+            if row is None or not row.is_active:
+                raise InvalidTagColorError("Unknown or inactive tag color.")
+            return int(row.id)
+        if tag_color_code:
+            row = self._db.scalar(
+                select(TagColorMaster).where(
+                    func.lower(TagColorMaster.code) == tag_color_code.strip().lower(),
+                    TagColorMaster.is_active.is_(True),
+                )
+            )
+            if row is None:
+                raise InvalidTagColorError("Unknown tag color code.")
+            return int(row.id)
+        return None
+
+    def _set_tag_color(self, asset: AssetMaster, tag_color_id: int | None) -> None:
+        rfid = _normalize_rfid(asset.rfid_code or "")
+        if tag_color_id is not None:
+            if not rfid:
+                raise InvalidTagColorError("Tag color is only allowed when an RFID code is provided.")
+            row = self._db.get(TagColorMaster, tag_color_id)
+            if row is None or not row.is_active:
+                raise InvalidTagColorError("Unknown or inactive tag color.")
+            asset.tag_color_id = int(tag_color_id)
+        else:
+            asset.tag_color_id = None
 
     def _resolve_plant_id(self, plant_code: str | None, plant_id: int | None) -> int | None:
         if plant_id is not None:
@@ -328,11 +419,9 @@ class AssetMasterService:
         if self._db.scalar(select(AssetMaster.id).where(AssetMaster.asset_code == code, AssetMaster.deleted_at.is_(None))):
             raise DuplicateAssetCodeError()
         if data.rfid_code:
-            rfid = data.rfid_code.strip()
-            if self._db.scalar(
-                select(AssetMaster.id).where(AssetMaster.rfid_code == rfid, AssetMaster.deleted_at.is_(None))
-            ):
-                raise DuplicateRfidError()
+            rfid = _normalize_rfid(data.rfid_code)
+            if rfid:
+                _assert_rfid_available(self._db, rfid=rfid, exclude_asset_id=None)
 
         asset = AssetMaster(
             asset_name=data.asset_name.strip(),
@@ -357,6 +446,8 @@ class AssetMasterService:
         self._db.add(_apply_location(asset.id, data.location))
         self._db.add(_apply_financial(asset.id, data.financial))
         self._db.add(_apply_inventory(asset.id, data.inventory))
+        if data.tag_color_id is not None:
+            self._set_tag_color(asset, data.tag_color_id)
 
         log_asset_event(
             self._db,
@@ -378,6 +469,55 @@ class AssetMasterService:
                 raise DuplicateRfidError() from exc
             raise DuplicateAssetCodeError() from exc
         return self.get_asset(asset.id)
+
+    def _master_label_lookups(
+        self, rows: list[AssetMaster]
+    ) -> tuple[
+        dict[tuple[int, str], str],
+        dict[tuple[int, str], str],
+        dict[tuple[int, str, str], str],
+    ]:
+        """Resolve cost center, functional, and actual location descriptions from reference masters."""
+        plant_ids: set[int] = set()
+        for a in rows:
+            loc = a.location
+            if loc and loc.plant_id:
+                plant_ids.add(int(loc.plant_id))
+        if not plant_ids:
+            return {}, {}, {}
+
+        cc_rows = self._db.scalars(
+            select(CostCenterMaster).where(CostCenterMaster.plant_id.in_(plant_ids))
+        ).all()
+        cc_desc: dict[tuple[int, str], str] = {
+            (int(r.plant_id), str(r.code)): str(r.description) for r in cc_rows
+        }
+
+        fl_rows = self._db.scalars(
+            select(FunctionalLocationMaster).where(FunctionalLocationMaster.plant_id.in_(plant_ids))
+        ).all()
+        fl_desc: dict[tuple[int, str], str] = {
+            (int(r.plant_id), str(r.code)): str(r.description) for r in fl_rows
+        }
+        fl_id_to_key: dict[int, tuple[int, str]] = {
+            int(r.id): (int(r.plant_id), str(r.code)) for r in fl_rows
+        }
+
+        al_desc: dict[tuple[int, str, str], str] = {}
+        if fl_id_to_key:
+            al_rows = self._db.scalars(
+                select(ActualLocationMaster).where(
+                    ActualLocationMaster.functional_location_id.in_(fl_id_to_key.keys())
+                )
+            ).all()
+            for al in al_rows:
+                parent = fl_id_to_key.get(int(al.functional_location_id))
+                if parent is None:
+                    continue
+                plant_id, fl_code = parent
+                al_desc[(plant_id, fl_code, str(al.code))] = str(al.description)
+
+        return cc_desc, fl_desc, al_desc
 
     def list_assets(
         self,
@@ -447,21 +587,35 @@ class AssetMasterService:
         rows = list(
             self._db.scalars(base.offset((page - 1) * page_size).limit(page_size)).unique().all()
         )
+        cc_desc, fl_desc, al_desc = self._master_label_lookups(rows)
         items: list[AssetListItem] = []
         for a in rows:
             loc = a.location
             fin = a.financial
             inv = a.inventory
+            pid = int(loc.plant_id) if loc and loc.plant_id else None
+            fl_code = (loc.functional_location or "").strip() if loc else ""
+            al_code = (loc.actual_location or "").strip() if loc else ""
+            cc_code = (fin.cost_center or "").strip() if fin else ""
+            fl_description = fl_desc.get((pid, fl_code)) if pid and fl_code else None
+            al_description = al_desc.get((pid, fl_code, al_code)) if pid and fl_code and al_code else None
+            cc_description = cc_desc.get((pid, cc_code)) if pid and cc_code else None
             items.append(
                 AssetListItem(
                     id=a.id,
                     asset_name=a.asset_name,
                     asset_code=a.asset_code,
+                    rfid_code=a.rfid_code,
                     category_name=a.category.name if a.category else None,
+                    plant_id=pid,
+                    plant_code=loc.plant.code if loc and loc.plant else None,
                     plant_name=loc.plant.name if loc and loc.plant else None,
-                    functional_location=loc.functional_location if loc else None,
-                    actual_location=loc.actual_location if loc else None,
-                    cost_center=fin.cost_center if fin else None,
+                    functional_location=fl_code or None,
+                    functional_location_description=fl_description,
+                    actual_location=al_code or None,
+                    actual_location_description=al_description,
+                    cost_center=cc_code or None,
+                    cost_center_description=cc_description,
                     inventory_count=inv.inventory_count if inv else None,
                     physical_count=inv.physical_count if inv else None,
                     last_verification_date=inv.last_verification_date if inv else None,
@@ -483,6 +637,7 @@ class AssetMasterService:
             .where(AssetMaster.id == asset_id, AssetMaster.deleted_at.is_(None))
             .options(
                 selectinload(AssetMaster.category),
+                selectinload(AssetMaster.tag_color),
                 selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
                 selectinload(AssetMaster.information),
                 selectinload(AssetMaster.financial),
@@ -508,6 +663,10 @@ class AssetMasterService:
             asset_class=asset.asset_class,
             asset_type=asset.asset_type,
             category_name=asset.category.name if asset.category else None,
+            tag_color_id=asset.tag_color_id,
+            tag_color_code=asset.tag_color.code if asset.tag_color else None,
+            tag_color_name=asset.tag_color.name if asset.tag_color else None,
+            tag_color_hex=asset.tag_color.color_hex if asset.tag_color else None,
             lifecycle_status=asset.lifecycle_status,
             approval_status=asset.approval_status,
             ownership_type=asset.ownership_type,
@@ -524,62 +683,97 @@ class AssetMasterService:
             inventory=AssetInventoryPayload.model_validate(inv) if inv else None,
         )
 
-    def update_rfid(
-    self,
-    asset_id: int,
-    rfid_code: str,
-    actor_user_id: int,
-) -> AssetDetailPublic:
+    def attach_rfid(
+        self,
+        asset_id: int,
+        rfid_code: str,
+        *,
+        tag_color_id: int | None = None,
+        actor_user_id: int,
+    ):
+        """Attach or replace RFID on an asset. RFID must be unique across active assets."""
+        from modules.assets.schema import AssetRfidAttachPublic
 
-        asset = (
-            self._db.query(AssetMaster)
-            .filter(
-                AssetMaster.id == asset_id,
-                AssetMaster.deleted_at.is_(None),
-            )
-            .first()
-        )
+        asset = self._load_asset(asset_id)
+        rfid = _normalize_rfid(rfid_code)
+        if not rfid:
+            raise InvalidRfidError("RFID code is required.")
+        if len(rfid) > 128:
+            raise InvalidRfidError("RFID code must be at most 128 characters.")
 
-        if not asset:
-            raise NotFoundError("Asset", asset_id)
-
-        rfid = rfid_code.strip()
-
-        existing_rfid = (
-            self._db.query(AssetMaster)
-            .filter(
-                AssetMaster.rfid_code == rfid,
-                AssetMaster.id != asset_id,
-                AssetMaster.deleted_at.is_(None),
-            )
-            .first()
-        )
-
-        if existing_rfid:
-            raise DuplicateRfidError()
+        _assert_rfid_available(self._db, rfid=rfid, exclude_asset_id=asset_id)
 
         before = snapshot_asset(asset)
-
+        previous = (asset.rfid_code or "").strip() or None
+        had_rfid = bool(previous)
         asset.rfid_code = rfid
+        if tag_color_id is not None:
+            self._set_tag_color(asset, tag_color_id)
         asset.updated_at = _now()
-
         self._db.flush()
 
-        changes = diff_snapshots(before, snapshot_asset(asset))
-
-        if changes:
-            log_asset_event(
-                self._db,
-                asset_id=asset.id,
-                actor_user_id=actor_user_id,
-                action="updated",
-                old_value=before,
-                new_value={"changes": changes},
-            )
-
+        log_asset_event(
+            self._db,
+            asset_id=asset.id,
+            actor_user_id=actor_user_id,
+            action="rfid_updated" if had_rfid else "rfid_attached",
+            old_value=before,
+            new_value={"rfid_code": rfid, "tag_color_id": asset.tag_color_id},
+        )
         self._db.commit()
+        asset = self._load_asset(asset.id)
+        operation = "updated" if had_rfid else "attached"
+        return AssetRfidAttachPublic(
+            asset_id=int(asset.id),
+            asset_code=asset.asset_code,
+            asset_name=asset.asset_name,
+            rfid_code=rfid,
+            previous_rfid_code=previous,
+            operation=operation,
+            tag_color_id=asset.tag_color_id,
+            tag_color_code=asset.tag_color.code if asset.tag_color else None,
+            tag_color_name=asset.tag_color.name if asset.tag_color else None,
+            tag_color_hex=asset.tag_color.color_hex if asset.tag_color else None,
+        )
 
-        return self.get_asset(asset.id)
+    def attach_rfid_by_asset_code(
+        self,
+        asset_code: str,
+        rfid_code: str,
+        *,
+        tag_color_id: int | None = None,
+        actor_user_id: int,
+    ):
+        """Attach RFID using asset code (list toolbar / scan workflow)."""
+        code = asset_code.strip().upper()
+        if not code:
+            raise InvalidRfidError("Asset code is required.")
+        asset_id = self._db.scalar(
+            select(AssetMaster.id).where(
+                AssetMaster.asset_code == code,
+                AssetMaster.deleted_at.is_(None),
+            )
+        )
+        if asset_id is None:
+            raise NotFoundError("Asset", code)
+        return self.attach_rfid(
+            int(asset_id),
+            rfid_code,
+            tag_color_id=tag_color_id,
+            actor_user_id=actor_user_id,
+        )
+
+    def update_rfid(
+        self,
+        asset_id: int,
+        rfid_code: str,
+        *,
+        actor_user_id: int,
+    ) -> AssetDetailPublic:
+        """Backward-compatible alias; returns full asset detail after attach."""
+        self.attach_rfid(asset_id, rfid_code, actor_user_id=actor_user_id)
+        return self.get_asset(asset_id)
+
     def update_asset(
         self, asset_id: int, data: AssetUpdateRequest, *, actor_user_id: int | None
     ) -> AssetDetailPublic:
@@ -602,16 +796,14 @@ class AssetMasterService:
                 raise DuplicateAssetCodeError()
             asset.asset_code = code
         if data.rfid_code is not None:
-            rfid = data.rfid_code.strip() or None
-            if rfid and self._db.scalar(
-                select(AssetMaster.id).where(
-                    AssetMaster.rfid_code == rfid,
-                    AssetMaster.id != asset.id,
-                    AssetMaster.deleted_at.is_(None),
-                )
-            ):
-                raise DuplicateRfidError()
+            rfid = _normalize_rfid(data.rfid_code) or None
+            if rfid:
+                _assert_rfid_available(self._db, rfid=rfid, exclude_asset_id=asset.id)
             asset.rfid_code = rfid
+            if not rfid:
+                asset.tag_color_id = None
+        if "tag_color_id" in data.model_dump(exclude_unset=True):
+            self._set_tag_color(asset, data.tag_color_id)
         if data.serial_no is not None:
             asset.serial_no = data.serial_no.strip() or None
         if data.asset_category_id is not None:
@@ -864,6 +1056,15 @@ class AssetMasterService:
                     plant_id=loc.plant_id if loc else None,
                 )
                 fin = mapped.get("financial")
+                tag_color_id = None
+                try:
+                    tag_color_id = self._resolve_tag_color_id(
+                        tag_color_id=None,
+                        tag_color_code=str(mapped.get("tag_color_code") or "") or None,
+                    )
+                except InvalidTagColorError as exc:
+                    errors.append(f"Row {raw.row_number}: {exc.message}")
+                    continue
                 asset = AssetMaster(
                     asset_name=str(name).strip(),
                     asset_code=str(code).strip().upper(),
@@ -872,6 +1073,7 @@ class AssetMasterService:
                     asset_category_id=cat_id,
                     asset_class=mapped.get("asset_class"),
                     asset_type=mapped.get("asset_type"),
+                    tag_color_id=tag_color_id if rfid else None,
                     ownership_type=str(raw.data.get("ownership_type") or "").strip() or None,
                     source_type="import",
                     import_batch_id=batch.id,

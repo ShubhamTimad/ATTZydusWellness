@@ -7,6 +7,7 @@ import type {
   FunctionalChildMaster,
   PlantChildMaster,
   PlantOption,
+  TagColorMaster,
 } from "@/lib/masters-types"
 import { canListOrgUnitsForAssignments, hasPermission } from "@/lib/permissions"
 
@@ -21,9 +22,17 @@ export function useAssetMasterLookups(
   const [actualLocations, setActualLocations] = React.useState<FunctionalChildMaster[]>([])
   const [costCenters, setCostCenters] = React.useState<PlantChildMaster[]>([])
   const [profitCenters, setProfitCenters] = React.useState<CostCenterChildMaster[]>([])
+  const [tagColors, setTagColors] = React.useState<TagColorMaster[]>([])
 
   const canRead =
     hasPermission("asset.view") || hasPermission("masters.view")
+
+  React.useEffect(() => {
+    if (!canRead) return
+    void getJson<TagColorMaster[]>("/admin/asset-masters/tag-colors")
+      .then(setTagColors)
+      .catch(() => setTagColors([]))
+  }, [canRead])
 
   React.useEffect(() => {
     if (!canRead) return
@@ -98,7 +107,12 @@ export function useAssetMasterLookups(
     actualLocations,
     costCenters,
     profitCenters,
+    tagColors,
   }
+}
+
+export function tagColorLabel(c: TagColorMaster) {
+  return `${c.code} — ${c.name}`
 }
 
 export function plantLabel(p: PlantOption) {

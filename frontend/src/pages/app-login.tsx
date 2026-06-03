@@ -1,10 +1,11 @@
 import * as React from "react"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
+import { ShieldCheck } from "lucide-react"
 
+import { AuthFormShell } from "@/components/auth/auth-form-shell"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
@@ -179,129 +180,123 @@ export function AppLoginPage() {
 
   return (
     <AppAuthMarketingLayout>
-      <Card className="w-full max-w-md min-h-[520px] rounded-3xl border border-white/20 bg-white/95 p-8 shadow-2xl backdrop-blur-md">
-        <CardHeader className="space-y-2 p-0 pb-6">
-          <div className="mb-6 flex justify-center">
-            <img
-              src="/logo.png"
-              alt="Takeda"
-              className="h-14 w-auto object-contain"
-            />
-          </div>
-          <CardTitle className="text-2xl">{step === "otp" ? "Authenticator code" : "Welcome back"}</CardTitle>
-          <CardDescription>
-            {step === "otp"
-              ? "Enter the code from your authenticator app to finish signing in."
-              : "Sign in to access your dashboard"}
-          </CardDescription>
-        </CardHeader>
+      <AuthFormShell
+        title={step === "otp" ? "Authenticator code" : "Welcome back"}
+        description={
+          step === "otp"
+            ? "Enter the 6-digit code from your authenticator app to finish signing in."
+            : "Sign in with your email or username to open the dashboard."
+        }
+        footer={
+          step === "password" ? (
+            <span className="inline-flex items-center justify-center gap-1.5">
+              <ShieldCheck className="size-3.5 shrink-0 text-primary/80" aria-hidden />
+              Protected workspace · MFA may be required
+            </span>
+          ) : undefined
+        }
+      >
+        {error ? (
+          <Alert variant="destructive">
+            <AlertTitle>Sign-in failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
 
-        <CardContent className="p-0">
-          {error ? (
-            <Alert variant="destructive" className="mb-4">
-              <AlertTitle>Sign-in failed</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
+        {step === "password" ? (
+          <form onSubmit={onSubmitPassword} className="space-y-4">
+            <div className="app-form-field">
+              <Label htmlFor="identifier">Email or username</Label>
+              <Input
+                id="identifier"
+                type="text"
+                autoComplete="username"
+                placeholder="you@company.com"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                disabled={isSubmitting}
+                className="h-11"
+                required
+              />
+            </div>
 
-          {step === "password" ? (
-            <form onSubmit={onSubmitPassword} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="identifier">Email or username</Label>
+            <div className="app-form-field">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                  tabIndex={-1}
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <PasswordInput
+                id="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                disabled={isSubmitting}
+                className="h-11"
+                required
+              />
+            </div>
+
+            {policy?.captcha_enabled ? (
+              <div className="app-form-field">
+                <Label htmlFor="captcha">Captcha token</Label>
                 <Input
-                  id="identifier"
-                  type="text"
-                  autoComplete="username"
-                  placeholder="hr@demo.com or hr"
-                  value={identifier}
-                  onChange={(e) => setIdentifier(e.target.value)}
+                  id="captcha"
+                  value={captchaToken}
+                  onChange={(e) => setCaptchaToken(e.target.value)}
                   disabled={isSubmitting}
-                  required
+                  placeholder="e.g. captcha-ok"
+                  autoComplete="off"
+                  className="h-11"
                 />
               </div>
+            ) : null}
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Link
-                    to="/forgot-password"
-                    className="text-xs text-red-700 underline-offset-2 hover:underline"
-                    tabIndex={-1}
-                  >
-                    Forgot password?
-                  </Link>
-                </div>
-                <PasswordInput
-                  id="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                  disabled={isSubmitting}
-                  required
-                />
-              </div>
-
-              {policy?.captcha_enabled ? (
-                <div className="space-y-2">
-                  <Label htmlFor="captcha">Captcha token</Label>
-                  <Input
-                    id="captcha"
-                    value={captchaToken}
-                    onChange={(e) => setCaptchaToken(e.target.value)}
-                    disabled={isSubmitting}
-                    placeholder="e.g. captcha-ok"
-                    autoComplete="off"
-                  />
-                </div>
-              ) : null}
-
-              <Button
-                type="submit"
+            <Button type="submit" disabled={isSubmitting} className="h-11 w-full text-sm font-semibold">
+              {isSubmitting ? "Signing in…" : "Sign in"}
+            </Button>
+          </form>
+        ) : (
+          <form onSubmit={onSubmitOtp} className="space-y-4">
+            <div className="app-form-field">
+              <Label htmlFor="otp">6-digit code</Label>
+              <Input
+                id="otp"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
                 disabled={isSubmitting}
-                className="w-full bg-red-700 text-white hover:bg-red-800"
-              >
-                {isSubmitting ? "Logging in…" : "Login"}
-              </Button>
-            </form>
-          ) : (
-            <form onSubmit={onSubmitOtp} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="otp">6-digit code</Label>
-                <Input
-                  id="otp"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  disabled={isSubmitting}
-                  required
-                />
-              </div>
-              <Button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full bg-red-700 text-white hover:bg-red-800"
-              >
-                {isSubmitting ? "Verifying…" : "Continue"}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                disabled={isSubmitting}
-                onClick={() => {
-                  setStep("password")
-                  setChallengeToken(null)
-                  setOtp("")
-                  setError(null)
-                }}
-              >
-                Back
-              </Button>
-            </form>
-          )}
-        </CardContent>
-      </Card>
+                placeholder="000000"
+                className="h-11 text-center font-mono text-lg tracking-[0.35em]"
+                required
+              />
+            </div>
+            <Button type="submit" disabled={isSubmitting} className="h-11 w-full text-sm font-semibold">
+              {isSubmitting ? "Verifying…" : "Continue"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full"
+              disabled={isSubmitting}
+              onClick={() => {
+                setStep("password")
+                setChallengeToken(null)
+                setOtp("")
+                setError(null)
+              }}
+            >
+              Back to sign in
+            </Button>
+          </form>
+        )}
+      </AuthFormShell>
     </AppAuthMarketingLayout>
   )
 }

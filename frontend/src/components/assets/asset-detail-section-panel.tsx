@@ -118,6 +118,9 @@ export function AssetDetailSectionPanel({
     if (raw === null || raw === undefined || raw === "") return "—"
     if (dateFields.includes(k) || isAssetMasterDateField(k)) return formatDate(String(raw))
     if (k === "asset_category_id") return asset.category_name ?? String(raw)
+    if (k === "tag_color_id") {
+      return asset.tag_color_name ?? asset.tag_color_code ?? "—"
+    }
     return String(raw)
   }
 
@@ -161,7 +164,9 @@ export function AssetDetailSectionPanel({
               ? readOnlyDisplay(k)
               : k === "asset_category_id"
                 ? String(asset.asset_category_id ?? "")
-                : String(rawVal ?? "")
+                : k === "tag_color_id"
+                  ? String(asset.tag_color_id ?? "")
+                  : String(rawVal ?? "")
             const mono = k === "asset_code" || k === "rfid_code"
             return (
               <div key={k} className="app-form-field">
@@ -175,7 +180,7 @@ export function AssetDetailSectionPanel({
                     onChange={(e) =>
                       onSection(
                         k,
-                        k === "asset_category_id"
+                        k === "asset_category_id" || k === "tag_color_id"
                           ? e.target.value
                             ? Number(e.target.value)
                             : null

@@ -36,7 +36,7 @@ from modules.platform.users.model import User
 
 import db.models  # noqa: F401
 
-DEMO_PLANT_CODE = "DEMO-01"
+TAKEDA_PLANT_CODE = "TAKEDA"
 DEFAULT_PASSWORD = "ChangeMe@123"
 
 # email, phone, full_name, role name (from seed_dummy_data.py)
@@ -45,6 +45,11 @@ DEMO_USERS: list[tuple[str, str, str, str]] = [
     ("approver@demo.com", "+15552000002", "Approver Demo", "Approver"),
     ("plantmgr@demo.com", "+15552000003", "Plant Manager Demo", "Plant Manager"),
     ("operator@demo.com", "+15552000004", "Operator Demo", "Operator"),
+    # Physical verification order executors (order.view + order.execute)
+    ("executor1@demo.com", "+15552000011", "Alex Rivera", "Physical Order Executor"),
+    ("executor2@demo.com", "+15552000012", "Sam Okonkwo", "Physical Order Executor"),
+    ("executor3@demo.com", "+15552000013", "Priya Sharma", "Physical Order Executor"),
+    ("executor4@demo.com", "+15552000014", "Jordan Lee", "Physical Order Executor"),
 ]
 
 
@@ -54,7 +59,7 @@ def _role_by_name(db: Session, name: str) -> Role | None:
 
 def _demo_plant(db: Session) -> OrgUnit | None:
     row = db.scalar(
-        select(OrgUnit).where(OrgUnit.type == "PLANT", OrgUnit.code == DEMO_PLANT_CODE)
+        select(OrgUnit).where(OrgUnit.type == "PLANT", OrgUnit.code == TAKEDA_PLANT_CODE)
     )
     if row is not None:
         return row

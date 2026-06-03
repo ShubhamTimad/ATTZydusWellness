@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Plus, Search, SlidersHorizontal, Upload, X } from "lucide-react"
+import { Plus, ScanLine, Search, SlidersHorizontal, Upload, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
@@ -27,22 +27,25 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
+import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
 import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
 import {
   buildAssetListActionItems,
+  countRfidTaggedSelected,
   countSubmittableSelected,
   selectedAssetsFromList,
 } from "@/lib/asset-actions"
-import type { AssetDetail, AssetListResponse, SubmitForApprovalResult } from "@/lib/assets-types"
-import {
-  categoryLabel,
-  costCenterChildLabel,
-  plantChildLabel,
-  plantLabel,
-  useAssetMasterLookups,
-} from "@/lib/use-asset-masters"
+import type {
+  AssetListResponse,
+  AssetRfidAttachResult,
+  SubmitForApprovalResult,
+} from "@/lib/assets-types"
+import { categoryLabel, plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
 import { assetStatusLabel, assetStatusVariant, canSubmitForApproval } from "@/lib/asset-lifecycle"
 import { hasPermission } from "@/lib/permissions"
+import type { ValidateAssetsResponse } from "@/lib/orders-types"
+import { orderStatusLabel } from "@/lib/orders-types"
+import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
 import { cn } from "@/lib/utils"
 
 export type AssetListFilters = {
@@ -61,6 +64,20 @@ const DEFAULT_FILTERS: AssetListFilters = {
   approval_status: "",
   sort_by: "created_at",
   sort_dir: "desc",
+}
+
+function formatMasterLabel(code: string | null | undefined, description: string | null | undefined): string {
+  const c = code?.trim()
+  if (!c) return "—"
+  const d = description?.trim()
+  return d ? `${c} — ${d}` : c
+}
+
+function formatPlantLabel(row: { plant_code?: string | null; plant_name?: string | null }): string {
+  const code = row.plant_code?.trim()
+  const name = row.plant_name?.trim()
+  if (code && name) return `${code} — ${name}`
+  return name || code || "—"
 }
 
 function countActiveFilters(f: AssetListFilters): number {
@@ -98,40 +115,33 @@ export function AssetsListPage() {
   const [draftFilters, setDraftFilters] = React.useState<AssetListFilters>(DEFAULT_FILTERS)
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
-  const [createOpen, setCreateOpen] = React.useState(false)
-  const [creating, setCreating] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [bulkActionBusy, setBulkActionBusy] = React.useState(false)
+  const [orderValidateBusy, setOrderValidateBusy] = React.useState(false)
+  const [activeConflictOpen, setActiveConflictOpen] = React.useState(false)
+  const [plantMismatchOpen, setPlantMismatchOpen] = React.useState(false)
+  const [ccMismatchOpen, setCcMismatchOpen] = React.useState(false)
+  const [missingRfidOpen, setMissingRfidOpen] = React.useState(false)
+  const [validationResult, setValidationResult] = React.useState<ValidateAssetsResponse | null>(null)
+  const [createOrderOpen, setCreateOrderOpen] = React.useState(false)
+  const [eligibleForOrder, setEligibleForOrder] = React.useState<number[]>([])
+  const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
+  const [rfidDialogMode, setRfidDialogMode] = React.useState<"by-code" | "selected">("by-code")
+  const [rfidAttachAssetId, setRfidAttachAssetId] = React.useState<number | null>(null)
+  const [rfidAssetCode, setRfidAssetCode] = React.useState("")
+  const [rfidValue, setRfidValue] = React.useState("")
+  const [rfidTagColorId, setRfidTagColorId] = React.useState("")
+  const [rfidSaving, setRfidSaving] = React.useState(false)
 
-  const [form, setForm] = React.useState({
-    asset_name: "",
-    asset_code: "",
-    rfid_code: "",
-    serial_no: "",
-    asset_category_id: "",
-    plant_id: "",
-    functional_location: "",
-    actual_location: "",
-    cost_center: "",
-    profit_center: "",
-  })
-
-  const plantIdForLookups = form.plant_id ? Number(form.plant_id) : null
-  const masters = useAssetMasterLookups(
-    plantIdForLookups,
-    form.cost_center || null,
-    form.functional_location || null,
-  )
-
-  const createCostCenterDesc =
-    masters.costCenters.find((c) => c.code === form.cost_center)?.description ?? "—"
-  const createProfitCenterDesc =
-    masters.profitCenters.find((p) => p.code === form.profit_center)?.description ?? "—"
+  const filterPlantId = draftFilters.plant_id ? Number(draftFilters.plant_id) : null
+  const masters = useAssetMasterLookups(filterPlantId, null, null)
 
   const canCreate = hasPermission("asset.create")
   const canImport = hasPermission("asset.import")
   const canSubmitApproval = hasPermission("asset.create")
   const canDelete = hasPermission("asset.delete") || hasPermission("asset.manage")
+  const canCreateOrder = hasPermission("order.create")
+  const canAttachRfid = hasPermission("asset.update") || hasPermission("asset.manage")
   const activeFilterCount = countActiveFilters(filters)
 
   const load = React.useCallback(async () => {
@@ -184,39 +194,6 @@ export function AssetsListPage() {
     else setSelected(new Set())
   }
 
-  async function createAsset() {
-    if (!form.asset_name.trim() || !form.asset_code.trim()) {
-      toast.error("Asset name and code are required.")
-      return
-    }
-    setCreating(true)
-    try {
-      const created = await postJson<AssetDetail>("/admin/assets", {
-        asset_name: form.asset_name.trim(),
-        asset_code: form.asset_code.trim(),
-        rfid_code: form.rfid_code.trim() || null,
-        serial_no: form.serial_no.trim() || null,
-        asset_category_id: form.asset_category_id ? Number(form.asset_category_id) : null,
-        location: {
-          plant_id: form.plant_id ? Number(form.plant_id) : null,
-          functional_location: form.functional_location.trim() || null,
-          actual_location: form.actual_location.trim() || null,
-        },
-        financial: {
-          cost_center: form.cost_center.trim() || null,
-          profit_center: form.profit_center.trim() || null,
-        },
-      })
-      toast.success("Asset created.")
-      setCreateOpen(false)
-      navigate(String(created.id))
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Create failed.")
-    } finally {
-      setCreating(false)
-    }
-  }
-
   const items = data?.items ?? []
   const selectedRows = React.useMemo(
     () => selectedAssetsFromList(items, selected),
@@ -226,16 +203,114 @@ export function AssetsListPage() {
     () => countSubmittableSelected(selectedRows, canSubmitApproval),
     [selectedRows, canSubmitApproval],
   )
+  const rfidTaggedCount = React.useMemo(
+    () => countRfidTaggedSelected(selectedRows),
+    [selectedRows],
+  )
   const listActions = React.useMemo(
     () =>
       buildAssetListActionItems({
         selectedCount: selected.size,
         submittableCount,
+        rfidTaggedCount,
         canSubmitApproval,
         canDelete,
+        canAttachRfid,
+        canCreateOrder,
       }),
-    [selected.size, submittableCount, canSubmitApproval, canDelete],
+    [
+      selected.size,
+      submittableCount,
+      rfidTaggedCount,
+      canSubmitApproval,
+      canDelete,
+      canAttachRfid,
+      canCreateOrder,
+    ],
   )
+
+  const attachRfidRow = selectedRows.length === 1 ? selectedRows[0] : null
+
+  function openAttachRfidToolbarDialog() {
+    setRfidDialogMode("by-code")
+    setRfidAttachAssetId(null)
+    setRfidAssetCode("")
+    setRfidValue("")
+    setRfidTagColorId("")
+    setRfidDialogOpen(true)
+  }
+
+  function openAttachRfidFromSelection() {
+    const row = attachRfidRow
+    if (!row) return
+    setRfidDialogMode("selected")
+    setRfidAttachAssetId(row.id)
+    setRfidAssetCode("")
+    setRfidValue(row.rfid_code?.trim() ?? "")
+    setRfidTagColorId(row.tag_color_id != null ? String(row.tag_color_id) : "")
+    setRfidDialogOpen(true)
+  }
+
+  function rfidPayloadExtras() {
+    return {
+      tag_color_id: rfidTagColorId ? Number(rfidTagColorId) : null,
+    }
+  }
+
+  async function saveAttachedRfid() {
+    const rfid = rfidValue.trim()
+    if (!rfid) {
+      toast.error("Enter or scan an RFID code.")
+      return
+    }
+    if (rfidDialogMode === "by-code") {
+      const assetCode = rfidAssetCode.trim()
+      if (!assetCode) {
+        toast.error("Enter the asset code.")
+        return
+      }
+      setRfidSaving(true)
+      try {
+        const res = await postJson<AssetRfidAttachResult>("/admin/assets/rfid/attach-by-code", {
+          asset_code: assetCode,
+          rfid_code: rfid,
+          ...rfidPayloadExtras(),
+        })
+        toast.success(
+          res.operation === "updated"
+            ? `RFID updated on ${res.asset_code}.`
+            : `RFID attached to ${res.asset_code}.`,
+        )
+        setRfidDialogOpen(false)
+        await load()
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Failed to attach RFID.")
+      } finally {
+        setRfidSaving(false)
+      }
+      return
+    }
+
+    if (rfidAttachAssetId == null) return
+    setRfidSaving(true)
+    try {
+      const res = await postJson<AssetRfidAttachResult>(
+        `/admin/assets/${rfidAttachAssetId}/rfid/attach`,
+        { rfid_code: rfid, ...rfidPayloadExtras() },
+      )
+      toast.success(
+        res.operation === "updated"
+          ? `RFID updated on ${res.asset_code}.`
+          : `RFID attached to ${res.asset_code}.`,
+      )
+      setRfidDialogOpen(false)
+      await load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to attach RFID.")
+    } finally {
+      setRfidSaving(false)
+    }
+  }
 
   async function submitSelectedForApproval() {
     const ids = selectedRows
@@ -297,7 +372,68 @@ export function AssetsListPage() {
     }
   }
 
+  async function beginCreatePhysicalOrder() {
+    const ids = [...selected]
+    if (ids.length === 0) return
+    setOrderValidateBusy(true)
+    try {
+      const res = await postJson<ValidateAssetsResponse>("/admin/physical-orders/validate-assets", {
+        asset_ids: ids,
+      })
+      setValidationResult(res)
+      if (res.active_order_conflicts.length > 0) {
+        setActiveConflictOpen(true)
+        return
+      }
+      if (res.missing_rfid.length > 0) {
+        setMissingRfidOpen(true)
+        return
+      }
+      if (res.plant_mismatch.length > 0) {
+        setPlantMismatchOpen(true)
+        return
+      }
+      if (res.cost_center_mismatch.length > 0) {
+        setCcMismatchOpen(true)
+        return
+      }
+      if (res.eligible_asset_ids.length === 0) {
+        toast.error("No eligible assets selected.")
+        return
+      }
+      setEligibleForOrder(res.eligible_asset_ids)
+      setCreateOrderOpen(true)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Validation failed.")
+    } finally {
+      setOrderValidateBusy(false)
+    }
+  }
+
+  function proceedWithEligibleOnly() {
+    const eligible = validationResult?.eligible_asset_ids ?? []
+    if (eligible.length === 0) {
+      toast.error("No eligible assets.")
+      return
+    }
+    setEligibleForOrder(eligible)
+    setSelected(new Set(eligible))
+    setActiveConflictOpen(false)
+    setMissingRfidOpen(false)
+    setPlantMismatchOpen(false)
+    setCcMismatchOpen(false)
+    setCreateOrderOpen(true)
+  }
+
   function handleListAction(actionId: string) {
+    if (actionId === "attach-rfid") {
+      openAttachRfidFromSelection()
+      return
+    }
+    if (actionId === "create-physical-order") {
+      void beginCreatePhysicalOrder()
+      return
+    }
     if (actionId === "submit-for-approval") {
       void submitSelectedForApproval()
       return
@@ -330,9 +466,11 @@ export function AssetsListPage() {
         </Button>
       ) : null}
       {canCreate ? (
-        <AdminPrimaryButton type="button" className="shrink-0" onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" aria-hidden />
-          Create asset
+        <AdminPrimaryButton type="button" className="shrink-0" asChild>
+          <Link to="/dashboard/assets/new">
+            <Plus className="size-4" aria-hidden />
+            Create asset
+          </Link>
         </AdminPrimaryButton>
       ) : null}
     </>
@@ -386,13 +524,26 @@ export function AssetsListPage() {
             ) : null}
           </Button>
 
+          {selected.size === 0 && canAttachRfid ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={openAttachRfidToolbarDialog}
+            >
+              <ScanLine className="size-4" aria-hidden />
+              Attach RFID
+            </Button>
+          ) : null}
+
           {actionButtons}
 
           {selected.size > 0 ? (
             <AssetActionsMenu
               actions={listActions}
               selectedCount={selected.size}
-              busy={bulkActionBusy}
+              busy={bulkActionBusy || orderValidateBusy}
               onAction={handleListAction}
             />
           ) : null}
@@ -565,12 +716,13 @@ export function AssetsListPage() {
                   />
                 </AdminTableHeadCell>
                 <AdminTableHeadCell>Asset name</AdminTableHeadCell>
+                <AdminTableHeadCell>RFID</AdminTableHeadCell>
                 <AdminTableHeadCell>Status</AdminTableHeadCell>
                 <AdminTableHeadCell>Category</AdminTableHeadCell>
                 <AdminTableHeadCell>Plant</AdminTableHeadCell>
-                <AdminTableHeadCell>Functional loc.</AdminTableHeadCell>
-                <AdminTableHeadCell>Actual loc.</AdminTableHeadCell>
                 <AdminTableHeadCell>Cost center</AdminTableHeadCell>
+                <AdminTableHeadCell>Functional location</AdminTableHeadCell>
+                <AdminTableHeadCell>Actual location</AdminTableHeadCell>
                 <AdminTableHeadCell className="text-right">Inv.</AdminTableHeadCell>
                 <AdminTableHeadCell className="text-right">Phys.</AdminTableHeadCell>
                 <AdminTableHeadCell>Verified</AdminTableHeadCell>
@@ -578,9 +730,9 @@ export function AssetsListPage() {
             </TableHeader>
             <TableBody>
               {loading && items.length === 0 ? (
-                <AdminTableEmptyRow colSpan={12}>Loading assets…</AdminTableEmptyRow>
+                <AdminTableEmptyRow colSpan={13}>Loading assets…</AdminTableEmptyRow>
               ) : items.length === 0 ? (
-                <AdminTableEmptyRow colSpan={12}>
+                <AdminTableEmptyRow colSpan={13}>
                   No assets match your search or filters.
                 </AdminTableEmptyRow>
               ) : (
@@ -608,16 +760,53 @@ export function AssetsListPage() {
                       <span className="font-medium text-foreground">{row.asset_name}</span>
                       <div className="font-mono text-[11px] text-muted-foreground">{row.asset_code}</div>
                     </AdminTableCell>
+                    <AdminTableCell className="font-mono text-xs">
+                      {row.rfid_code?.trim() ? (
+                        <span className="text-foreground" title={row.rfid_code}>
+                          {row.rfid_code}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">Not tagged</span>
+                      )}
+                    </AdminTableCell>
                     <AdminTableCell>
                       <Badge variant={assetStatusVariant(row.lifecycle_status, row.approval_status)} className="font-normal">
                         {assetStatusLabel(row.lifecycle_status, row.approval_status)}
                       </Badge>
                     </AdminTableCell>
                     <AdminTableCell className="text-muted-foreground">{row.category_name ?? "—"}</AdminTableCell>
-                    <AdminTableCell>{row.plant_name ?? "—"}</AdminTableCell>
-                    <AdminTableCell className="max-w-[12rem] truncate px-3 py-2">{row.functional_location ?? "—"}</AdminTableCell>
-                    <AdminTableCell className="max-w-[12rem] truncate px-3 py-2">{row.actual_location ?? "—"}</AdminTableCell>
-                    <AdminTableCell>{row.cost_center ?? "—"}</AdminTableCell>
+                    <AdminTableCell className="max-w-[11rem]">
+                      <span className="block truncate" title={formatPlantLabel(row)}>
+                        {formatPlantLabel(row)}
+                      </span>
+                    </AdminTableCell>
+                    <AdminTableCell className="max-w-[11rem]">
+                      <span
+                        className="block truncate"
+                        title={formatMasterLabel(row.cost_center, row.cost_center_description)}
+                      >
+                        {formatMasterLabel(row.cost_center, row.cost_center_description)}
+                      </span>
+                    </AdminTableCell>
+                    <AdminTableCell className="max-w-[11rem]">
+                      <span
+                        className="block truncate"
+                        title={formatMasterLabel(
+                          row.functional_location,
+                          row.functional_location_description,
+                        )}
+                      >
+                        {formatMasterLabel(row.functional_location, row.functional_location_description)}
+                      </span>
+                    </AdminTableCell>
+                    <AdminTableCell className="max-w-[11rem]">
+                      <span
+                        className="block truncate"
+                        title={formatMasterLabel(row.actual_location, row.actual_location_description)}
+                      >
+                        {formatMasterLabel(row.actual_location, row.actual_location_description)}
+                      </span>
+                    </AdminTableCell>
                     <AdminTableCell className="px-3 py-2 text-right tabular-nums">{row.inventory_count ?? "—"}</AdminTableCell>
                     <AdminTableCell className="px-3 py-2 text-right tabular-nums">
                       {row.physical_count ?? 0}
@@ -660,159 +849,149 @@ export function AssetsListPage() {
         </div>
       </AdminPanel>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={activeConflictOpen} onOpenChange={setActiveConflictOpen}>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Create asset</DialogTitle>
-            <DialogDescription>Manual creation. Approval workflow applies when configured.</DialogDescription>
+            <DialogTitle>Active order conflicts</DialogTitle>
+            <DialogDescription>
+              Following assets already belong to active orders. You can continue with eligible assets only.
+            </DialogDescription>
           </DialogHeader>
-          <div className="dialog-body grid sm:grid-cols-2">
-            <div className="app-form-field sm:col-span-2">
-              <Label className="app-form-label">Asset name *</Label>
-              <Input value={form.asset_name} onChange={(e) => setForm((f) => ({ ...f, asset_name: e.target.value }))} />
-            </div>
-            <div className="app-form-field">
-              <Label className="app-form-label">Asset code *</Label>
-              <Input value={form.asset_code} onChange={(e) => setForm((f) => ({ ...f, asset_code: e.target.value }))} />
-            </div>
-            <div className="app-form-field">
-              <Label className="app-form-label">RFID</Label>
-              <Input value={form.rfid_code} onChange={(e) => setForm((f) => ({ ...f, rfid_code: e.target.value }))} />
-            </div>
-            <div className="app-form-field">
-              <Label className="app-form-label">Category</Label>
-              <select
-                className={adminSelectClass}
-                value={form.asset_category_id}
-                onChange={(e) => setForm((f) => ({ ...f, asset_category_id: e.target.value }))}
-              >
-                <option value="">—</option>
-                {masters.categories.map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    {categoryLabel(c)}
-                  </option>
+          <div className="dialog-body max-h-64 overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="py-1 pr-2">Asset</th>
+                  <th className="py-1 pr-2">Order</th>
+                  <th className="py-1">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {validationResult?.active_order_conflicts.map((c) => (
+                  <tr key={c.asset_id} className="border-b border-border/40">
+                    <td className="py-1.5 pr-2">
+                      <span className="font-mono text-xs">{c.asset_code}</span>
+                      <span className="block text-muted-foreground">{c.asset_name}</span>
+                    </td>
+                    <td className="py-1.5 pr-2 font-mono text-xs">{c.order_number}</td>
+                    <td className="py-1.5">{orderStatusLabel(c.order_status)}</td>
+                  </tr>
                 ))}
-              </select>
-            </div>
-            <div className="app-form-field">
-              <Label className="app-form-label">Plant</Label>
-              <select
-                className={adminSelectClass}
-                value={form.plant_id}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    plant_id: e.target.value,
-                    functional_location: "",
-                    actual_location: "",
-                    cost_center: "",
-                    profit_center: "",
-                  }))
-                }
-              >
-                <option value="">—</option>
-                {masters.plants.map((p) => (
-                  <option key={p.id} value={String(p.id)}>
-                    {plantLabel(p)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="app-form-field">
-              <Label className="app-form-label">Functional location</Label>
-              <select
-                className={adminSelectClass}
-                value={form.functional_location}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    functional_location: e.target.value,
-                    actual_location: "",
-                  }))
-                }
-              >
-                <option value="">{form.plant_id ? "—" : "Select plant first"}</option>
-                {masters.functionalLocations.map((l) => (
-                  <option key={l.id} value={l.code}>
-                    {plantChildLabel(l)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="app-form-field">
-              <Label className="app-form-label">Actual location</Label>
-              <select
-                className={adminSelectClass}
-                value={form.actual_location}
-                onChange={(e) => setForm((f) => ({ ...f, actual_location: e.target.value }))}
-              >
-                <option value="">
-                  {form.functional_location ? "—" : "Select functional location first"}
-                </option>
-                {masters.actualLocations.map((l) => (
-                  <option key={l.id} value={l.code}>
-                    {`${l.code} — ${l.description}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="app-form-field">
-              <Label className="app-form-label">Cost center</Label>
-              <select
-                className={adminSelectClass}
-                value={form.cost_center}
-                onChange={(e) =>
-                  setForm((f) => ({
-                    ...f,
-                    cost_center: e.target.value,
-                    profit_center: "",
-                  }))
-                }
-              >
-                <option value="">{form.plant_id ? "—" : "Select plant first"}</option>
-                {masters.costCenters.map((m) => (
-                  <option key={m.id} value={m.code}>
-                    {plantChildLabel(m)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="app-form-field">
-              <Label className="app-form-label">Cost center descript</Label>
-              <Input className="bg-muted/40" value={createCostCenterDesc} readOnly disabled />
-            </div>
-            <div className="app-form-field">
-              <Label className="app-form-label">Profit center</Label>
-              <select
-                className={adminSelectClass}
-                value={form.profit_center}
-                onChange={(e) => setForm((f) => ({ ...f, profit_center: e.target.value }))}
-              >
-                <option value="">
-                  {form.cost_center ? "—" : "Select cost center first"}
-                </option>
-                {masters.profitCenters.map((m) => (
-                  <option key={m.id} value={m.code}>
-                    {costCenterChildLabel(m)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="app-form-field">
-              <Label className="app-form-label">Profit center descript</Label>
-              <Input className="bg-muted/40" value={createProfitCenterDesc} readOnly disabled />
-            </div>
+              </tbody>
+            </table>
           </div>
-          <div className="dialog-footer-actions">
-            <Button type="button" variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <Button type="button" variant="outline" onClick={() => setActiveConflictOpen(false)}>
               Cancel
             </Button>
-            <AdminPrimaryButton type="button" disabled={creating} onClick={() => void createAsset()}>
-              {creating ? "Creating…" : "Create"}
+            <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly()}>
+              Continue with eligible
             </AdminPrimaryButton>
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={missingRfidOpen} onOpenChange={setMissingRfidOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>RFID not attached</DialogTitle>
+            <DialogDescription>
+              Physical verification orders can only include assets that have an RFID code attached.
+              Attach RFID on the asset detail page, or continue with RFID-tagged assets only.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="dialog-body max-h-64 list-disc space-y-1 overflow-auto pl-5 text-sm">
+            {validationResult?.missing_rfid.map((a) => (
+              <li key={a.asset_id}>
+                {a.asset_code} — {a.asset_name}
+              </li>
+            ))}
+          </ul>
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <Button type="button" variant="outline" onClick={() => setMissingRfidOpen(false)}>
+              Cancel
+            </Button>
+            <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly()}>
+              Continue with RFID-tagged only
+            </AdminPrimaryButton>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={plantMismatchOpen} onOpenChange={setPlantMismatchOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Plant mismatch</DialogTitle>
+            <DialogDescription>
+              Physical orders can only be created for assets belonging to the same plant.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="dialog-body list-disc space-y-1 pl-5 text-sm">
+            {validationResult?.plant_mismatch.map((a) => (
+              <li key={a.asset_id}>
+                {a.asset_code} — {a.asset_name}
+                {a.plant_name ? ` (${a.plant_name})` : ""}
+              </li>
+            ))}
+          </ul>
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" onClick={() => setPlantMismatchOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={ccMismatchOpen} onOpenChange={setCcMismatchOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cost center mismatch</DialogTitle>
+            <DialogDescription>
+              Physical orders can only be created for assets belonging to the same cost center.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="dialog-body list-disc space-y-1 pl-5 text-sm">
+            {validationResult?.cost_center_mismatch.map((a) => (
+              <li key={a.asset_id}>
+                {a.asset_code} — {a.asset_name}
+                {a.cost_center_code ? ` (${a.cost_center_code})` : ""}
+              </li>
+            ))}
+          </ul>
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" onClick={() => setCcMismatchOpen(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AssetRfidDialog
+        open={rfidDialogOpen}
+        onOpenChange={setRfidDialogOpen}
+        value={rfidValue}
+        onChange={(v) => {
+          setRfidValue(v)
+          if (!v.trim()) setRfidTagColorId("")
+        }}
+        onSave={() => void saveAttachedRfid()}
+        saving={rfidSaving}
+        assetCode={rfidDialogMode === "by-code" ? rfidAssetCode : undefined}
+        onAssetCodeChange={rfidDialogMode === "by-code" ? setRfidAssetCode : undefined}
+        tagColorId={rfidTagColorId}
+        onTagColorChange={setRfidTagColorId}
+        tagColors={masters.tagColors}
+      />
+
+      <CreatePhysicalOrderDialog
+        open={createOrderOpen}
+        onOpenChange={setCreateOrderOpen}
+        assetIds={eligibleForOrder}
+        onCreated={(order) => {
+          setSelected(new Set())
+          navigate(`/dashboard/orders/${order.id}`)
+        }}
+      />
     </AdminPage>
   )
 }

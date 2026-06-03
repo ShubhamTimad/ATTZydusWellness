@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react"
 import type { AssetListItem } from "@/lib/assets-types"
 import { canSubmitForApproval } from "@/lib/asset-lifecycle"
-import { ExternalLink, Pencil, Send, Trash2, X, ScanLine } from "lucide-react"
+import { ClipboardList, ExternalLink, Pencil, Send, Trash2, X, ScanLine } from "lucide-react"
 
 export type AssetActionItem = {
   id: string
@@ -29,15 +29,54 @@ export function countSubmittableSelected(
   ).length
 }
 
+export function countRfidTaggedSelected(rows: { rfid_code?: string | null }[]): number {
+  return rows.filter((r) => (r.rfid_code || "").trim().length > 0).length
+}
+
 export function buildAssetListActionItems(opts: {
   selectedCount: number
   submittableCount: number
+  rfidTaggedCount?: number
   canSubmitApproval: boolean
   canDelete: boolean
+  canAttachRfid?: boolean
+  canCreateOrder?: boolean
 }): AssetActionItem[] {
-  const { selectedCount, submittableCount, canSubmitApproval, canDelete } = opts
+  const {
+    selectedCount,
+    submittableCount,
+    rfidTaggedCount = 0,
+    canSubmitApproval,
+    canDelete,
+    canAttachRfid,
+    canCreateOrder,
+  } = opts
 
   const actions: AssetActionItem[] = []
+
+  if (canAttachRfid && selectedCount === 1) {
+    actions.push({
+      id: "attach-rfid",
+      label: "Attach RFID",
+      icon: ScanLine,
+    })
+  }
+
+  if (canCreateOrder) {
+    const rfidHint =
+      selectedCount > 0
+        ? rfidTaggedCount > 0
+          ? `${rfidTaggedCount} of ${selectedCount} with RFID tagged`
+          : "Selected assets need an attached RFID"
+        : undefined
+    actions.push({
+      id: "create-physical-order",
+      label: "Create physical order",
+      hint: rfidHint,
+      disabled: selectedCount === 0 || rfidTaggedCount === 0,
+      icon: ClipboardList,
+    })
+  }
 
   if (canSubmitApproval) {
     actions.push({

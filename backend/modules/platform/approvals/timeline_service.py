@@ -46,6 +46,21 @@ def resolve_db_entity(
         return ("asset_creation", entity_id)
     if low in ("asset_creation", "asset_import"):
         return (low, entity_id)
+    if low in ("physical_order", "physical_order_creation", "physical_order_closure", "order"):
+        row = db.execute(
+            select(ApprovalRequest.entity_type, ApprovalRequest.entity_id)
+            .where(
+                ApprovalRequest.entity_id == entity_id,
+                ApprovalRequest.entity_type.in_(
+                    ("physical_order_creation", "physical_order_closure")
+                ),
+            )
+            .order_by(ApprovalRequest.id.desc())
+            .limit(1)
+        ).first()
+        if row is not None:
+            return (str(row[0]), int(row[1]))
+        return ("physical_order_creation", entity_id)
     row = db.execute(
         select(ApprovalRequest.entity_type, ApprovalRequest.entity_id)
         .where(

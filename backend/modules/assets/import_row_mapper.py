@@ -84,6 +84,7 @@ def build_section_payloads(raw: dict[str, Any]) -> dict[str, Any]:
         "asset_class": n.get("asset_class"),
         "asset_type": n.get("asset_type"),
         "category_code": n.get("category_code"),
+        "tag_color_code": n.get("tag_color_code"),
         "information": AssetInformationPayload(
             inventory_no=n.get("inventory_no"),
             asset_description=n.get("asset_description"),

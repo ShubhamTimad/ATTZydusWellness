@@ -83,6 +83,7 @@ class AssetCreateRequest(BaseModel):
     asset_class: str | None = Field(default=None, max_length=128)
     asset_type: str | None = Field(default=None, max_length=128)
     asset_category_id: int | None = None
+    tag_color_id: int | None = None
     ownership_type: str | None = Field(default=None, max_length=64)
     information: AssetInformationPayload | None = None
     location: AssetLocationPayload | None = None
@@ -98,6 +99,7 @@ class AssetUpdateRequest(BaseModel):
     asset_class: str | None = Field(default=None, max_length=128)
     asset_type: str | None = Field(default=None, max_length=128)
     asset_category_id: int | None = None
+    tag_color_id: int | None = None
     ownership_type: str | None = None
     lifecycle_status: str | None = None
     information: AssetInformationPayload | None = None
@@ -105,8 +107,33 @@ class AssetUpdateRequest(BaseModel):
     financial: AssetFinancialPayload | None = None
     inventory: AssetInventoryPayload | None = None
 
-class AssetRfidUpdateRequest(BaseModel):
+class AssetRfidAttachRequest(BaseModel):
+    rfid_code: str = Field(..., min_length=1, max_length=128)
+    tag_color_id: int | None = None
+
+
+class AssetRfidAttachByCodeRequest(BaseModel):
+    asset_code: str = Field(..., min_length=1, max_length=128)
+    rfid_code: str = Field(..., min_length=1, max_length=128)
+    tag_color_id: int | None = None
+
+
+# Alias for existing clients
+class AssetRfidUpdateRequest(AssetRfidAttachRequest):
+    pass
+
+
+class AssetRfidAttachPublic(BaseModel):
+    asset_id: int
+    asset_code: str
+    asset_name: str
     rfid_code: str
+    previous_rfid_code: str | None
+    operation: Literal["attached", "updated"]
+    tag_color_id: int | None = None
+    tag_color_code: str | None = None
+    tag_color_name: str | None = None
+    tag_color_hex: str | None = None
 
 class AssetListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -114,11 +141,17 @@ class AssetListItem(BaseModel):
     id: int
     asset_name: str
     asset_code: str
+    rfid_code: str | None = None
     category_name: str | None = None
+    plant_id: int | None = None
+    plant_code: str | None = None
     plant_name: str | None = None
     functional_location: str | None = None
+    functional_location_description: str | None = None
     actual_location: str | None = None
+    actual_location_description: str | None = None
     cost_center: str | None = None
+    cost_center_description: str | None = None
     inventory_count: int | None = None
     physical_count: int | None = None
     last_verification_date: date | None = None
@@ -147,6 +180,10 @@ class AssetDetailPublic(BaseModel):
     asset_class: str | None = None
     asset_type: str | None = None
     category_name: str | None = None
+    tag_color_id: int | None = None
+    tag_color_code: str | None = None
+    tag_color_name: str | None = None
+    tag_color_hex: str | None = None
     lifecycle_status: str
     approval_status: str
     ownership_type: str | None

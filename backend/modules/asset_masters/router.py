@@ -18,6 +18,9 @@ from modules.asset_masters.schema import (
     PlantChildCreate,
     PlantChildPublic,
     PlantChildUpdate,
+    TagColorCreate,
+    TagColorPublic,
+    TagColorUpdate,
 )
 from modules.asset_masters.service import AssetMastersService, DuplicateMasterCodeError
 from modules.errors import NotFoundError
@@ -63,6 +66,42 @@ def update_category(
 ) -> CategoryPublic:
     try:
         return svc.update_category(category_id, payload)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DuplicateMasterCodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get("/tag-colors", response_model=list[TagColorPublic])
+def list_tag_colors(
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_READ)],
+    active_only: bool = Query(True),
+) -> list[TagColorPublic]:
+    return svc.list_tag_colors(active_only=active_only)
+
+
+@router.post("/tag-colors", response_model=TagColorPublic, status_code=status.HTTP_201_CREATED)
+def create_tag_color(
+    payload: TagColorCreate,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_CREATE)],
+) -> TagColorPublic:
+    try:
+        return svc.create_tag_color(payload)
+    except DuplicateMasterCodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.patch("/tag-colors/{row_id}", response_model=TagColorPublic)
+def update_tag_color(
+    row_id: int,
+    payload: TagColorUpdate,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_UPDATE)],
+) -> TagColorPublic:
+    try:
+        return svc.update_tag_color(row_id, payload)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except DuplicateMasterCodeError as exc:

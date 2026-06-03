@@ -2,10 +2,10 @@ import * as React from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import { AuthFormShell } from "@/components/auth/auth-form-shell"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, postJson } from "@/lib/api"
@@ -76,80 +76,65 @@ export function ForgotPasswordPage() {
 
   return (
     <AppAuthMarketingLayout>
-      <Card className="w-full max-w-md min-h-[520px] rounded-3xl border border-white/20 bg-white/95 p-8 shadow-2xl backdrop-blur-md">
-        <CardHeader className="space-y-2 p-0 pb-6">
-          <div className="mb-6 flex justify-center">
-            <img
-              src="/logo.png"
-              alt="Takeda"
-              className="h-14 w-auto object-contain"
-            />
-          </div>
-          <CardTitle className="text-2xl">Forgot password</CardTitle>
-          <CardDescription>
-            Enter your account email. If we find an account, we will send a link to reset your password.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex h-full flex-col justify-between space-y-4 p-0">
-          {submitted ? (
-            <div className="space-y-4 text-sm text-muted-foreground">
-              <p>{successMessage}</p>
-              <p>The link expires after a limited time. Check your spam folder if you do not see it.</p>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button asChild variant="outline" size="sm" className="w-full sm:w-auto">
-                  <Link to={returnTo}>Back to sign in</Link>
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="w-full sm:w-auto"
-                  onClick={() => {
-                    setSubmitted(false)
-                    setSuccessMessage(null)
-                    setError(null)
-                  }}
-                >
-                  Use a different email
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={onSubmit} className="space-y-4">
-              {error ? (
-                <Alert variant="destructive">
-                  <AlertTitle>Could not send reset link</AlertTitle>
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              ) : null}
-              <div className="space-y-2">
-                <Label htmlFor="forgot-email">Email</Label>
-                <Input
-                  id="forgot-email"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(ev) => setEmail(ev.target.value)}
-                  disabled={isSubmitting}
-                  required
-                />
-              </div>
-              <Button
-                type="submit"
-                className="w-full bg-red-700 text-white hover:bg-red-800"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? "Checking…" : "Send reset link"}
+      <AuthFormShell
+        title="Forgot password"
+        description="Enter your account email. If we find a match, we will send a reset link."
+      >
+        {submitted ? (
+          <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
+            <p className="text-foreground">{successMessage}</p>
+            <p>The link expires after a limited time. Check your spam folder if you do not see it.</p>
+            <div className="flex flex-col gap-2 pt-1 sm:flex-row">
+              <Button asChild variant="outline" className="h-10 flex-1">
+                <Link to={returnTo}>Back to sign in</Link>
               </Button>
-              <p className="text-center text-sm">
-                <Link to={returnTo} className="text-red-700 underline-offset-2 hover:underline">
-                  Back to sign in
-                </Link>
-              </p>
-            </form>
-          )}
-        </CardContent>
-      </Card>
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10 flex-1"
+                onClick={() => {
+                  setSubmitted(false)
+                  setSuccessMessage(null)
+                  setError(null)
+                }}
+              >
+                Use a different email
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={onSubmit} className="space-y-4">
+            {error ? (
+              <Alert variant="destructive">
+                <AlertTitle>Could not send reset link</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : null}
+            <div className="app-form-field">
+              <Label htmlFor="forgot-email">Email</Label>
+              <Input
+                id="forgot-email"
+                type="email"
+                autoComplete="email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(ev) => setEmail(ev.target.value)}
+                disabled={isSubmitting}
+                className="h-11"
+                required
+              />
+            </div>
+            <Button type="submit" className="h-11 w-full text-sm font-semibold" disabled={isSubmitting}>
+              {isSubmitting ? "Sending…" : "Send reset link"}
+            </Button>
+            <p className="text-center text-sm">
+              <Link to={returnTo} className="font-medium text-primary underline-offset-2 hover:underline">
+                Back to sign in
+              </Link>
+            </p>
+          </form>
+        )}
+      </AuthFormShell>
     </AppAuthMarketingLayout>
   )
 }

@@ -393,9 +393,31 @@ class ApprovalEngineService:
             if extra:
                 req.payload.update(extra)
             set_asset_pending_approval(asset)
+        elif entity_type in ("physical_order_creation", "physical_order_closure"):
+            from modules.orders.constants import (
+                ORDER_STATUS_PENDING_APPROVAL,
+                ORDER_STATUS_PENDING_CLOSURE,
+            )
+            from modules.orders.model import PhysicalOrder
+            from modules.orders.service import PhysicalOrderService
+
+            order = self._db.get(PhysicalOrder, int(req.entity_id))
+            if order is None:
+                raise NotFoundError("PhysicalOrder", int(req.entity_id))
+            svc = PhysicalOrderService(self._db)
+            req.payload = svc._order_payload(
+                svc._load_order(int(order.id)),
+                action_code="order.create"
+                if entity_type == "physical_order_creation"
+                else "order.complete",
+            )
+            if entity_type == "physical_order_creation":
+                order.status = ORDER_STATUS_PENDING_APPROVAL
+            else:
+                order.status = ORDER_STATUS_PENDING_CLOSURE
         else:
             raise ApprovalError(
-                "Resubmit is only implemented for user creation and asset approval requests."
+                "Resubmit is only implemented for user creation, asset, and physical order requests."
             )
 
         now = _now_utc()
@@ -626,6 +648,16 @@ class ApprovalEngineService:
                     asset_id=int(req.entity_id),
                     approver_user_id=actor_user_id,
                 )
+            elif str(req.entity_type) in ("physical_order_creation", "physical_order_closure"):
+                from modules.orders.service import reject_order_approval
+
+                reject_order_approval(
+                    self._db,
+                    order_id=int(req.entity_id),
+                    entity_type=str(req.entity_type),
+                    approver_user_id=actor_user_id,
+                    comment=comment,
+                )
 
             # Move request into rework state (do not keep it "pending").
             req.status = "in_rework"
@@ -803,6 +835,26 @@ class ApprovalEngineService:
                 approver_user_id=approver_id,
             )
             self._db.commit()
+            return
+        if req.entity_type == "physical_order_creation":
+            from modules.orders.service import finalize_creation_approval
+
+            approver_id = self._last_approve_user_id(req)
+            finalize_creation_approval(
+                self._db,
+                order_id=int(req.entity_id),
+                approver_user_id=approver_id,
+            )
+            return
+        if req.entity_type == "physical_order_closure":
+            from modules.orders.service import finalize_closure_approval
+
+            approver_id = self._last_approve_user_id(req)
+            finalize_closure_approval(
+                self._db,
+                order_id=int(req.entity_id),
+                approver_user_id=approver_id,
+            )
             return
         if req.entity_type == "user_creation":
             user = self._db.get(User, req.entity_id)

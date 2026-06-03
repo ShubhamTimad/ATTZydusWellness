@@ -8,6 +8,8 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { TagColorSelect } from "@/components/assets/tag-color-select"
+import type { TagColorMaster } from "@/lib/masters-types"
 
 type AssetRfidDialogProps = {
   open: boolean
@@ -16,6 +18,13 @@ type AssetRfidDialogProps = {
   onChange: (value: string) => void
   onSave: () => void
   saving?: boolean
+  /** When set, show asset code field (toolbar attach-by-code flow). */
+  assetCode?: string
+  onAssetCodeChange?: (value: string) => void
+  assetCodeReadOnly?: boolean
+  tagColorId?: string
+  onTagColorChange?: (value: string) => void
+  tagColors?: TagColorMaster[]
 }
 
 export function AssetRfidDialog({
@@ -25,7 +34,18 @@ export function AssetRfidDialog({
   onChange,
   onSave,
   saving = false,
+  assetCode,
+  onAssetCodeChange,
+  assetCodeReadOnly = false,
+  tagColorId = "",
+  onTagColorChange,
+  tagColors = [],
 }: AssetRfidDialogProps) {
+  const showAssetCode = onAssetCodeChange != null
+  const showTagColor = value.trim().length > 0 && onTagColorChange != null
+  const canSave =
+    value.trim().length > 0 && (!showAssetCode || (assetCode?.trim().length ?? 0) > 0)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="overflow-hidden rounded-2xl p-0 sm:max-w-md">
@@ -38,11 +58,30 @@ export function AssetRfidDialog({
           </DialogHeader>
 
           <p className="mt-1 text-sm text-muted-foreground">
-            Scan the RFID tag or enter the RFID manually.
+            {showAssetCode
+              ? "Enter the asset code and scan or type the RFID tag."
+              : "Scan the RFID tag or enter the RFID manually."}
           </p>
         </div>
 
         <div className="space-y-5 px-6 py-5">
+          {showAssetCode ? (
+            <div className="space-y-2">
+              <Label htmlFor="asset-code" className="text-sm font-medium">
+                Asset code
+              </Label>
+              <Input
+                id="asset-code"
+                value={assetCode ?? ""}
+                onChange={(e) => onAssetCodeChange(e.target.value)}
+                placeholder="e.g. DEMO-AST-001"
+                readOnly={assetCodeReadOnly}
+                autoFocus={!assetCodeReadOnly}
+                className="h-11 font-mono uppercase"
+              />
+            </div>
+          ) : null}
+
           <div className="space-y-2">
             <Label
               htmlFor="rfid"
@@ -56,7 +95,7 @@ export function AssetRfidDialog({
               value={value}
               onChange={(e) => onChange(e.target.value)}
               placeholder="Scan or enter RFID code"
-              autoFocus
+              autoFocus={!showAssetCode}
               className="h-11 font-mono"
             />
 
@@ -64,6 +103,14 @@ export function AssetRfidDialog({
               RFID must be unique for every asset.
             </p>
           </div>
+
+          {showTagColor ? (
+            <TagColorSelect
+              value={tagColorId}
+              onChange={onTagColorChange}
+              tagColors={tagColors}
+            />
+          ) : null}
         </div>
 
         <DialogFooter className="border-t bg-muted/20 px-6 py-4">
@@ -79,7 +126,7 @@ export function AssetRfidDialog({
 
             <Button
               type="button"
-              disabled={saving || !value.trim()}
+              disabled={saving || !canSave}
               onClick={onSave}
               className="min-w-28"
             >

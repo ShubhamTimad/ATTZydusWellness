@@ -27,6 +27,7 @@ export const ASSET_MASTER_FIELDS: AssetMasterFieldDef[] = [
   { key: "asset_category_id", label: "Asset category", section: "root", kind: "category" },
   { key: "asset_code", label: "Asset code", section: "root", kind: "text" },
   { key: "rfid_code", label: "RFID code", section: "root", kind: "text" },
+  { key: "tag_color_id", label: "Tag color", section: "root", kind: "text" },
   { key: "sub_location", label: "Sub location", section: "location", kind: "text" },
   { key: "cost_center", label: "Cost center", section: "financial", kind: "cost_center" },
   { key: "party_details", label: "Party details", section: "financial", kind: "text" },
@@ -61,6 +62,7 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "category_code", label: "Asset category" },
   { key: "asset_code", label: "Asset code" },
   { key: "rfid_code", label: "RFID code" },
+  { key: "tag_color_code", label: "Tag color" },
   { key: "sub_location", label: "Sub location" },
   { key: "cost_center", label: "Cost center" },
   { key: "party_details", label: "Party details" },
@@ -87,6 +89,9 @@ const DATE_KEYS = new Set([
 
 export function assetMasterFieldValue(asset: AssetDetail, def: AssetMasterFieldDef): unknown {
   if (def.key === "asset_category_id") return asset.category_name ?? asset.asset_category_id
+  if (def.key === "tag_color_id") {
+    return asset.tag_color_name ?? asset.tag_color_code ?? asset.tag_color_id
+  }
   if (def.key === "plant_id") return asset.plant_name ?? asset.location?.plant_id
   if (def.key === "inventory_count") return asset.inventory?.inventory_count ?? 1
   if (def.section === "root") {
@@ -104,6 +109,8 @@ export function isAssetMasterDateField(key: string): boolean {
 export const ASSET_FIELD_LABELS: Record<string, string> = {
   ...Object.fromEntries(ASSET_MASTER_FIELDS.map((f) => [f.key, f.label])),
   asset_category_id: "Asset category",
+  tag_color_id: "Tag color",
+  tag_color_code: "Tag color",
   functional_location: "Functional location",
   actual_location: "Actual location",
   building: "Building",
@@ -144,6 +151,7 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
       "asset_category_id",
       "asset_code",
       "rfid_code",
+      "tag_color_id",
     ],
   },
   {

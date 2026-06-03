@@ -75,12 +75,18 @@ def get_workflow_for_action(db: Session, action_code: str) -> ApprovalWorkflow |
     wf_svc = ApprovalWorkflowService(db)
     asset_create_variants = _permission_code_variants("asset.create")
     asset_import_variants = _permission_code_variants("asset.import")
+    order_create_variants = _permission_code_variants("order.create")
+    order_complete_variants = _permission_code_variants("order.complete")
     if (canonical is not None and canonical in users_create_variants) or raw in users_create_variants:
         return wf_svc.get_active_workflow_for_entity("user_creation")
     if (canonical is not None and canonical in asset_create_variants) or raw in asset_create_variants:
         return wf_svc.get_active_workflow_for_entity("asset_creation")
     if (canonical is not None and canonical in asset_import_variants) or raw in asset_import_variants:
         return wf_svc.get_active_workflow_for_entity("asset_import")
+    if (canonical is not None and canonical in order_create_variants) or raw in order_create_variants:
+        return wf_svc.get_active_workflow_for_entity("physical_order_creation")
+    if (canonical is not None and canonical in order_complete_variants) or raw in order_complete_variants:
+        return wf_svc.get_active_workflow_for_entity("physical_order_closure")
 
     return None
 
