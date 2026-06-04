@@ -70,8 +70,8 @@ export function AppAuthMarketingLayout({
           />
 
           <div className="relative z-10">
-            <AuthBrandMark size="lg" className="hidden lg:flex" />
-            <AuthBrandMark size="md" className="lg:hidden" />
+            <AuthBrandMark size="lg" onDark className="hidden lg:flex" />
+            <AuthBrandMark size="md" onDark className="lg:hidden" />
 
             <div className="mt-10 max-w-md space-y-4">
               <p className="text-xs font-semibold tracking-[0.18em] text-primary-foreground/70 uppercase">

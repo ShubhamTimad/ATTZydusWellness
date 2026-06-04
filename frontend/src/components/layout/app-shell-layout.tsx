@@ -19,6 +19,7 @@ import type { LucideIcon } from "lucide-react"
 import { Link, useLocation } from "react-router-dom"
 
 import { ProfileDialog } from "@/components/profile-dialog"
+import { AppBrandMark } from "@/components/layout/app-brand-mark"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -201,21 +202,15 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
           isSidebarCollapsed ? "w-16" : "w-60"
         )}
       >
-        <div
+        <Link
+          to="/dashboard"
           className={cn(
-            "flex h-16 shrink-0 items-center justify-center border-b",
-            isSidebarCollapsed ? "px-2" : "px-4"
+            "group flex w-full shrink-0 items-center border-b border-border/70 bg-gradient-to-br from-card via-card to-[color-mix(in_srgb,var(--brand)_6%,var(--card))] transition-colors hover:to-[color-mix(in_srgb,var(--brand)_10%,var(--card))]",
+            isSidebarCollapsed ? "h-16 justify-center px-2" : "h-[4.75rem] justify-center px-4 py-3",
           )}
         >
-          <img
-            src="/logo.png"
-            alt="Takeda"
-            className={cn(
-              "object-contain transition-all duration-200",
-              isSidebarCollapsed ? "h-8 w-8" : "h-12 w-auto"
-            )}
-          />
-        </div>
+          <AppBrandMark collapsed={isSidebarCollapsed} size="md" />
+        </Link>
         <Separator className="shrink-0" />
         <div className="flex min-h-0 flex-1 flex-col">
           <nav

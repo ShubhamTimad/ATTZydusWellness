@@ -1,6 +1,5 @@
 import * as React from "react"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
-import { ShieldCheck } from "lucide-react"
 
 import { AuthFormShell } from "@/components/auth/auth-form-shell"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
@@ -186,14 +185,6 @@ export function AppLoginPage() {
           step === "otp"
             ? "Enter the 6-digit code from your authenticator app to finish signing in."
             : "Sign in with your email or username to open the dashboard."
-        }
-        footer={
-          step === "password" ? (
-            <span className="inline-flex items-center justify-center gap-1.5">
-              <ShieldCheck className="size-3.5 shrink-0 text-primary/80" aria-hidden />
-              Protected workspace · MFA may be required
-            </span>
-          ) : undefined
         }
       >
         {error ? (

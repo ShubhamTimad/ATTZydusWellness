@@ -70,14 +70,14 @@ export function CreatePhysicalOrderDialog({ open, onOpenChange, assetIds, onCrea
         </DialogHeader>
         <div className="dialog-body space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="executor">Executor</Label>
+            <Label htmlFor="executor">Operator / executor</Label>
             <select
               id="executor"
               className={adminSelectClass}
               value={assignedTo}
               onChange={(e) => setAssignedTo(e.target.value)}
             >
-              <option value="">Select user…</option>
+              <option value="">Select operator…</option>
               {executors.map((u) => (
                 <option key={u.id} value={String(u.id)}>
                   {u.full_name}
@@ -85,6 +85,12 @@ export function CreatePhysicalOrderDialog({ open, onOpenChange, assetIds, onCrea
                 </option>
               ))}
             </select>
+            {executors.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No users with order execution permission. Assign the Operator role (or order.execute) to users who
+                should run physical verification.
+              </p>
+            ) : null}
           </div>
           <div className="space-y-2">
             <Label htmlFor="remarks">Remarks</Label>

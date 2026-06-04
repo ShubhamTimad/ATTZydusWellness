@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -52,6 +52,8 @@ class PhysicalOrderItemPublic(BaseModel):
     rejection_reason: str | None
     scan_time: datetime | None
     verified_by_name: str | None
+    physically_verified: bool
+    last_verification_date: date | None = None
 
 
 class PhysicalOrderListItem(BaseModel):
@@ -79,10 +81,51 @@ class PhysicalOrderListResponse(BaseModel):
 class PhysicalOrderAuditPublic(BaseModel):
     id: int
     action: str
+    label: str
+    detail: str | None = None
     actor_name: str | None
     old_value: dict | None
     new_value: dict | None
     created_at: datetime
+
+
+class OrderWorkflowStepDefinition(BaseModel):
+    step_order: int
+    role_name: str
+    required_approvals: int
+
+
+class OrderWorkflowDefinition(BaseModel):
+    phase: str
+    workflow_name: str
+    action_code: str
+    steps: list[OrderWorkflowStepDefinition]
+
+
+class OrderLifecycleApproverSlot(BaseModel):
+    slot: int
+    status: str
+    actor_name: str | None = None
+    acted_at: datetime | None = None
+    comment: str | None = None
+
+
+class OrderLifecycleStepPublic(BaseModel):
+    key: str
+    label: str
+    status: str
+    role_name: str | None = None
+    actor_name: str | None = None
+    occurred_at: datetime | None = None
+    detail: str | None = None
+    approver_slots: list[OrderLifecycleApproverSlot] = Field(default_factory=list)
+
+
+class PhysicalOrderProgressPublic(BaseModel):
+    steps: list[OrderLifecycleStepPublic]
+    current_step_key: str | None
+    creation_workflow: OrderWorkflowDefinition | None = None
+    closure_workflow: OrderWorkflowDefinition | None = None
 
 
 class PhysicalOrderDetail(BaseModel):
@@ -108,8 +151,12 @@ class PhysicalOrderDetail(BaseModel):
     approval_request_id: int | None
     items: list[PhysicalOrderItemPublic]
     verified_count: int
+    physically_verified_count: int
+    pending_physical_count: int
+    rejected_item_count: int
     total_count: int
     audit: list[PhysicalOrderAuditPublic]
+    progress: PhysicalOrderProgressPublic
 
 
 class ExecutorUserPublic(BaseModel):
@@ -139,6 +186,7 @@ class RejectOrderRequest(BaseModel):
 
 class ScanAssetRequest(BaseModel):
     scan_value: str = Field(..., min_length=1)
+    item_id: int | None = None
 
 
 class ScanAssetResponse(BaseModel):

@@ -145,7 +145,7 @@ ROLE_SPECS: list[dict[str, object]] = [
     },
     {
         "name": "Operator",
-        "description": "Full workspace access — all module permissions.",
+        "description": "Full workspace access including physical order create, execute, approve, and closure.",
         "permissions": "__all__",
     },
     {
@@ -291,8 +291,8 @@ WORKFLOW_SPECS: list[dict[str, object]] = [
         "activate": True,
         "map_action": "order.create",
         "steps": [
-            (1, "Plant Manager", 1),
-            (2, "Approver", 1),
+            (1, "Operator", 1),
+            (2, "Operator", 1),
         ],
     },
     {
@@ -301,8 +301,8 @@ WORKFLOW_SPECS: list[dict[str, object]] = [
         "activate": True,
         "map_action": "order.complete",
         "steps": [
-            (1, "Approver", 1),
-            (2, "Plant Manager", 1),
+            (1, "Operator", 1),
+            (2, "Operator", 1),
         ],
     },
 ]

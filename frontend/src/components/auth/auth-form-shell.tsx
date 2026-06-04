@@ -21,7 +21,7 @@ export function AuthFormShell({
   return (
     <div className={cn("w-full max-w-[420px]", className)}>
       <div className="mb-8 lg:hidden">
-        <AuthBrandMark size="md" />
+        <AuthBrandMark size="md" showSubtitle />
       </div>
 
       <div className="rounded-[1.25rem] border border-border/70 bg-card p-8 shadow-[var(--app-shadow-elevated)] sm:p-9">

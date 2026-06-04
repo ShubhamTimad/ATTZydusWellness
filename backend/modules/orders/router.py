@@ -120,12 +120,25 @@ def submit_order(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
+@router.post("/{order_id}/approval/approve-order", response_model=PhysicalOrderDetail)
+def approve_creation_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.approve"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.approve_creation_order(order_id, actor_user_id=int(current.subject))
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
 @router.post("/{order_id}/approval/approve-all", response_model=PhysicalOrderDetail)
 def approve_all_items(
     order_id: int,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
-    _: Annotated[object, Depends(require_permission("order.approve"))],
+    _: Annotated[object, Depends(require_any_permission("order.approve", "order.create"))],
 ) -> PhysicalOrderDetail:
     try:
         return svc.approve_all_items(order_id, actor_user_id=int(current.subject))
@@ -139,7 +152,7 @@ def approve_items(
     body: ItemIdsRequest,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
-    _: Annotated[object, Depends(require_permission("order.approve"))],
+    _: Annotated[object, Depends(require_any_permission("order.approve", "order.create"))],
 ) -> PhysicalOrderDetail:
     try:
         return svc.approve_items(order_id, body.item_ids, actor_user_id=int(current.subject))
@@ -153,7 +166,7 @@ def reject_items(
     body: RejectItemsRequest,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
-    _: Annotated[object, Depends(require_permission("order.approve"))],
+    _: Annotated[object, Depends(require_any_permission("order.approve", "order.create"))],
 ) -> PhysicalOrderDetail:
     try:
         return svc.reject_items(
@@ -180,6 +193,25 @@ def reject_order(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
+@router.post("/{order_id}/execution/reject-items", response_model=PhysicalOrderDetail)
+def reject_execution_items(
+    order_id: int,
+    body: RejectItemsRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.execute"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.reject_execution_items(
+            order_id,
+            body.item_ids,
+            rejection_reason=body.rejection_reason,
+            actor_user_id=int(current.subject),
+        )
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
 @router.post("/{order_id}/start", response_model=PhysicalOrderDetail)
 def start_order(
     order_id: int,
@@ -202,7 +234,12 @@ def scan_asset(
     _: Annotated[object, Depends(require_permission("order.execute"))],
 ) -> ScanAssetResponse:
     try:
-        return svc.scan_asset(order_id, scan_value=body.scan_value, actor_user_id=int(current.subject))
+        return svc.scan_asset(
+            order_id,
+            scan_value=body.scan_value,
+            item_id=body.item_id,
+            actor_user_id=int(current.subject),
+        )
     except (ConflictError, NotFoundError) as e:
         code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
         raise HTTPException(status_code=code, detail=str(e)) from e
@@ -226,7 +263,7 @@ def approve_closure_order(
     order_id: int,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
-    _: Annotated[object, Depends(require_permission("order.approve"))],
+    _: Annotated[object, Depends(require_any_permission("order.approve", "order.create"))],
 ) -> PhysicalOrderDetail:
     try:
         return svc.approve_closure_order(order_id, actor_user_id=int(current.subject))

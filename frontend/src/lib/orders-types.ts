@@ -63,15 +63,58 @@ export type PhysicalOrderItem = {
   rejection_reason: string | null
   scan_time: string | null
   verified_by_name: string | null
+  physically_verified: boolean
+  last_verification_date: string | null
 }
 
 export type PhysicalOrderAudit = {
   id: number
   action: string
+  label: string
+  detail: string | null
   actor_name: string | null
   old_value: Record<string, unknown> | null
   new_value: Record<string, unknown> | null
   created_at: string
+}
+
+export type OrderWorkflowStepDefinition = {
+  step_order: number
+  role_name: string
+  required_approvals: number
+}
+
+export type OrderWorkflowDefinition = {
+  phase: string
+  workflow_name: string
+  action_code: string
+  steps: OrderWorkflowStepDefinition[]
+}
+
+export type OrderLifecycleApproverSlot = {
+  slot: number
+  status: string
+  actor_name?: string | null
+  acted_at?: string | null
+  comment?: string | null
+}
+
+export type OrderLifecycleStep = {
+  key: string
+  label: string
+  status: string
+  role_name?: string | null
+  actor_name?: string | null
+  occurred_at?: string | null
+  detail?: string | null
+  approver_slots: OrderLifecycleApproverSlot[]
+}
+
+export type PhysicalOrderProgress = {
+  steps: OrderLifecycleStep[]
+  current_step_key: string | null
+  creation_workflow: OrderWorkflowDefinition | null
+  closure_workflow: OrderWorkflowDefinition | null
 }
 
 export type PhysicalOrderDetail = {
@@ -82,7 +125,9 @@ export type PhysicalOrderDetail = {
   cost_center_description: string
   status: string
   remarks: string | null
+  created_by: number | null
   created_by_name: string | null
+  assigned_to: number | null
   assigned_to_name: string | null
   assigned_by_name: string | null
   assigned_at: string | null
@@ -93,8 +138,12 @@ export type PhysicalOrderDetail = {
   approval_request_id: number | null
   items: PhysicalOrderItem[]
   verified_count: number
+  physically_verified_count: number
+  pending_physical_count: number
+  rejected_item_count: number
   total_count: number
   audit: PhysicalOrderAudit[]
+  progress: PhysicalOrderProgress
 }
 
 export type OrdersDashboardModule = {
