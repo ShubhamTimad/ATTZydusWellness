@@ -30,23 +30,53 @@ function DetailFieldList({
   rows,
   className,
   layout = "inline",
+  columns = 1,
+  compact = false,
 }: {
   rows: DetailRow[]
   className?: string
   layout?: "inline" | "stacked"
+  columns?: 1 | 2
+  compact?: boolean
 }) {
+  const rowPadding = compact ? "py-2" : "py-3"
+  const cellClass = cn(
+    "px-[var(--app-card-padding)]",
+    rowPadding,
+    layout === "stacked"
+      ? "space-y-0.5"
+      : "grid grid-cols-1 items-baseline gap-x-3 gap-y-0.5 sm:grid-cols-[minmax(7rem,34%)_1fr]",
+  )
+
+  if (columns === 2) {
+    return (
+      <div
+        className={cn(
+          "grid grid-cols-1 divide-y divide-border/60 sm:grid-cols-2 sm:divide-y-0",
+          className,
+        )}
+      >
+        {rows.map((row) => (
+          <div key={row.label} className={cn(cellClass, "border-b border-border/60")}>
+            <dt className="text-xs font-medium text-muted-foreground">{row.label}</dt>
+            <dd
+              className={cn(
+                "text-sm font-medium leading-snug break-words text-foreground",
+                row.highlight && "text-primary",
+              )}
+            >
+              {row.value}
+            </dd>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   return (
     <dl className={cn("divide-y divide-border/60", className)}>
       {rows.map((row) => (
-        <div
-          key={row.label}
-          className={cn(
-            "px-[var(--app-card-padding)] py-3",
-            layout === "stacked"
-              ? "space-y-1"
-              : "grid grid-cols-1 items-baseline gap-x-4 gap-y-1 sm:grid-cols-[minmax(8rem,32%)_1fr]",
-          )}
-        >
+        <div key={row.label} className={cellClass}>
           <dt className="text-xs font-medium text-muted-foreground">{row.label}</dt>
           <dd
             className={cn(
@@ -76,6 +106,8 @@ export function AssetDetailSectionPanel({
   inventoryDisplay,
   highlightMismatch,
   fieldLayout = "inline",
+  compact = false,
+  fieldColumns = 1,
   className,
 }: {
   config: AssetViewSectionConfig
@@ -92,6 +124,10 @@ export function AssetDetailSectionPanel({
   highlightMismatch?: boolean
   /** Stacked label/value rows — better in narrow containers (e.g. approval dialog). */
   fieldLayout?: "inline" | "stacked"
+  /** Tighter rows for asset detail viewport layout. */
+  compact?: boolean
+  /** Two-column field grid in view mode (e.g. financial panel). */
+  fieldColumns?: 1 | 2
   className?: string
 }) {
   const dateFields = config.dateFields ?? []
@@ -144,12 +180,19 @@ export function AssetDetailSectionPanel({
     return String(raw)
   }
 
+  const panelMinHeight = compact ? "min-h-0" : ASSET_VIEW_PANEL_MIN_HEIGHT
+
   return (
     <AdminPanel
-      className={cn("flex h-full flex-col", ASSET_VIEW_PANEL_MIN_HEIGHT, className)}
+      className={cn("flex h-full flex-col", panelMinHeight, className)}
       contentClassName="flex flex-1 flex-col p-0"
     >
-      <div className="app-panel-header shrink-0 border-b border-border/60 py-3">
+      <div
+        className={cn(
+          "app-panel-header shrink-0 border-b border-border/60",
+          compact ? "py-2" : "py-3",
+        )}
+      >
         <Icon className="size-4 text-primary" aria-hidden />
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
       </div>
@@ -216,6 +259,8 @@ export function AssetDetailSectionPanel({
         <DetailFieldList
           className="flex-1"
           layout={fieldLayout}
+          compact={compact}
+          columns={fieldColumns}
           rows={[
             ...(config.showPlant && plantName
               ? [{ label: "Plant name", value: plantName }]

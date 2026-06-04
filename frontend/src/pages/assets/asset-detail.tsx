@@ -59,10 +59,28 @@ function formatDate(iso: string | null | undefined) {
 type AuditLogRow = {
   id: string
   at: string
+  action: string
   activityVerb: string
   actorName: string | null
   summary: string
   changes: { field_label: string; from_value: string; to_value: string }[]
+}
+
+const VISIBLE_ORDER_AUDIT_ACTIONS = new Set([
+  "physical_order_approved",
+  "physical_order_started",
+  "physical_verification_reset",
+  "physical_order_verified",
+])
+
+function isPhysicalOrderAudit(action: string) {
+  return VISIBLE_ORDER_AUDIT_ACTIONS.has(action)
+}
+
+function hasInventoryAuditChanges(row: AuditLogRow) {
+  return row.changes.some(
+    (c) => c.field_label === "Physical count" || c.field_label === "Last verification date",
+  )
 }
 
 const INVENTORY_READONLY = new Set([
@@ -83,22 +101,28 @@ type SummaryItem = { label: string; value: React.ReactNode; mono?: boolean }
 
 function SummaryStrip({ items }: { items: SummaryItem[] }) {
   return (
-    <div className="app-panel grid grid-cols-2 divide-x divide-border/60 overflow-hidden sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-      {items.map((item) => (
-        <div key={item.label} className="min-w-0 px-[var(--app-card-padding)] py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {item.label}
-          </p>
-          <p
-            className={cn(
-              "mt-0.5 truncate text-sm font-medium text-foreground",
-              item.mono && "font-mono text-xs",
-            )}
+    <div className="app-panel overflow-x-auto overscroll-x-contain">
+      <div className="flex min-w-full flex-nowrap divide-x divide-border/60">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className="min-w-0 flex-1 basis-0 px-3 py-2.5 first:pl-[var(--app-card-padding)] last:pr-[var(--app-card-padding)]"
           >
-            {item.value}
-          </p>
-        </div>
-      ))}
+            <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {item.label}
+            </p>
+            <p
+              className={cn(
+                "mt-0.5 truncate text-sm font-medium text-foreground",
+                item.mono && "font-mono text-xs",
+              )}
+              title={typeof item.value === "string" ? item.value : undefined}
+            >
+              {item.value}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -152,6 +176,7 @@ export function AssetDetailPage() {
         moduleEvents.map((e) => ({
           id: `m-${e.id}`,
           at: e.created_at,
+          action: e.action,
           activityVerb: e.activity_verb,
           actorName: e.actor_name,
           summary: e.summary,
@@ -517,9 +542,19 @@ export function AssetDetailPage() {
     ASSET_VIEW_SECTIONS.map((s) => [s.id, s]),
   ) as Record<AssetViewSectionId, AssetViewSectionConfig>
 
+  const sectionPanelProps = {
+    compact: !editing,
+    fieldColumns: (sectionId: AssetViewSectionId) =>
+      !editing && sectionId === "financial" ? (2 as const) : (1 as const),
+  }
+
   function renderAssetViewSection(sectionId: AssetViewSectionId) {
     const sec = sectionsById[sectionId]
     const Icon = SECTION_ICONS[sec.id] ?? Package
+    const panelCommon = {
+      compact: sectionPanelProps.compact,
+      fieldColumns: sectionPanelProps.fieldColumns(sectionId),
+    }
 
     if (sec.id === "information") {
       const infoConfig: AssetViewSectionConfig = {
@@ -531,13 +566,13 @@ export function AssetDetailPage() {
       return (
         <AssetDetailSectionPanel
           key={sec.id}
-          className="h-full"
           config={infoConfig}
           title={sec.title}
           icon={Icon}
           editing={editing}
           asset={a}
           onSection={onInformationSection}
+          {...panelCommon}
           selectOptions={{
             asset_category_id: masters.categories.map((c) => ({
               value: String(c.id),
@@ -559,13 +594,13 @@ export function AssetDetailPage() {
       return (
         <AssetDetailSectionPanel
           key={sec.id}
-          className="h-full"
           config={sec}
           title={sec.title}
           icon={Icon}
           editing={editing}
           asset={a}
           onSection={onLocationSection}
+          {...panelCommon}
           plantName={a.plant_name}
           extra={
             editing ? (
@@ -611,13 +646,13 @@ export function AssetDetailPage() {
       return (
         <AssetDetailSectionPanel
           key={sec.id}
-          className="h-full"
           config={sec}
           title={sec.title}
           icon={Icon}
           editing={editing}
           asset={a}
           onSection={onFinancialSection}
+          {...panelCommon}
           selectOptions={{
             cost_center: masters.costCenters.map((m) => ({
               value: m.code,
@@ -633,7 +668,6 @@ export function AssetDetailPage() {
     return (
       <AssetDetailSectionPanel
         key={sec.id}
-        className="h-full"
         config={sec}
         title={sec.title}
         icon={Icon}
@@ -641,47 +675,43 @@ export function AssetDetailPage() {
         asset={a}
         onSection={(field, value) => {
           if (INVENTORY_READONLY.has(field)) return
-          const storage = sec.fieldStorage?.[field] ?? "inventory"
-          if (storage === "financial") {
-            onFinancialSection(field, value)
-            return
-          }
           setSection("inventory", field, value)
         }}
         inventoryDisplay={inventoryDisplayValue}
         highlightMismatch={countMismatch}
+        {...panelCommon}
       />
     )
   }
 
   return (
     <>
-      <AdminPage fullWidth actions={toolbar} className="w-full pb-4">
-        <header className="flex flex-wrap items-end justify-between gap-[var(--app-grid-gap)] border-b border-border/60 pb-[var(--app-grid-gap)]">
-          <div className="min-w-0">
-            <h1 className="app-page-heading truncate">
-              {a.asset_name}
-            </h1>
+      <AdminPage fullWidth dense actions={toolbar} className="w-full pb-6">
+        <section aria-label="Asset details" className="flex shrink-0 flex-col gap-3">
+          <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border/60 pb-3">
+            <div className="min-w-0">
+              <h1 className="app-page-heading truncate">{a.asset_name}</h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {a.location?.functional_location ?? a.asset_code}
+                {a.plant_name ? ` · ${a.plant_name}` : ""}
+              </p>
+            </div>
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+              <Clock className="size-3.5 shrink-0" aria-hidden />
+              Updated {formatDateTime(a.updated_at)}
+            </span>
+          </header>
 
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {a.location?.functional_location ?? a.asset_code}
-              {a.plant_name ? ` · ${a.plant_name}` : ""}
-            </p>
+          <SummaryStrip items={summaryItems} />
+
+          <div className="app-grid app-grid-2 items-start">
+            {ASSET_VIEW_SECTIONS.map((sec) => renderAssetViewSection(sec.id))}
           </div>
+        </section>
 
-          <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="size-3.5 shrink-0" aria-hidden />
-            Updated {formatDateTime(a.updated_at)}
-          </span>
-        </header>
-
-        <SummaryStrip items={summaryItems} />
-
-        <div className="app-grid app-grid-2 lg:items-stretch">
-          {ASSET_VIEW_SECTIONS.map((sec) => renderAssetViewSection(sec.id))}
-        </div>
-
-        <AssetAuditLog rows={auditRows} loading={auditLoading} />
+        <section aria-label="Audit trail" className="border-t border-border/60 pt-6">
+          <AssetAuditLog rows={auditRows} loading={auditLoading} />
+        </section>
       </AdminPage>
 
       <AssetRfidDialog {...rfidDialogProps} />
@@ -689,74 +719,129 @@ export function AssetDetailPage() {
   )
 }
 
-function auditActionLabel(verb: string) {
-  return verb.replace(/\s+by\s*$/i, "").trim() || verb
+function auditActivityText(row: AuditLogRow): string {
+  const summary = row.summary?.trim()
+  if (summary) {
+    let text = summary.split("\n")[0]?.trim() ?? summary
+    const actor = row.actorName?.trim()
+    if (actor && text.endsWith(` · ${actor}`)) {
+      text = text.slice(0, -(` · ${actor}`).length)
+    }
+    if (actor && text.endsWith(` by ${actor}`)) {
+      text = text.slice(0, -(` by ${actor}`).length)
+    }
+    return text
+  }
+  return row.activityVerb.replace(/\s+by\s*$/i, "").trim() || row.activityVerb
 }
 
-function AuditActivityCell({ row }: { row: AuditLogRow }) {
-  if (row.changes.length > 0) {
-    return (
-      <div className="space-y-1">
-        <p className="text-sm text-foreground">{auditActionLabel(row.activityVerb)}</p>
-        <ul className="space-y-1">
-        {row.changes.map((change) => (
-          <li key={`${change.field_label}-${change.from_value}-${change.to_value}`} className="text-sm">
-            <span className="text-muted-foreground">{change.field_label} :</span>{" "}
-            <span className="text-foreground">{change.from_value}</span>
+function InventoryAuditChanges({ changes }: { changes: AuditLogRow["changes"] }) {
+  const rows = changes.filter(
+    (c) => c.field_label === "Physical count" || c.field_label === "Last verification date",
+  )
+  if (rows.length === 0) return null
+  return (
+    <dl className="mt-1 grid max-w-md gap-1 rounded-md border border-border/50 bg-muted/20 px-2.5 py-1.5 text-xs">
+      {rows.map((change) => (
+        <div
+          key={`${change.field_label}-${change.from_value}-${change.to_value}`}
+          className="grid grid-cols-[minmax(7rem,42%)_1fr] items-baseline gap-x-2"
+        >
+          <dt className="text-muted-foreground">{change.field_label}</dt>
+          <dd className="tabular-nums text-foreground">
+            <span>{change.from_value}</span>
             <span className="mx-1 text-muted-foreground" aria-hidden>
               →
             </span>
             <span className="font-semibold text-foreground">{change.to_value}</span>
-          </li>
-        ))}
-        </ul>
-      </div>
-    )
-  }
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
 
-  return <p className="text-sm text-foreground">{auditActionLabel(row.activityVerb)}</p>
+function AuditChangeLines({ row }: { row: AuditLogRow }) {
+  const visible = row.changes.slice(0, 4)
+  const extra = row.changes.length - visible.length
+  return (
+    <ul className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
+      {visible.map((change) => (
+        <li key={`${change.field_label}-${change.from_value}-${change.to_value}`}>
+          <span>{change.field_label}:</span> {change.from_value}
+          <span className="mx-0.5" aria-hidden>
+            →
+          </span>
+          <span className="text-foreground">{change.to_value}</span>
+        </li>
+      ))}
+      {extra > 0 ? <li className="text-[11px]">+{extra} more field(s)</li> : null}
+    </ul>
+  )
 }
 
 function AssetAuditLog({ rows, loading }: { rows: AuditLogRow[]; loading: boolean }) {
+  const countLabel = rows.length > 0 ? `${rows.length} event${rows.length === 1 ? "" : "s"}` : null
+
   return (
     <AdminPanel
       title="Audit trail"
-      description="Creation, import, edits, and approvals for this asset."
-      className="mt-2"
+      description={
+        countLabel
+          ? `${countLabel} — order approval, verification start, and count/date updates.`
+          : "Order approval, verification start, and inventory count/date changes."
+      }
       contentClassName="p-0"
     >
-      <div className="max-h-80 overflow-auto">
-        {loading ? (
-          <p className="px-5 py-6 text-sm text-muted-foreground">Loading audit trail…</p>
-        ) : rows.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-muted-foreground">No audit events recorded yet.</p>
-        ) : (
-          <table className="app-table-head-sticky w-full text-left text-sm">
-            <thead>
-              <tr>
-                <th className="w-40 px-4 py-2.5 text-xs font-semibold text-muted-foreground">When</th>
-                <th className="w-36 px-4 py-2.5 text-xs font-semibold text-muted-foreground">By</th>
-                <th className="px-4 py-2.5 text-xs font-semibold text-muted-foreground">Activity</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {rows.map((row) => (
-                <tr key={row.id} className="hover:bg-muted/15">
-                  <td className="whitespace-nowrap px-4 py-2.5 align-top text-xs tabular-nums text-muted-foreground">
+      {loading ? (
+        <p className="px-4 py-6 text-sm text-muted-foreground">Loading audit trail…</p>
+      ) : rows.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-muted-foreground">No audit events recorded yet.</p>
+      ) : (
+        <div className="max-h-[min(22rem,50vh)] overflow-y-auto overscroll-y-contain">
+          <div className="sticky top-0 z-[1] hidden border-b border-border/60 bg-muted/40 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:grid sm:grid-cols-[9.5rem_6.5rem_1fr] sm:gap-3">
+            <span>When</span>
+            <span>By</span>
+            <span>Activity</span>
+          </div>
+          <ul className="divide-y divide-border/40">
+            {rows.map((row) => {
+              const orderEvent = isPhysicalOrderAudit(row.action)
+              const activity = auditActivityText(row)
+              return (
+                <li
+                  key={row.id}
+                  className={cn(
+                    "px-4 py-2 transition-colors hover:bg-muted/10 sm:grid sm:grid-cols-[9.5rem_6.5rem_1fr] sm:items-start sm:gap-3",
+                    orderEvent && "bg-primary/[0.03]",
+                  )}
+                >
+                  <p className="shrink-0 text-[11px] tabular-nums text-muted-foreground sm:pt-0.5">
                     {formatDateTime(row.at)}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 align-top text-sm font-semibold text-foreground">
+                  </p>
+                  <p className="truncate text-xs font-medium text-foreground">
                     {row.actorName?.trim() || "System"}
-                  </td>
-                  <td className="px-4 py-2.5 align-top">
-                    <AuditActivityCell row={row} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+                  </p>
+                  <div className="min-w-0 sm:col-span-1">
+                    <p className="flex flex-wrap items-center gap-1.5 text-xs leading-snug text-foreground">
+                      {orderEvent ? (
+                        <span className="inline-flex shrink-0 rounded border border-primary/25 bg-primary/8 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-primary">
+                          Order
+                        </span>
+                      ) : null}
+                      <span className="min-w-0 break-words">{activity}</span>
+                    </p>
+                    {orderEvent && hasInventoryAuditChanges(row) ? (
+                      <InventoryAuditChanges changes={row.changes} />
+                    ) : null}
+                    {!orderEvent && row.changes.length > 0 ? <AuditChangeLines row={row} /> : null}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
     </AdminPanel>
   )
 }

@@ -30,10 +30,13 @@ from modules.assets.lifecycle import (
     set_asset_rejected_inactive,
 )
 from modules.assets.audit_helpers import (
+    ORDER_ASSET_AUDIT_ACTIONS,
+    include_asset_audit_event,
     actor_display,
     activity_verb_for_action,
     build_audit_summary,
     diff_snapshots,
+    format_asset_order_audit_lines,
     format_changes_detail,
     snapshot_asset,
 )
@@ -955,10 +958,13 @@ class AssetMasterService:
 
         out: list[AssetAuditEventPublic] = []
         for ev in events:
+            if not include_asset_audit_event(ev.action):
+                continue
             actor = users_by_id.get(int(ev.actor_user_id)) if ev.actor_user_id else None
             name = actor_display(actor, ev.actor_user_id)
             change_rows: list[AssetAuditChangeLine] = []
             nv = ev.new_value if isinstance(ev.new_value, dict) else {}
+            ov = ev.old_value if isinstance(ev.old_value, dict) else {}
             if ev.action == "updated" and isinstance(nv.get("changes"), dict):
                 change_rows = [
                     AssetAuditChangeLine(**line)
@@ -966,6 +972,15 @@ class AssetMasterService:
                         nv["changes"],
                         plant_labels=plant_labels,
                         category_labels=category_labels,
+                    )
+                ]
+            elif ev.action in ORDER_ASSET_AUDIT_ACTIONS:
+                change_rows = [
+                    AssetAuditChangeLine(**line)
+                    for line in format_asset_order_audit_lines(
+                        ev.action,
+                        old_value=ov,
+                        new_value=nv,
                     )
                 ]
             summary = build_audit_summary(

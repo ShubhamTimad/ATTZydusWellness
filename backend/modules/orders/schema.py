@@ -27,12 +27,24 @@ class InvalidAssetRef(BaseModel):
     cost_center_code: str | None = None
 
 
+class VerifiedInFinancialYearRef(BaseModel):
+    asset_id: int
+    asset_code: str
+    asset_name: str
+    last_verification_date: date | None = None
+    physical_count: int | None = None
+
+
 class ValidateAssetsResponse(BaseModel):
     eligible_asset_ids: list[int]
     active_order_conflicts: list[ActiveOrderConflict]
     missing_rfid: list[InvalidAssetRef]
     plant_mismatch: list[InvalidAssetRef]
     cost_center_mismatch: list[InvalidAssetRef]
+    financial_year_label: str | None = None
+    financial_year_start: date | None = None
+    financial_year_end: date | None = None
+    already_verified_in_fy: list[VerifiedInFinancialYearRef] = Field(default_factory=list)
 
 
 class CreatePhysicalOrderRequest(BaseModel):
@@ -40,6 +52,10 @@ class CreatePhysicalOrderRequest(BaseModel):
     assigned_to: int
     remarks: str | None = None
     submit: bool = True
+    reset_verification_asset_ids: list[int] = Field(
+        default_factory=list,
+        description="Assets to clear physical verification when creation is approved (re-audit in current FY).",
+    )
 
 
 class PhysicalOrderItemPublic(BaseModel):
@@ -121,6 +137,17 @@ class OrderLifecycleStepPublic(BaseModel):
     approver_slots: list[OrderLifecycleApproverSlot] = Field(default_factory=list)
 
 
+class PhysicalOrderApprovalNotice(BaseModel):
+    """Shown to creation approvers when FY re-verification applies."""
+
+    financial_year_label: str | None = None
+    financial_year_start: date | None = None
+    financial_year_end: date | None = None
+    fy_verified_asset_codes: list[str] = Field(default_factory=list)
+    reset_on_approval_asset_codes: list[str] = Field(default_factory=list)
+    message: str | None = None
+
+
 class PhysicalOrderProgressPublic(BaseModel):
     steps: list[OrderLifecycleStepPublic]
     current_step_key: str | None
@@ -157,6 +184,7 @@ class PhysicalOrderDetail(BaseModel):
     total_count: int
     audit: list[PhysicalOrderAuditPublic]
     progress: PhysicalOrderProgressPublic
+    approval_notice: PhysicalOrderApprovalNotice | None = None
 
 
 class ExecutorUserPublic(BaseModel):

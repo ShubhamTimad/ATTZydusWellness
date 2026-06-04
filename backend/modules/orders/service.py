@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session, selectinload
 from modules.asset_masters.model import CostCenterMaster
 from modules.assets.model import AssetFinancialInformation, AssetLocationInformation, AssetMaster
 from modules.errors import ConflictError, NotFoundError
+from modules.orders.asset_order_audit import (
+    log_asset_order_approved,
+    log_asset_order_started,
+    log_asset_physically_verified,
+)
 from modules.orders.audit import log_order_event
 from modules.orders.constants import (
     ACTION_COMPLETE,
@@ -35,15 +40,20 @@ from modules.orders.schema import (
     CreatePhysicalOrderRequest,
     ExecutorUserPublic,
     InvalidAssetRef,
+    PhysicalOrderApprovalNotice,
     PhysicalOrderDetail,
     PhysicalOrderItemPublic,
     PhysicalOrderListItem,
     PhysicalOrderListResponse,
     ScanAssetResponse,
     ValidateAssetsResponse,
+    VerifiedInFinancialYearRef,
 )
 from core.permissions import _get_cached_permission_snapshot, _has_any_permission
+from modules.assets.audit_log import log_asset_event
+from modules.assets.model import AssetInventoryInformation
 from modules.platform.approvals.assignment_service import get_workflow_for_action
+from modules.platform.settings.financial_year import financial_year_period_for, is_verified_in_financial_year
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow, TaskAuditLog
 from modules.platform.approvals.service import ApprovalEngineService
 from modules.platform.permissions.model import Permission
@@ -226,6 +236,7 @@ class PhysicalOrderService:
                 .options(
                     selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
                     selectinload(AssetMaster.financial),
+                    selectinload(AssetMaster.inventory),
                 )
             ).all()
         )
@@ -362,12 +373,34 @@ class PhysicalOrderService:
                 blocked.add(int(a.id))
 
         eligible = [int(a.id) for a in assets if int(a.id) not in blocked]
+        period = financial_year_period_for()
+        already_verified: list[VerifiedInFinancialYearRef] = []
+        for a in assets:
+            if int(a.id) not in eligible:
+                continue
+            inv = a.inventory
+            last_dt = inv.last_verification_date if inv else None
+            if not is_verified_in_financial_year(last_dt):
+                continue
+            already_verified.append(
+                VerifiedInFinancialYearRef(
+                    asset_id=int(a.id),
+                    asset_code=a.asset_code,
+                    asset_name=a.asset_name,
+                    last_verification_date=last_dt,
+                    physical_count=inv.physical_count if inv else None,
+                )
+            )
         return ValidateAssetsResponse(
             eligible_asset_ids=eligible,
             active_order_conflicts=active_conflicts,
             missing_rfid=missing_rfid,
             plant_mismatch=plant_mismatch,
             cost_center_mismatch=cc_mismatch,
+            financial_year_label=period.label,
+            financial_year_start=period.start,
+            financial_year_end=period.end,
+            already_verified_in_fy=already_verified,
         )
 
     def list_executors(self) -> list[ExecutorUserPublic]:
@@ -390,6 +423,109 @@ class PhysicalOrderService:
         return [
             ExecutorUserPublic(id=int(u.id), full_name=u.full_name, email=u.email) for u in users
         ]
+
+    def _apply_pending_verification_resets(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int | None,
+    ) -> list[str]:
+        raw = order.reset_verification_asset_ids or []
+        asset_ids = [int(x) for x in raw]
+        if not asset_ids:
+            return []
+        period = financial_year_period_for()
+        codes = self._reset_physical_verification_for_assets(
+            asset_ids,
+            actor_user_id=actor_user_id,
+            order_number=order.order_number,
+            financial_year_label=period.label,
+        )
+        order.reset_verification_asset_ids = None
+        return codes
+
+    def _build_approval_notice(self, order: PhysicalOrder) -> PhysicalOrderApprovalNotice | None:
+        if order.status != ORDER_STATUS_PENDING_APPROVAL:
+            return None
+        period = financial_year_period_for()
+        reset_set = {int(x) for x in (order.reset_verification_asset_ids or [])}
+        fy_codes: list[str] = []
+        reset_codes: list[str] = []
+        for item in order.items:
+            asset = item.asset
+            if asset is None:
+                continue
+            inv = asset.inventory
+            last_dt = inv.last_verification_date if inv else None
+            if is_verified_in_financial_year(last_dt):
+                fy_codes.append(asset.asset_code)
+            if int(item.asset_id) in reset_set:
+                reset_codes.append(asset.asset_code)
+        if not fy_codes and not reset_codes:
+            return None
+        message_parts: list[str] = []
+        if fy_codes:
+            message_parts.append(
+                f"{len(fy_codes)} asset(s) were already physically verified in {period.label}."
+            )
+        if reset_codes:
+            message_parts.append(
+                f"{len(reset_codes)} asset(s) will have physical count set to 0 and verification date cleared "
+                "when this order is approved."
+            )
+        return PhysicalOrderApprovalNotice(
+            financial_year_label=period.label,
+            financial_year_start=period.start,
+            financial_year_end=period.end,
+            fy_verified_asset_codes=fy_codes,
+            reset_on_approval_asset_codes=reset_codes,
+            message=" ".join(message_parts),
+        )
+
+    def _reset_physical_verification_for_assets(
+        self,
+        asset_ids: list[int],
+        *,
+        actor_user_id: int,
+        order_number: str,
+        financial_year_label: str,
+    ) -> list[str]:
+        if not asset_ids:
+            return []
+        assets = self._load_assets(asset_ids)
+        reset_codes: list[str] = []
+        for asset in assets:
+            inv = asset.inventory
+            if inv is None:
+                inv = AssetInventoryInformation(asset_id=int(asset.id))
+                self._db.add(inv)
+                asset.inventory = inv
+            old_physical = inv.physical_count
+            old_verified = inv.last_verification_date
+            if old_physical in (None, 0) and old_verified is None:
+                continue
+            inv.physical_count = 0
+            inv.last_verification_date = None
+            reset_codes.append(asset.asset_code)
+            log_asset_event(
+                self._db,
+                asset_id=int(asset.id),
+                actor_user_id=actor_user_id,
+                action="physical_verification_reset",
+                section="inventory",
+                old_value={
+                    "physical_count": old_physical,
+                    "last_verification_date": old_verified.isoformat() if old_verified else None,
+                },
+                new_value={
+                    "physical_count": 0,
+                    "last_verification_date": None,
+                    "reason": "re_audit_for_physical_order",
+                    "order_number": order_number,
+                    "financial_year": financial_year_label,
+                },
+            )
+        return reset_codes
 
     def create_order(
         self,
@@ -421,9 +557,26 @@ class PhysicalOrderService:
         if assignee is None or not assignee.is_active:
             raise NotFoundError("User", body.assigned_to)
 
+        eligible_set = set(validation.eligible_asset_ids)
+        reset_ids = {int(i) for i in (body.reset_verification_asset_ids or [])}
+        if reset_ids - eligible_set:
+            raise ConflictError("Reset verification is only allowed for assets in this order.")
+        period = financial_year_period_for()
+        order_number = self._next_order_number()
+        if reset_ids:
+            for asset in assets:
+                if int(asset.id) not in reset_ids:
+                    continue
+                inv = asset.inventory
+                last_dt = inv.last_verification_date if inv else None
+                if not is_verified_in_financial_year(last_dt):
+                    raise ConflictError(
+                        f"Asset {asset.asset_code} has not been physically verified in {period.label}."
+                    )
+
         now = _now_utc()
         order = PhysicalOrder(
-            order_number=self._next_order_number(),
+            order_number=order_number,
             plant_id=plant_id,
             cost_center_id=cost_center_id,
             created_by=actor_user_id,
@@ -432,6 +585,7 @@ class PhysicalOrderService:
             assigned_at=now,
             status=ORDER_STATUS_DRAFT,
             remarks=body.remarks,
+            reset_verification_asset_ids=sorted(reset_ids) if reset_ids else None,
         )
         self._db.add(order)
         self._db.flush()
@@ -448,7 +602,12 @@ class PhysicalOrderService:
             order_id=int(order.id),
             action="order_created",
             actor_user_id=actor_user_id,
-            new_value={"order_number": order.order_number, "asset_count": len(assets)},
+            new_value={
+                "order_number": order.order_number,
+                "asset_count": len(assets),
+                "reset_on_approval_asset_ids": sorted(reset_ids) if reset_ids else [],
+                "financial_year": period.label if reset_ids else None,
+            },
         )
         log_order_event(
             self._db,
@@ -466,7 +625,8 @@ class PhysicalOrderService:
 
     def _order_payload(self, order: PhysicalOrder, *, action_code: str) -> dict[str, Any]:
         cc = order.cost_center
-        return {
+        notice = self._build_approval_notice(order)
+        payload: dict[str, Any] = {
             "action_code": action_code,
             "order_number": order.order_number,
             "order_id": int(order.id),
@@ -474,6 +634,9 @@ class PhysicalOrderService:
             "cost_center_code": cc.code if cc else "",
             "asset_count": len(order.items),
         }
+        if notice is not None:
+            payload["approval_notice"] = notice.model_dump(mode="json")
+        return payload
 
     def _submit_for_creation_approval(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
         if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
@@ -499,13 +662,25 @@ class PhysicalOrderService:
             )
         else:
             order.status = ORDER_STATUS_APPROVED
+            reset_codes = self._apply_pending_verification_resets(order, actor_user_id=actor_user_id)
             log_order_event(
                 self._db,
                 order_id=int(order.id),
                 action="approved",
                 actor_user_id=actor_user_id,
-                new_value={"auto_approved": True},
+                new_value={
+                    "auto_approved": True,
+                    "reset_verification_assets": reset_codes,
+                },
             )
+            for item in order.items:
+                if item.verification_status != ITEM_STATUS_REJECTED:
+                    log_asset_order_approved(
+                        self._db,
+                        asset_id=int(item.asset_id),
+                        order=order,
+                        actor_user_id=actor_user_id,
+                    )
             self._create_executor_task(order, actor_user_id=actor_user_id)
         self._db.commit()
 
@@ -698,6 +873,7 @@ class PhysicalOrderService:
             total_count=len(order.items),
             audit=audit,
             progress=progress,
+            approval_notice=self._build_approval_notice(order),
         )
 
     def update_order(
@@ -991,6 +1167,14 @@ class PhysicalOrderService:
             action="started",
             actor_user_id=actor_user_id,
         )
+        for item in order.items:
+            if item.verification_status != ITEM_STATUS_REJECTED:
+                log_asset_order_started(
+                    self._db,
+                    asset_id=int(item.asset_id),
+                    order=order,
+                    actor_user_id=actor_user_id,
+                )
         self._db.commit()
         return self.get_order(order_id)
 
@@ -1070,9 +1254,19 @@ class PhysicalOrderService:
             },
         )
         inv = a.inventory
+        old_physical = inv.physical_count if inv else None
+        old_verified = inv.last_verification_date if inv else None
         if inv:
             inv.physical_count = 1
             inv.last_verification_date = date.today()
+        log_asset_physically_verified(
+            self._db,
+            asset=a,
+            order=order,
+            actor_user_id=actor_user_id,
+            old_physical=old_physical,
+            old_verified=old_verified,
+        )
         self._db.commit()
         order = self._load_order(order_id)
         physically_verified = self._physically_verified_count(order.items)
@@ -1229,8 +1423,10 @@ class PhysicalOrderService:
 
 
 def finalize_creation_approval(db: Session, *, order_id: int, approver_user_id: int | None) -> None:
-    order = db.get(PhysicalOrder, order_id)
-    if order is None:
+    svc = PhysicalOrderService(db)
+    try:
+        order = svc._load_order(order_id)
+    except NotFoundError:
         return
     rejected = [i for i in order.items if i.verification_status == ITEM_STATUS_REJECTED]
     if rejected:
@@ -1242,27 +1438,38 @@ def finalize_creation_approval(db: Session, *, order_id: int, approver_user_id: 
             actor_user_id=approver_user_id,
             new_value={"phase": "creation"},
         )
-        PhysicalOrderService(db)._notify_rejected(order, "One or more assets were rejected.")
+        svc._notify_rejected(order, "One or more assets were rejected.")
     else:
         for item in order.items:
             if item.verification_status == ITEM_STATUS_PENDING:
                 item.verification_status = ITEM_STATUS_APPROVED
         order.status = ORDER_STATUS_APPROVED
+        reset_codes = svc._apply_pending_verification_resets(order, actor_user_id=approver_user_id)
         log_order_event(
             db,
             order_id=order_id,
             action="approved",
             actor_user_id=approver_user_id,
+            new_value={"reset_verification_assets": reset_codes},
         )
-        PhysicalOrderService(db)._create_executor_task(order, actor_user_id=approver_user_id)
+        for item in order.items:
+            if item.verification_status != ITEM_STATUS_REJECTED:
+                log_asset_order_approved(
+                    db,
+                    asset_id=int(item.asset_id),
+                    order=order,
+                    actor_user_id=approver_user_id,
+                )
+        svc._create_executor_task(order, actor_user_id=approver_user_id)
     db.commit()
 
 
 def finalize_closure_approval(db: Session, *, order_id: int, approver_user_id: int | None) -> None:
-    order = db.get(PhysicalOrder, order_id)
-    if order is None:
-        return
     svc = PhysicalOrderService(db)
+    try:
+        order = svc._load_order(order_id)
+    except NotFoundError:
+        return
     rejected = [i for i in order.items if i.verification_status == ITEM_STATUS_REJECTED]
     if rejected:
         svc._reopen_for_execution(order, actor_user_id=approver_user_id)
@@ -1296,8 +1503,10 @@ def reject_order_approval(
     approver_user_id: int | None,
     comment: str | None,
 ) -> None:
-    order = db.get(PhysicalOrder, order_id)
-    if order is None:
+    svc = PhysicalOrderService(db)
+    try:
+        order = svc._load_order(order_id)
+    except NotFoundError:
         return
     order.status = ORDER_STATUS_REJECTED
     log_order_event(

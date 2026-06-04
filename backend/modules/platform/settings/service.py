@@ -4,9 +4,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from core.password_policy import password_policy_admin_view
+from modules.platform.settings.financial_year import financial_year_period_for, get_financial_year_config
 from modules.platform.settings.lookup import clear_setting_cache
 from modules.platform.settings.model import Setting
-from modules.platform.settings.schema import AuthPolicyPublic, EmailDeliveryPublic, PasswordPolicyPublic
+from modules.platform.settings.schema import (
+    AuthPolicyPublic,
+    EmailDeliveryPublic,
+    FinancialYearSettingsPublic,
+    PasswordPolicyPublic,
+)
 from modules.platform.settings.smtp_config import (
     get_smtp_config,
     normalize_smtp_host,
@@ -139,6 +145,28 @@ class SettingsService:
         self._db.commit()
         clear_setting_cache(*[k for k, _ in mapping])
         return self.get_email_delivery()
+
+    def get_financial_year(self) -> FinancialYearSettingsPublic:
+        cfg = get_financial_year_config()
+        period = financial_year_period_for()
+        return FinancialYearSettingsPublic(
+            start_month=cfg.start_month,
+            start_day=cfg.start_day,
+            period_label=period.label,
+            period_start=period.start.isoformat(),
+            period_end=period.end.isoformat(),
+        )
+
+    def put_financial_year(self, payload: FinancialYearSettingsPublic) -> FinancialYearSettingsPublic:
+        mapping: list[tuple[str, str]] = [
+            ("financial_year.start_month", str(payload.start_month)),
+            ("financial_year.start_day", str(payload.start_day)),
+        ]
+        for key, value in mapping:
+            self._upsert(key, value)
+        self._db.commit()
+        clear_setting_cache(*[k for k, _ in mapping])
+        return self.get_financial_year()
 
     def _stored_smtp_password(self) -> str | None:
         row = self._db.scalar(select(Setting).where(Setting.key == "smtp.password"))

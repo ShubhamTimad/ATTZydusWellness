@@ -34,6 +34,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import { orderStatusLabel, type PhysicalOrderDetail, type PhysicalOrderItem } from "@/lib/orders-types"
 import { hasPermission } from "@/lib/permissions"
@@ -293,6 +294,31 @@ export function OrderDetailPage() {
         description={`${order.plant_name} · ${order.cost_center_code}${order.assigned_to_name ? ` · ${order.assigned_to_name}` : ""}`}
         actions={<AdminPillBadge tone={statusPillTone(order.status)}>{orderStatusLabel(order.status)}</AdminPillBadge>}
       />
+
+      {canReviewCreation && order.approval_notice?.message ? (
+        <Alert className="border-amber-200/80 bg-amber-50/90 dark:border-amber-900/50 dark:bg-amber-950/30">
+          <AlertTitle>Financial year verification</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>{order.approval_notice.message}</p>
+            {order.approval_notice.reset_on_approval_asset_codes.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Reset on approval:{" "}
+                <span className="font-mono text-foreground">
+                  {order.approval_notice.reset_on_approval_asset_codes.join(", ")}
+                </span>
+              </p>
+            ) : null}
+            {order.approval_notice.fy_verified_asset_codes.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                Already verified in {order.approval_notice.financial_year_label ?? "this FY"}:{" "}
+                <span className="font-mono text-foreground">
+                  {order.approval_notice.fy_verified_asset_codes.join(", ")}
+                </span>
+              </p>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       <AdminPanel className="overflow-hidden p-0">
         <div className="border-b border-border/60 bg-muted/15 px-4 py-3 sm:px-5">

@@ -45,3 +45,16 @@ class EmailDeliveryTestRequest(BaseModel):
         default=None,
         description="Current form values; used when testing before save.",
     )
+
+
+class FinancialYearSettingsPublic(BaseModel):
+    """Inclusive start date; end is the day before the next year's start."""
+
+    start_month: int = Field(default=4, ge=1, le=12, description="Month financial year begins (e.g. 4 = April).")
+    start_day: int = Field(default=1, ge=1, le=31)
+    period_label: str = Field(
+        default="",
+        description="Computed label for the financial year containing today (read-only on GET).",
+    )
+    period_start: str = Field(default="", description="ISO date — read-only on GET.")
+    period_end: str = Field(default="", description="ISO date — read-only on GET.")

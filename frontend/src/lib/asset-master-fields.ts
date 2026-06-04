@@ -137,7 +137,8 @@ export type AssetViewSectionConfig = {
 }
 
 /**
- * Four panels, six fields each — 2×2 grid (row 1: information | location, row 2: financial | procurement).
+ * Four panels in a 2×2 grid (information | location, financial | inventory).
+ * Invoice and voucher fields live under financial; inventory holds verification counts only.
  */
 export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
   {
@@ -177,31 +178,21 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
       "life_span",
       "put_to_use_date",
       "voucher_date",
+      "voucher_no",
       "grn_no",
       "grn_date",
+      "invoice_no",
+      "invoice_date",
     ],
-    dateFields: ["put_to_use_date", "voucher_date", "grn_date"],
+    dateFields: ["put_to_use_date", "voucher_date", "grn_date", "invoice_date"],
   },
   {
     id: "inventory",
-    title: "Inventory & procurement",
-    keys: [
-      "inventory_count",
-      "physical_count",
-      "last_verification_date",
-      "invoice_no",
-      "invoice_date",
-      "voucher_no",
-    ],
-    dateFields: ["invoice_date"],
+    title: "Inventory & verification",
+    keys: ["inventory_count", "physical_count", "last_verification_date"],
     readOnlyKeys: ["inventory_count", "physical_count", "last_verification_date"],
-    fieldStorage: {
-      invoice_no: "financial",
-      invoice_date: "financial",
-      voucher_no: "financial",
-    },
   },
 ]
 
-/** Shared min height so all four panels align in the 2×2 grid (tallest block ≈9 rows). */
+/** Optional min height for panels that must align (e.g. approval dialog). Detail page uses compact layout instead. */
 export const ASSET_VIEW_PANEL_MIN_HEIGHT = "min-h-[22.5rem]"

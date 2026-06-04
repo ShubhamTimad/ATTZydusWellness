@@ -19,10 +19,17 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   assetIds: number[]
+  resetVerificationAssetIds?: number[]
   onCreated: (order: PhysicalOrderDetail) => void
 }
 
-export function CreatePhysicalOrderDialog({ open, onOpenChange, assetIds, onCreated }: Props) {
+export function CreatePhysicalOrderDialog({
+  open,
+  onOpenChange,
+  assetIds,
+  resetVerificationAssetIds = [],
+  onCreated,
+}: Props) {
   const [executors, setExecutors] = React.useState<ExecutorUser[]>([])
   const [assignedTo, setAssignedTo] = React.useState("")
   const [remarks, setRemarks] = React.useState("")
@@ -47,6 +54,7 @@ export function CreatePhysicalOrderDialog({ open, onOpenChange, assetIds, onCrea
         assigned_to: Number(assignedTo),
         remarks: remarks.trim() || null,
         submit: true,
+        reset_verification_asset_ids: resetVerificationAssetIds,
       })
       toast.success(`Order ${order.order_number} created.`)
       onCreated(order)
@@ -64,8 +72,10 @@ export function CreatePhysicalOrderDialog({ open, onOpenChange, assetIds, onCrea
         <DialogHeader>
           <DialogTitle>Create physical verification order</DialogTitle>
           <DialogDescription>
-            {assetIds.length} RFID-tagged asset(s) will be included. An executor must be assigned before
-            submission.
+            {assetIds.length} RFID-tagged asset(s) will be included.
+            {resetVerificationAssetIds.length > 0
+              ? ` ${resetVerificationAssetIds.length} asset(s) were already verified this financial year; physical count and verification date will be cleared when the order is approved.`
+              : " An executor must be assigned before submission."}
           </DialogDescription>
         </DialogHeader>
         <div className="dialog-body space-y-4">

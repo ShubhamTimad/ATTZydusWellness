@@ -32,25 +32,27 @@ type SummaryItem = { label: string; value: React.ReactNode; mono?: boolean }
 
 function SummaryStrip({ items }: { items: SummaryItem[] }) {
   return (
-    <div className="app-panel grid grid-cols-2 gap-px overflow-hidden rounded-[var(--app-radius-surface)] bg-border/60 sm:grid-cols-3 lg:grid-cols-4">
-      {items.map((item) => (
-        <div
-          key={item.label}
-          className="min-w-0 bg-card px-[var(--app-card-padding)] py-3"
-        >
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {item.label}
-          </p>
-          <p
-            className={cn(
-              "mt-0.5 break-words text-sm font-medium leading-snug text-foreground",
-              item.mono && "font-mono text-xs",
-            )}
+    <div className="app-panel overflow-x-auto overscroll-x-contain">
+      <div className="flex min-w-full flex-nowrap divide-x divide-border/60">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className="min-w-0 flex-1 basis-0 px-3 py-2.5 first:pl-[var(--app-card-padding)] last:pr-[var(--app-card-padding)]"
           >
-            {item.value}
-          </p>
-        </div>
-      ))}
+            <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {item.label}
+            </p>
+            <p
+              className={cn(
+                "mt-0.5 truncate text-sm font-medium text-foreground",
+                item.mono && "font-mono text-xs",
+              )}
+            >
+              {item.value}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

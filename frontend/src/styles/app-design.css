@@ -218,8 +218,11 @@
   }
 
   .app-data-table-wrap {
+    flex: 1 1 0%;
+    min-height: 0;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   .app-data-table-card {
@@ -233,7 +236,8 @@
   }
 
   .app-data-table-wrap .app-table-wrap {
-    overflow: visible;
+    overflow-x: auto;
+    overflow-y: visible;
   }
 
   .app-data-table-wrap table {

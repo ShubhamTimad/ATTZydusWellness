@@ -290,10 +290,7 @@ WORKFLOW_SPECS: list[dict[str, object]] = [
         "entity_type": "physical_order_creation",
         "activate": True,
         "map_action": "order.create",
-        "steps": [
-            (1, "Operator", 1),
-            (2, "Operator", 1),
-        ],
+        "steps": [(1, "Operator", 1)],
     },
     {
         "name": "Physical Order Completion Approval",

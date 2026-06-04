@@ -45,6 +45,29 @@ type EmailDelivery = {
   smtp_from_name: string
 }
 
+type FinancialYearSettings = {
+  start_month: number
+  start_day: number
+  period_label: string
+  period_start: string
+  period_end: string
+}
+
+const MONTHS = [
+  { value: 1, label: "January" },
+  { value: 2, label: "February" },
+  { value: 3, label: "March" },
+  { value: 4, label: "April" },
+  { value: 5, label: "May" },
+  { value: 6, label: "June" },
+  { value: 7, label: "July" },
+  { value: 8, label: "August" },
+  { value: 9, label: "September" },
+  { value: 10, label: "October" },
+  { value: 11, label: "November" },
+  { value: 12, label: "December" },
+]
+
 export function SettingsPage() {
   const [policy, setPolicy] = React.useState<PasswordPolicy | null>(null)
   const [authPolicy, setAuthPolicy] = React.useState<AuthPolicy | null>(null)
@@ -55,19 +78,23 @@ export function SettingsPage() {
   const [savingEmail, setSavingEmail] = React.useState(false)
   const [testingEmail, setTestingEmail] = React.useState(false)
   const [testToEmail, setTestToEmail] = React.useState("")
-  const [tab, setTab] = React.useState<"auth" | "password" | "email">("auth")
+  const [tab, setTab] = React.useState<"auth" | "password" | "email" | "financial">("auth")
+  const [financialYear, setFinancialYear] = React.useState<FinancialYearSettings | null>(null)
+  const [savingFinancialYear, setSavingFinancialYear] = React.useState(false)
 
   async function load() {
     setLoadError(null)
     try {
-      const [data, auth, email] = await Promise.all([
+      const [data, auth, email, fy] = await Promise.all([
         getJson<PasswordPolicy>("/admin/settings/password-policy"),
         getJson<AuthPolicy>("/admin/settings/auth-policy"),
         getJson<EmailDelivery>("/admin/settings/email-delivery"),
+        getJson<FinancialYearSettings>("/admin/settings/financial-year").catch(() => null),
       ])
       setPolicy(data)
       setAuthPolicy(auth)
       setEmailDelivery(email)
+      setFinancialYear(fy)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load settings")
       setPolicy(null)
@@ -117,11 +144,12 @@ export function SettingsPage() {
 
   return (
     <AdminPage description="Security, authentication, and organization-wide email delivery.">
-      <WorkspaceTabs value={tab} onValueChange={(v) => setTab(v as "auth" | "password" | "email")}>
+      <WorkspaceTabs value={tab} onValueChange={(v) => setTab(v as "auth" | "password" | "email" | "financial")}>
         <WorkspaceTabsList>
           <WorkspaceTabsTrigger value="auth">Authentication</WorkspaceTabsTrigger>
           <WorkspaceTabsTrigger value="password">Password policy</WorkspaceTabsTrigger>
           <WorkspaceTabsTrigger value="email">Email delivery</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="financial">Financial year</WorkspaceTabsTrigger>
         </WorkspaceTabsList>
 
         <WorkspaceTabsContent value="auth" className="space-y-4">
@@ -485,6 +513,99 @@ export function SettingsPage() {
                   </div>
                 </>
               )}
+          </AdminPanel>
+        </WorkspaceTabsContent>
+
+        <WorkspaceTabsContent value="financial" className="space-y-4">
+          <AdminPanel
+            title="Financial year"
+            description="Used when creating physical verification orders to detect assets already verified in the current period (e.g. 1 Apr – 31 Mar)."
+            contentClassName="space-y-4 px-5 py-5"
+          >
+            {!financialYear ? (
+              <p className="text-sm text-muted-foreground">Loading financial year settings…</p>
+            ) : (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="fy_start_month">Start month</Label>
+                    <select
+                      id="fy_start_month"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      value={financialYear.start_month}
+                      onChange={(e) =>
+                        setFinancialYear((p) =>
+                          p ? { ...p, start_month: Number(e.target.value) } : p,
+                        )
+                      }
+                    >
+                      {MONTHS.map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="fy_start_day">Start day</Label>
+                    <Input
+                      id="fy_start_day"
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={financialYear.start_day}
+                      onChange={(e) => {
+                        const n = Number(e.target.value)
+                        setFinancialYear((p) =>
+                          p ? { ...p, start_day: Number.isFinite(n) ? n : p.start_day } : p,
+                        )
+                      }}
+                    />
+                  </div>
+                </div>
+                {financialYear.period_label ? (
+                  <p className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5 text-sm text-muted-foreground">
+                    Current period:{" "}
+                    <span className="font-medium text-foreground">{financialYear.period_label}</span>
+                    {financialYear.period_start && financialYear.period_end ? (
+                      <>
+                        {" "}
+                        ({new Date(financialYear.period_start).toLocaleDateString()} –{" "}
+                        {new Date(financialYear.period_end).toLocaleDateString()})
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
+                <div className="flex justify-end border-t border-border/60 pt-4">
+                  <AdminPrimaryButton
+                    type="button"
+                    disabled={savingFinancialYear}
+                    onClick={async () => {
+                      if (!financialYear) return
+                      setSavingFinancialYear(true)
+                      toast.loading("Saving…", { id: "fy-save" })
+                      try {
+                        const updated = await putJson<FinancialYearSettings>(
+                          "/admin/settings/financial-year",
+                          {
+                            start_month: financialYear.start_month,
+                            start_day: financialYear.start_day,
+                          },
+                        )
+                        setFinancialYear(updated)
+                        toast.success("Saved", { id: "fy-save" })
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "Save failed", { id: "fy-save" })
+                      } finally {
+                        setSavingFinancialYear(false)
+                      }
+                    }}
+                  >
+                    {savingFinancialYear ? "Saving…" : "Save financial year"}
+                  </AdminPrimaryButton>
+                </div>
+              </>
+            )}
           </AdminPanel>
         </WorkspaceTabsContent>
       </WorkspaceTabs>

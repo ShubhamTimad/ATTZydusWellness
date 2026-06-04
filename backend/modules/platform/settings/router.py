@@ -10,6 +10,7 @@ from modules.platform.settings.schema import (
     AuthPolicyPublic,
     EmailDeliveryPublic,
     EmailDeliveryTestRequest,
+    FinancialYearSettingsPublic,
     PasswordPolicyPublic,
 )
 from modules.platform.settings.service import SettingsService
@@ -90,3 +91,20 @@ async def test_email_delivery(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"status": "sent", "to_email": payload.to_email.strip().lower()}
+
+
+@router.get("/financial-year", response_model=FinancialYearSettingsPublic)
+def get_financial_year(
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: Annotated[object, Depends(require_permission("settings.update"))],
+) -> FinancialYearSettingsPublic:
+    return svc.get_financial_year()
+
+
+@router.put("/financial-year", response_model=FinancialYearSettingsPublic)
+def put_financial_year(
+    payload: FinancialYearSettingsPublic,
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: Annotated[object, Depends(require_permission("settings.update"))],
+) -> FinancialYearSettingsPublic:
+    return svc.put_financial_year(payload)

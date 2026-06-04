@@ -173,8 +173,138 @@ def format_changes_detail(
     return lines
 
 
+ORDER_ASSET_AUDIT_ACTIONS = frozenset(
+    {
+        "physical_order_created",
+        "physical_order_approved",
+        "physical_order_rejected",
+        "physical_order_started",
+        "physical_order_verified",
+        "physical_order_line_rejected",
+        "physical_order_completed",
+        "physical_verification_reset",
+    }
+)
+
+# Shown on asset detail audit trail (order lifecycle only).
+ASSET_AUDIT_VISIBLE_ORDER_ACTIONS = frozenset(
+    {
+        "physical_order_approved",
+        "physical_order_started",
+        "physical_verification_reset",
+        "physical_order_verified",
+    }
+)
+
+
+def include_asset_audit_event(action: str) -> bool:
+    if action in ORDER_ASSET_AUDIT_ACTIONS:
+        return action in ASSET_AUDIT_VISIBLE_ORDER_ACTIONS
+    return True
+
+
+def _format_audit_date_value(value: Any) -> str:
+    if value is None or value == "":
+        return "—"
+    text = str(value)
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        try:
+            d = datetime.fromisoformat(text.replace("Z", "+00:00")[:10])
+            return d.strftime("%d %b %Y")
+        except ValueError:
+            pass
+    return text
+
+
+def format_inventory_count_date_lines(
+    *,
+    old_value: dict[str, Any] | None = None,
+    new_value: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    """Physical count and last verification date only — for asset audit display."""
+    ov = old_value or {}
+    nv = new_value or {}
+    lines: list[dict[str, str]] = []
+
+    old_pc = ov.get("physical_count")
+    new_pc = nv.get("physical_count")
+    if old_pc != new_pc:
+        lines.append(
+            {
+                "field_label": "Physical count",
+                "from_value": "—" if old_pc is None else str(old_pc),
+                "to_value": "—" if new_pc is None else str(new_pc),
+            }
+        )
+
+    old_dt = ov.get("last_verification_date")
+    new_dt = nv.get("last_verification_date")
+    if old_dt != new_dt:
+        lines.append(
+            {
+                "field_label": "Last verification date",
+                "from_value": _format_audit_date_value(old_dt),
+                "to_value": _format_audit_date_value(new_dt),
+            }
+        )
+
+    return lines
+
+
+def _order_ref(nv: dict[str, Any], ov: dict[str, Any]) -> str:
+    order_no = nv.get("order_number") or ov.get("order_number")
+    if order_no:
+        return str(order_no)
+    order_id = nv.get("order_id") or ov.get("order_id")
+    return f"#{order_id}" if order_id else ""
+
+
+def compact_order_audit_text(
+    action: str,
+    *,
+    old_value: dict[str, Any] | None = None,
+    new_value: dict[str, Any] | None = None,
+) -> str:
+    """One-line physical order activity for asset audit (actor shown separately)."""
+    ov = old_value or {}
+    nv = new_value or {}
+    ref = _order_ref(nv, ov)
+    prefix = f"{ref} · " if ref else ""
+
+    if action == "physical_order_approved":
+        return f"{prefix}Order approved".lstrip(" · ")
+    if action == "physical_order_started":
+        return f"{prefix}Verification started".lstrip(" · ")
+    if action == "physical_order_verified":
+        return f"{prefix}Verified in order".lstrip(" · ")
+    if action == "physical_verification_reset":
+        return f"{prefix}Count & date reset on approval".lstrip(" · ")
+    return f"{prefix}{action.replace('_', ' ')}".lstrip(" · ")
+
+
+def format_asset_order_audit_lines(
+    action: str,
+    *,
+    old_value: dict[str, Any] | None = None,
+    new_value: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    if action in ("physical_verification_reset", "physical_order_verified"):
+        return format_inventory_count_date_lines(old_value=old_value, new_value=new_value)
+    return []
+
+
 def activity_verb_for_action(action: str, new_value: dict[str, Any] | None, source_type: str | None) -> str:
     nv = new_value or {}
+    if action == "physical_order_approved":
+        return "Order approved"
+    if action == "physical_order_started":
+        return "Verification started"
+    if action == "physical_order_verified":
+        return "Verified in order"
+    if action == "physical_verification_reset":
+        return "Count & date updated"
+    if action in ORDER_ASSET_AUDIT_ACTIONS:
+        return "Physical order"
     if action == "created":
         source = str(nv.get("source") or "")
         if not source:
@@ -270,4 +400,7 @@ def build_audit_summary(
         return f"Rejected by {actor_name} (asset remains inactive)"
     if action == "deleted":
         return f"Deleted by {actor_name}"
+    if action in ASSET_AUDIT_VISIBLE_ORDER_ACTIONS:
+        text = compact_order_audit_text(action, old_value=old_value, new_value=nv)
+        return f"{text} · {actor_name}" if text else f"Physical order · {actor_name}"
     return f"{action.replace('_', ' ').title()} by {actor_name}"

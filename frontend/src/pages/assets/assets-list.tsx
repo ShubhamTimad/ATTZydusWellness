@@ -131,6 +131,8 @@ export function AssetsListPage() {
   const [validationResult, setValidationResult] = React.useState<ValidateAssetsResponse | null>(null)
   const [createOrderOpen, setCreateOrderOpen] = React.useState(false)
   const [eligibleForOrder, setEligibleForOrder] = React.useState<number[]>([])
+  const [resetVerificationAssetIds, setResetVerificationAssetIds] = React.useState<number[]>([])
+  const [fyVerifiedOpen, setFyVerifiedOpen] = React.useState(false)
   const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
   const [rfidDialogMode, setRfidDialogMode] = React.useState<"by-code" | "selected">("by-code")
   const [rfidAttachAssetId, setRfidAttachAssetId] = React.useState<number | null>(null)
@@ -407,6 +409,14 @@ export function AssetsListPage() {
         toast.error("No eligible assets selected.")
         return
       }
+      const fyVerified = res.already_verified_in_fy.filter((a) =>
+        res.eligible_asset_ids.includes(a.asset_id),
+      )
+      if (fyVerified.length > 0) {
+        setFyVerifiedOpen(true)
+        return
+      }
+      setResetVerificationAssetIds([])
       setEligibleForOrder(res.eligible_asset_ids)
       setCreateOrderOpen(true)
     } catch (e) {
@@ -416,19 +426,29 @@ export function AssetsListPage() {
     }
   }
 
-  function proceedWithEligibleOnly() {
+  function proceedWithEligibleOnly(resetIds: number[] = []) {
     const eligible = validationResult?.eligible_asset_ids ?? []
     if (eligible.length === 0) {
       toast.error("No eligible assets.")
       return
     }
+    setResetVerificationAssetIds(resetIds)
     setEligibleForOrder(eligible)
     setSelected(new Set(eligible))
     setActiveConflictOpen(false)
     setMissingRfidOpen(false)
     setPlantMismatchOpen(false)
     setCcMismatchOpen(false)
+    setFyVerifiedOpen(false)
     setCreateOrderOpen(true)
+  }
+
+  function fyVerifiedEligibleIds(): number[] {
+    const eligible = validationResult?.eligible_asset_ids ?? []
+    const eligibleSet = new Set(eligible)
+    return (validationResult?.already_verified_in_fy ?? [])
+      .filter((a) => eligibleSet.has(a.asset_id))
+      .map((a) => a.asset_id)
   }
 
   function handleListAction(actionId: string) {
@@ -483,8 +503,9 @@ export function AssetsListPage() {
   )
 
   return (
-    <AdminPage fullWidth className="flex min-h-0 flex-1 flex-col">
+    <AdminPage fullWidth dense className="flex min-h-0 flex-1 flex-col">
       <ListPageHeader
+        className="shrink-0"
         title="Assets"
         description="Search, filter, and manage assets across plants. Select rows for bulk actions."
         actions={actionButtons}
@@ -714,7 +735,7 @@ export function AssetsListPage() {
       </div>
 
       <AdminDataTable
-        className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        className="min-h-0 flex-1"
         footer={
           <AdminTablePagination
             page={page}
@@ -961,6 +982,75 @@ export function AssetsListPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={fyVerifiedOpen} onOpenChange={setFyVerifiedOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Already verified this financial year</DialogTitle>
+            <DialogDescription>
+              {validationResult?.financial_year_label ? (
+                <>
+                  The following assets were already physically verified in{" "}
+                  <span className="font-medium text-foreground">{validationResult.financial_year_label}</span>
+                  {validationResult.financial_year_start && validationResult.financial_year_end ? (
+                    <>
+                      {" "}
+                      ({new Date(validationResult.financial_year_start).toLocaleDateString()} –{" "}
+                      {new Date(validationResult.financial_year_end).toLocaleDateString()})
+                    </>
+                  ) : null}
+                  . Do you want to run physical verification again? Choosing yes clears physical count and
+                  verification date when the order is approved.
+                </>
+              ) : (
+                "Some selected assets were already verified in the current financial year."
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="dialog-body max-h-64 overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="py-1 pr-2">Asset</th>
+                  <th className="py-1">Last verified</th>
+                </tr>
+              </thead>
+              <tbody>
+                {validationResult?.already_verified_in_fy
+                  .filter((a) => validationResult.eligible_asset_ids.includes(a.asset_id))
+                  .map((a) => (
+                    <tr key={a.asset_id} className="border-b border-border/40">
+                      <td className="py-1.5 pr-2">
+                        <span className="font-mono text-xs">{a.asset_code}</span>
+                        <span className="block text-muted-foreground">{a.asset_name}</span>
+                      </td>
+                      <td className="py-1.5 text-xs tabular-nums text-muted-foreground">
+                        {a.last_verification_date
+                          ? new Date(a.last_verification_date).toLocaleDateString()
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-end gap-2 border-t pt-3">
+            <Button type="button" variant="outline" onClick={() => setFyVerifiedOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => proceedWithEligibleOnly([])}
+            >
+              No, keep verification
+            </Button>
+            <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly(fyVerifiedEligibleIds())}>
+              Yes, verify again
+            </AdminPrimaryButton>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <AssetRfidDialog
         open={rfidDialogOpen}
         onOpenChange={setRfidDialogOpen}
@@ -982,6 +1072,7 @@ export function AssetsListPage() {
         open={createOrderOpen}
         onOpenChange={setCreateOrderOpen}
         assetIds={eligibleForOrder}
+        resetVerificationAssetIds={resetVerificationAssetIds}
         onCreated={(order) => {
           setSelected(new Set())
           navigate(`/dashboard/orders/${order.id}`)

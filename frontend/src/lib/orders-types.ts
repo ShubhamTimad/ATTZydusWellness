@@ -25,6 +25,16 @@ export type ValidateAssetsResponse = {
     asset_name: string
     cost_center_code?: string | null
   }[]
+  financial_year_label?: string | null
+  financial_year_start?: string | null
+  financial_year_end?: string | null
+  already_verified_in_fy: {
+    asset_id: number
+    asset_code: string
+    asset_name: string
+    last_verification_date?: string | null
+    physical_count?: number | null
+  }[]
 }
 
 export type ExecutorUser = {
@@ -110,6 +120,15 @@ export type OrderLifecycleStep = {
   approver_slots: OrderLifecycleApproverSlot[]
 }
 
+export type PhysicalOrderApprovalNotice = {
+  financial_year_label?: string | null
+  financial_year_start?: string | null
+  financial_year_end?: string | null
+  fy_verified_asset_codes: string[]
+  reset_on_approval_asset_codes: string[]
+  message?: string | null
+}
+
 export type PhysicalOrderProgress = {
   steps: OrderLifecycleStep[]
   current_step_key: string | null
@@ -144,6 +163,7 @@ export type PhysicalOrderDetail = {
   total_count: number
   audit: PhysicalOrderAudit[]
   progress: PhysicalOrderProgress
+  approval_notice?: PhysicalOrderApprovalNotice | null
 }
 
 export type OrdersDashboardModule = {
