@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { SessionIdleNavbarBadge } from "@/components/session-idle-navbar-badge"
 import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
@@ -214,7 +215,9 @@ export function AdminLayout({
           <div className="min-w-0">
             <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
           </div>
-          <DropdownMenu>
+          <div className="flex shrink-0 items-center gap-3">
+            <SessionIdleNavbarBadge />
+            <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
@@ -249,6 +252,7 @@ export function AdminLayout({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         </header>
 
         <main className="min-h-0 flex-1 overflow-auto px-6 py-8">{children}</main>

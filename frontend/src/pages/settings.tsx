@@ -33,6 +33,10 @@ type AuthPolicy = {
   mfa_enforced: boolean
 }
 
+type SessionIdleSettings = {
+  idle_timeout_minutes: number
+}
+
 type EmailDelivery = {
   delivery_enabled: boolean
   smtp_host: string
@@ -71,6 +75,8 @@ const MONTHS = [
 export function SettingsPage() {
   const [policy, setPolicy] = React.useState<PasswordPolicy | null>(null)
   const [authPolicy, setAuthPolicy] = React.useState<AuthPolicy | null>(null)
+  const [sessionIdle, setSessionIdle] = React.useState<SessionIdleSettings | null>(null)
+  const [savingSessionIdle, setSavingSessionIdle] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [savingAuth, setSavingAuth] = React.useState(false)
@@ -85,16 +91,20 @@ export function SettingsPage() {
   async function load() {
     setLoadError(null)
     try {
-      const [data, auth, email, fy] = await Promise.all([
+      const [data, auth, email, fy, idle] = await Promise.all([
         getJson<PasswordPolicy>("/admin/settings/password-policy"),
         getJson<AuthPolicy>("/admin/settings/auth-policy"),
         getJson<EmailDelivery>("/admin/settings/email-delivery"),
         getJson<FinancialYearSettings>("/admin/settings/financial-year").catch(() => null),
+        getJson<SessionIdleSettings>("/admin/settings/session-idle").catch(() => ({
+          idle_timeout_minutes: 10,
+        })),
       ])
       setPolicy(data)
       setAuthPolicy(auth)
       setEmailDelivery(email)
       setFinancialYear(fy)
+      setSessionIdle(idle)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load settings")
       setPolicy(null)
@@ -237,6 +247,64 @@ export function SettingsPage() {
                   </div>
                 </>
               )}
+          </AdminPanel>
+
+          <AdminPanel
+            title="Session idle timeout"
+            description="All users are signed out after this many minutes without activity, or while the browser tab is in the background. The server also ends the session if the app is closed."
+            contentClassName="space-y-4 px-5 py-5"
+          >
+            {sessionIdle ? (
+              <>
+                <div className="max-w-xs space-y-1.5">
+                  <Label htmlFor="idle-timeout-minutes">Idle timeout (minutes)</Label>
+                  <Input
+                    id="idle-timeout-minutes"
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={sessionIdle.idle_timeout_minutes}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10)
+                      setSessionIdle((s) =>
+                        s ? { ...s, idle_timeout_minutes: Number.isFinite(n) ? n : s.idle_timeout_minutes } : s
+                      )
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Default is 10 minutes. Applies to every signed-in user on the next sign-in or API call.
+                  </p>
+                </div>
+                <div className="flex justify-end border-t border-border/60 pt-4">
+                  <AdminPrimaryButton
+                    type="button"
+                    disabled={savingSessionIdle}
+                    onClick={async () => {
+                      if (!sessionIdle) return
+                      setSavingSessionIdle(true)
+                      toast.loading("Saving session timeout…", { id: "session-idle-save" })
+                      try {
+                        const updated = await putJson<SessionIdleSettings>(
+                          "/admin/settings/session-idle",
+                          sessionIdle as unknown as Record<string, unknown>
+                        )
+                        setSessionIdle(updated)
+                        toast.success("Saved", { id: "session-idle-save" })
+                      } catch (e) {
+                        const message = e instanceof Error ? e.message : "Save failed"
+                        toast.error(message, { id: "session-idle-save" })
+                      } finally {
+                        setSavingSessionIdle(false)
+                      }
+                    }}
+                  >
+                    {savingSessionIdle ? "Saving…" : "Save session timeout"}
+                  </AdminPrimaryButton>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            )}
           </AdminPanel>
         </WorkspaceTabsContent>
 

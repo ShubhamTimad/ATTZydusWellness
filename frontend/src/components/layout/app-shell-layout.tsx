@@ -20,6 +20,7 @@ import { Link, useLocation } from "react-router-dom"
 
 import { ProfileDialog } from "@/components/profile-dialog"
 import { AppBrandMark } from "@/components/layout/app-brand-mark"
+import { SessionIdleNavbarBadge } from "@/components/session-idle-navbar-badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import {
@@ -277,7 +278,9 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
             <h1 className="truncate text-base font-semibold tracking-tight text-foreground">{title}</h1>
           </div>
 
-          <DropdownMenu>
+          <div className="flex shrink-0 items-center gap-3">
+            <SessionIdleNavbarBadge />
+            <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
@@ -325,6 +328,7 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         </header>
 
         <main className="flex min-h-0 flex-1 flex-col overflow-auto p-[var(--app-page-padding)]">

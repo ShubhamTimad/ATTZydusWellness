@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from core.captcha import captcha_is_valid
 from core.config import get_settings
+from core.session_idle import SessionIdleExpiredError, assert_refresh_session_active
 from core.password_policy import PasswordExpiredError, is_password_expired
 from core.password_policy import validate_password
 from core.security import (
@@ -35,6 +36,7 @@ from modules.platform.auth.login_result import (
 )
 from modules.platform.auth.schema import LoginRequest, TokenPair, UserMe
 from modules.platform.auth_policy.service import get_global_policy
+from modules.platform.settings.session_idle import get_session_idle_timeout_minutes
 from modules.errors import NotFoundError
 from modules.platform.users.model import User
 from modules.platform.emails.service import EmailNotificationService
@@ -52,18 +54,25 @@ class AuthService:
     def __init__(self, db: Session) -> None:
         self._db = db
 
+    def _access_token_lifetime(self) -> timedelta:
+        return timedelta(minutes=get_session_idle_timeout_minutes())
+
     def _issue_token_pair(self, user: User) -> TokenPair:
         settings = get_settings()
         jti = str(uuid.uuid4())
-        access = create_access_token({"sub": str(user.id)})
+        now = datetime.now(timezone.utc)
+        access = create_access_token(
+            {"sub": str(user.id), "jti": jti},
+            expires_delta=self._access_token_lifetime(),
+        )
         delta = timedelta(days=settings.refresh_token_expire_days)
         refresh = create_refresh_token(subject=str(user.id), jti=jti, expires_delta=delta)
-        now = datetime.now(timezone.utc)
         self._db.add(
             UserSession(
                 refresh_jti=jti,
                 user_id=user.id,
                 expires_at=now + delta,
+                last_activity_at=now,
             )
         )
         self._db.commit()
@@ -157,6 +166,10 @@ class AuthService:
         )
         if row is None:
             raise InvalidRefreshTokenError
+        try:
+            assert_refresh_session_active(self._db, row)
+        except SessionIdleExpiredError as exc:
+            raise InvalidRefreshTokenError from exc
         row.revoked_at = now
         new_jti = str(uuid.uuid4())
         delta = timedelta(days=settings.refresh_token_expire_days)
@@ -168,9 +181,13 @@ class AuthService:
                 refresh_jti=new_jti,
                 user_id=user_id,
                 expires_at=now + delta,
+                last_activity_at=now,
             )
         )
-        access = create_access_token({"sub": str(user_id)})
+        access = create_access_token(
+            {"sub": str(user_id), "jti": new_jti},
+            expires_delta=self._access_token_lifetime(),
+        )
         self._db.commit()
         return TokenPair(access_token=access, refresh_token=new_refresh)
 

@@ -5,6 +5,12 @@ from sqlalchemy.orm import Session, selectinload
 
 from core.password_policy import password_policy_admin_view
 from modules.platform.settings.financial_year import financial_year_period_for, get_financial_year_config
+from modules.platform.settings.session_idle import (
+    MAX_IDLE_MINUTES,
+    MIN_IDLE_MINUTES,
+    SETTING_KEY as SESSION_IDLE_SETTING_KEY,
+    get_session_idle_timeout_minutes,
+)
 from modules.platform.settings.lookup import clear_setting_cache
 from modules.platform.settings.model import Setting
 from modules.platform.settings.schema import (
@@ -12,6 +18,7 @@ from modules.platform.settings.schema import (
     EmailDeliveryPublic,
     FinancialYearSettingsPublic,
     PasswordPolicyPublic,
+    SessionIdleSettingsPublic,
 )
 from modules.platform.settings.smtp_config import (
     get_smtp_config,
@@ -145,6 +152,21 @@ class SettingsService:
         self._db.commit()
         clear_setting_cache(*[k for k, _ in mapping])
         return self.get_email_delivery()
+
+    def get_session_idle(self) -> SessionIdleSettingsPublic:
+        return SessionIdleSettingsPublic(
+            idle_timeout_minutes=get_session_idle_timeout_minutes(),
+        )
+
+    def put_session_idle(self, payload: SessionIdleSettingsPublic) -> SessionIdleSettingsPublic:
+        minutes = max(
+            MIN_IDLE_MINUTES,
+            min(MAX_IDLE_MINUTES, int(payload.idle_timeout_minutes)),
+        )
+        self._upsert(SESSION_IDLE_SETTING_KEY, str(minutes))
+        self._db.commit()
+        clear_setting_cache(SESSION_IDLE_SETTING_KEY)
+        return SessionIdleSettingsPublic(idle_timeout_minutes=minutes)
 
     def get_financial_year(self) -> FinancialYearSettingsPublic:
         cfg = get_financial_year_config()

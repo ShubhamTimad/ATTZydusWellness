@@ -12,6 +12,7 @@ from modules.platform.settings.schema import (
     EmailDeliveryTestRequest,
     FinancialYearSettingsPublic,
     PasswordPolicyPublic,
+    SessionIdleSettingsPublic,
 )
 from modules.platform.settings.service import SettingsService
 
@@ -91,6 +92,23 @@ async def test_email_delivery(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"status": "sent", "to_email": payload.to_email.strip().lower()}
+
+
+@router.get("/session-idle", response_model=SessionIdleSettingsPublic)
+def get_session_idle(
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: Annotated[object, Depends(require_permission("settings.update"))],
+) -> SessionIdleSettingsPublic:
+    return svc.get_session_idle()
+
+
+@router.put("/session-idle", response_model=SessionIdleSettingsPublic)
+def put_session_idle(
+    payload: SessionIdleSettingsPublic,
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: Annotated[object, Depends(require_permission("settings.update"))],
+) -> SessionIdleSettingsPublic:
+    return svc.put_session_idle(payload)
 
 
 @router.get("/financial-year", response_model=FinancialYearSettingsPublic)

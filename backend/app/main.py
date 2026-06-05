@@ -7,12 +7,14 @@ from starlette.middleware.cors import CORSMiddleware
 from admin_api.routes import router as admin_api_router
 from app_api.routes import router as app_api_router
 from modules.platform.audit import AdminAuditMiddleware
+from modules.platform.auth.session_idle_middleware import SessionIdleMiddleware
 
 from db.session import SessionLocal
 from modules.rbac_sync import sync_all_modules_to_db
 
 app = FastAPI()
 app.add_middleware(AdminAuditMiddleware)
+app.add_middleware(SessionIdleMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

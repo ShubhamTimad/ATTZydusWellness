@@ -35,7 +35,8 @@ from modules.platform.auth.schema import (
 )
 from modules.errors import NotFoundError
 from modules.platform.settings.service import SettingsService
-from modules.platform.settings.schema import AuthPolicyPublic
+from modules.platform.settings.schema import AuthPolicyPublic, SessionIdleSettingsPublic
+from modules.platform.settings.session_idle import get_session_idle_timeout_minutes
 
 router = APIRouter(tags=["auth"])
 
@@ -50,6 +51,12 @@ def public_auth_policy(db: Session = Depends(get_db)) -> AuthPolicyPublic:
     Public, unauthenticated policy snapshot for login UI (do not leak user/company data).
     """
     return SettingsService(db).get_auth_policy()
+
+
+@router.get("/auth/session-policy", response_model=SessionIdleSettingsPublic)
+def public_session_policy() -> SessionIdleSettingsPublic:
+    """Idle timeout for client auto sign-out (minutes, org-wide)."""
+    return SessionIdleSettingsPublic(idle_timeout_minutes=get_session_idle_timeout_minutes())
 
 
 async def get_login_payload(request: Request) -> LoginRequest:

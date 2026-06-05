@@ -47,6 +47,17 @@ class EmailDeliveryTestRequest(BaseModel):
     )
 
 
+class SessionIdleSettingsPublic(BaseModel):
+    """Minutes of inactivity (no API use / tab not active on client) before automatic sign-out."""
+
+    idle_timeout_minutes: int = Field(
+        default=10,
+        ge=1,
+        le=24 * 60,
+        description="Applied to every user session.",
+    )
+
+
 class FinancialYearSettingsPublic(BaseModel):
     """Inclusive start date; end is the day before the next year's start."""
 

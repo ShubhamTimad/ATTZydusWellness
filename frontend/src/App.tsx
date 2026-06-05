@@ -28,6 +28,7 @@ import * as React from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { getJson } from "@/lib/api"
 import { AccessDenied } from "@/components/admin/access-denied"
+import { SessionIdleWatcher } from "@/components/session-idle-watcher"
 import {
   clearAuthProfile,
   hasAnyNonUsersRbacPermission,
@@ -360,15 +361,17 @@ function AppRoute() {
 
   if (checking) return null
   return (
-    <AppShellLayout
-      userEmail={userEmail}
-      onSignOut={() => {
-        clearTokens()
-        navigate("/login", { replace: true })
-      }}
-    >
-      <Outlet key={profileTick} />
-    </AppShellLayout>
+    <SessionIdleWatcher loginPath="/login">
+      <AppShellLayout
+        userEmail={userEmail}
+        onSignOut={() => {
+          clearTokens()
+          navigate("/login", { replace: true })
+        }}
+      >
+        <Outlet key={profileTick} />
+      </AppShellLayout>
+    </SessionIdleWatcher>
   )
 }
 
@@ -440,27 +443,29 @@ function AdminRoute() {
   if (superGate !== "ok") return null
 
   return (
-    <AdminLayout
-      pageTitle={pageTitle}
-      activeId={activeId}
-      onNavigate={(id) => {
-        if (id === "overview") navigate("/admin")
-        if (id === "users") navigate("/admin/users")
-        if (id === "plants") navigate("/admin/plants")
-        if (id === "roles") navigate("/admin/roles")
-        if (id === "permissions") navigate("/admin/permissions")
-        if (id === "workflow-assignment") navigate("/admin/workflow-assignment")
-        if (id === "email-templates") navigate("/admin/email-templates")
-        if (id === "settings") navigate("/admin/settings")
-      }}
-      userEmail={userEmail}
-      onSignOut={() => {
-        clearTokens()
-        navigate("/admin/login", { replace: true })
-      }}
-    >
-      <Outlet key={profileTick} />
-    </AdminLayout>
+    <SessionIdleWatcher loginPath="/admin/login">
+      <AdminLayout
+        pageTitle={pageTitle}
+        activeId={activeId}
+        onNavigate={(id) => {
+          if (id === "overview") navigate("/admin")
+          if (id === "users") navigate("/admin/users")
+          if (id === "plants") navigate("/admin/plants")
+          if (id === "roles") navigate("/admin/roles")
+          if (id === "permissions") navigate("/admin/permissions")
+          if (id === "workflow-assignment") navigate("/admin/workflow-assignment")
+          if (id === "email-templates") navigate("/admin/email-templates")
+          if (id === "settings") navigate("/admin/settings")
+        }}
+        userEmail={userEmail}
+        onSignOut={() => {
+          clearTokens()
+          navigate("/admin/login", { replace: true })
+        }}
+      >
+        <Outlet key={profileTick} />
+      </AdminLayout>
+    </SessionIdleWatcher>
   )
 }
 

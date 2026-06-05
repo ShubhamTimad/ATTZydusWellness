@@ -12,6 +12,8 @@ function getAccessToken() {
   }
 }
 
+import { SESSION_IDLE_LOGOUT_EVENT } from "@/lib/session-idle-events"
+
 export class ApiError extends Error {
   status: number
   body?: unknown
@@ -38,6 +40,16 @@ function parseErrorMessage(data: unknown, status: number): string {
   return `Request failed (${status})`
 }
 
+function maybeDispatchSessionIdle(status: number, data: unknown) {
+  if (status !== 401) return
+  if (data && typeof data === "object") {
+    const detail = (data as { detail?: unknown }).detail
+    if (detail === "session_idle") {
+      window.dispatchEvent(new Event(SESSION_IDLE_LOGOUT_EVENT))
+    }
+  }
+}
+
 export async function getJson<TResponse>(
   path: string,
   init?: Omit<RequestInit, "method">
@@ -58,6 +70,7 @@ export async function getJson<TResponse>(
   const data = parseResponseBody(text)
 
   if (!res.ok) {
+    maybeDispatchSessionIdle(res.status, data)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 
@@ -99,6 +112,7 @@ export async function postJson<TResponse>(
   const data = parseResponseBody(text)
 
   if (!res.ok) {
+    maybeDispatchSessionIdle(res.status, data)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 
@@ -128,6 +142,7 @@ export async function patchJson<TResponse>(
   const data = parseResponseBody(text)
 
   if (!res.ok) {
+    maybeDispatchSessionIdle(res.status, data)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 
@@ -157,6 +172,7 @@ export async function putJson<TResponse>(
   const data = parseResponseBody(text)
 
   if (!res.ok) {
+    maybeDispatchSessionIdle(res.status, data)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 
@@ -183,6 +199,7 @@ export async function deleteJson(
   const data = parseResponseBody(text)
 
   if (!res.ok) {
+    maybeDispatchSessionIdle(res.status, data)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 }
