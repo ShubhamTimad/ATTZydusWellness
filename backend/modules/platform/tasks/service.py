@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from modules.platform.approvals.inbox_service import dedupe_approval_inbox_rows, should_show_approval_in_inbox
+from modules.orders.task_inbox import is_physical_order_task
 from modules.platform.approvals.model import (
     ApprovalAction,
     ApprovalRequest,
@@ -34,6 +35,10 @@ from modules.platform.tasks.schema import (
 class TaskService:
     def __init__(self, db: Session) -> None:
         self._db = db
+
+    @staticmethod
+    def _is_physical_order_task(task: ApprovalTask) -> bool:
+        return is_physical_order_task(task)
 
     def my_tasks(
         self,
@@ -88,6 +93,7 @@ class TaskService:
             stmt = stmt.order_by(ApprovalTask.id.desc())
         stmt = stmt.limit(buf)
         raw = list(self._db.scalars(stmt).all())
+        raw = [t for t in raw if not self._is_physical_order_task(t)]
         if done_mode:
             out = dedupe_approval_inbox_rows(raw)
             return out[: int(limit)]

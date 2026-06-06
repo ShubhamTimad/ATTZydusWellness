@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from modules.platform.approvals.model import ApprovalRequest, ApprovalStep, ApprovalTask, ApprovalWorkflow
 from modules.platform.approvals.service import ApprovalError
 from modules.errors import NotFoundError
+from modules.orders.task_inbox import is_physical_order_task
 from modules.rbac_association import user_role
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
@@ -197,6 +198,7 @@ class ApprovalInboxService:
             .order_by(ApprovalTask.id.desc())
         )
         tasks = list(self._db.scalars(stmt).unique().all())
+        tasks = [t for t in tasks if not is_physical_order_task(t)]
         tasks = [t for t in tasks if should_show_approval_in_inbox(t)]
         tasks = dedupe_approval_inbox_rows(tasks)
 

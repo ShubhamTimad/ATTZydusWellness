@@ -35,8 +35,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { adminSelectClass } from "@/components/layout/admin-ui"
 import { ApiError, getJson, postJson } from "@/lib/api"
-import { orderStatusLabel, type PhysicalOrderDetail, type PhysicalOrderItem } from "@/lib/orders-types"
+import {
+  orderStatusLabel,
+  type ExecutorUser,
+  type PhysicalOrderDetail,
+  type PhysicalOrderItem,
+} from "@/lib/orders-types"
 import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
@@ -56,9 +62,9 @@ function formatDate(iso: string | null | undefined) {
 
 
 function statusPillTone(status: string): "neutral" | "success" | "warning" | "danger" {
-  if (status === "completed" || status === "approved") return "success"
+  if (status === "completed" || status === "approved" || status === "closed") return "success"
   if (status === "rejected" || status === "cancelled") return "danger"
-  if (status === "in_progress" || status === "pending_closure_approval") return "warning"
+  if (status === "in_progress" || status === "pending_closure_approval" || status === "assigned") return "warning"
   return "neutral"
 }
 
@@ -137,10 +143,15 @@ export function OrderDetailPage() {
   const [closureRejectConfirmOpen, setClosureRejectConfirmOpen] = React.useState(false)
   const [closureRejectVerifiedCodes, setClosureRejectVerifiedCodes] = React.useState<string[]>([])
   const [auditOpen, setAuditOpen] = React.useState(false)
+  const [reassignOpen, setReassignOpen] = React.useState(false)
+  const [executors, setExecutors] = React.useState<ExecutorUser[]>([])
+  const [reassignTo, setReassignTo] = React.useState("")
 
   const canApprove = hasPermission("order.approve")
   const canExecute = hasPermission("order.execute")
   const canCreate = hasPermission("order.create")
+  const canUpdate = hasPermission("order.update")
+  const canReassignOrder = hasPermission("order.reassign")
 
   const load = React.useCallback(async () => {
     if (!id) return
@@ -168,6 +179,13 @@ export function OrderDetailPage() {
     const stillVisible = order.items.some((item) => item.id === selectedScanItemId)
     if (!stillVisible) setSelectedScanItemId(null)
   }, [order, selectedScanItemId])
+
+  React.useEffect(() => {
+    if (!reassignOpen) return
+    void getJson<ExecutorUser[]>("/admin/physical-orders/executors")
+      .then(setExecutors)
+      .catch(() => setExecutors([]))
+  }, [reassignOpen])
 
   async function runAction(path: string, body?: Record<string, unknown>) {
     if (!id) return
@@ -220,8 +238,10 @@ export function OrderDetailPage() {
 
   const isPendingApproval = order.status === "pending_approval"
   const isPendingClosure = order.status === "pending_closure_approval"
-  const isApproved = order.status === "approved"
+  const isAssigned = order.status === "assigned" || order.status === "approved"
   const isInProgress = order.status === "in_progress"
+  const isCompleted = order.status === "completed"
+  const isClosed = order.status === "closed"
   const isRejected = order.status === "rejected"
   const isCreator = currentUserId != null && order.created_by === currentUserId
   const isAssignee = currentUserId != null && order.assigned_to === currentUserId
@@ -236,9 +256,13 @@ export function OrderDetailPage() {
   ).length
   const showLineOutcomeFilters = isInProgress && (approvedLineCount > 0 || order.rejected_item_count > 0)
 
+  const canReassign = isAssigned && canReassignOrder && !isClosed
+  const canClose = isCompleted && (canApprove || canUpdate || (canCreate && isCreator))
   const hasActions =
     (isRejected && canCreate && isCreator) ||
-    (isApproved && canExecute && isAssignee) ||
+    (isAssigned && canExecute && isAssignee) ||
+    canReassign ||
+    canClose ||
     canScan ||
     canReviewCreation ||
     canReviewClosure
@@ -291,7 +315,13 @@ export function OrderDetailPage() {
     <AdminPage fullWidth actions={<AdminBackLink to="/dashboard/orders">Orders</AdminBackLink>}>
       <ListPageHeader
         title={order.order_number}
-        description={`${order.plant_name} · ${order.cost_center_code}${order.assigned_to_name ? ` · ${order.assigned_to_name}` : ""}`}
+        description={`${order.plant_name} · ${order.cost_center_code}${
+          order.assigned_to_name
+            ? order.assigned_at
+              ? ` · ${order.assigned_to_name}`
+              : ` · Pending: ${order.assigned_to_name}`
+            : ""
+        }`}
         actions={<AdminPillBadge tone={statusPillTone(order.status)}>{orderStatusLabel(order.status)}</AdminPillBadge>}
       />
 
@@ -386,9 +416,27 @@ export function OrderDetailPage() {
                 Resubmit
               </AdminPrimaryButton>
             ) : null}
-            {isApproved && canExecute && isAssignee ? (
+            {isAssigned && canExecute && isAssignee ? (
               <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/start")}>
-                Start order
+                Start
+              </AdminPrimaryButton>
+            ) : null}
+            {canReassign ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  setReassignTo("")
+                  setReassignOpen(true)
+                }}
+              >
+                Reassign
+              </Button>
+            ) : null}
+            {canClose ? (
+              <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/close")}>
+                Close
               </AdminPrimaryButton>
             ) : null}
             {canScan ? (
@@ -441,7 +489,7 @@ export function OrderDetailPage() {
                   disabled={busy || order.pending_physical_count > 0}
                   onClick={() => void runAction("/submit-closure")}
                 >
-                  Submit for closure
+                  Complete
                 </AdminPrimaryButton>
                 <Button
                   type="button"
@@ -689,6 +737,55 @@ export function OrderDetailPage() {
           ) : null}
         </AdminPanel>
       ) : null}
+
+      <Dialog open={reassignOpen} onOpenChange={setReassignOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reassign order</DialogTitle>
+            <DialogDescription>
+              Select a new executor. Work has not started yet, so reassignment is allowed.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="dialog-body space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="reassign-to">Executor</Label>
+              <select
+                id="reassign-to"
+                className={adminSelectClass}
+                value={reassignTo}
+                onChange={(e) => setReassignTo(e.target.value)}
+              >
+                <option value="">Select executor…</option>
+                {executors
+                  .filter((e) => e.id !== order.assigned_to)
+                  .map((e) => (
+                  <option key={e.id} value={String(e.id)}>
+                    {e.full_name}
+                    {e.email ? ` (${e.email})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setReassignOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={!reassignTo || busy}
+                onClick={() => {
+                  void runAction("/reassign", { assigned_to: Number(reassignTo) }).then(() => {
+                    setReassignOpen(false)
+                    toast.success("Order reassigned.")
+                  })
+                }}
+              >
+                Reassign
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>

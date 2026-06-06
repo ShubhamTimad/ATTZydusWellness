@@ -174,6 +174,7 @@ class PhysicalOrderDetail(BaseModel):
     started_at: datetime | None
     started_by_name: str | None
     completed_at: datetime | None
+    closed_at: datetime | None = None
     created_at: datetime
     approval_request_id: int | None
     items: list[PhysicalOrderItemPublic]

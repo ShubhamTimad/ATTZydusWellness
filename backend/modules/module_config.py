@@ -156,10 +156,22 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
                     "update",
                     "approve",
                     "execute",
+                    "reassign",
                     "close",
                     "complete",
                     "manage",
                 ],
+            },
+        ],
+    },
+    {
+        "key": "report",
+        "title": "Reports",
+        "tabs": [
+            {
+                "key": "report",
+                "title": "Reports",
+                "actions": ["view", "export"],
             },
         ],
     },

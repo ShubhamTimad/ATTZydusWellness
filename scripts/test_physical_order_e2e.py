@@ -146,17 +146,20 @@ def main() -> int:
     else:
         approved = r.json()
         checks.append(f"after approve status={approved.get('status')}")
-        if approved.get("status") != "approved":
+        if approved.get("status") not in ("approved", "assigned"):
             # Retry once if a second approval step still exists in DB
             r2 = api(creator_token, "POST", f"/admin/physical-orders/{order_id}/approval/approve-order")
             if r2.status_code == 200:
                 approved = r2.json()
                 checks.append(f"after 2nd approve status={approved.get('status')}")
-        if approved.get("status") != "approved":
+        if approved.get("status") != "assigned":
             errors.append(
-                f"expected approved, got {approved.get('status')} "
+                f"expected assigned after approval, got {approved.get('status')} "
                 "(re-run seed_dummy_data.py to use single-step creation workflow)"
             )
+        progress_keys = [s.get("key") for s in (approved.get("progress") or {}).get("steps") or []]
+        if "approved" not in progress_keys:
+            errors.append(f"progress stepper missing approved step: {progress_keys}")
 
     # Executor runs order
     r = api(executor_token, "POST", f"/admin/physical-orders/{order_id}/start")

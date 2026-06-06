@@ -203,3 +203,54 @@ export async function deleteJson(
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 }
+
+function filenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null
+  const match = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(header)
+  if (!match?.[1]) return null
+  return decodeURIComponent(match[1].replace(/"/g, "").trim())
+}
+
+/** Download a binary file (Excel, PDF, etc.) and trigger a browser save. */
+export async function downloadFile(
+  path: string,
+  fallbackFilename: string,
+  init?: Omit<RequestInit, "method">,
+): Promise<void> {
+  const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`
+  const token = getAccessToken()
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
+    ...init,
+  })
+
+  if (!res.ok) {
+    const text = await res.text()
+    let data: unknown
+    try {
+      data = JSON.parse(text)
+    } catch {
+      data = text
+    }
+    maybeDispatchSessionIdle(res.status, data)
+    throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
+  }
+
+  const blob = await res.blob()
+  const filename =
+    filenameFromContentDisposition(res.headers.get("Content-Disposition")) ?? fallbackFilename
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = objectUrl
+  anchor.download = filename
+  anchor.rel = "noopener"
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(objectUrl)
+}

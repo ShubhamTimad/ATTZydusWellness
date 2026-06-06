@@ -55,19 +55,7 @@ from modules.rbac_association import user_org_unit
 from modules.platform.permissions.model import Permission
 from modules.rbac_sync import sync_all_modules_to_db
 from modules.platform.roles.model import Role
-from modules.orders.audit import log_order_event
-from modules.orders.constants import (
-    ITEM_STATUS_APPROVED,
-    ITEM_STATUS_PENDING,
-    ITEM_STATUS_REJECTED,
-    ORDER_STATUS_APPROVED,
-    ORDER_STATUS_COMPLETED,
-    ORDER_STATUS_IN_PROGRESS,
-    ORDER_STATUS_PENDING_APPROVAL,
-    ORDER_STATUS_PENDING_CLOSURE,
-    ORDER_STATUS_REJECTED,
-)
-from modules.orders.model import PhysicalOrder, PhysicalOrderItem
+from modules.orders.model import PhysicalOrder
 
 # --- Email templates (one password in welcome mail only) ---
 
@@ -170,7 +158,7 @@ ROLE_SPECS: list[dict[str, object]] = [
     {
         "name": "Physical Order Approver",
         "description": "Approve physical verification orders and closures.",
-        "permissions": ["order.approve", "order.view", "approval.view", "approval.act"],
+        "permissions": ["order.approve", "order.view", "order.reassign", "approval.view", "approval.act"],
     },
 ]
 
@@ -1011,96 +999,14 @@ def _asset_ids_for_codes(db: Session, codes: list[str]) -> list[int]:
 
 
 def _seed_demo_orders(db: Session, *, plant_id: int) -> None:
-    """Sample physical orders across lifecycle states for UI testing."""
-    from datetime import datetime, timezone
-
-    cc4100 = _cost_center_id(db, plant_id=plant_id, code="CC-4100")
-    cc4200 = _cost_center_id(db, plant_id=plant_id, code="CC-4200")
-    now = datetime.now(timezone.utc)
-
-    specs: list[dict[str, object]] = [
-        {
-            "order_number": "PVO-SEED-00001",
-            "status": ORDER_STATUS_PENDING_APPROVAL,
-            "cost_center_id": cc4100,
-            "assets": ["DEMO-AST-001"],
-        },
-        {
-            "order_number": "PVO-SEED-00002",
-            "status": ORDER_STATUS_APPROVED,
-            "cost_center_id": cc4100,
-            "assets": ["DEMO-AST-002"],
-        },
-        {
-            "order_number": "PVO-SEED-00003",
-            "status": ORDER_STATUS_IN_PROGRESS,
-            "cost_center_id": cc4200,
-            "assets": ["DEMO-AST-003"],
-            "verified": True,
-        },
-        {
-            "order_number": "PVO-SEED-00004",
-            "status": ORDER_STATUS_PENDING_CLOSURE,
-            "cost_center_id": cc4200,
-            "assets": ["DEMO-AST-004"],
-            "all_verified": True,
-        },
-        {
-            "order_number": "PVO-SEED-00005",
-            "status": ORDER_STATUS_COMPLETED,
-            "cost_center_id": cc4100,
-            "assets": ["DEMO-AST-005"],
-            "all_verified": True,
-        },
-    ]
-
-    for spec in specs:
-        onum = str(spec["order_number"])
-        existing = db.scalar(select(PhysicalOrder.id).where(PhysicalOrder.order_number == onum))
-        if existing is not None:
-            print(f"  skip order: {onum}")
-            continue
-        asset_codes = list(spec["assets"])  # type: ignore[arg-type]
-        asset_ids = _asset_ids_for_codes(db, asset_codes)
-        if not asset_ids:
-            print(f"  skip order {onum}: assets missing")
-            continue
-        order = PhysicalOrder(
-            order_number=onum,
-            plant_id=plant_id,
-            cost_center_id=int(spec["cost_center_id"]),
-            created_by=None,
-            assigned_to=None,
-            status=str(spec["status"]),
-            remarks="Seeded demo order",
-        )
-        if spec.get("all_verified") or spec.get("verified"):
-            order.started_at = now
-            order.completed_at = now if spec["status"] == ORDER_STATUS_COMPLETED else None
-        db.add(order)
-        db.flush()
-        for aid in asset_ids:
-            vstatus = ITEM_STATUS_PENDING
-            if spec.get("rejected"):
-                vstatus = ITEM_STATUS_REJECTED
-            elif spec.get("all_verified") or (spec.get("verified") and aid == asset_ids[0]):
-                vstatus = ITEM_STATUS_APPROVED
-            item = PhysicalOrderItem(
-                order_id=int(order.id),
-                asset_id=aid,
-                verification_status=vstatus,
-                rejection_reason="Demo rejection" if spec.get("rejected") else None,
-                scan_time=now if vstatus == ITEM_STATUS_APPROVED else None,
-            )
-            db.add(item)
-        log_order_event(
-            db,
-            order_id=int(order.id),
-            action="order_created",
-            actor_user_id=None,
-            new_value={"order_number": onum, "seed": True},
-        )
-        print(f"  order: {onum} ({spec['status']})")
+    """Legacy hook — full lifecycle seed lives in seed_physical_order_states.py."""
+    existing = db.scalar(
+        select(PhysicalOrder.id).where(PhysicalOrder.order_number.like("PVO-SEED-%"))
+    )
+    if existing is not None:
+        print("  skip: PVO-SEED-* orders exist (run scripts/seed_physical_order_states.py --reset)")
+        return
+    print("  hint: run scripts/seed_physical_order_states.py for full workflow test orders")
 
 
 def main() -> int:
@@ -1204,6 +1110,7 @@ def main() -> int:
         print("\nDone.")
         print("Active user-creation workflow is mapped to users.create (new users need approval).")
         print("Physical order workflows mapped to order.create and order.complete.")
+        print("Run scripts/seed_physical_order_states.py for demo orders in every lifecycle state.")
         print("USER_CREATED email uses one temporary password ({{temp_password}}).")
         return 0
     finally:

@@ -153,6 +153,7 @@ export type PhysicalOrderDetail = {
   started_at: string | null
   started_by_name: string | null
   completed_at: string | null
+  closed_at: string | null
   created_at: string
   approval_request_id: number | null
   items: PhysicalOrderItem[]
@@ -170,9 +171,11 @@ export type OrdersDashboardModule = {
   total_orders: number
   pending_approval: number
   approved: number
+  assigned: number
   in_progress: number
   pending_closure_approval: number
   completed: number
+  closed: number
   rejected: number
   by_status: { status: string; count: number }[]
   by_plant: { plant: string; count: number }[]
@@ -181,10 +184,12 @@ export type OrdersDashboardModule = {
 export const ORDER_TABS = [
   { key: "pending_approval", label: "Pending Approval" },
   { key: "my_orders", label: "My Orders" },
+  { key: "assigned", label: "Assigned" },
   { key: "assigned_to_me", label: "Assigned To Me" },
   { key: "in_progress", label: "In Progress" },
   { key: "pending_closure", label: "Pending Closure Approval" },
   { key: "completed", label: "Completed" },
+  { key: "closed", label: "Closed" },
 ] as const
 
 export function orderStatusLabel(status: string): string {

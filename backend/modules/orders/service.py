@@ -25,7 +25,9 @@ from modules.orders.constants import (
     ITEM_STATUS_PENDING,
     ITEM_STATUS_REJECTED,
     ORDER_STATUS_APPROVED,
+    ORDER_STATUS_ASSIGNED,
     ORDER_STATUS_CANCELLED,
+    ORDER_STATUS_CLOSED,
     ORDER_STATUS_COMPLETED,
     ORDER_STATUS_DRAFT,
     ORDER_STATUS_IN_PROGRESS,
@@ -57,7 +59,6 @@ from modules.platform.settings.financial_year import financial_year_period_for, 
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow, TaskAuditLog
 from modules.platform.approvals.service import ApprovalEngineService
 from modules.platform.permissions.model import Permission
-from modules.platform.tasks.service import TaskService
 from modules.platform.users.model import User
 from modules.rbac_association import role_permission, user_role
 
@@ -403,7 +404,12 @@ class PhysicalOrderService:
             already_verified_in_fy=already_verified,
         )
 
+    def _user_can_execute_orders(self, user_id: int) -> bool:
+        snapshot = _get_cached_permission_snapshot(self._db, user_id)
+        return _has_any_permission(snapshot, ("order.execute",))
+
     def list_executors(self) -> list[ExecutorUserPublic]:
+        """Active users who may be assigned to execute physical orders."""
         perm = self._db.scalar(select(Permission.id).where(Permission.code == "order.execute"))
         if perm is None:
             return []
@@ -574,15 +580,12 @@ class PhysicalOrderService:
                         f"Asset {asset.asset_code} has not been physically verified in {period.label}."
                     )
 
-        now = _now_utc()
         order = PhysicalOrder(
             order_number=order_number,
             plant_id=plant_id,
             cost_center_id=cost_center_id,
             created_by=actor_user_id,
             assigned_to=body.assigned_to,
-            assigned_by=actor_user_id,
-            assigned_at=now,
             status=ORDER_STATUS_DRAFT,
             remarks=body.remarks,
             reset_verification_asset_ids=sorted(reset_ids) if reset_ids else None,
@@ -609,14 +612,6 @@ class PhysicalOrderService:
                 "financial_year": period.label if reset_ids else None,
             },
         )
-        log_order_event(
-            self._db,
-            order_id=int(order.id),
-            action="assignment_changed",
-            actor_user_id=actor_user_id,
-            new_value={"assigned_to": body.assigned_to},
-        )
-        self._notify_assigned(order)
         if body.submit:
             self._submit_for_creation_approval(order, actor_user_id=actor_user_id)
         else:
@@ -681,24 +676,24 @@ class PhysicalOrderService:
                         order=order,
                         actor_user_id=actor_user_id,
                     )
-            self._create_executor_task(order, actor_user_id=actor_user_id)
+            self._activate_assignment(order, actor_user_id=actor_user_id)
         self._db.commit()
 
-    def _create_executor_task(self, order: PhysicalOrder, *, actor_user_id: int | None) -> None:
+    def _activate_assignment(self, order: PhysicalOrder, *, actor_user_id: int | None) -> None:
         if order.assigned_to is None:
-            return
-        TaskService(self._db).create_manual_task(
-            actor_user_id=actor_user_id or int(order.created_by or order.assigned_to),
-            title=f"Execute physical verification: {order.order_number}",
-            description="Start verification and scan assets for this order.",
-            assigned_to_user_id=int(order.assigned_to),
-            priority="high",
-            due_date=None,
-            entity_type=ENTITY_TYPE_CREATION,
-            entity_id=int(order.id),
-            form_schema=None,
-            form_data=None,
+            raise ConflictError("Order has no intended assignee.")
+        now = _now_utc()
+        order.assigned_by = actor_user_id or order.created_by
+        order.assigned_at = now
+        order.status = ORDER_STATUS_ASSIGNED
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="assignment_changed",
+            actor_user_id=actor_user_id,
+            new_value={"assigned_to": int(order.assigned_to), "auto_assigned": True},
         )
+        self._notify_assigned(order)
 
     def _notify_assigned(self, order: PhysicalOrder) -> None:
         try:
@@ -738,13 +733,27 @@ class PhysicalOrderService:
         elif tab == "my_orders":
             base = base.where(PhysicalOrder.created_by == viewer_id)
         elif tab == "assigned_to_me":
-            base = base.where(PhysicalOrder.assigned_to == viewer_id)
+            base = base.where(
+                PhysicalOrder.assigned_to == viewer_id,
+                PhysicalOrder.status.in_(
+                    (
+                        ORDER_STATUS_ASSIGNED,
+                        ORDER_STATUS_IN_PROGRESS,
+                        ORDER_STATUS_PENDING_CLOSURE,
+                        ORDER_STATUS_COMPLETED,
+                    )
+                ),
+            )
+        elif tab == "assigned":
+            base = base.where(PhysicalOrder.status == ORDER_STATUS_ASSIGNED)
         elif tab == "in_progress":
             base = base.where(PhysicalOrder.status == ORDER_STATUS_IN_PROGRESS)
         elif tab == "pending_closure":
             base = base.where(PhysicalOrder.status == ORDER_STATUS_PENDING_CLOSURE)
         elif tab == "completed":
             base = base.where(PhysicalOrder.status == ORDER_STATUS_COMPLETED)
+        elif tab == "closed":
+            base = base.where(PhysicalOrder.status == ORDER_STATUS_CLOSED)
         elif tab == "all":
             pass
         else:
@@ -753,6 +762,7 @@ class PhysicalOrderService:
                     (
                         ORDER_STATUS_PENDING_APPROVAL,
                         ORDER_STATUS_APPROVED,
+                        ORDER_STATUS_ASSIGNED,
                         ORDER_STATUS_IN_PROGRESS,
                         ORDER_STATUS_PENDING_CLOSURE,
                     )
@@ -863,6 +873,7 @@ class PhysicalOrderService:
             started_at=order.started_at,
             started_by_name=self._user_name(order.started_by),
             completed_at=order.completed_at,
+            closed_at=order.closed_at,
             created_at=order.created_at,
             approval_request_id=order.approval_request_id,
             items=[self._to_item_public(i) for i in order.items],
@@ -889,19 +900,19 @@ class PhysicalOrderService:
         if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
             raise ConflictError("Only draft or rejected orders can be edited.")
         if assigned_to is not None:
+            assignee = self._db.get(User, assigned_to)
+            if assignee is None or not assignee.is_active:
+                raise NotFoundError("User", assigned_to)
             old = order.assigned_to
             order.assigned_to = assigned_to
-            order.assigned_by = actor_user_id
-            order.assigned_at = _now_utc()
             log_order_event(
                 self._db,
                 order_id=order_id,
                 action="assignment_changed",
                 actor_user_id=actor_user_id,
                 old_value={"assigned_to": old},
-                new_value={"assigned_to": assigned_to},
+                new_value={"assigned_to": assigned_to, "intended_only": True},
             )
-            self._notify_assigned(order)
         if remarks is not None:
             order.remarks = remarks
         if asset_ids is not None:
@@ -1145,10 +1156,66 @@ class PhysicalOrderService:
         self._db.commit()
         return self.get_order(order_id)
 
+    def reassign_order(
+        self,
+        order_id: int,
+        *,
+        assigned_to: int,
+        actor_user_id: int,
+    ) -> PhysicalOrderDetail:
+        order = self._load_order(order_id)
+        if order.status != ORDER_STATUS_ASSIGNED:
+            raise ConflictError("Order can only be reassigned before work starts.")
+        if assigned_to == order.assigned_to:
+            raise ConflictError("Select a different executor to reassign this order.")
+        assignee = self._db.get(User, assigned_to)
+        if assignee is None or not assignee.is_active:
+            raise NotFoundError("User", assigned_to)
+        if not self._user_can_execute_orders(int(assignee.id)):
+            raise ConflictError("Assignee must have permission to execute physical orders.")
+        old_id = order.assigned_to
+        old_name = self._user_name(old_id)
+        new_name = assignee.full_name
+        order.assigned_to = assigned_to
+        order.assigned_by = actor_user_id
+        order.assigned_at = _now_utc()
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="reassigned",
+            actor_user_id=actor_user_id,
+            old_value={
+                "assigned_to": old_id,
+                "assigned_to_name": old_name,
+            },
+            new_value={
+                "assigned_to": assigned_to,
+                "assigned_to_name": new_name,
+            },
+        )
+        self._notify_assigned(order)
+        self._db.commit()
+        return self.get_order(order_id)
+
+    def close_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+        order = self._load_order(order_id)
+        if order.status != ORDER_STATUS_COMPLETED:
+            raise ConflictError("Order must be completed before it can be closed.")
+        order.status = ORDER_STATUS_CLOSED
+        order.closed_at = _now_utc()
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="closed",
+            actor_user_id=actor_user_id,
+        )
+        self._db.commit()
+        return self.get_order(order_id)
+
     def start_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id)
-        if order.status != ORDER_STATUS_APPROVED:
-            raise ConflictError("Order must be approved before starting.")
+        if order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
+            raise ConflictError("Order must be assigned before starting.")
         if order.assigned_to != actor_user_id:
             raise ConflictError("Only the assigned executor can start this order.")
         order.status = ORDER_STATUS_IN_PROGRESS
@@ -1460,7 +1527,7 @@ def finalize_creation_approval(db: Session, *, order_id: int, approver_user_id: 
                     order=order,
                     actor_user_id=approver_user_id,
                 )
-        svc._create_executor_task(order, actor_user_id=approver_user_id)
+        svc._activate_assignment(order, actor_user_id=approver_user_id)
     db.commit()
 
 

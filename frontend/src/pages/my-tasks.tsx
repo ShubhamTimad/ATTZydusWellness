@@ -130,7 +130,7 @@ export function MyTasksPage() {
     <AdminPage fullWidth>
       <ListPageHeader
         title="My tasks"
-        description="Active items that need you, and a Done list for completed approvals and manual work."
+        description="Active items that need you. Physical orders are managed under Orders, not here."
       />
 
       <WorkspaceTabs value={inbox} onValueChange={(v) => setInbox(v as "active" | "done")}>

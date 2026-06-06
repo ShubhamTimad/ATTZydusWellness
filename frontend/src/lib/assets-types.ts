@@ -144,9 +144,22 @@ export type AssetAuditEvent = {
 
 export type AssetsDashboardModule = {
   total_assets: number
+  active_assets: number
+  rfid_tagged: number
   pending_approvals: number
   inventory_mismatch: number
   recently_added: number
   by_category: { category: string; count: number }[]
   by_plant: { plant: string; count: number }[]
+}
+
+export type FinancialYearDashboardModule = {
+  label: string
+  start: string
+  end: string
+  total_rfid_assets: number
+  verified_in_fy: number
+  pending_fy_verification: number
+  coverage_pct: number
+  by_plant: { plant: string; verified: number; pending: number }[]
 }

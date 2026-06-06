@@ -1,26 +1,65 @@
 import * as React from "react"
 
 import { AssetDashboard } from "@/components/dashboard/asset-dashboard"
+import { DashboardLoading } from "@/components/dashboard/dashboard-loading"
+import { KpiCard } from "@/components/dashboard/dashboard-kpi"
+import { FinancialYearDashboard } from "@/components/dashboard/financial-year-dashboard"
 import { OrdersDashboard } from "@/components/dashboard/orders-dashboard"
-import { TaskDashboard, type TasksDashboardModule } from "@/components/dashboard/task-dashboard"
-import { UserDashboard, type UsersDashboardModule } from "@/components/dashboard/user-dashboard"
-import type { AssetsDashboardModule } from "@/lib/assets-types"
+import type { AssetsDashboardModule, FinancialYearDashboardModule } from "@/lib/assets-types"
 import type { OrdersDashboardModule } from "@/lib/orders-types"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { getJson } from "@/lib/api"
-import { canAccessTasks, hasPermission } from "@/lib/permissions"
 
 type DashboardSummary = {
   modules: {
-    users?: UsersDashboardModule
-    tasks?: TasksDashboardModule
-    assets?: AssetsDashboardModule
-    [k: string]: unknown
+    orders: OrdersDashboardModule
+    assets: AssetsDashboardModule
+    financial_year: FinancialYearDashboardModule
   }
+}
+
+function DashboardHero({
+  orders,
+  assets,
+  financialYear,
+}: {
+  orders: OrdersDashboardModule
+  assets: AssetsDashboardModule
+  financialYear: FinancialYearDashboardModule
+}) {
+  const openOrders =
+    orders.pending_approval +
+    orders.assigned +
+    orders.in_progress +
+    orders.pending_closure_approval
+
+  return (
+    <div className="app-grid app-grid-3">
+      <KpiCard
+        label="Open orders"
+        value={openOrders}
+        hint={`${orders.total_orders} total · ${orders.completed + orders.closed} finished`}
+        accent
+      />
+      <KpiCard
+        label="RFID assets"
+        value={assets.rfid_tagged}
+        hint={`${assets.active_assets} active in register`}
+        accent
+      />
+      <KpiCard
+        label="FY coverage"
+        value={`${financialYear.coverage_pct}%`}
+        hint={`${financialYear.label} · ${financialYear.verified_in_fy} verified`}
+        accent
+      />
+    </div>
+  )
 }
 
 export function DashboardPage() {
   const [summary, setSummary] = React.useState<DashboardSummary | null>(null)
+  const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -34,23 +73,26 @@ export function DashboardPage() {
       } catch (e) {
         if (cancelled) return
         setLoadError(e instanceof Error ? e.message : "Failed to load dashboard stats")
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     })()
     return () => {
       cancelled = true
     }
   }, [])
-  const usersModule = summary?.modules?.users
-  const tasksModule = summary?.modules?.tasks
+
+  const ordersModule = summary?.modules?.orders
   const assetsModule = summary?.modules?.assets
-  const ordersModule = summary?.modules?.orders as OrdersDashboardModule | undefined
+  const financialYearModule = summary?.modules?.financial_year
 
   return (
     <div className="app-page">
-      <div className="flex flex-wrap items-baseline gap-2">
+      <div>
         <h1 className="app-page-heading">Dashboard</h1>
-        <span className="app-brand-dot">•</span>
-        <span className="text-sm font-medium text-muted-foreground">Workspace</span>
+        <p className="app-page-subheading mt-1">
+          Organisation overview for physical verification orders, assets, and financial year tagging.
+        </p>
       </div>
 
       {loadError ? (
@@ -62,31 +104,16 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {!usersModule && !tasksModule && !assetsModule && !ordersModule && !loadError ? (
-        <Card className="border-dashed border-primary/25">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">No modules available</CardTitle>
-            <CardDescription>
-              You don’t have access to any modules. Ask an admin to grant permissions like{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">users.view</code> or{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">task.view</code>, or{" "}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">asset.view</code>.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : null}
+      {loading && !loadError ? <DashboardLoading /> : null}
 
-      {usersModule && hasPermission("users.view") ? <UserDashboard data={usersModule} /> : null}
-      {tasksModule && canAccessTasks() ? (
-        <TaskDashboard data={tasksModule} />
-      ) : null}
-      {assetsModule && hasPermission("asset.view") ? (
-        <AssetDashboard data={assetsModule} />
-      ) : null}
-      {ordersModule && hasPermission("order.view") ? (
-        <OrdersDashboard data={ordersModule} />
+      {!loading && ordersModule && assetsModule && financialYearModule ? (
+        <>
+          <DashboardHero orders={ordersModule} assets={assetsModule} financialYear={financialYearModule} />
+          <OrdersDashboard data={ordersModule} />
+          <AssetDashboard data={assetsModule} />
+          <FinancialYearDashboard data={financialYearModule} />
+        </>
       ) : null}
     </div>
   )
 }
-

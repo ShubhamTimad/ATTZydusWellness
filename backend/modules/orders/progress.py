@@ -14,6 +14,8 @@ from modules.orders.constants import (
     ENTITY_TYPE_CLOSURE,
     ENTITY_TYPE_CREATION,
     ORDER_STATUS_APPROVED,
+    ORDER_STATUS_ASSIGNED,
+    ORDER_STATUS_CLOSED,
     ORDER_STATUS_COMPLETED,
     ORDER_STATUS_DRAFT,
     ORDER_STATUS_IN_PROGRESS,
@@ -39,14 +41,16 @@ from modules.platform.tasks.schema import TaskApprovalStepLinePublic
 _AUDIT_LABELS: dict[str, str] = {
     "order_created": "Order created",
     "assignment_changed": "Executor assigned",
+    "reassigned": "Order reassigned",
     "submitted_for_approval": "Submitted for creation approval",
-    "approved": "Creation approved — order activated",
+    "approved": "Creation approved",
     "rejected": "Order rejected",
     "started": "Physical verification started",
     "asset_verified": "Asset physically verified (RFID scan)",
-    "closure_submitted": "Submitted for closure approval",
+    "closure_submitted": "Work completed — submitted for closure approval",
     "closure_approved": "Closure approved",
     "completed": "Order completed",
+    "closed": "Order closed",
     "returned_for_execution": "Returned to executor after closure rejection",
     "execution_items_rejected": "Line items rejected during execution",
     "closure_items_rejected": "Line items rejected at closure review",
@@ -59,7 +63,24 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
     if action == "assignment_changed":
         assignee = new_value.get("assigned_to")
         if assignee is not None:
-            return f"Assigned to user #{assignee}"
+            suffix = ""
+            if new_value.get("auto_assigned"):
+                suffix = " (automatic after approval)"
+            elif new_value.get("intended_only"):
+                suffix = " (intended executor)"
+            name = new_value.get("assigned_to_name")
+            if name:
+                return f"Assigned to {name}{suffix}"
+            return f"Assigned to user #{assignee}{suffix}"
+    if action == "reassigned":
+        old_name = old_value.get("assigned_to_name")
+        new_name = new_value.get("assigned_to_name")
+        if old_name and new_name:
+            return f"{old_name} → {new_name}"
+        if new_name:
+            return f"Reassigned to {new_name}"
+        assignee = new_value.get("assigned_to")
+        return f"Reassigned to user #{assignee}" if assignee else None
     if action == "asset_verified":
         code = new_value.get("asset_code")
         rfid = new_value.get("rfid_code")
@@ -204,129 +225,6 @@ def _latest_approval_request(db: Session, *, order_id: int, entity_type: str) ->
     )
 
 
-def _phase_to_lifecycle_status(phase: str) -> str:
-    if phase == "completed":
-        return "completed"
-    if phase == "current":
-        return "active"
-    if phase == "rejected":
-        return "rejected"
-    return "pending"
-
-
-def _slots_from_approval_step(step: TaskApprovalStepLinePublic) -> list[OrderLifecycleApproverSlot]:
-    approvals = [a for a in step.actions if str(a.action).lower() in ("approve", "approved")]
-    rejections = [a for a in step.actions if str(a.action).lower() in ("reject", "rejected")]
-    slots: list[OrderLifecycleApproverSlot] = []
-    required = max(int(step.required_approvals), 1)
-    for i in range(required):
-        if i < len(approvals):
-            a = approvals[i]
-            slots.append(
-                OrderLifecycleApproverSlot(
-                    slot=i + 1,
-                    status="completed",
-                    actor_name=a.actor_display_name,
-                    acted_at=a.created_at,
-                    comment=a.comment,
-                )
-            )
-        elif rejections and step.phase == "rejected" and i == len(approvals):
-            r = rejections[0]
-            slots.append(
-                OrderLifecycleApproverSlot(
-                    slot=i + 1,
-                    status="rejected",
-                    actor_name=r.actor_display_name,
-                    acted_at=r.created_at,
-                    comment=r.comment,
-                )
-            )
-        else:
-            slots.append(OrderLifecycleApproverSlot(slot=i + 1, status="pending"))
-    return slots
-
-
-def _append_approval_steps(
-    steps: list[OrderLifecycleStepPublic],
-    *,
-    prefix: str,
-    phase_label: str,
-    wf_def: OrderWorkflowDefinition | None,
-    req: ApprovalRequest | None,
-    db: Session,
-) -> None:
-    wf_lines: list[TaskApprovalStepLinePublic] = []
-    if req is not None:
-        wf_lines = _build_workflow_steps_for_request(db, req)
-
-    if wf_def and wf_def.steps:
-        for def_step in wf_def.steps:
-            key = f"{prefix}_approval_{def_step.step_order}"
-            line = next((x for x in wf_lines if int(x.step_order) == int(def_step.step_order)), None)
-            if line is not None:
-                status = _phase_to_lifecycle_status(str(line.phase))
-                last_approve = next(
-                    (
-                        a
-                        for a in reversed(line.actions)
-                        if str(a.action).lower() in ("approve", "approved")
-                    ),
-                    None,
-                )
-                steps.append(
-                    OrderLifecycleStepPublic(
-                        key=key,
-                        label=f"{phase_label} · Level {def_step.step_order}",
-                        status=status,
-                        role_name=def_step.role_name,
-                        actor_name=last_approve.actor_display_name if last_approve else None,
-                        occurred_at=last_approve.created_at if last_approve else None,
-                        detail=line.status_label,
-                        approver_slots=_slots_from_approval_step(line),
-                    )
-                )
-            else:
-                steps.append(
-                    OrderLifecycleStepPublic(
-                        key=key,
-                        label=f"{phase_label} · Level {def_step.step_order}",
-                        status="pending",
-                        role_name=def_step.role_name,
-                        detail=f"Awaiting {def_step.required_approvals} approval(s) from {def_step.role_name}",
-                        approver_slots=[
-                            OrderLifecycleApproverSlot(slot=i + 1, status="pending")
-                            for i in range(max(def_step.required_approvals, 1))
-                        ],
-                    )
-                )
-        return
-
-    # No workflow configured — single implicit approval step.
-    key = f"{prefix}_approval"
-    if req is None:
-        steps.append(
-            OrderLifecycleStepPublic(
-                key=key,
-                label=phase_label,
-                status="pending",
-                detail="No approval workflow configured",
-            )
-        )
-        return
-    status = "completed" if str(req.status).lower() == "approved" else (
-        "rejected" if str(req.status).lower() in ("rejected", "in_rework") else "active"
-    )
-    steps.append(
-        OrderLifecycleStepPublic(
-            key=key,
-            label=phase_label,
-            status=status,
-            detail=f"Approval request #{req.id} · {req.status}",
-        )
-    )
-
-
 def _find_audit_time(audit_rows: list[PhysicalOrderAudit], action: str) -> datetime | None:
     for row in reversed(audit_rows):
         if row.action == action:
@@ -341,6 +239,56 @@ def _find_audit_actor(audit_rows: list[PhysicalOrderAudit], action: str, user_na
     return None
 
 
+_STEP_ORDER = (
+    "order_created",
+    "approved",
+    "assigned",
+    "in_progress",
+    "completed",
+    "closed",
+)
+
+# Which timeline segment is current for each order status (matches status badge).
+_ACTIVE_STEP_FOR_STATUS: dict[str, str] = {
+    ORDER_STATUS_DRAFT: "order_created",
+    ORDER_STATUS_PENDING_APPROVAL: "approved",
+    ORDER_STATUS_APPROVED: "approved",
+    ORDER_STATUS_ASSIGNED: "assigned",
+    ORDER_STATUS_IN_PROGRESS: "in_progress",
+    ORDER_STATUS_PENDING_CLOSURE: "completed",
+    ORDER_STATUS_COMPLETED: "completed",
+    ORDER_STATUS_CLOSED: "closed",
+}
+
+
+def _step_phase(
+    *,
+    order_status: str,
+    step_key: str,
+    creation_req: ApprovalRequest | None,
+) -> str:
+    """Return pending | active | completed | rejected for a business lifecycle step."""
+    if order_status == ORDER_STATUS_REJECTED:
+        if step_key == "order_created":
+            return "completed"
+        if step_key == "rejected":
+            return "rejected"
+        return "pending"
+
+    active_key = _ACTIVE_STEP_FOR_STATUS.get(order_status)
+    if active_key is None or step_key not in _STEP_ORDER:
+        return "pending"
+
+    step_idx = _STEP_ORDER.index(step_key)
+    active_idx = _STEP_ORDER.index(active_key)
+
+    if step_idx < active_idx:
+        return "completed"
+    if step_idx == active_idx:
+        return "active"
+    return "pending"
+
+
 def build_order_progress(
     db: Session,
     order: PhysicalOrder,
@@ -351,191 +299,102 @@ def build_order_progress(
     creation_wf = _workflow_definition(db, action_code=ACTION_CREATE, phase="creation")
     closure_wf = _workflow_definition(db, action_code=ACTION_COMPLETE, phase="closure")
     creation_req = _latest_approval_request(db, order_id=int(order.id), entity_type=ENTITY_TYPE_CREATION)
-    closure_req = _latest_approval_request(db, order_id=int(order.id), entity_type=ENTITY_TYPE_CLOSURE)
 
-    steps: list[OrderLifecycleStepPublic] = []
     status = str(order.status)
+    verified = sum(1 for i in order.items if i.scan_time is not None)
+    total = len(order.items)
 
-    # 1. Created
-    steps.append(
+    steps: list[OrderLifecycleStepPublic] = [
         OrderLifecycleStepPublic(
-            key="created",
-            label="Created",
-            status="completed",
+            key="order_created",
+            label="Draft" if status == ORDER_STATUS_DRAFT else "Order Created",
+            status=_step_phase(order_status=status, step_key="order_created", creation_req=creation_req),
             actor_name=user_name_fn(order.created_by),
             occurred_at=order.created_at,
             detail=f"Order {order.order_number}",
-        )
-    )
-
-    # 2. Assigned
-    assign_status = "completed" if order.assigned_to else ("active" if status == ORDER_STATUS_DRAFT else "pending")
-    steps.append(
+        ),
+        OrderLifecycleStepPublic(
+            key="approved",
+            label="Pending Approval" if status == ORDER_STATUS_PENDING_APPROVAL else "Approved",
+            status=_step_phase(order_status=status, step_key="approved", creation_req=creation_req),
+            actor_name=_find_audit_actor(audit_rows, "approved", user_name_fn),
+            occurred_at=_find_audit_time(audit_rows, "approved"),
+            detail=(
+                "Awaiting creation approval"
+                if status == ORDER_STATUS_PENDING_APPROVAL
+                else None
+            ),
+        ),
         OrderLifecycleStepPublic(
             key="assigned",
             label="Assigned",
-            status=assign_status,
-            actor_name=user_name_fn(order.assigned_by) if order.assigned_by else None,
+            status=_step_phase(order_status=status, step_key="assigned", creation_req=creation_req),
+            actor_name=user_name_fn(order.assigned_by) if order.assigned_at else None,
             occurred_at=order.assigned_at,
-            detail=order.assigned_to and user_name_fn(order.assigned_to)
-            and f"Executor: {user_name_fn(order.assigned_to)}"
-            or None,
-        )
-    )
-
-    # 3. Creation approval (from workflow)
-    _append_approval_steps(
-        steps,
-        prefix="creation",
-        phase_label="Creation approval",
-        wf_def=creation_wf,
-        req=creation_req if status != ORDER_STATUS_DRAFT else None,
-        db=db,
-    )
-
-    # 4. Activated
-    activated_at = _find_audit_time(audit_rows, "approved")
-    activated_status = "pending"
-    if status in (ORDER_STATUS_REJECTED,) and creation_req and str(creation_req.status).lower() in (
-        "rejected",
-        "in_rework",
-    ):
-        activated_status = "pending"
-    elif status in (
-        ORDER_STATUS_APPROVED,
-        ORDER_STATUS_IN_PROGRESS,
-        ORDER_STATUS_PENDING_CLOSURE,
-        ORDER_STATUS_COMPLETED,
-    ):
-        activated_status = "completed"
-    elif status == ORDER_STATUS_PENDING_APPROVAL:
-        activated_status = "pending"
-    elif status == ORDER_STATUS_REJECTED:
-        activated_status = "pending"
-
-    steps.append(
+            detail=(
+                f"Executor: {user_name_fn(order.assigned_to)}"
+                if order.assigned_to and order.assigned_at
+                else (
+                    f"Pending: {user_name_fn(order.assigned_to)}"
+                    if order.assigned_to
+                    else None
+                )
+            ),
+        ),
         OrderLifecycleStepPublic(
-            key="activated",
-            label="Activated",
-            status=activated_status,
-            actor_name=_find_audit_actor(audit_rows, "approved", user_name_fn),
-            occurred_at=activated_at,
-            detail="Ready for physical verification" if activated_status == "completed" else None,
-        )
-    )
-
-    # 5. Started
-    started_status = "pending"
-    if order.started_at:
-        started_status = "completed"
-    elif status == ORDER_STATUS_APPROVED:
-        started_status = "active"
-    elif status == ORDER_STATUS_IN_PROGRESS:
-        started_status = "completed"
-
-    steps.append(
-        OrderLifecycleStepPublic(
-            key="started",
-            label="Started",
-            status=started_status,
+            key="in_progress",
+            label="In Progress",
+            status=_step_phase(order_status=status, step_key="in_progress", creation_req=creation_req),
             actor_name=user_name_fn(order.started_by),
             occurred_at=order.started_at,
-            detail="Executor began physical verification" if order.started_at else None,
-        )
-    )
-
-    # 6. Physical verification
-    total = len(order.items)
-    verified = sum(1 for i in order.items if i.scan_time is not None)
-    verify_status = "pending"
-    if status == ORDER_STATUS_COMPLETED:
-        verify_status = "completed"
-    elif status in (ORDER_STATUS_PENDING_CLOSURE,):
-        verify_status = "completed"
-    elif status == ORDER_STATUS_IN_PROGRESS:
-        verify_status = "active" if verified < total else "completed"
-    elif verified > 0 and verified >= total:
-        verify_status = "completed"
-
-    steps.append(
-        OrderLifecycleStepPublic(
-            key="verification",
-            label="Verification",
-            status=verify_status,
-            detail=f"{verified} of {total} assets scanned" if total else None,
-            occurred_at=_find_audit_time(audit_rows, "closure_submitted")
-            if verify_status == "completed" and verified >= total
-            else None,
-        )
-    )
-
-    # 7. Closure submitted
-    closure_submitted_at = _find_audit_time(audit_rows, "closure_submitted")
-    closure_submitted_status = "pending"
-    if closure_submitted_at or status in (ORDER_STATUS_PENDING_CLOSURE, ORDER_STATUS_COMPLETED):
-        closure_submitted_status = "completed"
-    elif status == ORDER_STATUS_IN_PROGRESS and verified >= total and total > 0:
-        closure_submitted_status = "active"
-
-    steps.append(
-        OrderLifecycleStepPublic(
-            key="closure_submitted",
-            label="Closure submitted",
-            status=closure_submitted_status,
-            actor_name=_find_audit_actor(audit_rows, "closure_submitted", user_name_fn),
-            occurred_at=closure_submitted_at,
-        )
-    )
-
-    # 8. Closure approval (from workflow)
-    _append_approval_steps(
-        steps,
-        prefix="closure",
-        phase_label="Closure approval",
-        wf_def=closure_wf,
-        req=closure_req if closure_submitted_status != "pending" else None,
-        db=db,
-    )
-
-    # 9. Completed
-    completed_status = "completed" if status == ORDER_STATUS_COMPLETED else "pending"
-    if status == ORDER_STATUS_PENDING_CLOSURE:
-        completed_status = "pending"
-    steps.append(
+            detail=(
+                f"{verified} of {total} assets scanned"
+                if status in (ORDER_STATUS_IN_PROGRESS, ORDER_STATUS_PENDING_CLOSURE) and total
+                else None
+            ),
+        ),
         OrderLifecycleStepPublic(
             key="completed",
-            label="Completed",
-            status=completed_status,
+            label=(
+                "Pending Closure"
+                if status == ORDER_STATUS_PENDING_CLOSURE
+                else "Completed"
+            ),
+            status=_step_phase(order_status=status, step_key="completed", creation_req=creation_req),
             actor_name=_find_audit_actor(audit_rows, "completed", user_name_fn),
             occurred_at=order.completed_at,
-        )
-    )
+            detail=(
+                "Awaiting closure approval"
+                if status == ORDER_STATUS_PENDING_CLOSURE
+                else None
+            ),
+        ),
+        OrderLifecycleStepPublic(
+            key="closed",
+            label="Closed",
+            status=_step_phase(order_status=status, step_key="closed", creation_req=creation_req),
+            actor_name=_find_audit_actor(audit_rows, "closed", user_name_fn),
+            occurred_at=order.closed_at,
+        ),
+    ]
 
-    # Mark global rejection on order when rejected (override active approval step)
     if status == ORDER_STATUS_REJECTED:
-        for step in steps:
-            if step.status == "active":
-                step.status = "rejected"
-        if creation_req and str(creation_req.status).lower() in ("rejected", "in_rework"):
-            for step in steps:
-                if step.key.startswith("creation_approval") and step.status == "active":
-                    step.status = "rejected"
+        steps.append(
+            OrderLifecycleStepPublic(
+                key="rejected",
+                label="Rejected",
+                status="rejected",
+                actor_name=_find_audit_actor(audit_rows, "rejected", user_name_fn),
+                occurred_at=_find_audit_time(audit_rows, "rejected"),
+                detail="Creation approval rejected",
+            )
+        )
 
-    current_key: str | None = None
-    for step in steps:
-        if step.status == "active":
-            current_key = step.key
-            break
-        if step.status == "rejected":
-            current_key = step.key
-            break
-    if current_key is None:
-        for step in reversed(steps):
-            if step.status == "completed":
-                current_key = step.key
-                break
-        if current_key is None and steps:
-            current_key = steps[0].key
+    current_key: str | None = _ACTIVE_STEP_FOR_STATUS.get(status)
+    if status == ORDER_STATUS_REJECTED:
+        current_key = "rejected"
+    if current_key is None and steps:
+        current_key = steps[0].key
 
     return PhysicalOrderProgressPublic(
         steps=steps,

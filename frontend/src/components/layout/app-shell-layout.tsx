@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   LogOut,
   Package,
+  FileBarChart,
   ShoppingCart,
   PanelLeft,
   Settings,
@@ -57,25 +58,8 @@ type ShellNavItem = {
 
 const shellNavItems: ShellNavItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, to: "/dashboard", permission: null },
-  /*
-  {
-    id: "performance",
-    label: "Performance",
-    icon: BarChart3,
-    to: "/dashboard/performance",
-    permission: null,
-    hideWhenOnlyUsersModule: true,
-  },
+  { id: "reports", label: "Reports", icon: FileBarChart, to: "/dashboard/reports", permission: null },
 
-  {
-    id: "preferences",
-    label: "Preferences",
-    icon: Settings2,
-    to: "/dashboard/preferences",
-    permission: null,
-    hideWhenOnlyUsersModule: true,
-  },
-  */
   { id: "users", label: "Users", icon: Users, to: "/dashboard/users", permission: "users.view" },
 
   {

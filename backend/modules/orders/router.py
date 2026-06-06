@@ -44,7 +44,10 @@ def validate_assets(
 @router.get("/executors", response_model=list[ExecutorUserPublic])
 def list_executors(
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
-    _: Annotated[object, Depends(require_any_permission("order.create", "order.manage"))],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.create", "order.manage", "order.reassign")),
+    ],
 ) -> list[ExecutorUserPublic]:
     return svc.list_executors()
 
@@ -208,6 +211,46 @@ def reject_execution_items(
             rejection_reason=body.rejection_reason,
             actor_user_id=int(current.subject),
         )
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{order_id}/reassign", response_model=PhysicalOrderDetail)
+def reassign_order(
+    order_id: int,
+    body: UpdatePhysicalOrderRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.reassign", "order.update", "order.manage")),
+    ],
+) -> PhysicalOrderDetail:
+    if body.assigned_to is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="assigned_to is required.",
+        )
+    try:
+        return svc.reassign_order(
+            order_id,
+            assigned_to=body.assigned_to,
+            actor_user_id=int(current.subject),
+        )
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.post("/{order_id}/close", response_model=PhysicalOrderDetail)
+def close_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_any_permission("order.approve", "order.update", "order.create"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.close_order(order_id, actor_user_id=int(current.subject))
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 

@@ -24,6 +24,7 @@ import { MfaSetupPage } from "@/pages/mfa-setup"
 import { AssetCreatePage, AssetDetailPage, AssetImportPage, AssetsListPage } from "@/pages/assets"
 import { MastersPage } from "@/pages/masters/masters-page"
 import { OrderDetailPage, OrdersListPage } from "@/pages/orders"
+import { ReportsPage } from "@/pages/reports"
 import * as React from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { getJson } from "@/lib/api"
@@ -48,6 +49,7 @@ function App() {
         <Route path="/login" element={<AppLoginRoute />} />
         <Route path="/dashboard" element={<AppRoute />}>
           <Route index element={<DashboardPage />} />
+          <Route path="reports" element={<ReportsPage />} />
           /*
             <Route
               path="performance"

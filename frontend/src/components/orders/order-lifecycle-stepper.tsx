@@ -9,81 +9,27 @@ type Props = {
   compact?: boolean
 }
 
-function mergeStatus(statuses: string[]): string {
-  if (statuses.some((s) => s === "rejected")) return "rejected"
-  if (statuses.some((s) => s === "active")) return "active"
-  if (statuses.length > 0 && statuses.every((s) => s === "completed")) return "completed"
-  if (statuses.some((s) => s === "completed")) return "active"
-  return "pending"
+/** Must match backend order status → highlighted timeline segment. */
+const STATUS_TO_STEP_KEY: Record<string, string> = {
+  draft: "order_created",
+  pending_approval: "approved",
+  approved: "approved",
+  assigned: "assigned",
+  in_progress: "in_progress",
+  pending_closure_approval: "completed",
+  completed: "completed",
+  closed: "closed",
+  rejected: "rejected",
 }
 
-/** Collapse backend micro-steps into five readable lifecycle phases. */
-export function simplifyProgressSteps(steps: OrderLifecycleStep[]): OrderLifecycleStep[] {
-  const pick = (prefix: string) => steps.filter((s) => s.key === prefix || s.key.startsWith(`${prefix}_`))
-
-  const created = steps.find((s) => s.key === "created")
-  const assigned = steps.find((s) => s.key === "assigned")
-  const creationApproval = pick("creation_approval")
-  const execution = steps.filter((s) => ["activated", "started", "verification"].includes(s.key))
-  const closureSubmit = steps.find((s) => s.key === "closure_submitted")
-  const closureApproval = pick("closure_approval")
-  const done = steps.find((s) => s.key === "completed")
-
-  const groups: { key: string; label: string; members: OrderLifecycleStep[] }[] = [
-    { key: "created", label: "Created", members: [created, assigned].filter(Boolean) as OrderLifecycleStep[] },
-    { key: "creation_approval", label: "Approval", members: creationApproval },
-    { key: "verification", label: "Verification", members: execution },
-    {
-      key: "closure",
-      label: "Closure",
-      members: [...(closureSubmit ? [closureSubmit] : []), ...closureApproval],
-    },
-    { key: "completed", label: "Completed", members: done ? [done] : [] },
-  ]
-
-  return groups.map(({ key, label, members }) => {
-    if (members.length === 0) {
-      return { key, label, status: "pending", approver_slots: [] }
-    }
-    const status = mergeStatus(members.map((m) => m.status))
-    const completedMembers = members.filter((m) => m.status === "completed")
-    const lastDone = completedMembers[completedMembers.length - 1]
-    const activeMember = members.find((m) => m.status === "active" || m.status === "rejected")
-    const slots = members.flatMap((m) => m.approver_slots ?? [])
-    const detail =
-      activeMember?.detail ??
-      (key === "verification" ? members.find((m) => m.key === "verification")?.detail : undefined)
-
-    return {
-      key,
-      label,
-      status,
-      role_name: activeMember?.role_name ?? members.find((m) => m.role_name)?.role_name,
-      actor_name: lastDone?.actor_name ?? activeMember?.actor_name,
-      occurred_at: lastDone?.occurred_at,
-      detail,
-      approver_slots: slots.length > 0 ? slots : [],
-    }
-  })
-}
-
-function resolveCurrentKey(
-  simplified: OrderLifecycleStep[],
-  rawKey: string | null,
-  orderStatus?: string,
-): string | null {
-  if (orderStatus === "rejected") {
-    const rejectedStep = simplified.find((s) => s.status === "rejected")
-    if (rejectedStep) return rejectedStep.key
-  }
-  if (!rawKey) return null
-  if (rawKey.startsWith("creation")) return "creation_approval"
-  if (["activated", "started", "verification"].includes(rawKey)) return "verification"
-  if (rawKey.startsWith("closure")) return "closure"
-  if (rawKey === "assigned" || rawKey === "created") return "created"
-  if (rawKey === "completed") return "completed"
-  return simplified.find((s) => s.status === "active" || s.status === "rejected")?.key ?? null
-}
+const STEP_ORDER = [
+  "order_created",
+  "approved",
+  "assigned",
+  "in_progress",
+  "completed",
+  "closed",
+] as const
 
 function chevronClip(isFirst: boolean, isLast: boolean, notch: number): string {
   const n = `${notch}px`
@@ -95,19 +41,26 @@ function chevronClip(isFirst: boolean, isLast: boolean, notch: number): string {
 
 type VisualPhase = "completed" | "current" | "upcoming" | "rejected"
 
-function resolveVisualPhase(
-  step: OrderLifecycleStep,
-  isCurrent: boolean,
-  orderStatus?: string,
-): VisualPhase {
-  if (step.status === "rejected" || (orderStatus === "rejected" && isCurrent)) {
+function resolveActiveKey(orderStatus?: string, fallbackKey?: string | null): string | null {
+  if (orderStatus && STATUS_TO_STEP_KEY[orderStatus]) {
+    return STATUS_TO_STEP_KEY[orderStatus]
+  }
+  return fallbackKey ?? null
+}
+
+function resolveVisualPhase(step: OrderLifecycleStep, activeKey: string | null, orderStatus?: string): VisualPhase {
+  if (orderStatus === "rejected" && step.key === "rejected") {
     return "rejected"
   }
-  if (step.status === "completed") {
-    return "completed"
-  }
-  if (isCurrent && step.status === "active") {
+  if (step.key === activeKey) {
     return "current"
+  }
+  const stepIdx = STEP_ORDER.indexOf(step.key as (typeof STEP_ORDER)[number])
+  const activeIdx = activeKey
+    ? STEP_ORDER.indexOf(activeKey as (typeof STEP_ORDER)[number])
+    : -1
+  if (stepIdx >= 0 && activeIdx >= 0 && stepIdx < activeIdx) {
+    return "completed"
   }
   return "upcoming"
 }
@@ -125,33 +78,45 @@ function segmentSurface(phase: VisualPhase): string {
   }
 }
 
+function displayLabel(step: OrderLifecycleStep, orderStatus?: string, isCurrent?: boolean): string {
+  if (step.key === "rejected") return "REJECTED"
+  if (isCurrent && orderStatus === "pending_approval" && step.key === "approved") {
+    return "PENDING APPROVAL"
+  }
+  if (isCurrent && orderStatus === "pending_closure_approval" && step.key === "completed") {
+    return "PENDING CLOSURE"
+  }
+  if (isCurrent && orderStatus === "draft" && step.key === "order_created") {
+    return "DRAFT"
+  }
+  return step.label.toUpperCase()
+}
+
 export function OrderLifecycleStepper({ steps, currentStepKey, orderStatus, compact = false }: Props) {
-  const simplified = simplifyProgressSteps(steps)
-  const activeKey = resolveCurrentKey(simplified, currentStepKey, orderStatus)
+  const displaySteps = steps.filter((s) => s.key !== "rejected" || orderStatus === "rejected")
+  const activeKey = resolveActiveKey(orderStatus, currentStepKey)
   const notch = compact ? 10 : 16
 
   return (
     <div className={cn("overflow-x-auto", compact ? "pb-0" : "pb-1")}>
-      <ol className={cn("flex", compact ? "min-w-[28rem]" : "min-w-[36rem]")}>
-        {simplified.map((step, index) => {
+      <ol className={cn("flex", compact ? "min-w-[32rem]" : "min-w-[42rem]")}>
+        {displaySteps.map((step, index) => {
           const isFirst = index === 0
-          const isLast = index === simplified.length - 1
+          const isLast = index === displaySteps.length - 1
           const isCurrent = step.key === activeKey
-          const phase = resolveVisualPhase(step, isCurrent, orderStatus)
-          const label =
-            phase === "rejected" && step.label !== "Completed" ? `${step.label}` : step.label
+          const phase = resolveVisualPhase(step, activeKey, orderStatus)
 
           return (
             <li
               key={step.key}
               className={cn(
                 "relative flex-1",
-                compact ? "min-w-[4.5rem]" : "min-w-[5.75rem]",
+                compact ? "min-w-[4.25rem]" : "min-w-[5.5rem]",
                 index > 0 && (compact ? "-ml-2" : "-ml-3"),
               )}
-              style={{ zIndex: simplified.length - index }}
+              style={{ zIndex: displaySteps.length - index }}
               aria-current={isCurrent ? "step" : undefined}
-              title={step.label}
+              title={step.detail ?? step.label}
             >
               <div
                 className={cn(
@@ -167,7 +132,7 @@ export function OrderLifecycleStepper({ steps, currentStepKey, orderStatus, comp
                     compact ? "text-[10px] sm:text-[11px]" : "text-xs leading-tight sm:text-sm",
                   )}
                 >
-                  {label}
+                  {displayLabel(step, orderStatus, isCurrent)}
                 </span>
               </div>
             </li>
