@@ -56,69 +56,91 @@ type ShellNavItem = {
   hideWhenOnlyUsersModule?: boolean
 }
 
-const shellNavItems: ShellNavItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, to: "/dashboard", permission: null },
-  { id: "reports", label: "Reports", icon: FileBarChart, to: "/dashboard/reports", permission: null },
+type ShellNavGroup = {
+  label: string
+  items: ShellNavItem[]
+}
 
-  { id: "users", label: "Users", icon: Users, to: "/dashboard/users", permission: "users.view" },
-
+/** Enterprise nav order: overview → operations → reference data → administration. */
+const shellNavGroups: ShellNavGroup[] = [
   {
-    id: "assets",
-    label: "Assets",
-    icon: Package,
-    to: "/dashboard/assets",
-    permission: "asset.view",
+    label: "Overview",
+    items: [
+      { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, to: "/dashboard", permission: null },
+      { id: "reports", label: "Reports", icon: FileBarChart, to: "/dashboard/reports", permission: null },
+    ],
   },
   {
-    id: "masters",
-    label: "Masters",
-    icon: Database,
-    to: "/dashboard/masters",
-    permission: "masters.view",
-  },
-
-  {
-    id: "orders",
-    label: "Orders",
-    icon: ShoppingCart,
-    to: "/dashboard/orders",
-    permission: "order.view",
-  },
-
-  {
-    id: "tasks",
-    label: "My tasks",
-    icon: ClipboardList,
-    to: "/dashboard/tasks",
-    permission: [...TASK_ACCESS_PERMISSIONS],
-  },
-  {
-    id: "plants", 
-    label: "Plants",
-    icon: Factory,
-    to: "/dashboard/plants",
-    permission: ["org_units.view", "org_units.create", "org_units.update", "org_units.delete"],
+    label: "Operations",
+    items: [
+      {
+        id: "orders",
+        label: "Orders",
+        icon: ShoppingCart,
+        to: "/dashboard/orders",
+        permission: "order.view",
+      },
+      {
+        id: "assets",
+        label: "Assets",
+        icon: Package,
+        to: "/dashboard/assets",
+        permission: "asset.view",
+      },
+      {
+        id: "tasks",
+        label: "My tasks",
+        icon: ClipboardList,
+        to: "/dashboard/tasks",
+        permission: [...TASK_ACCESS_PERMISSIONS],
+      },
+    ],
   },
   {
-    id: "roles",
-    label: "Roles",
-    icon: Shield,
-    to: "/dashboard/roles",
-    permission: ["roles.view", "roles.update", "roles.create"],
+    label: "Reference data",
+    items: [
+      {
+        id: "masters",
+        label: "Masters",
+        icon: Database,
+        to: "/dashboard/masters",
+        permission: "masters.view",
+      },
+    ],
   },
   {
-    id: "permissions",
-    label: "Permissions",
-    icon: KeyRound,
-    to: "/dashboard/permissions",
-    permission: ["permissions.view", "permissions.create"],
-  },
-  {
-    id: "admin-settings",
-    label: "System settings",
-    icon: Settings,
-    to: "/dashboard/system-settings",
-    permission: "settings.update",
+    label: "Administration",
+    items: [
+      { id: "users", label: "Users", icon: Users, to: "/dashboard/users", permission: "users.view" },
+      {
+        id: "plants",
+        label: "Plants",
+        icon: Factory,
+        to: "/dashboard/plants",
+        permission: ["org_units.view", "org_units.create", "org_units.update", "org_units.delete"],
+      },
+      {
+        id: "roles",
+        label: "Roles",
+        icon: Shield,
+        to: "/dashboard/roles",
+        permission: ["roles.view", "roles.update", "roles.create"],
+      },
+      {
+        id: "permissions",
+        label: "Permissions",
+        icon: KeyRound,
+        to: "/dashboard/permissions",
+        permission: ["permissions.view", "permissions.create"],
+      },
+      {
+        id: "admin-settings",
+        label: "System settings",
+        icon: Settings,
+        to: "/dashboard/system-settings",
+        permission: "settings.update",
+      },
+    ],
   },
 ]
 
@@ -144,7 +166,13 @@ export type AppShellLayoutProps = {
 
 export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayoutProps) {
   const location = useLocation()
-  const visibleNav = shellNavItems.filter(navItemVisible)
+  const visibleGroups = shellNavGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(navItemVisible),
+    }))
+    .filter((group) => group.items.length > 0)
+  const visibleNav = visibleGroups.flatMap((group) => group.items)
 
   const activeItem = visibleNav.find((item) => pathMatchesNav(location.pathname, item.to))
   const title = activeItem?.label ?? "Dashboard"
@@ -199,42 +227,51 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
         <Separator className="shrink-0" />
         <div className="flex min-h-0 flex-1 flex-col">
           <nav
-            className={cn("flex flex-col gap-1 px-2 py-3", isSidebarCollapsed && "px-1.5")}
+            className={cn("flex flex-col gap-3 px-2 py-3", isSidebarCollapsed && "px-1.5 gap-2")}
             aria-label="Workspace"
           >
-            {visibleNav.map((item) => {
-              const Icon = item.icon
-              const isActive = pathMatchesNav(location.pathname, item.to)
-              return (
-                <Button
-                  key={item.id}
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  title={isSidebarCollapsed ? item.label : undefined}
-                  className={cn(
-                    "relative h-9 w-full rounded-[calc(var(--app-radius-surface)-2px)] text-left font-medium",
-                    isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-2.5 pl-3",
-                    "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
-                    isActive &&
-                      "border-l-2 border-primary bg-primary/8 pl-[calc(0.75rem-2px)] text-primary hover:bg-primary/10 hover:text-primary",
-                    isActive && isSidebarCollapsed && "border-l-0 bg-primary/10 pl-0 text-primary",
-                  )}
-                  asChild
-                >
-                  <Link to={item.to}>
-                    <Icon
+            {visibleGroups.map((group) => (
+              <div key={group.label} className="space-y-1">
+                {!isSidebarCollapsed ? (
+                  <p className="px-3 pb-0.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                    {group.label}
+                  </p>
+                ) : null}
+                {group.items.map((item) => {
+                  const Icon = item.icon
+                  const isActive = pathMatchesNav(location.pathname, item.to)
+                  return (
+                    <Button
+                      key={item.id}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      title={isSidebarCollapsed ? item.label : undefined}
                       className={cn(
-                        "size-4 shrink-0",
-                        isActive ? "text-primary opacity-100" : "opacity-70",
+                        "relative h-9 w-full rounded-[calc(var(--app-radius-surface)-2px)] text-left font-medium",
+                        isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-2.5 pl-3",
+                        "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                        isActive &&
+                          "border-l-2 border-primary bg-primary/8 pl-[calc(0.75rem-2px)] text-primary hover:bg-primary/10 hover:text-primary",
+                        isActive && isSidebarCollapsed && "border-l-0 bg-primary/10 pl-0 text-primary",
                       )}
-                      aria-hidden
-                    />
-                    {!isSidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
-                  </Link>
-                </Button>
-              )
-            })}
+                      asChild
+                    >
+                      <Link to={item.to}>
+                        <Icon
+                          className={cn(
+                            "size-4 shrink-0",
+                            isActive ? "text-primary opacity-100" : "opacity-70",
+                          )}
+                          aria-hidden
+                        />
+                        {!isSidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
+                      </Link>
+                    </Button>
+                  )
+                })}
+              </div>
+            ))}
           </nav>
           {!isSidebarCollapsed ? (
             <div className="mt-auto border-t border-border/60 p-3">

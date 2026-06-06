@@ -90,19 +90,21 @@ export function ReportsPage() {
       <div>
         <h1 className="app-page-heading">Reports</h1>
         <p className="app-page-subheading mt-1">
-          Export organisation data as Excel or PDF.
+          Pick a report tile, set filters, and export to Excel or PDF.
         </p>
       </div>
 
       {loadError ? (
-        <div className="rounded-lg border border-dashed border-destructive/30 bg-destructive/5 px-4 py-6 text-center text-sm text-destructive">
+        <div className="rounded-[var(--app-radius-surface)] border border-dashed border-destructive/30 bg-destructive/5 px-4 py-8 text-center text-sm text-destructive">
           {loadError}
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid items-start gap-[var(--app-grid-gap)] md:grid-cols-2">
         {loading
-          ? Array.from({ length: 5 }).map((_, i) => <ReportTileSkeleton key={i} />)
+          ? Array.from({ length: 5 }).map((_, i) => (
+              <ReportTileSkeleton key={i} span={i === 0 ? "full" : "half"} />
+            ))
           : null}
 
         {!loading && !loadError && catalog
@@ -118,6 +120,13 @@ export function ReportsPage() {
             ))
           : null}
       </div>
+
+      {!loading && !loadError && catalog ? (
+        <p className="text-center text-xs text-muted-foreground">
+          {catalog.reports.length} report types · {catalog.plants.length} plant
+          {catalog.plants.length === 1 ? "" : "s"} available for filtering
+        </p>
+      ) : null}
     </div>
   )
 }

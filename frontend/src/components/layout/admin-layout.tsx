@@ -53,19 +53,24 @@ type NavGroup = {
 
 const navGroups: NavGroup[] = [
   {
-    label: "Main",
+    label: "Overview",
     items: [{ id: "overview", label: "Overview", icon: LayoutDashboard, permission: null }],
   },
   {
-    label: "Directory",
+    label: "Organization",
     items: [
-      { id: "users", label: "Users", icon: Users, permission: "users.view" },
       {
         id: "plants",
         label: "Plants",
         icon: Factory,
         permission: ["org_units.view", "org_units.create", "org_units.update", "org_units.delete"],
       },
+      { id: "users", label: "Users", icon: Users, permission: "users.view" },
+    ],
+  },
+  {
+    label: "Access control",
+    items: [
       {
         id: "roles",
         label: "Roles",
