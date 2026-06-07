@@ -96,7 +96,14 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         rid = new_value.get("approval_request_id")
         return f"Closure approval request #{rid}" if rid else None
     if action == "returned_for_execution":
-        return str(new_value.get("reason") or "Line items rejected by reviewer")
+        reason = new_value.get("reason")
+        codes = new_value.get("rejected_asset_codes") or []
+        parts = []
+        if codes:
+            parts.append(", ".join(str(c) for c in codes))
+        if reason:
+            parts.append(str(reason))
+        return " — ".join(parts) if parts else "Line items rejected by reviewer"
     if action == "execution_items_rejected":
         codes = new_value.get("asset_codes") or []
         reason = new_value.get("reason")

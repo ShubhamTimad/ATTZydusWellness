@@ -201,7 +201,24 @@ export function OrderDetailPage() {
       )
       setOrder(res)
       setSelected(new Set())
-      toast.success("Updated.")
+      if (
+        (path === "/approval/approve-items" ||
+          path === "/approval/approve-all" ||
+          path === "/closure/approve-order") &&
+        res.status === "completed"
+      ) {
+        toast.success("Order completed.")
+      } else if (path === "/approval/approve-items" && res.status === "pending_closure_approval") {
+        toast.success("Selected lines approved.")
+      } else if (path === "/approval/reject-items" && res.status === "in_progress") {
+        toast.success(
+          res.assigned_to_name
+            ? `Order returned to ${res.assigned_to_name} for rework.`
+            : "Order returned to executor for rework.",
+        )
+      } else {
+        toast.success("Updated.")
+      }
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
     } finally {
@@ -546,7 +563,7 @@ export function OrderDetailPage() {
             {canReviewClosure ? (
               <>
                 <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/approval/approve-all")}>
-                  Approve all
+                  Approve all & complete
                 </AdminPrimaryButton>
                 <Button
                   type="button"
@@ -562,11 +579,8 @@ export function OrderDetailPage() {
                   disabled={busy || selected.size === 0}
                   onClick={beginClosureLineReject}
                 >
-                  Reject lines
+                  Reject selected
                 </Button>
-                <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/closure/approve-order")}>
-                  Complete order
-                </AdminPrimaryButton>
               </>
             ) : null}
           </div>

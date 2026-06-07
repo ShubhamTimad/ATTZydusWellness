@@ -99,8 +99,15 @@ class PhysicalOrderService:
             return
         raise ConflictError("Only the order creator or an approver can review closure at this stage.")
 
-    def _reopen_for_execution(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
-        """Return order to executor after partial closure rejection."""
+    def _reopen_for_execution(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int,
+        reason: str | None = None,
+        rejected_codes: list[str] | None = None,
+    ) -> None:
+        """Return order to executor after closure rejection."""
         order.status = ORDER_STATUS_IN_PROGRESS
         for item in order.items:
             if self._is_physically_verified(item):
@@ -113,7 +120,10 @@ class PhysicalOrderService:
             order_id=int(order.id),
             action="returned_for_execution",
             actor_user_id=actor_user_id,
-            new_value={"reason": "closure_line_items_rejected"},
+            new_value={
+                "reason": reason or "Closure approval rejected.",
+                "rejected_asset_codes": rejected_codes or [],
+            },
         )
         self._mark_closure_request_in_rework(order)
         if order.assigned_to:
@@ -128,10 +138,45 @@ class PhysicalOrderService:
                             "user_name": assignee.full_name,
                             "email": assignee.email,
                             "order_number": order.order_number,
+                            "reason": reason or "",
                         },
                     )
             except Exception:
                 pass
+
+    def _complete_closure_approval(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
+        for item in order.items:
+            if item.verification_status == ITEM_STATUS_PENDING:
+                item.verification_status = ITEM_STATUS_APPROVED
+                item.rejection_reason = None
+        order.status = ORDER_STATUS_COMPLETED
+        order.completed_at = _now_utc()
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="closure_approved",
+            actor_user_id=actor_user_id,
+        )
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="completed",
+            actor_user_id=actor_user_id,
+        )
+        self._notify_completed(order)
+
+    def _maybe_complete_closure_after_item_approval(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int,
+    ) -> bool:
+        if any(i.verification_status == ITEM_STATUS_REJECTED for i in order.items):
+            return False
+        if not all(i.verification_status == ITEM_STATUS_APPROVED for i in order.items):
+            return False
+        self._complete_closure_approval(order, actor_user_id=actor_user_id)
+        return True
 
     def _latest_closure_approval_request(self, order_id: int) -> ApprovalRequest | None:
         return self._db.scalar(
@@ -1011,6 +1056,7 @@ class PhysicalOrderService:
                 if item.verification_status == ITEM_STATUS_PENDING:
                     item.verification_status = ITEM_STATUS_APPROVED
                     item.rejection_reason = None
+            self._complete_closure_approval(order, actor_user_id=actor_user_id)
             self._db.commit()
             return self.get_order(order_id)
         if order.status != ORDER_STATUS_PENDING_APPROVAL:
@@ -1027,10 +1073,22 @@ class PhysicalOrderService:
         id_set = set(item_ids)
         if order.status == ORDER_STATUS_PENDING_CLOSURE:
             self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
+            if not id_set:
+                raise ConflictError("Select at least one line item to approve.")
+            order_item_ids = {int(i.id) for i in order.items}
+            if id_set - order_item_ids:
+                raise ConflictError("One or more selected line items are not on this order.")
             for item in order.items:
                 if item.id in id_set:
                     item.verification_status = ITEM_STATUS_APPROVED
                     item.rejection_reason = None
+            if id_set == order_item_ids:
+                self._complete_closure_approval(order, actor_user_id=actor_user_id)
+            else:
+                self._maybe_complete_closure_after_item_approval(
+                    order,
+                    actor_user_id=actor_user_id,
+                )
             self._db.commit()
             return self.get_order(order_id)
         if order.status != ORDER_STATUS_PENDING_APPROVAL:
@@ -1091,7 +1149,12 @@ class PhysicalOrderService:
                 actor_user_id=actor_user_id,
                 new_value={"asset_codes": rejected_codes, "reason": reason},
             )
-            self._reopen_for_execution(order, actor_user_id=actor_user_id)
+            self._reopen_for_execution(
+                order,
+                actor_user_id=actor_user_id,
+                reason=reason,
+                rejected_codes=rejected_codes,
+            )
             self._db.commit()
             return self.get_order(order_id)
         raise ConflictError("Order is not in an approval phase.")
@@ -1424,26 +1487,14 @@ class PhysicalOrderService:
         self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
         rejected = [i for i in order.items if i.verification_status == ITEM_STATUS_REJECTED]
         if rejected:
-            self._reopen_for_execution(order, actor_user_id=actor_user_id)
+            self._reopen_for_execution(
+                order,
+                actor_user_id=actor_user_id,
+                reason="Closure approval rejected.",
+                rejected_codes=[i.asset_code for i in rejected],
+            )
         else:
-            for item in order.items:
-                if item.verification_status == ITEM_STATUS_PENDING:
-                    item.verification_status = ITEM_STATUS_APPROVED
-            order.status = ORDER_STATUS_COMPLETED
-            order.completed_at = _now_utc()
-            log_order_event(
-                self._db,
-                order_id=order_id,
-                action="closure_approved",
-                actor_user_id=actor_user_id,
-            )
-            log_order_event(
-                self._db,
-                order_id=order_id,
-                action="completed",
-                actor_user_id=actor_user_id,
-            )
-            self._notify_completed(order)
+            self._complete_closure_approval(order, actor_user_id=actor_user_id)
         self._db.commit()
         return self.get_order(order_id)
 
@@ -1539,26 +1590,14 @@ def finalize_closure_approval(db: Session, *, order_id: int, approver_user_id: i
         return
     rejected = [i for i in order.items if i.verification_status == ITEM_STATUS_REJECTED]
     if rejected:
-        svc._reopen_for_execution(order, actor_user_id=approver_user_id)
+        svc._reopen_for_execution(
+            order,
+            actor_user_id=approver_user_id,
+            reason="Closure approval rejected.",
+            rejected_codes=[i.asset_code for i in rejected],
+        )
     else:
-        for item in order.items:
-            if item.verification_status == ITEM_STATUS_PENDING:
-                item.verification_status = ITEM_STATUS_APPROVED
-        order.status = ORDER_STATUS_COMPLETED
-        order.completed_at = _now_utc()
-        log_order_event(
-            db,
-            order_id=order_id,
-            action="closure_approved",
-            actor_user_id=approver_user_id,
-        )
-        log_order_event(
-            db,
-            order_id=order_id,
-            action="completed",
-            actor_user_id=approver_user_id,
-        )
-        svc._notify_completed(order)
+        svc._complete_closure_approval(order, actor_user_id=approver_user_id)
     db.commit()
 
 
