@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
@@ -14,6 +16,7 @@ from modules.assets.schema import (
     AssetDetailPublic,
     AssetListResponse,
     AssetUpdateRequest,
+    FinancialYearListResponse,
     ImportConfirmRequest,
     ImportConfirmResponse,
     ImportPreviewResponse,
@@ -62,6 +65,22 @@ def list_assets(
     category_id: int | None = Query(None),
     lifecycle_status: str | None = Query(None),
     approval_status: str | None = Query(None),
+    rfid_status: str | None = Query(
+        None,
+        description="Filter by RFID tag: tagged | not_tagged",
+    ),
+    fy_verification: str | None = Query(
+        None,
+        description="Filter RFID-tagged active assets by financial year verification: verified | pending | all",
+    ),
+    fy_start_year: int | None = Query(
+        None,
+        ge=2000,
+        le=2100,
+        description="Calendar year the financial year starts in; omit for the running financial year.",
+    ),
+    fy_scan_from: date | None = Query(None, description="Include RFID scans on or after this date (within FY)."),
+    fy_scan_to: date | None = Query(None, description="Include RFID scans on or before this date (within FY)."),
     sort_by: str = Query("created_at"),
     sort_dir: str = Query("desc"),
 ) -> AssetListResponse:
@@ -73,9 +92,53 @@ def list_assets(
         category_id=category_id,
         lifecycle_status=lifecycle_status,
         approval_status=approval_status,
+        rfid_status=rfid_status,
+        fy_verification=fy_verification,
+        fy_start_year=fy_start_year,
+        fy_scan_from=fy_scan_from,
+        fy_scan_to=fy_scan_to,
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
+
+
+@router.get("/fy-verification/export")
+def export_fy_verification(
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+    format: str = Query("xlsx", alias="format", pattern="^(?i)(xlsx|pdf)$"),
+    fy_verification: str | None = Query("all"),
+    fy_start_year: int | None = Query(None, ge=2000, le=2100),
+    fy_scan_from: date | None = Query(None),
+    fy_scan_to: date | None = Query(None),
+    plant_id: int | None = Query(None),
+    category_id: int | None = Query(None),
+    search: str | None = Query(None),
+) -> Response:
+    content, filename, media_type = svc.export_fy_verification_report(
+        fmt=format,
+        fy_verification=fy_verification,
+        fy_start_year=fy_start_year,
+        fy_scan_from=fy_scan_from,
+        fy_scan_to=fy_scan_to,
+        plant_id=plant_id,
+        category_id=category_id,
+        search=search,
+    )
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/financial-years", response_model=FinancialYearListResponse)
+def list_financial_years(
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+    years_back: int = Query(10, ge=1, le=30),
+) -> FinancialYearListResponse:
+    return svc.list_financial_years(years_back=years_back)
 
 
 @router.post("/submit-for-approval", response_model=SubmitForApprovalResponse)

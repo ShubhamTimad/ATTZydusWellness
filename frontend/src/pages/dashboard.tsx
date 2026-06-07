@@ -42,9 +42,9 @@ function DashboardHero({
         accent
       />
       <KpiCard
-        label="RFID assets"
+        label="RFID tagged"
         value={assets.rfid_tagged}
-        hint={`${assets.active_assets} active in register`}
+        hint={`${assets.rfid_not_tagged} not tagged · ${assets.active_assets} active`}
         accent
       />
       <KpiCard
@@ -91,7 +91,7 @@ export function DashboardPage() {
       <div>
         <h1 className="app-page-heading">Dashboard</h1>
         <p className="app-page-subheading mt-1">
-          Organisation overview for physical verification orders, assets, and financial year tagging.
+          Organisation overview for physical verification orders, assets, and financial year physical verification.
         </p>
       </div>
 

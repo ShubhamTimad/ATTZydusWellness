@@ -14,15 +14,20 @@ export function FinancialYearDashboard({ data }: { data: FinancialYearDashboardM
 
   const stats = [
     { label: "Verified this FY", value: data.verified_in_fy, hint: data.label },
+    {
+      label: "Verification scans",
+      value: data.total_fy_verification_events,
+      hint: "Total RFID scans recorded this FY",
+    },
     { label: "Pending verification", value: data.pending_fy_verification, hint: "RFID assets not yet verified" },
     { label: "Coverage", value: `${data.coverage_pct}%`, hint: `${data.verified_in_fy} of ${data.total_rfid_assets} assets` },
   ]
 
   return (
     <DashboardPanel
-      title={`Financial year tagging · ${data.label}`}
-      description={`Verification window ${periodLabel}. Assets scanned in this period count as tagged for the current financial year.`}
-      action={{ label: "Open register", to: "/dashboard/assets" }}
+      title={`Financial year physical verification · ${data.label}`}
+      description={`Verification window ${periodLabel}. Each RFID scan during physical verification is counted.`}
+      action={{ label: "FY verification", to: "/dashboard/assets?tab=fy" }}
     >
       <CoverageBar value={data.coverage_pct} />
 

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -41,6 +41,18 @@ from modules.assets.audit_helpers import (
     snapshot_asset,
 )
 from modules.assets.audit_log import log_asset_event
+from modules.assets.fy_verification import (
+    VerificationWindow,
+    count_verifications_by_asset,
+    fy_verification_summary,
+    resolve_verification_window,
+    verified_asset_ids_in_window,
+)
+from modules.platform.settings.financial_year import (
+    financial_year_period_for,
+    list_financial_year_periods,
+    resolve_financial_year_period,
+)
 from modules.assets.model import AssetAuditEvent
 from modules.assets.import_parser import parse_upload_file
 from modules.assets.import_row_mapper import build_section_payloads
@@ -72,6 +84,8 @@ from modules.assets.schema import (
     AssetInventoryPayload,
     AssetListItem,
     AssetListResponse,
+    FinancialYearListResponse,
+    FinancialYearOptionPublic,
     AssetLocationPayload,
     AssetUpdateRequest,
     ImportConfirmRequest,
@@ -532,11 +546,44 @@ class AssetMasterService:
         category_id: int | None = None,
         lifecycle_status: str | None = None,
         approval_status: str | None = None,
+        rfid_status: str | None = None,
+        fy_verification: str | None = None,
+        fy_start_year: int | None = None,
+        fy_scan_from: date | None = None,
+        fy_scan_to: date | None = None,
         sort_by: str = "created_at",
         sort_dir: str = "desc",
     ) -> AssetListResponse:
         page = max(1, page)
         page_size = min(max(1, page_size), 100)
+        fy_mode = (fy_verification or "").strip().lower()
+        current_period = financial_year_period_for()
+        fy_period = (
+            resolve_financial_year_period(fy_start_year)
+            if fy_mode in {"verified", "pending", "all"}
+            else None
+        )
+        scan_window: VerificationWindow | None = None
+        fy_summary: dict[str, int] | None = None
+        verified_ids: set[int] | None = None
+        if fy_period is not None:
+            scan_window = resolve_verification_window(
+                fy_period, scan_from=fy_scan_from, scan_to=fy_scan_to
+            )
+            fy_summary = fy_verification_summary(
+                self._db,
+                scan_window,
+                plant_id=plant_id,
+                category_id=category_id,
+                search=search,
+            )
+            verified_ids = verified_asset_ids_in_window(
+                self._db,
+                scan_window,
+                plant_id=plant_id,
+                category_id=category_id,
+                search=search,
+            )
         base = (
             select(AssetMaster)
             .where(AssetMaster.deleted_at.is_(None))
@@ -574,6 +621,44 @@ class AssetMasterService:
         if plant_id is not None:
             base = base.join(AssetLocationInformation).where(AssetLocationInformation.plant_id == plant_id)
 
+        rfid_summary_tagged: int | None = None
+        rfid_summary_not_tagged: int | None = None
+        if scan_window is None:
+            has_rfid = and_(AssetMaster.rfid_code.isnot(None), AssetMaster.rfid_code != "")
+            no_rfid = or_(AssetMaster.rfid_code.is_(None), AssetMaster.rfid_code == "")
+            rfid_summary_tagged = int(
+                self._db.scalar(
+                    select(func.count()).select_from(base.where(has_rfid).subquery())
+                )
+                or 0
+            )
+            rfid_summary_not_tagged = int(
+                self._db.scalar(
+                    select(func.count()).select_from(base.where(no_rfid).subquery())
+                )
+                or 0
+            )
+            rfid_mode = (rfid_status or "").strip().lower()
+            if rfid_mode == "tagged":
+                base = base.where(has_rfid)
+            elif rfid_mode == "not_tagged":
+                base = base.where(no_rfid)
+
+        if scan_window is not None and verified_ids is not None:
+            base = base.join(AssetInventoryInformation).where(
+                AssetMaster.lifecycle_status == LIFECYCLE_ACTIVE,
+                AssetMaster.rfid_code.isnot(None),
+                AssetMaster.rfid_code != "",
+            )
+            if fy_mode == "verified":
+                if verified_ids:
+                    base = base.where(AssetMaster.id.in_(verified_ids))
+                else:
+                    base = base.where(AssetMaster.id == -1)
+            elif fy_mode == "pending":
+                if verified_ids:
+                    base = base.where(AssetMaster.id.not_in(verified_ids))
+
         count_stmt = select(func.count()).select_from(base.subquery())
         total = int(self._db.scalar(count_stmt) or 0)
 
@@ -582,6 +667,10 @@ class AssetMasterService:
             order_col = AssetMaster.asset_name
         elif sort_by == "asset_code":
             order_col = AssetMaster.asset_code
+        elif sort_by == "last_verification_date":
+            order_col = AssetInventoryInformation.last_verification_date
+            if scan_window is None:
+                base = base.outerjoin(AssetInventoryInformation)
         if sort_dir.lower() == "asc":
             base = base.order_by(order_col.asc())
         else:
@@ -590,12 +679,22 @@ class AssetMasterService:
         rows = list(
             self._db.scalars(base.offset((page - 1) * page_size).limit(page_size)).unique().all()
         )
+        fy_counts: dict[int, int] = {}
+        if scan_window is not None:
+            fy_counts = count_verifications_by_asset(
+                self._db, [int(a.id) for a in rows], scan_window
+            )
         cc_desc, fl_desc, al_desc = self._master_label_lookups(rows)
         items: list[AssetListItem] = []
         for a in rows:
             loc = a.location
             fin = a.financial
             inv = a.inventory
+            last_verified = inv.last_verification_date if inv else None
+            fy_verified = (
+                int(a.id) in verified_ids if verified_ids is not None and (a.rfid_code and a.rfid_code.strip())
+                else None
+            )
             pid = int(loc.plant_id) if loc and loc.plant_id else None
             fl_code = (loc.functional_location or "").strip() if loc else ""
             al_code = (loc.actual_location or "").strip() if loc else ""
@@ -621,14 +720,158 @@ class AssetMasterService:
                     cost_center_description=cc_description,
                     inventory_count=inv.inventory_count if inv else None,
                     physical_count=inv.physical_count if inv else None,
-                    last_verification_date=inv.last_verification_date if inv else None,
+                    last_verification_date=last_verified,
+                    fy_verified=fy_verified,
+                    fy_verification_count=fy_counts.get(int(a.id), 0) if scan_window else None,
                     lifecycle_status=a.lifecycle_status,
                     approval_status=a.approval_status,
                     source_type=a.source_type,
                     created_at=a.created_at,
                 )
             )
-        return AssetListResponse(items=items, total=total, page=page, page_size=page_size)
+        return AssetListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            financial_year_label=fy_period.label if fy_period else None,
+            financial_year_start=fy_period.start if fy_period else None,
+            financial_year_end=fy_period.end if fy_period else None,
+            financial_year_start_year=fy_period.start.year if fy_period else None,
+            financial_year_is_current=(
+                fy_period.start == current_period.start and fy_period.end == current_period.end
+                if fy_period
+                else None
+            ),
+            scan_window_start=scan_window.start if scan_window else None,
+            scan_window_end=scan_window.end if scan_window else None,
+            total_fy_verification_events=(
+                fy_summary["total_verification_scans"] if fy_summary else None
+            ),
+            verified_assets_total=fy_summary["verified_assets"] if fy_summary else None,
+            pending_assets_total=fy_summary["pending_assets"] if fy_summary else None,
+            total_rfid_assets=fy_summary["total_rfid_assets"] if fy_summary else None,
+            rfid_tagged_total=rfid_summary_tagged,
+            rfid_not_tagged_total=rfid_summary_not_tagged,
+        )
+
+    def list_financial_years(self, *, years_back: int = 10) -> FinancialYearListResponse:
+        current = financial_year_period_for()
+        items: list[FinancialYearOptionPublic] = []
+        for period in list_financial_year_periods(years_back=years_back):
+            items.append(
+                FinancialYearOptionPublic(
+                    label=period.label,
+                    start=period.start,
+                    end=period.end,
+                    start_year=period.start.year,
+                    is_current=period.start == current.start and period.end == current.end,
+                )
+            )
+        return FinancialYearListResponse(items=items, current_start_year=current.start.year)
+
+    def export_fy_verification_report(
+        self,
+        *,
+        fmt: str,
+        fy_verification: str | None = None,
+        fy_start_year: int | None = None,
+        fy_scan_from: date | None = None,
+        fy_scan_to: date | None = None,
+        plant_id: int | None = None,
+        category_id: int | None = None,
+        search: str | None = None,
+    ) -> tuple[bytes, str, str]:
+        from modules.reports.export import ReportDocument, build_pdf, build_xlsx, content_type_for_format, report_filename
+
+        export_mode = (fy_verification or "all").strip().lower()
+        if export_mode not in {"verified", "pending", "all"}:
+            export_mode = "all"
+
+        res = self.list_assets(
+            page=1,
+            page_size=100,
+            search=search,
+            plant_id=plant_id,
+            category_id=category_id,
+            fy_verification=export_mode,
+            fy_start_year=fy_start_year,
+            fy_scan_from=fy_scan_from,
+            fy_scan_to=fy_scan_to,
+            sort_by="last_verification_date",
+            sort_dir="desc",
+        )
+        # Fetch all rows (up to reasonable limit)
+        all_items = res.items
+        if res.total > len(all_items):
+            res = self.list_assets(
+                page=1,
+                page_size=min(res.total, 5000),
+                search=search,
+                plant_id=plant_id,
+                category_id=category_id,
+                fy_verification=export_mode,
+                fy_start_year=fy_start_year,
+                fy_scan_from=fy_scan_from,
+                fy_scan_to=fy_scan_to,
+                sort_by="last_verification_date",
+                sort_dir="desc",
+            )
+            all_items = res.items
+
+        window_label = ""
+        if res.scan_window_start and res.scan_window_end:
+            window_label = f"{res.scan_window_start.isoformat()} – {res.scan_window_end.isoformat()}"
+        subtitle_parts = [
+            res.financial_year_label or "Financial year",
+            f"Scans {window_label}" if window_label else "",
+        ]
+        summary = (
+            ("Financial year", res.financial_year_label or "—"),
+            ("Scan period", window_label or "—"),
+            ("Verified assets", str(res.verified_assets_total or 0)),
+            ("Pending assets", str(res.pending_assets_total or 0)),
+            ("Verification scans", str(res.total_fy_verification_events or 0)),
+            ("RFID-tagged assets", str(res.total_rfid_assets or 0)),
+            ("Rows exported", str(len(all_items))),
+        )
+        headers = [
+            "Asset code",
+            "Asset name",
+            "Plant",
+            "RFID code",
+            "Last verification",
+            "Scans in period",
+            "Status",
+        ]
+        rows = []
+        for item in all_items:
+            rows.append(
+                [
+                    item.asset_code,
+                    item.asset_name,
+                    item.plant_name or "",
+                    item.rfid_code or "",
+                    item.last_verification_date.isoformat() if item.last_verification_date else "",
+                    str(item.fy_verification_count or 0),
+                    "Verified" if item.fy_verified else "Pending",
+                ]
+            )
+        doc = ReportDocument(
+            title=f"Financial year physical verification · {res.financial_year_label or ''}".strip(),
+            subtitle=" · ".join(p for p in subtitle_parts if p),
+            summary=summary,
+            headers=headers,
+            rows=rows,
+        )
+        normalized = (fmt or "xlsx").strip().lower()
+        if normalized == "pdf":
+            content = build_pdf(doc)
+        else:
+            content = build_xlsx(doc)
+            normalized = "xlsx"
+        filename = report_filename("fy-physical-verification", normalized)
+        return content, filename, content_type_for_format(normalized)
 
     def get_asset(self, asset_id: int) -> AssetDetailPublic:
         asset = self._load_asset(asset_id)
@@ -656,6 +899,14 @@ class AssetMasterService:
         loc = asset.location
         fin = asset.financial
         inv = asset.inventory
+        period = financial_year_period_for()
+        window = resolve_verification_window(period)
+        rfid = (asset.rfid_code or "").strip()
+        fy_count = (
+            count_verifications_by_asset(self._db, [int(asset.id)], window).get(int(asset.id), 0)
+            if rfid
+            else None
+        )
         return AssetDetailPublic(
             id=asset.id,
             asset_name=asset.asset_name,
@@ -684,6 +935,8 @@ class AssetMasterService:
             location=AssetLocationPayload.model_validate(loc) if loc else None,
             financial=AssetFinancialPayload.model_validate(fin) if fin else None,
             inventory=AssetInventoryPayload.model_validate(inv) if inv else None,
+            financial_year_label=period.label if rfid else None,
+            fy_verification_count=fy_count,
         )
 
     def attach_rfid(

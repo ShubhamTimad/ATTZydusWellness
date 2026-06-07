@@ -42,7 +42,7 @@ export const REPORT_TILE_STYLES: Record<string, ReportTileStyle> = {
   },
   financial_year_verification: {
     icon: CalendarRange,
-    tag: "FY tagging",
+    tag: "FY verification",
     span: "half",
     surface:
       "border-emerald-200/80 bg-[linear-gradient(160deg,color-mix(in_srgb,#059669_10%,var(--card))_0%,var(--card)_100%)] dark:border-emerald-900/40",

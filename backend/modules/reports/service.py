@@ -25,6 +25,7 @@ from modules.orders.constants import (
 from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 from modules.platform.org_units.model import OrgUnit
 from modules.platform.settings.financial_year import financial_year_period_for, is_verified_in_financial_year
+from modules.assets.fy_verification import count_verifications_by_asset, resolve_verification_window
 from modules.reports.export import ReportDocument
 
 
@@ -147,6 +148,9 @@ class ReportService:
         )
         rows = self._db.scalars(base).unique().all()
         normalized_fy = (fy_status or "all").strip().lower()
+        fy_counts = count_verifications_by_asset(
+            self._db, [int(asset.id) for asset in rows], resolve_verification_window(period)
+        )
 
         headers = [
             "Asset code",
@@ -154,6 +158,7 @@ class ReportService:
             "Plant",
             "RFID code",
             "Last verification",
+            "Verifications (FY)",
             "FY status",
             "Financial year",
         ]
@@ -175,6 +180,7 @@ class ReportService:
                     loc.plant.name if loc and loc.plant else "",
                     asset.rfid_code or "",
                     _fmt_date(last),
+                    str(fy_counts.get(int(asset.id), 0)),
                     row_status,
                     period.label,
                 ]

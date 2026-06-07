@@ -1,53 +1,73 @@
-import { DashboardBarChart, DashboardChartGrid, ChartPanel } from "@/components/dashboard/dashboard-charts"
-import { DashboardPanel, KpiCard, KpiGrid } from "@/components/dashboard/dashboard-kpi"
+import * as React from "react"
+import { Link } from "react-router-dom"
+
+import { CoverageBar, DashboardPanel, KpiCard, KpiGrid } from "@/components/dashboard/dashboard-kpi"
 import type { AssetsDashboardModule } from "@/lib/assets-types"
-import { shouldShowPlantBreakdown } from "@/lib/dashboard-utils"
+import { cn } from "@/lib/utils"
+
+function RfidKpiLink({
+  to,
+  children,
+  className,
+}: {
+  to: string
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <Link
+      to={to}
+      className={cn(
+        "block rounded-[var(--app-radius-surface)] transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+        className,
+      )}
+    >
+      {children}
+    </Link>
+  )
+}
 
 export function AssetDashboard({ data }: { data: AssetsDashboardModule }) {
-  const showPlantBreakdown = shouldShowPlantBreakdown(data.by_plant)
-
   const stats = [
     { label: "Total assets", value: data.total_assets },
     { label: "Active assets", value: data.active_assets },
-    { label: "RFID tagged", value: data.rfid_tagged, hint: "Eligible for verification" },
     { label: "Added (7 days)", value: data.recently_added },
   ]
 
   return (
     <DashboardPanel
       title="Asset register"
-      description={`${data.active_assets} active assets across the organisation.`}
+      description={`${data.active_assets} active assets · ${data.rfid_coverage_pct}% RFID tagged`}
       action={{ label: "Open register", to: "/dashboard/assets" }}
     >
       <KpiGrid>
         {stats.map((s) => (
-          <KpiCard key={s.label} label={s.label} value={s.value} hint={s.hint} accent />
+          <KpiCard key={s.label} label={s.label} value={s.value} accent />
         ))}
       </KpiGrid>
 
-      <DashboardChartGrid columns={showPlantBreakdown ? 2 : 1}>
-        <ChartPanel title="Assets by category">
-          <DashboardBarChart
-            data={data.by_category}
-            xKey="category"
-            xAngle={-18}
-            xHeight={44}
-            series={[{ dataKey: "count" }]}
-            emptyMessage="No assets yet"
-          />
-        </ChartPanel>
-
-        {showPlantBreakdown ? (
-          <ChartPanel title="Assets by plant">
-            <DashboardBarChart
-              data={data.by_plant}
-              xKey="plant"
-              series={[{ dataKey: "count" }]}
-              emptyMessage="No plant data"
+      <div className="space-y-3">
+        <p className="text-sm font-medium text-foreground">RFID tagging</p>
+        <KpiGrid>
+          <RfidKpiLink to="/dashboard/assets?rfid_status=tagged">
+            <KpiCard
+              label="RFID tagged"
+              value={data.rfid_tagged}
+              hint="Active assets with a tag"
+              accent
             />
-          </ChartPanel>
-        ) : null}
-      </DashboardChartGrid>
+          </RfidKpiLink>
+          <RfidKpiLink to="/dashboard/assets?rfid_status=not_tagged">
+            <KpiCard
+              label="Not RFID tagged"
+              value={data.rfid_not_tagged}
+              hint="Active assets missing a tag"
+              accent
+            />
+          </RfidKpiLink>
+        </KpiGrid>
+        <CoverageBar value={data.rfid_coverage_pct} label="RFID tagging coverage" className="max-w-md" />
+      </div>
     </DashboardPanel>
   )
 }

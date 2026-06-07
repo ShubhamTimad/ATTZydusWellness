@@ -36,6 +36,7 @@ class ReportDocument:
     subtitle: str
     headers: list[str]
     rows: list[list[str]]
+    summary: tuple[tuple[str, str], ...] = ()
 
 
 def _safe_cell(value: str | None) -> str:
@@ -226,10 +227,17 @@ def build_xlsx(document: ReportDocument) -> bytes:
 
     ws.append([document.title])
     ws.append([document.subtitle])
-    ws.append([])
     ws["A1"].font = Font(bold=True, size=14)
     ws["A2"].font = Font(size=10)
 
+    if document.summary:
+        ws.append([])
+        for label, value in document.summary:
+            ws.append([label, value])
+        for row_idx in range(4, 4 + len(document.summary)):
+            ws[f"A{row_idx}"].font = Font(bold=True)
+
+    ws.append([])
     ws.append(document.headers)
     header_row = ws.max_row
     for cell in ws[header_row]:
@@ -250,6 +258,38 @@ def build_xlsx(document: ReportDocument) -> bytes:
     return buf.getvalue()
 
 
+def _pdf_summary_block(
+    document: ReportDocument,
+    styles: dict[str, ParagraphStyle],
+    available_width: float,
+) -> Table | None:
+    if not document.summary:
+        return None
+    rows = [
+        [
+            Paragraph(_clean_pdf_text(label), styles["header"]),
+            Paragraph(_clean_pdf_text(value), styles["cell"]),
+        ]
+        for label, value in document.summary
+    ]
+    table = Table(rows, colWidths=[available_width * 0.32, available_width * 0.68])
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F3F4F6")),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D1D5DB")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    return table
+
+
 def build_pdf(document: ReportDocument) -> bytes:
     buf = io.BytesIO()
     page_size = landscape(A4) if len(document.headers) > 4 else A4
@@ -268,6 +308,10 @@ def build_pdf(document: ReportDocument) -> bytes:
         _pdf_header_block(document, styles, available_width),
         Spacer(1, 14),
     ]
+
+    summary_table = _pdf_summary_block(document, styles, available_width)
+    if summary_table is not None:
+        story.extend([summary_table, Spacer(1, 12)])
 
     if not document.rows:
         story.append(Paragraph("No records found for the selected filters.", styles["empty"]))

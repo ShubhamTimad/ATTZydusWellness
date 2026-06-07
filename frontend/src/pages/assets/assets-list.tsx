@@ -1,6 +1,6 @@
 import * as React from "react"
-import { Link, useNavigate } from "react-router-dom"
-import { Plus, ScanLine, Search, SlidersHorizontal, Upload, X } from "lucide-react"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
+import { Plus, ScanLine, Search, SlidersHorizontal, Upload, X, FileSpreadsheet, FileText } from "lucide-react"
 import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
@@ -10,6 +10,9 @@ import {
   AdminTableEmptyRow,
   AdminTablePagination,
   ListPageHeader,
+  WorkspaceTabs,
+  WorkspaceTabsList,
+  WorkspaceTabsTrigger,
 } from "@/components/layout/list-page-ui"
 import {
   AdminPrimaryButton,
@@ -34,7 +37,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
-import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
+import { ApiError, deleteJson, downloadFile, getJson, postJson } from "@/lib/api"
 import {
   buildAssetListActionItems,
   countRfidTaggedSelected,
@@ -44,6 +47,8 @@ import {
 import type {
   AssetListResponse,
   AssetRfidAttachResult,
+  FinancialYearListResponse,
+  FinancialYearOption,
   SubmitForApprovalResult,
 } from "@/lib/assets-types"
 import { categoryLabel, plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
@@ -54,11 +59,18 @@ import { orderStatusLabel } from "@/lib/orders-types"
 import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
 import { cn } from "@/lib/utils"
 
+export type AssetListTab = "all" | "fy"
+export type AssetFySubTab = "verified" | "pending"
+
 export type AssetListFilters = {
   plant_id: string
   category_id: string
   lifecycle_status: string
   approval_status: string
+  rfid_status: string
+  fy_start_year: string
+  fy_scan_from: string
+  fy_scan_to: string
   sort_by: string
   sort_dir: string
 }
@@ -68,7 +80,17 @@ const DEFAULT_FILTERS: AssetListFilters = {
   category_id: "",
   lifecycle_status: "",
   approval_status: "",
+  rfid_status: "",
+  fy_start_year: "",
+  fy_scan_from: "",
+  fy_scan_to: "",
   sort_by: "created_at",
+  sort_dir: "desc",
+}
+
+const DEFAULT_FY_FILTERS: AssetListFilters = {
+  ...DEFAULT_FILTERS,
+  sort_by: "last_verification_date",
   sort_dir: "desc",
 }
 
@@ -86,12 +108,32 @@ function formatPlantLabel(row: { plant_code?: string | null; plant_name?: string
   return name || code || "—"
 }
 
-function countActiveFilters(f: AssetListFilters): number {
+function toDateInputValue(iso: string | null | undefined): string {
+  if (!iso) return ""
+  return iso.slice(0, 10)
+}
+
+function countActiveFilters(
+  f: AssetListFilters,
+  isFy: boolean,
+  currentFyStartYear: number | null,
+  defaultScanFrom: string,
+  defaultScanTo: string,
+): number {
   let n = 0
   if (f.plant_id) n += 1
   if (f.category_id) n += 1
-  if (f.lifecycle_status) n += 1
-  if (f.approval_status) n += 1
+  if (isFy) {
+    if (f.fy_start_year && currentFyStartYear && Number(f.fy_start_year) !== currentFyStartYear) {
+      n += 1
+    }
+    if (f.fy_scan_from && f.fy_scan_from !== defaultScanFrom) n += 1
+    if (f.fy_scan_to && f.fy_scan_to !== defaultScanTo) n += 1
+  } else {
+    if (f.lifecycle_status) n += 1
+    if (f.approval_status) n += 1
+    if (f.rfid_status) n += 1
+  }
   return n
 }
 
@@ -99,6 +141,10 @@ function buildQueryParams(
   page: number,
   search: string,
   filters: AssetListFilters,
+  listTab: AssetListTab,
+  fySubTab: AssetFySubTab,
+  scanFrom: string,
+  scanTo: string,
 ): URLSearchParams {
   const q = new URLSearchParams({ page: String(page), page_size: "25" })
   if (search.trim()) q.set("search", search.trim())
@@ -106,6 +152,13 @@ function buildQueryParams(
   if (filters.category_id) q.set("category_id", filters.category_id)
   if (filters.lifecycle_status) q.set("lifecycle_status", filters.lifecycle_status)
   if (filters.approval_status) q.set("approval_status", filters.approval_status)
+  if (listTab === "all" && filters.rfid_status) q.set("rfid_status", filters.rfid_status)
+  if (listTab === "fy") {
+    q.set("fy_verification", fySubTab)
+    if (filters.fy_start_year) q.set("fy_start_year", filters.fy_start_year)
+    if (scanFrom) q.set("fy_scan_from", scanFrom)
+    if (scanTo) q.set("fy_scan_to", scanTo)
+  }
   if (filters.sort_by) q.set("sort_by", filters.sort_by)
   if (filters.sort_dir) q.set("sort_dir", filters.sort_dir)
   return q
@@ -113,12 +166,27 @@ function buildQueryParams(
 
 export function AssetsListPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const initialTab = searchParams.get("tab") === "fy" ? "fy" : "all"
+  const initialRfidStatus = searchParams.get("rfid_status")
+  const validInitialRfid =
+    initialRfidStatus === "tagged" || initialRfidStatus === "not_tagged" ? initialRfidStatus : ""
+  const initialAllFilters: AssetListFilters = {
+    ...DEFAULT_FILTERS,
+    rfid_status: initialTab === "all" ? validInitialRfid : "",
+  }
+  const [listTab, setListTab] = React.useState<AssetListTab>(initialTab)
+  const [fySubTab, setFySubTab] = React.useState<AssetFySubTab>("verified")
   const [data, setData] = React.useState<AssetListResponse | null>(null)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
   const [page, setPage] = React.useState(1)
-  const [filters, setFilters] = React.useState<AssetListFilters>(DEFAULT_FILTERS)
-  const [draftFilters, setDraftFilters] = React.useState<AssetListFilters>(DEFAULT_FILTERS)
+  const [filters, setFilters] = React.useState<AssetListFilters>(
+    initialTab === "fy" ? DEFAULT_FY_FILTERS : initialAllFilters,
+  )
+  const [draftFilters, setDraftFilters] = React.useState<AssetListFilters>(
+    initialTab === "fy" ? DEFAULT_FY_FILTERS : initialAllFilters,
+  )
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
   const [loading, setLoading] = React.useState(false)
@@ -140,6 +208,9 @@ export function AssetsListPage() {
   const [rfidValue, setRfidValue] = React.useState("")
   const [rfidTagColorId, setRfidTagColorId] = React.useState("")
   const [rfidSaving, setRfidSaving] = React.useState(false)
+  const [fyExportBusy, setFyExportBusy] = React.useState<"xlsx" | "pdf" | null>(null)
+  const [fyYearOptions, setFyYearOptions] = React.useState<FinancialYearOption[]>([])
+  const [currentFyStartYear, setCurrentFyStartYear] = React.useState<number | null>(null)
 
   const filterPlantId = draftFilters.plant_id ? Number(draftFilters.plant_id) : null
   const masters = useAssetMasterLookups(filterPlantId, null, null)
@@ -150,18 +221,66 @@ export function AssetsListPage() {
   const canDelete = hasPermission("asset.delete") || hasPermission("asset.manage")
   const canCreateOrder = hasPermission("order.create")
   const canAttachRfid = hasPermission("asset.update") || hasPermission("asset.manage")
-  const activeFilterCount = countActiveFilters(filters)
+  const showAttachRfid = canAttachRfid && listTab !== "fy"
+  const isFyTab = listTab === "fy"
+  const selectedFyStartYear =
+    filters.fy_start_year || (currentFyStartYear != null ? String(currentFyStartYear) : "")
+  const selectedFyOption = fyYearOptions.find((o) => String(o.start_year) === selectedFyStartYear)
+  const defaultScanFrom = toDateInputValue(selectedFyOption?.start)
+  const defaultScanTo = toDateInputValue(
+    selectedFyOption?.is_current ? new Date().toISOString() : selectedFyOption?.end,
+  )
+  const effectiveScanFrom = filters.fy_scan_from || defaultScanFrom
+  const effectiveScanTo = filters.fy_scan_to || defaultScanTo
+  const activeFilterCount = countActiveFilters(
+    filters,
+    isFyTab,
+    currentFyStartYear,
+    defaultScanFrom,
+    defaultScanTo,
+  )
+
+  function scanRangeForOption(option: FinancialYearOption | undefined) {
+    if (!option) return { from: "", to: "" }
+    const from = toDateInputValue(option.start)
+    const to = toDateInputValue(option.is_current ? new Date().toISOString() : option.end)
+    return { from, to }
+  }
+
+  React.useEffect(() => {
+    if (!isFyTab) return
+    void getJson<FinancialYearListResponse>("/admin/assets/financial-years")
+      .then((res) => {
+        setFyYearOptions(res.items)
+        setCurrentFyStartYear(res.current_start_year)
+        const running = res.items.find((o) => o.is_current) ?? res.items[0]
+        if (running && !filters.fy_scan_from && !filters.fy_scan_to) {
+          const { from, to } = scanRangeForOption(running)
+          setFilters((f) => ({ ...f, fy_scan_from: from, fy_scan_to: to }))
+          setDraftFilters((f) => ({ ...f, fy_scan_from: from, fy_scan_to: to }))
+        }
+      })
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load financial years"))
+  }, [isFyTab])
 
   const load = React.useCallback(async () => {
     setLoading(true)
     try {
-      const q = buildQueryParams(page, search, filters)
+      const q = buildQueryParams(
+        page,
+        search,
+        filters,
+        listTab,
+        fySubTab,
+        effectiveScanFrom,
+        effectiveScanTo,
+      )
       const res = await getJson<AssetListResponse>(`/admin/assets?${q}`)
       setData(res)
     } finally {
       setLoading(false)
     }
-  }, [page, search, filters])
+  }, [page, search, filters, listTab, fySubTab, effectiveScanFrom, effectiveScanTo])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -182,9 +301,51 @@ export function AssetsListPage() {
   }
 
   function clearFilters() {
-    setDraftFilters(DEFAULT_FILTERS)
-    setFilters(DEFAULT_FILTERS)
+    const next = isFyTab ? { ...DEFAULT_FY_FILTERS } : { ...DEFAULT_FILTERS }
+    setDraftFilters(next)
+    setFilters(next)
     setPage(1)
+  }
+
+  function applyFyYear(value: string) {
+    const option = fyYearOptions.find((o) => String(o.start_year) === value)
+    const { from, to } = scanRangeForOption(option)
+    const fyYear = value === String(currentFyStartYear) ? "" : value
+    setFilters((f) => ({ ...f, fy_start_year: fyYear, fy_scan_from: from, fy_scan_to: to }))
+    setDraftFilters((f) => ({ ...f, fy_start_year: fyYear, fy_scan_from: from, fy_scan_to: to }))
+    setPage(1)
+    setSelected(new Set())
+  }
+
+  function applyScanDate(field: "fy_scan_from" | "fy_scan_to", value: string) {
+    setFilters((f) => ({ ...f, [field]: value }))
+    setDraftFilters((f) => ({ ...f, [field]: value }))
+    setPage(1)
+  }
+
+  function applyRfidFilter(status: "" | "tagged" | "not_tagged") {
+    setFilters((f) => ({ ...f, rfid_status: status }))
+    setDraftFilters((f) => ({ ...f, rfid_status: status }))
+    setPage(1)
+    setSelected(new Set())
+  }
+
+  async function exportFyReport(format: "xlsx" | "pdf") {
+    setFyExportBusy(format)
+    try {
+      const q = buildQueryParams(1, search, filters, "fy", fySubTab, effectiveScanFrom, effectiveScanTo)
+      q.set("format", format)
+      q.set("fy_verification", "all")
+      await downloadFile(
+        `/admin/assets/fy-verification/export?${q.toString()}`,
+        `fy-physical-verification.${format === "xlsx" ? "xlsx" : "pdf"}`,
+      )
+      toast.success(`${format === "xlsx" ? "Excel" : "PDF"} report downloaded`)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Export failed")
+    } finally {
+      setFyExportBusy(null)
+    }
   }
 
   function toggleRow(id: number, on: boolean) {
@@ -223,7 +384,7 @@ export function AssetsListPage() {
         rfidTaggedCount,
         canSubmitApproval,
         canDelete,
-        canAttachRfid,
+        canAttachRfid: showAttachRfid,
         canCreateOrder,
       }),
     [
@@ -232,7 +393,7 @@ export function AssetsListPage() {
       rfidTaggedCount,
       canSubmitApproval,
       canDelete,
-      canAttachRfid,
+      showAttachRfid,
       canCreateOrder,
     ],
   )
@@ -480,6 +641,7 @@ export function AssetsListPage() {
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const tableColSpan = isFyTab ? 15 : 13
 
   const actionButtons = (
     <>
@@ -507,9 +669,273 @@ export function AssetsListPage() {
       <ListPageHeader
         className="shrink-0"
         title="Assets"
-        description="Search, filter, and manage assets across plants. Select rows for bulk actions."
+        description={
+          isFyTab
+            ? "Filter RFID scans by financial year and date range. View verified asset totals and export reports."
+            : "Search, filter, and manage assets. Filter by RFID tag status or use the quick filters below."
+        }
         actions={actionButtons}
       />
+
+      <WorkspaceTabs
+        value={listTab}
+        onValueChange={(value) => {
+          const nextTab = value as AssetListTab
+          setListTab(nextTab)
+          if (nextTab === "fy") {
+            setFilters((f) => ({ ...DEFAULT_FY_FILTERS, plant_id: f.plant_id, category_id: f.category_id }))
+            setDraftFilters((f) => ({ ...DEFAULT_FY_FILTERS, plant_id: f.plant_id, category_id: f.category_id }))
+          } else {
+            setFilters((f) => ({ ...DEFAULT_FILTERS, plant_id: f.plant_id, category_id: f.category_id, rfid_status: f.rfid_status }))
+            setDraftFilters((f) => ({ ...DEFAULT_FILTERS, plant_id: f.plant_id, category_id: f.category_id, rfid_status: f.rfid_status }))
+          }
+          setPage(1)
+          setSelected(new Set())
+        }}
+        className="shrink-0"
+      >
+        <WorkspaceTabsList>
+          <WorkspaceTabsTrigger value="all">All assets</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="fy">Financial year physical verification</WorkspaceTabsTrigger>
+        </WorkspaceTabsList>
+      </WorkspaceTabs>
+
+      {!isFyTab &&
+      (data?.rfid_tagged_total != null || data?.rfid_not_tagged_total != null) ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/15 px-4 py-3">
+          <p className="text-sm font-medium text-foreground">RFID tagging</p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={filters.rfid_status === "" ? "default" : "outline"}
+              size="sm"
+              className="h-8"
+              onClick={() => applyRfidFilter("")}
+            >
+              All assets
+              <span className="ml-1.5 tabular-nums text-muted-foreground">
+                {(data.rfid_tagged_total ?? 0) + (data.rfid_not_tagged_total ?? 0)}
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant={filters.rfid_status === "tagged" ? "default" : "outline"}
+              size="sm"
+              className="h-8"
+              onClick={() => applyRfidFilter("tagged")}
+            >
+              RFID tagged
+              <span className="ml-1.5 tabular-nums text-muted-foreground">
+                {data.rfid_tagged_total ?? 0}
+              </span>
+            </Button>
+            <Button
+              type="button"
+              variant={filters.rfid_status === "not_tagged" ? "default" : "outline"}
+              size="sm"
+              className="h-8"
+              onClick={() => applyRfidFilter("not_tagged")}
+            >
+              Not tagged
+              <span className="ml-1.5 tabular-nums text-muted-foreground">
+                {data.rfid_not_tagged_total ?? 0}
+              </span>
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {isFyTab ? (
+        <div className="flex shrink-0 flex-col gap-[var(--app-grid-gap)]">
+          <div className="app-panel rounded-[var(--app-radius-surface)] bg-muted/15 p-[var(--app-card-padding)] shadow-none">
+            <div className="app-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Financial year</Label>
+                <select
+                  className={adminSelectClass}
+                  value={selectedFyStartYear}
+                  onChange={(e) => applyFyYear(e.target.value)}
+                  disabled={fyYearOptions.length === 0}
+                >
+                  {fyYearOptions.map((option) => (
+                    <option key={option.start_year} value={String(option.start_year)}>
+                      {option.label}
+                      {option.is_current ? " (running)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Scan from</Label>
+                <Input
+                  type="date"
+                  value={effectiveScanFrom}
+                  min={defaultScanFrom}
+                  max={effectiveScanTo || defaultScanTo}
+                  onChange={(e) => applyScanDate("fy_scan_from", e.target.value)}
+                />
+              </div>
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Scan to</Label>
+                <Input
+                  type="date"
+                  value={effectiveScanTo}
+                  min={effectiveScanFrom || defaultScanFrom}
+                  max={defaultScanTo}
+                  onChange={(e) => applyScanDate("fy_scan_to", e.target.value)}
+                />
+              </div>
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Plant</Label>
+                <select
+                  className={adminSelectClass}
+                  value={filters.plant_id}
+                  onChange={(e) => {
+                    const plant_id = e.target.value
+                    setFilters((f) => ({ ...f, plant_id }))
+                    setDraftFilters((f) => ({ ...f, plant_id }))
+                    setPage(1)
+                  }}
+                >
+                  <option value="">All plants</option>
+                  {masters.plants.map((p) => (
+                    <option key={p.id} value={String(p.id)}>
+                      {plantLabel(p)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Category</Label>
+                <select
+                  className={adminSelectClass}
+                  value={filters.category_id}
+                  onChange={(e) => {
+                    const category_id = e.target.value
+                    setFilters((f) => ({ ...f, category_id }))
+                    setDraftFilters((f) => ({ ...f, category_id }))
+                    setPage(1)
+                  }}
+                >
+                  <option value="">All categories</option>
+                  {masters.categories.map((c) => (
+                    <option key={c.id} value={String(c.id)}>
+                      {categoryLabel(c)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="app-form-field">
+                <Label className="app-form-label text-muted-foreground">Sort by</Label>
+                <select
+                  className={adminSelectClass}
+                  value={filters.sort_by}
+                  onChange={(e) => {
+                    const sort_by = e.target.value
+                    setFilters((f) => ({ ...f, sort_by }))
+                    setDraftFilters((f) => ({ ...f, sort_by }))
+                    setPage(1)
+                  }}
+                >
+                  <option value="last_verification_date">Last verification</option>
+                  <option value="asset_name">Asset name</option>
+                  <option value="asset_code">Asset code</option>
+                  <option value="created_at">Created date</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {data?.financial_year_label ? (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm font-medium text-foreground">Summary &amp; export</p>
+                <div className="grid grid-cols-2 gap-2 sm:w-auto">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={fyExportBusy !== null}
+                    className="h-9 bg-background"
+                    onClick={() => void exportFyReport("xlsx")}
+                  >
+                    <FileSpreadsheet className="size-4" aria-hidden />
+                    {fyExportBusy === "xlsx" ? "Exporting…" : "Excel"}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={fyExportBusy !== null}
+                    className="h-9"
+                    onClick={() => void exportFyReport("pdf")}
+                  >
+                    <FileText className="size-4" aria-hidden />
+                    {fyExportBusy === "pdf" ? "Exporting…" : "PDF"}
+                  </Button>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Verified assets
+                </p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                  {data.verified_assets_total ?? 0}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  of {data.total_rfid_assets ?? 0} RFID-tagged
+                </p>
+              </div>
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Verification scans
+                </p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                  {data.total_fy_verification_events ?? 0}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">In selected date range</p>
+              </div>
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-4 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Pending assets
+                </p>
+                <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                  {data.pending_assets_total ?? 0}
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">No scan in range</p>
+              </div>
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{data.financial_year_label}</span>
+                {data.financial_year_is_current ? (
+                  <AdminPillBadge tone="primary" className="ml-2 align-middle">
+                    Running
+                  </AdminPillBadge>
+                ) : null}
+                {data.scan_window_start && data.scan_window_end ? (
+                  <p className="mt-1 text-xs">
+                    Scans {new Date(data.scan_window_start).toLocaleDateString()} –{" "}
+                    {new Date(data.scan_window_end).toLocaleDateString()}
+                  </p>
+                ) : null}
+              </div>
+              </div>
+            </div>
+          ) : null}
+          <WorkspaceTabs
+            value={fySubTab}
+            onValueChange={(value) => {
+              setFySubTab(value as AssetFySubTab)
+              setPage(1)
+              setSelected(new Set())
+            }}
+          >
+            <WorkspaceTabsList>
+              <WorkspaceTabsTrigger value="verified">Physically verified</WorkspaceTabsTrigger>
+              <WorkspaceTabsTrigger value="pending">Pending verification</WorkspaceTabsTrigger>
+            </WorkspaceTabsList>
+          </WorkspaceTabs>
+        </div>
+      ) : null}
 
       <div className="flex shrink-0 flex-col gap-[var(--app-grid-gap)]">
         <div className="app-list-toolbar">
@@ -549,7 +975,7 @@ export function AssetsListPage() {
             }}
           >
             <SlidersHorizontal className="size-4" aria-hidden />
-            Filters
+            {isFyTab ? "More filters" : "Filters"}
             {activeFilterCount > 0 ? (
               <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
                 {activeFilterCount}
@@ -557,7 +983,7 @@ export function AssetsListPage() {
             ) : null}
           </Button>
 
-          {selected.size === 0 && canAttachRfid ? (
+          {selected.size === 0 && showAttachRfid ? (
             <Button
               type="button"
               variant="outline"
@@ -583,6 +1009,29 @@ export function AssetsListPage() {
         {filtersOpen ? (
           <div className="app-panel rounded-[var(--app-radius-surface)] bg-muted/15 p-[var(--app-card-padding)] shadow-none">
             <div className="app-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              {isFyTab ? (
+                <div className="app-form-field">
+                  <Label className="app-form-label text-muted-foreground">Financial year</Label>
+                  <select
+                    className={adminSelectClass}
+                    value={draftFilters.fy_start_year || selectedFyStartYear}
+                    onChange={(e) =>
+                      setDraftFilters((f) => ({
+                        ...f,
+                        fy_start_year:
+                          e.target.value === String(currentFyStartYear) ? "" : e.target.value,
+                      }))
+                    }
+                  >
+                    {fyYearOptions.map((option) => (
+                      <option key={option.start_year} value={String(option.start_year)}>
+                        {option.label}
+                        {option.is_current ? " (running)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
               <div className="app-form-field">
                 <Label className="app-form-label text-muted-foreground">Plant</Label>
                 <select
@@ -613,35 +1062,57 @@ export function AssetsListPage() {
                   ))}
                 </select>
               </div>
-              <div className="app-form-field">
-                <Label className="app-form-label text-muted-foreground">Lifecycle</Label>
-                <select
-                  className={adminSelectClass}
-                  value={draftFilters.lifecycle_status}
-                  onChange={(e) => setDraftFilters((f) => ({ ...f, lifecycle_status: e.target.value }))}
-                >
-                  <option value="">All</option>
-                  <option value="active">Active</option>
-                  <option value="pending_approval">Pending approval</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="draft">Draft</option>
-                </select>
-              </div>
-              <div className="app-form-field">
-                <Label className="app-form-label text-muted-foreground">Approval</Label>
-                <select
-                  className={adminSelectClass}
-                  value={draftFilters.approval_status}
-                  onChange={(e) => setDraftFilters((f) => ({ ...f, approval_status: e.target.value }))}
-                >
-                  <option value="">All</option>
-                  <option value="draft">Draft (not submitted)</option>
-                  <option value="pending">Pending approval</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="not_required">Not required</option>
-                </select>
-              </div>
+              {!isFyTab ? (
+                <>
+                  <div className="app-form-field">
+                    <Label className="app-form-label text-muted-foreground">Lifecycle</Label>
+                    <select
+                      className={adminSelectClass}
+                      value={draftFilters.lifecycle_status}
+                      onChange={(e) =>
+                        setDraftFilters((f) => ({ ...f, lifecycle_status: e.target.value }))
+                      }
+                    >
+                      <option value="">All</option>
+                      <option value="active">Active</option>
+                      <option value="pending_approval">Pending approval</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="draft">Draft</option>
+                    </select>
+                  </div>
+                  <div className="app-form-field">
+                    <Label className="app-form-label text-muted-foreground">Approval</Label>
+                    <select
+                      className={adminSelectClass}
+                      value={draftFilters.approval_status}
+                      onChange={(e) =>
+                        setDraftFilters((f) => ({ ...f, approval_status: e.target.value }))
+                      }
+                    >
+                      <option value="">All</option>
+                      <option value="draft">Draft (not submitted)</option>
+                      <option value="pending">Pending approval</option>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                      <option value="not_required">Not required</option>
+                    </select>
+                  </div>
+                  <div className="app-form-field">
+                    <Label className="app-form-label text-muted-foreground">RFID tag</Label>
+                    <select
+                      className={adminSelectClass}
+                      value={draftFilters.rfid_status}
+                      onChange={(e) =>
+                        setDraftFilters((f) => ({ ...f, rfid_status: e.target.value }))
+                      }
+                    >
+                      <option value="">All</option>
+                      <option value="tagged">RFID tagged</option>
+                      <option value="not_tagged">Not RFID tagged</option>
+                    </select>
+                  </div>
+                </>
+              ) : null}
               <div className="app-form-field">
                 <Label className="app-form-label text-muted-foreground">Sort by</Label>
                 <select
@@ -649,9 +1120,11 @@ export function AssetsListPage() {
                   value={draftFilters.sort_by}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, sort_by: e.target.value }))}
                 >
+                  {isFyTab ? <option value="last_verification_date">Last verification</option> : null}
                   <option value="created_at">Created date</option>
                   <option value="asset_name">Asset name</option>
                   <option value="asset_code">Asset code</option>
+                  {!isFyTab ? <option value="last_verification_date">Last verification</option> : null}
                 </select>
               </div>
               <div className="app-form-field">
@@ -691,11 +1164,21 @@ export function AssetsListPage() {
         {activeFilterCount > 0 && !filtersOpen ? (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Active:</span>
+            {isFyTab &&
+            filters.fy_start_year &&
+            currentFyStartYear &&
+            Number(filters.fy_start_year) !== currentFyStartYear ? (
+              <FilterChip
+                label={`FY: ${fyYearOptions.find((o) => String(o.start_year) === filters.fy_start_year)?.label ?? filters.fy_start_year}`}
+                onRemove={() => applyFyYear(String(currentFyStartYear))}
+              />
+            ) : null}
             {filters.plant_id ? (
               <FilterChip
                 label={`Plant: ${masters.plants.find((p) => String(p.id) === filters.plant_id)?.code ?? filters.plant_id}`}
                 onRemove={() => {
                   setFilters((f) => ({ ...f, plant_id: "" }))
+                  setDraftFilters((f) => ({ ...f, plant_id: "" }))
                   setPage(1)
                 }}
               />
@@ -705,11 +1188,12 @@ export function AssetsListPage() {
                 label={`Category: ${masters.categories.find((c) => String(c.id) === filters.category_id)?.code ?? filters.category_id}`}
                 onRemove={() => {
                   setFilters((f) => ({ ...f, category_id: "" }))
+                  setDraftFilters((f) => ({ ...f, category_id: "" }))
                   setPage(1)
                 }}
               />
             ) : null}
-            {filters.lifecycle_status ? (
+            {!isFyTab && filters.lifecycle_status ? (
               <FilterChip
                 label={`Lifecycle: ${filters.lifecycle_status.replace(/_/g, " ")}`}
                 onRemove={() => {
@@ -718,13 +1202,19 @@ export function AssetsListPage() {
                 }}
               />
             ) : null}
-            {filters.approval_status ? (
+            {!isFyTab && filters.approval_status ? (
               <FilterChip
                 label={`Approval: ${filters.approval_status.replace(/_/g, " ")}`}
                 onRemove={() => {
                   setFilters((f) => ({ ...f, approval_status: "" }))
                   setPage(1)
                 }}
+              />
+            ) : null}
+            {!isFyTab && filters.rfid_status ? (
+              <FilterChip
+                label={`RFID: ${filters.rfid_status === "tagged" ? "tagged" : "not tagged"}`}
+                onRemove={() => applyRfidFilter("")}
               />
             ) : null}
             <Button type="button" variant="link" className="h-auto px-1 text-xs" onClick={clearFilters}>
@@ -769,14 +1259,24 @@ export function AssetsListPage() {
                 <AdminTableHeadCell className="text-right">Inv.</AdminTableHeadCell>
                 <AdminTableHeadCell className="text-right">Phys.</AdminTableHeadCell>
                 <AdminTableHeadCell>Verified</AdminTableHeadCell>
+                {isFyTab ? (
+                  <>
+                    <AdminTableHeadCell className="text-right">Scans</AdminTableHeadCell>
+                    <AdminTableHeadCell>FY status</AdminTableHeadCell>
+                  </>
+                ) : null}
               </AdminTableHeaderRow>
             </TableHeader>
             <TableBody>
               {loading && items.length === 0 ? (
-                <AdminTableEmptyRow colSpan={13}>Loading assets…</AdminTableEmptyRow>
+                <AdminTableEmptyRow colSpan={tableColSpan}>Loading assets…</AdminTableEmptyRow>
               ) : items.length === 0 ? (
-                <AdminTableEmptyRow colSpan={13}>
-                  No assets match your search or filters.
+                <AdminTableEmptyRow colSpan={tableColSpan}>
+                  {isFyTab
+                    ? fySubTab === "verified"
+                      ? "No physically verified assets for the current financial year."
+                      : "No RFID-tagged assets pending financial year verification."
+                    : "No assets match your search or filters."}
                 </AdminTableEmptyRow>
               ) : (
                 items.map((row) => (
@@ -858,6 +1358,18 @@ export function AssetsListPage() {
                         ? new Date(row.last_verification_date).toLocaleDateString()
                         : "—"}
                     </AdminTableCell>
+                    {isFyTab ? (
+                      <>
+                        <AdminTableCell className="px-3 py-2 text-right tabular-nums font-medium">
+                          {row.fy_verification_count ?? 0}
+                        </AdminTableCell>
+                        <AdminTableCell>
+                          <AdminPillBadge tone={row.fy_verified ? "success" : "warning"}>
+                            {row.fy_verified ? "Tagged" : "Pending"}
+                          </AdminPillBadge>
+                        </AdminTableCell>
+                      </>
+                    ) : null}
                   </AdminTableBodyRow>
                 ))
               )}

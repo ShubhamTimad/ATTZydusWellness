@@ -28,8 +28,8 @@ REPORT_DEFINITIONS: tuple[ReportDefinition, ...] = (
     ),
     ReportDefinition(
         key="financial_year_verification",
-        title="Financial year verification",
-        description="RFID-tagged assets with current financial year verification status.",
+        title="Financial year physical verification",
+        description="RFID-tagged assets with verification status and scan counts for the financial year.",
         filters=(
             ReportFilterDef("plant_id", "Plant", "plant"),
             ReportFilterDef("fy_status", "FY status", "fy_status"),

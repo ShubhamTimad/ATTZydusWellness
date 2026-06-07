@@ -82,6 +82,57 @@ def financial_year_period_for(
     return FinancialYearPeriod(start=fy_start, end=fy_end, label=label)
 
 
+def financial_year_period_for_start_year(
+    start_year: int,
+    *,
+    config: FinancialYearConfig | None = None,
+) -> FinancialYearPeriod:
+    """Return the financial year that begins in ``start_year`` (calendar year of FY start date)."""
+    cfg = config or get_financial_year_config()
+    fy_start = _safe_date(start_year, cfg.start_month, cfg.start_day)
+    next_start = _safe_date(start_year + 1, cfg.start_month, cfg.start_day)
+    fy_end = next_start - timedelta(days=1)
+    label = f"FY {start_year}–{str(start_year + 1)[-2:]}"
+    return FinancialYearPeriod(start=fy_start, end=fy_end, label=label)
+
+
+def list_financial_year_periods(
+    *,
+    years_back: int = 10,
+    years_forward: int = 0,
+    config: FinancialYearConfig | None = None,
+) -> list[FinancialYearPeriod]:
+    """Recent financial years, newest first."""
+    cfg = config or get_financial_year_config()
+    current = financial_year_period_for(config=cfg)
+    anchor_year = current.start.year
+    periods: list[FinancialYearPeriod] = []
+    for offset in range(-years_forward, years_back + 1):
+        sy = anchor_year - offset
+        periods.append(financial_year_period_for_start_year(sy, config=cfg))
+    return periods
+
+
+def resolve_financial_year_period(
+    fy_start_year: int | None = None,
+    *,
+    config: FinancialYearConfig | None = None,
+) -> FinancialYearPeriod:
+    """Resolve a FY period; ``None`` selects the running financial year."""
+    if fy_start_year is None:
+        return financial_year_period_for(config=config)
+    return financial_year_period_for_start_year(fy_start_year, config=config)
+
+
+def is_verified_in_period(
+    last_verification_date: date | None,
+    period: FinancialYearPeriod,
+) -> bool:
+    if last_verification_date is None:
+        return False
+    return period.start <= last_verification_date <= period.end
+
+
 def is_verified_in_financial_year(
     last_verification_date: date | None,
     *,
@@ -91,4 +142,4 @@ def is_verified_in_financial_year(
     if last_verification_date is None:
         return False
     period = financial_year_period_for(on_day, config=config)
-    return period.start <= last_verification_date <= period.end
+    return is_verified_in_period(last_verification_date, period)

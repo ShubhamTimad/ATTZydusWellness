@@ -22,6 +22,8 @@ export type AssetListItem = {
   inventory_count: number | null
   physical_count: number | null
   last_verification_date: string | null
+  fy_verified?: boolean | null
+  fy_verification_count?: number | null
   lifecycle_status: string
   approval_status: string
   source_type: string
@@ -52,6 +54,32 @@ export type AssetListResponse = {
   total: number
   page: number
   page_size: number
+  financial_year_label?: string | null
+  financial_year_start?: string | null
+  financial_year_end?: string | null
+  financial_year_start_year?: number | null
+  financial_year_is_current?: boolean | null
+  scan_window_start?: string | null
+  scan_window_end?: string | null
+  total_fy_verification_events?: number | null
+  verified_assets_total?: number | null
+  pending_assets_total?: number | null
+  total_rfid_assets?: number | null
+  rfid_tagged_total?: number | null
+  rfid_not_tagged_total?: number | null
+}
+
+export type FinancialYearOption = {
+  label: string
+  start: string
+  end: string
+  start_year: number
+  is_current: boolean
+}
+
+export type FinancialYearListResponse = {
+  items: FinancialYearOption[]
+  current_start_year: number
 }
 
 export type AssetSectionPayloads = {
@@ -123,6 +151,8 @@ export type AssetDetail = {
   location?: AssetSectionPayloads | null
   financial?: AssetSectionPayloads | null
   inventory?: AssetSectionPayloads | null
+  financial_year_label?: string | null
+  fy_verification_count?: number | null
 }
 
 export type AssetAuditChangeLine = {
@@ -146,11 +176,14 @@ export type AssetsDashboardModule = {
   total_assets: number
   active_assets: number
   rfid_tagged: number
+  rfid_not_tagged: number
+  rfid_coverage_pct: number
   pending_approvals: number
   inventory_mismatch: number
   recently_added: number
   by_category: { category: string; count: number }[]
   by_plant: { plant: string; count: number }[]
+  rfid_by_plant: { plant: string; tagged: number; not_tagged: number }[]
 }
 
 export type FinancialYearDashboardModule = {
@@ -160,6 +193,7 @@ export type FinancialYearDashboardModule = {
   total_rfid_assets: number
   verified_in_fy: number
   pending_fy_verification: number
+  total_fy_verification_events: number
   coverage_pct: number
   by_plant: { plant: string; verified: number; pending: number }[]
 }

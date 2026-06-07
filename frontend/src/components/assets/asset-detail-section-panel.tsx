@@ -174,6 +174,10 @@ export function AssetDetailSectionPanel({
       const d = asset.inventory?.last_verification_date
       return d ? formatDate(d) : "—"
     }
+    if (k === "fy_verification_count") {
+      const count = asset.fy_verification_count ?? 0
+      return asset.financial_year_label ? `${count} (${asset.financial_year_label})` : String(count)
+    }
     const raw = fieldValue(k)
     if (raw === null || raw === undefined || raw === "") return "—"
     if (dateFields.includes(k)) return formatDate(String(raw))

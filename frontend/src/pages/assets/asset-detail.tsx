@@ -427,6 +427,10 @@ export function AssetDetailPage() {
       const d = a.inventory?.last_verification_date
       return d ? formatDate(d) : "—"
     }
+    if (key === "fy_verification_count") {
+      const count = a.fy_verification_count ?? 0
+      return a.financial_year_label ? `${count} (${a.financial_year_label})` : String(count)
+    }
     return "—"
   }
 

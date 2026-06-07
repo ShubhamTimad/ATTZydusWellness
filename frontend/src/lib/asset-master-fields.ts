@@ -117,6 +117,7 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   floor: "Floor",
   physical_count: "Physical count",
   last_verification_date: "Last verification date",
+  fy_verification_count: "Verifications this FY",
 }
 
 export type AssetViewSectionId = "information" | "location" | "financial" | "inventory"
@@ -189,8 +190,8 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
   {
     id: "inventory",
     title: "Inventory & verification",
-    keys: ["inventory_count", "physical_count", "last_verification_date"],
-    readOnlyKeys: ["inventory_count", "physical_count", "last_verification_date"],
+    keys: ["inventory_count", "physical_count", "last_verification_date", "fy_verification_count"],
+    readOnlyKeys: ["inventory_count", "physical_count", "last_verification_date", "fy_verification_count"],
   },
 ]
 

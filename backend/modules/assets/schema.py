@@ -155,6 +155,8 @@ class AssetListItem(BaseModel):
     inventory_count: int | None = None
     physical_count: int | None = None
     last_verification_date: date | None = None
+    fy_verified: bool | None = None
+    fy_verification_count: int | None = None
     lifecycle_status: str
     approval_status: str
     source_type: str
@@ -166,6 +168,32 @@ class AssetListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    financial_year_label: str | None = None
+    financial_year_start: date | None = None
+    financial_year_end: date | None = None
+    financial_year_start_year: int | None = None
+    financial_year_is_current: bool | None = None
+    scan_window_start: date | None = None
+    scan_window_end: date | None = None
+    total_fy_verification_events: int | None = None
+    verified_assets_total: int | None = None
+    pending_assets_total: int | None = None
+    total_rfid_assets: int | None = None
+    rfid_tagged_total: int | None = None
+    rfid_not_tagged_total: int | None = None
+
+
+class FinancialYearOptionPublic(BaseModel):
+    label: str
+    start: date
+    end: date
+    start_year: int
+    is_current: bool
+
+
+class FinancialYearListResponse(BaseModel):
+    items: list[FinancialYearOptionPublic]
+    current_start_year: int
 
 
 class AssetDetailPublic(BaseModel):
@@ -198,6 +226,8 @@ class AssetDetailPublic(BaseModel):
     financial: AssetFinancialPayload | None = None
     inventory: AssetInventoryPayload | None = None
     plant_name: str | None = None
+    financial_year_label: str | None = None
+    fy_verification_count: int | None = None
 
 
 class AssetAuditChangeLine(BaseModel):

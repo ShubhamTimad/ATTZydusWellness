@@ -1110,7 +1110,7 @@ def main() -> int:
         print("\nDone.")
         print("Active user-creation workflow is mapped to users.create (new users need approval).")
         print("Physical order workflows mapped to order.create and order.complete.")
-        print("Run scripts/seed_physical_order_states.py for demo orders in every lifecycle state.")
+        print("Run scripts/seed_fy_verification_demo.py for FY tagging scan-count demo data.")
         print("USER_CREATED email uses one temporary password ({{temp_password}}).")
         return 0
     finally:

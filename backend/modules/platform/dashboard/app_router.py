@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
@@ -18,6 +18,10 @@ from modules.assets.model import (
 )
 from modules.orders.model import PhysicalOrder
 from modules.platform.org_units.model import OrgUnit
+from modules.assets.fy_verification import (
+    count_total_verification_events,
+    resolve_verification_window,
+)
 from modules.platform.settings.financial_year import financial_year_period_for
 
 
@@ -39,6 +43,14 @@ def _rfid_asset_filters():
     )
 
 
+def _has_rfid_condition():
+    return and_(AssetMaster.rfid_code.isnot(None), AssetMaster.rfid_code != "")
+
+
+def _no_rfid_condition():
+    return or_(AssetMaster.rfid_code.is_(None), AssetMaster.rfid_code == "")
+
+
 @router.get("/summary")
 def get_dashboard_summary(
     current: Annotated[CurrentUser, Depends(get_current_user)],
@@ -58,6 +70,8 @@ def get_dashboard_summary(
     rfid_tagged = int(
         db.scalar(select(func.count()).select_from(AssetMaster).where(*_rfid_asset_filters())) or 0
     )
+    rfid_not_tagged = max(active_assets - rfid_tagged, 0)
+    rfid_coverage_pct = round((rfid_tagged / active_assets) * 100, 1) if active_assets else 0.0
     pending_approvals = int(
         db.scalar(
             select(func.count())
@@ -113,6 +127,20 @@ def get_dashboard_summary(
         .order_by(func.count().desc())
     ).all()
 
+    rfid_by_plant_rows = db.execute(
+        select(
+            OrgUnit.name,
+            func.sum(case((_has_rfid_condition(), 1), else_=0)).label("tagged"),
+            func.sum(case((_no_rfid_condition(), 1), else_=0)).label("not_tagged"),
+        )
+        .select_from(AssetMaster)
+        .join(AssetLocationInformation, AssetLocationInformation.asset_id == AssetMaster.id, isouter=True)
+        .join(OrgUnit, OrgUnit.id == AssetLocationInformation.plant_id, isouter=True)
+        .where(*_active_asset_filters())
+        .group_by(OrgUnit.name)
+        .order_by(func.sum(case((_has_rfid_condition(), 1), else_=0)).desc())
+    ).all()
+
     period = financial_year_period_for()
     verified_in_fy_cond = and_(
         AssetInventoryInformation.last_verification_date.isnot(None),
@@ -130,6 +158,9 @@ def get_dashboard_summary(
     )
     pending_fy_verification = max(rfid_tagged - verified_in_fy, 0)
     coverage_pct = round((verified_in_fy / rfid_tagged) * 100, 1) if rfid_tagged else 0.0
+    total_fy_verification_events = count_total_verification_events(
+        db, resolve_verification_window(period)
+    )
 
     fy_by_plant_rows = db.execute(
         select(
@@ -182,11 +213,21 @@ def get_dashboard_summary(
                 "total_assets": total_assets,
                 "active_assets": active_assets,
                 "rfid_tagged": rfid_tagged,
+                "rfid_not_tagged": rfid_not_tagged,
+                "rfid_coverage_pct": rfid_coverage_pct,
                 "pending_approvals": pending_approvals,
                 "inventory_mismatch": mismatch,
                 "recently_added": recent,
                 "by_category": [{"category": str(n or "Uncategorized"), "count": int(c)} for n, c in by_cat_rows],
                 "by_plant": [{"plant": str(n or "Unassigned"), "count": int(c)} for n, c in by_plant_rows],
+                "rfid_by_plant": [
+                    {
+                        "plant": str(name or "Unassigned"),
+                        "tagged": int(tagged or 0),
+                        "not_tagged": int(not_tagged or 0),
+                    }
+                    for name, tagged, not_tagged in rfid_by_plant_rows
+                ],
             },
             "financial_year": {
                 "label": period.label,
@@ -195,6 +236,7 @@ def get_dashboard_summary(
                 "total_rfid_assets": rfid_tagged,
                 "verified_in_fy": verified_in_fy,
                 "pending_fy_verification": pending_fy_verification,
+                "total_fy_verification_events": total_fy_verification_events,
                 "coverage_pct": coverage_pct,
                 "by_plant": [
                     {

@@ -65,12 +65,20 @@ export function KpiGrid({ children, className }: { children: React.ReactNode; cl
   return <div className={cn("app-grid app-grid-kpi", className)}>{children}</div>
 }
 
-export function CoverageBar({ value, className }: { value: number; className?: string }) {
+export function CoverageBar({
+  value,
+  label = "FY verification progress",
+  className,
+}: {
+  value: number
+  label?: string
+  className?: string
+}) {
   const pct = Math.max(0, Math.min(100, value))
   return (
     <div className={cn("space-y-2", className)}>
       <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>FY verification progress</span>
+        <span>{label}</span>
         <span className="font-medium tabular-nums text-foreground">{pct}%</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-muted">
