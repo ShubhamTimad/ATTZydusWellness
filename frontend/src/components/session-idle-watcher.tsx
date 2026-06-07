@@ -30,11 +30,15 @@ export function SessionIdleWatcher({ loginPath, children }: SessionIdleWatcherPr
   const navigate = useNavigate()
   const [enabled, setEnabled] = React.useState(hasToken)
 
-  const handleIdleLogout = React.useCallback(() => {
+  const handleIdleLogout = React.useCallback((reason?: "session_idle" | "unauthorized") => {
     if (!hasToken()) return
     clearTokens()
     setEnabled(false)
-    toast.info("Signed out due to inactivity.")
+    toast.info(
+      reason === "session_idle"
+        ? "Signed out due to inactivity."
+        : "Your session has expired. Please sign in again.",
+    )
     navigate(loginPath, { replace: true })
   }, [loginPath, navigate])
 

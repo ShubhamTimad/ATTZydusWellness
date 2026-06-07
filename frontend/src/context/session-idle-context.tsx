@@ -1,7 +1,7 @@
 import * as React from "react"
 
 import { getJson } from "@/lib/api"
-import { SESSION_IDLE_LOGOUT_EVENT } from "@/lib/session-idle-events"
+import { SESSION_IDLE_LOGOUT_EVENT, type AuthLogoutReason } from "@/lib/session-idle-events"
 
 type SessionPolicy = {
   idle_timeout_minutes: number
@@ -34,7 +34,7 @@ export function formatIdleCountdown(totalSeconds: number): string {
 
 type SessionIdleProviderProps = {
   enabled: boolean
-  onIdleLogout: () => void
+  onIdleLogout: (reason?: AuthLogoutReason) => void
   children: React.ReactNode
 }
 
@@ -110,7 +110,7 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
       const hiddenAt = hiddenAtRef.current
       hiddenAtRef.current = null
       if (hiddenAt !== null && now - hiddenAt >= timeout) {
-        onLogoutRef.current()
+        onLogoutRef.current("session_idle")
         return
       }
       lastActiveRef.current = now
@@ -126,7 +126,7 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
         if (hiddenAtRef.current === null) hiddenAtRef.current = hiddenAt
         const remainingMs = timeout - (now - hiddenAt)
         if (remainingMs <= 0) {
-          onLogoutRef.current()
+          onLogoutRef.current("session_idle")
           return
         }
         setRemainingSeconds(Math.ceil(remainingMs / 1000))
@@ -134,7 +134,7 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
       }
       const remainingMs = timeout - (now - lastActiveRef.current)
       if (remainingMs <= 0) {
-        onLogoutRef.current()
+        onLogoutRef.current("session_idle")
         return
       }
       setRemainingSeconds(Math.ceil(remainingMs / 1000))
@@ -150,7 +150,10 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
     document.addEventListener("visibilitychange", onVisibility)
     const intervalId = window.setInterval(tick, 1000)
 
-    const onApiIdle = () => onLogoutRef.current()
+    const onApiIdle = (event: Event) => {
+      const reason = (event as CustomEvent<{ reason?: AuthLogoutReason }>).detail?.reason
+      onLogoutRef.current(reason)
+    }
     window.addEventListener(SESSION_IDLE_LOGOUT_EVENT, onApiIdle)
 
     return () => {

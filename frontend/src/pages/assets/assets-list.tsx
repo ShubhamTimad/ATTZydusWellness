@@ -94,6 +94,8 @@ const DEFAULT_FY_FILTERS: AssetListFilters = {
   sort_dir: "desc",
 }
 
+const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
+
 function formatMasterLabel(code: string | null | undefined, description: string | null | undefined): string {
   const c = code?.trim()
   if (!c) return "—"
@@ -318,16 +320,18 @@ export function AssetsListPage() {
   }
 
   function applyScanDate(field: "fy_scan_from" | "fy_scan_to", value: string) {
-    setFilters((f) => ({ ...f, [field]: value }))
     setDraftFilters((f) => ({ ...f, [field]: value }))
-    setPage(1)
   }
 
-  function applyRfidFilter(status: "" | "tagged" | "not_tagged") {
-    setFilters((f) => ({ ...f, rfid_status: status }))
-    setDraftFilters((f) => ({ ...f, rfid_status: status }))
-    setPage(1)
-    setSelected(new Set())
+  function onDraftFyYearChange(value: string) {
+    const option = fyYearOptions.find((o) => String(o.start_year) === value)
+    const { from, to } = scanRangeForOption(option)
+    setDraftFilters((f) => ({
+      ...f,
+      fy_start_year: value === String(currentFyStartYear) ? "" : value,
+      fy_scan_from: from,
+      fy_scan_to: to,
+    }))
   }
 
   async function exportFyReport(format: "xlsx" | "pdf") {
@@ -335,7 +339,6 @@ export function AssetsListPage() {
     try {
       const q = buildQueryParams(1, search, filters, "fy", fySubTab, effectiveScanFrom, effectiveScanTo)
       q.set("format", format)
-      q.set("fy_verification", "all")
       await downloadFile(
         `/admin/assets/fy-verification/export?${q.toString()}`,
         `fy-physical-verification.${format === "xlsx" ? "xlsx" : "pdf"}`,
@@ -646,7 +649,7 @@ export function AssetsListPage() {
   const actionButtons = (
     <>
       {canImport ? (
-        <Button variant="outline" size="sm" className="shrink-0" asChild>
+        <Button variant="outline" size="sm" className={listToolbarBtnClass} asChild>
           <Link to="/dashboard/assets/import">
             <Upload className="size-4" aria-hidden />
             Import
@@ -654,7 +657,7 @@ export function AssetsListPage() {
         </Button>
       ) : null}
       {canCreate ? (
-        <AdminPrimaryButton type="button" className="shrink-0" asChild>
+        <AdminPrimaryButton type="button" className={cn(listToolbarBtnClass, "px-4")} asChild>
           <Link to="/dashboard/assets/new">
             <Plus className="size-4" aria-hidden />
             Create asset
@@ -665,246 +668,75 @@ export function AssetsListPage() {
   )
 
   return (
-    <AdminPage fullWidth dense className="flex min-h-0 flex-1 flex-col">
-      <ListPageHeader
-        className="shrink-0"
-        title="Assets"
-        description={
-          isFyTab
-            ? "Filter RFID scans by financial year and date range. View verified asset totals and export reports."
-            : "Search, filter, and manage assets. Filter by RFID tag status or use the quick filters below."
-        }
-        actions={actionButtons}
-      />
+    <AdminPage fullWidth dense viewportFill className="gap-[var(--app-grid-gap)]">
+      <div className="flex min-h-0 flex-1 flex-col gap-[var(--app-grid-gap)]">
+        <div className="shrink-0 space-y-[var(--app-grid-gap)]">
+          <ListPageHeader
+            className="shrink-0"
+            title="Assets"
+            description={
+              isFyTab
+                ? "Filter RFID scans by financial year and date range. View verified asset totals and export reports."
+                : "Search, filter, and manage assets across plants. Select rows for bulk actions."
+            }
+            actions={actionButtons}
+          />
 
-      <WorkspaceTabs
-        value={listTab}
-        onValueChange={(value) => {
-          const nextTab = value as AssetListTab
-          setListTab(nextTab)
-          if (nextTab === "fy") {
-            setFilters((f) => ({ ...DEFAULT_FY_FILTERS, plant_id: f.plant_id, category_id: f.category_id }))
-            setDraftFilters((f) => ({ ...DEFAULT_FY_FILTERS, plant_id: f.plant_id, category_id: f.category_id }))
-          } else {
-            setFilters((f) => ({ ...DEFAULT_FILTERS, plant_id: f.plant_id, category_id: f.category_id, rfid_status: f.rfid_status }))
-            setDraftFilters((f) => ({ ...DEFAULT_FILTERS, plant_id: f.plant_id, category_id: f.category_id, rfid_status: f.rfid_status }))
-          }
-          setPage(1)
-          setSelected(new Set())
-        }}
-        className="shrink-0"
-      >
-        <WorkspaceTabsList>
-          <WorkspaceTabsTrigger value="all">All assets</WorkspaceTabsTrigger>
-          <WorkspaceTabsTrigger value="fy">Financial year physical verification</WorkspaceTabsTrigger>
-        </WorkspaceTabsList>
-      </WorkspaceTabs>
+          <WorkspaceTabs
+            value={listTab}
+            onValueChange={(value) => {
+              const nextTab = value as AssetListTab
+              setListTab(nextTab)
+              if (nextTab === "fy") {
+                setFilters((f) => ({ ...DEFAULT_FY_FILTERS, plant_id: f.plant_id, category_id: f.category_id }))
+                setDraftFilters((f) => ({ ...DEFAULT_FY_FILTERS, plant_id: f.plant_id, category_id: f.category_id }))
+              } else {
+                setFilters((f) => ({ ...DEFAULT_FILTERS, plant_id: f.plant_id, category_id: f.category_id, rfid_status: f.rfid_status }))
+                setDraftFilters((f) => ({ ...DEFAULT_FILTERS, plant_id: f.plant_id, category_id: f.category_id, rfid_status: f.rfid_status }))
+              }
+              setPage(1)
+              setSelected(new Set())
+            }}
+            className="shrink-0"
+          >
+            <WorkspaceTabsList>
+              <WorkspaceTabsTrigger value="all">All assets</WorkspaceTabsTrigger>
+              <WorkspaceTabsTrigger value="fy">Financial year physical verification</WorkspaceTabsTrigger>
+            </WorkspaceTabsList>
+          </WorkspaceTabs>
 
-      {!isFyTab &&
-      (data?.rfid_tagged_total != null || data?.rfid_not_tagged_total != null) ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/15 px-4 py-3">
-          <p className="text-sm font-medium text-foreground">RFID tagging</p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant={filters.rfid_status === "" ? "default" : "outline"}
-              size="sm"
-              className="h-8"
-              onClick={() => applyRfidFilter("")}
-            >
-              All assets
-              <span className="ml-1.5 tabular-nums text-muted-foreground">
-                {(data.rfid_tagged_total ?? 0) + (data.rfid_not_tagged_total ?? 0)}
-              </span>
-            </Button>
-            <Button
-              type="button"
-              variant={filters.rfid_status === "tagged" ? "default" : "outline"}
-              size="sm"
-              className="h-8"
-              onClick={() => applyRfidFilter("tagged")}
-            >
-              RFID tagged
-              <span className="ml-1.5 tabular-nums text-muted-foreground">
-                {data.rfid_tagged_total ?? 0}
-              </span>
-            </Button>
-            <Button
-              type="button"
-              variant={filters.rfid_status === "not_tagged" ? "default" : "outline"}
-              size="sm"
-              className="h-8"
-              onClick={() => applyRfidFilter("not_tagged")}
-            >
-              Not tagged
-              <span className="ml-1.5 tabular-nums text-muted-foreground">
-                {data.rfid_not_tagged_total ?? 0}
-              </span>
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {isFyTab ? (
-        <div className="flex shrink-0 flex-col gap-[var(--app-grid-gap)]">
-          <div className="app-panel rounded-[var(--app-radius-surface)] bg-muted/15 p-[var(--app-card-padding)] shadow-none">
-            <div className="app-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-              <div className="app-form-field">
-                <Label className="app-form-label text-muted-foreground">Financial year</Label>
-                <select
-                  className={adminSelectClass}
-                  value={selectedFyStartYear}
-                  onChange={(e) => applyFyYear(e.target.value)}
-                  disabled={fyYearOptions.length === 0}
-                >
-                  {fyYearOptions.map((option) => (
-                    <option key={option.start_year} value={String(option.start_year)}>
-                      {option.label}
-                      {option.is_current ? " (running)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="app-form-field">
-                <Label className="app-form-label text-muted-foreground">Scan from</Label>
-                <Input
-                  type="date"
-                  value={effectiveScanFrom}
-                  min={defaultScanFrom}
-                  max={effectiveScanTo || defaultScanTo}
-                  onChange={(e) => applyScanDate("fy_scan_from", e.target.value)}
-                />
-              </div>
-              <div className="app-form-field">
-                <Label className="app-form-label text-muted-foreground">Scan to</Label>
-                <Input
-                  type="date"
-                  value={effectiveScanTo}
-                  min={effectiveScanFrom || defaultScanFrom}
-                  max={defaultScanTo}
-                  onChange={(e) => applyScanDate("fy_scan_to", e.target.value)}
-                />
-              </div>
-              <div className="app-form-field">
-                <Label className="app-form-label text-muted-foreground">Plant</Label>
-                <select
-                  className={adminSelectClass}
-                  value={filters.plant_id}
-                  onChange={(e) => {
-                    const plant_id = e.target.value
-                    setFilters((f) => ({ ...f, plant_id }))
-                    setDraftFilters((f) => ({ ...f, plant_id }))
-                    setPage(1)
-                  }}
-                >
-                  <option value="">All plants</option>
-                  {masters.plants.map((p) => (
-                    <option key={p.id} value={String(p.id)}>
-                      {plantLabel(p)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="app-form-field">
-                <Label className="app-form-label text-muted-foreground">Category</Label>
-                <select
-                  className={adminSelectClass}
-                  value={filters.category_id}
-                  onChange={(e) => {
-                    const category_id = e.target.value
-                    setFilters((f) => ({ ...f, category_id }))
-                    setDraftFilters((f) => ({ ...f, category_id }))
-                    setPage(1)
-                  }}
-                >
-                  <option value="">All categories</option>
-                  {masters.categories.map((c) => (
-                    <option key={c.id} value={String(c.id)}>
-                      {categoryLabel(c)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="app-form-field">
-                <Label className="app-form-label text-muted-foreground">Sort by</Label>
-                <select
-                  className={adminSelectClass}
-                  value={filters.sort_by}
-                  onChange={(e) => {
-                    const sort_by = e.target.value
-                    setFilters((f) => ({ ...f, sort_by }))
-                    setDraftFilters((f) => ({ ...f, sort_by }))
-                    setPage(1)
-                  }}
-                >
-                  <option value="last_verification_date">Last verification</option>
-                  <option value="asset_name">Asset name</option>
-                  <option value="asset_code">Asset code</option>
-                  <option value="created_at">Created date</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {data?.financial_year_label ? (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm font-medium text-foreground">Summary &amp; export</p>
-                <div className="grid grid-cols-2 gap-2 sm:w-auto">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={fyExportBusy !== null}
-                    className="h-9 bg-background"
-                    onClick={() => void exportFyReport("xlsx")}
-                  >
-                    <FileSpreadsheet className="size-4" aria-hidden />
-                    {fyExportBusy === "xlsx" ? "Exporting…" : "Excel"}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={fyExportBusy !== null}
-                    className="h-9"
-                    onClick={() => void exportFyReport("pdf")}
-                  >
-                    <FileText className="size-4" aria-hidden />
-                    {fyExportBusy === "pdf" ? "Exporting…" : "PDF"}
-                  </Button>
-                </div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-4 py-3">
+          {isFyTab && data?.financial_year_label ? (
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-2.5">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Verified assets
                 </p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                <p className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
                   {data.verified_assets_total ?? 0}
                 </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   of {data.total_rfid_assets ?? 0} RFID-tagged
                 </p>
               </div>
-              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-4 py-3">
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-2.5">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Verification scans
                 </p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                <p className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
                   {data.total_fy_verification_events ?? 0}
                 </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">In selected date range</p>
+                <p className="text-[11px] text-muted-foreground">In selected date range</p>
               </div>
-              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-4 py-3">
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-2.5">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   Pending assets
                 </p>
-                <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                <p className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
                   {data.pending_assets_total ?? 0}
                 </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">No scan in range</p>
+                <p className="text-[11px] text-muted-foreground">No scan in range</p>
               </div>
-              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/20 px-3 py-2.5 text-sm">
                 <span className="font-medium text-foreground">{data.financial_year_label}</span>
                 {data.financial_year_is_current ? (
                   <AdminPillBadge tone="primary" className="ml-2 align-middle">
@@ -912,32 +744,33 @@ export function AssetsListPage() {
                   </AdminPillBadge>
                 ) : null}
                 {data.scan_window_start && data.scan_window_end ? (
-                  <p className="mt-1 text-xs">
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
                     Scans {new Date(data.scan_window_start).toLocaleDateString()} –{" "}
                     {new Date(data.scan_window_end).toLocaleDateString()}
                   </p>
                 ) : null}
               </div>
-              </div>
             </div>
           ) : null}
-          <WorkspaceTabs
-            value={fySubTab}
-            onValueChange={(value) => {
-              setFySubTab(value as AssetFySubTab)
-              setPage(1)
-              setSelected(new Set())
-            }}
-          >
-            <WorkspaceTabsList>
-              <WorkspaceTabsTrigger value="verified">Physically verified</WorkspaceTabsTrigger>
-              <WorkspaceTabsTrigger value="pending">Pending verification</WorkspaceTabsTrigger>
-            </WorkspaceTabsList>
-          </WorkspaceTabs>
-        </div>
-      ) : null}
 
-      <div className="flex shrink-0 flex-col gap-[var(--app-grid-gap)]">
+          {isFyTab ? (
+            <WorkspaceTabs
+              value={fySubTab}
+              onValueChange={(value) => {
+                setFySubTab(value as AssetFySubTab)
+                setPage(1)
+                setSelected(new Set())
+              }}
+            >
+              <WorkspaceTabsList>
+                <WorkspaceTabsTrigger value="verified">Physically verified</WorkspaceTabsTrigger>
+                <WorkspaceTabsTrigger value="pending">Pending verification</WorkspaceTabsTrigger>
+              </WorkspaceTabsList>
+            </WorkspaceTabs>
+          ) : null}
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-[var(--app-grid-gap)]">
         <div className="app-list-toolbar">
           <div className="relative min-w-[16rem] flex-1">
             <Search
@@ -968,14 +801,14 @@ export function AssetsListPage() {
             type="button"
             variant="outline"
             size="sm"
-            className={cn("shrink-0", filtersOpen && "border-primary/40 bg-primary/5")}
+            className={cn(listToolbarBtnClass, filtersOpen && "border-primary/40 bg-primary/5")}
             onClick={() => {
               setDraftFilters(filters)
               setFiltersOpen((o) => !o)
             }}
           >
             <SlidersHorizontal className="size-4" aria-hidden />
-            {isFyTab ? "More filters" : "Filters"}
+            Filters
             {activeFilterCount > 0 ? (
               <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
                 {activeFilterCount}
@@ -983,12 +816,39 @@ export function AssetsListPage() {
             ) : null}
           </Button>
 
+          {isFyTab ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={listToolbarBtnClass}
+                disabled={fyExportBusy !== null}
+                onClick={() => void exportFyReport("xlsx")}
+              >
+                <FileSpreadsheet className="size-4" aria-hidden />
+                {fyExportBusy === "xlsx" ? "Exporting…" : "Excel"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={listToolbarBtnClass}
+                disabled={fyExportBusy !== null}
+                onClick={() => void exportFyReport("pdf")}
+              >
+                <FileText className="size-4" aria-hidden />
+                {fyExportBusy === "pdf" ? "Exporting…" : "PDF"}
+              </Button>
+            </>
+          ) : null}
+
           {selected.size === 0 && showAttachRfid ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="shrink-0"
+              className={listToolbarBtnClass}
               onClick={openAttachRfidToolbarDialog}
             >
               <ScanLine className="size-4" aria-hidden />
@@ -1007,30 +867,47 @@ export function AssetsListPage() {
         </div>
 
         {filtersOpen ? (
-          <div className="app-panel rounded-[var(--app-radius-surface)] bg-muted/15 p-[var(--app-card-padding)] shadow-none">
-            <div className="app-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="app-panel max-h-[min(24rem,42vh)] shrink-0 overflow-y-auto rounded-[var(--app-radius-surface)] bg-muted/15 p-[var(--app-card-padding)] shadow-none">
+            <div className="app-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {isFyTab ? (
-                <div className="app-form-field">
-                  <Label className="app-form-label text-muted-foreground">Financial year</Label>
-                  <select
-                    className={adminSelectClass}
-                    value={draftFilters.fy_start_year || selectedFyStartYear}
-                    onChange={(e) =>
-                      setDraftFilters((f) => ({
-                        ...f,
-                        fy_start_year:
-                          e.target.value === String(currentFyStartYear) ? "" : e.target.value,
-                      }))
-                    }
-                  >
-                    {fyYearOptions.map((option) => (
-                      <option key={option.start_year} value={String(option.start_year)}>
-                        {option.label}
-                        {option.is_current ? " (running)" : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <>
+                  <div className="app-form-field">
+                    <Label className="app-form-label text-muted-foreground">Financial year</Label>
+                    <select
+                      className={adminSelectClass}
+                      value={draftFilters.fy_start_year || selectedFyStartYear}
+                      onChange={(e) => onDraftFyYearChange(e.target.value)}
+                      disabled={fyYearOptions.length === 0}
+                    >
+                      {fyYearOptions.map((option) => (
+                        <option key={option.start_year} value={String(option.start_year)}>
+                          {option.label}
+                          {option.is_current ? " (running)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="app-form-field">
+                    <Label className="app-form-label text-muted-foreground">Scan from</Label>
+                    <Input
+                      type="date"
+                      value={draftFilters.fy_scan_from || defaultScanFrom}
+                      min={defaultScanFrom}
+                      max={draftFilters.fy_scan_to || defaultScanTo}
+                      onChange={(e) => applyScanDate("fy_scan_from", e.target.value)}
+                    />
+                  </div>
+                  <div className="app-form-field">
+                    <Label className="app-form-label text-muted-foreground">Scan to</Label>
+                    <Input
+                      type="date"
+                      value={draftFilters.fy_scan_to || defaultScanTo}
+                      min={draftFilters.fy_scan_from || defaultScanFrom}
+                      max={defaultScanTo}
+                      onChange={(e) => applyScanDate("fy_scan_to", e.target.value)}
+                    />
+                  </div>
+                </>
               ) : null}
               <div className="app-form-field">
                 <Label className="app-form-label text-muted-foreground">Plant</Label>
@@ -1106,9 +983,20 @@ export function AssetsListPage() {
                         setDraftFilters((f) => ({ ...f, rfid_status: e.target.value }))
                       }
                     >
-                      <option value="">All</option>
-                      <option value="tagged">RFID tagged</option>
-                      <option value="not_tagged">Not RFID tagged</option>
+                      <option value="">
+                        All
+                        {data?.rfid_tagged_total != null && data?.rfid_not_tagged_total != null
+                          ? ` (${(data.rfid_tagged_total ?? 0) + (data.rfid_not_tagged_total ?? 0)})`
+                          : ""}
+                      </option>
+                      <option value="tagged">
+                        RFID tagged
+                        {data?.rfid_tagged_total != null ? ` (${data.rfid_tagged_total})` : ""}
+                      </option>
+                      <option value="not_tagged">
+                        Not RFID tagged
+                        {data?.rfid_not_tagged_total != null ? ` (${data.rfid_not_tagged_total})` : ""}
+                      </option>
                     </select>
                   </div>
                 </>
@@ -1140,13 +1028,14 @@ export function AssetsListPage() {
               </div>
             </div>
             <div className="mt-[var(--app-grid-gap)] flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-[var(--app-grid-gap)]">
-              <Button type="button" variant="ghost" size="sm" onClick={clearFilters}>
+              <Button type="button" variant="ghost" size="sm" className="h-9" onClick={clearFilters}>
                 Clear all
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
+                className="h-9"
                 onClick={() => {
                   setDraftFilters(filters)
                   setFiltersOpen(false)
@@ -1154,7 +1043,7 @@ export function AssetsListPage() {
               >
                 Cancel
               </Button>
-              <AdminPrimaryButton type="button" onClick={applyFilters}>
+              <AdminPrimaryButton type="button" className="h-9 px-4" onClick={applyFilters}>
                 Apply filters
               </AdminPrimaryButton>
             </div>
@@ -1162,7 +1051,7 @@ export function AssetsListPage() {
         ) : null}
 
         {activeFilterCount > 0 && !filtersOpen ? (
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Active:</span>
             {isFyTab &&
             filters.fy_start_year &&
@@ -1214,7 +1103,11 @@ export function AssetsListPage() {
             {!isFyTab && filters.rfid_status ? (
               <FilterChip
                 label={`RFID: ${filters.rfid_status === "tagged" ? "tagged" : "not tagged"}`}
-                onRemove={() => applyRfidFilter("")}
+                onRemove={() => {
+                  setFilters((f) => ({ ...f, rfid_status: "" }))
+                  setDraftFilters((f) => ({ ...f, rfid_status: "" }))
+                  setPage(1)
+                }}
               />
             ) : null}
             <Button type="button" variant="link" className="h-auto px-1 text-xs" onClick={clearFilters}>
@@ -1222,7 +1115,6 @@ export function AssetsListPage() {
             </Button>
           </div>
         ) : null}
-      </div>
 
       <AdminDataTable
         className="min-h-0 flex-1"
@@ -1376,6 +1268,8 @@ export function AssetsListPage() {
             </TableBody>
           </Table>
       </AdminDataTable>
+        </div>
+      </div>
 
       <Dialog open={activeConflictOpen} onOpenChange={setActiveConflictOpen}>
         <DialogContent className="max-w-lg">

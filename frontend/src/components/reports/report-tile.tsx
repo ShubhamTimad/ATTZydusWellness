@@ -86,41 +86,15 @@ const FALLBACK_STYLE: ReportTileStyle = {
   iconWrap: "bg-muted text-muted-foreground ring-border/60",
 }
 
-function ReportFilters({
-  report,
-  filters,
-  onFilterChange,
-  columns = 2,
-}: {
-  report: ReportDefinition
-  filters: ReportFilterValues
-  onFilterChange: (key: string, value: string) => void
-  columns?: 1 | 2
-}) {
-  if (!report.filters.length) return null
+const exportBtnClass =
+  "h-9 min-w-0 flex-1 gap-1.5 px-3 text-sm font-medium shadow-sm sm:flex-none sm:w-[6.75rem]"
 
-  return (
-    <div className={cn("grid gap-3", columns === 2 ? "grid-cols-2" : "grid-cols-1")}>
-      {report.filters.map((filter) => (
-        <div key={filter.key} className="min-w-0 space-y-1.5">
-          <Label className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-            {filter.label}
-          </Label>
-          <select
-            className={cn(adminSelectClass, "h-9 w-full bg-background text-sm")}
-            value={filters[filter.key] ?? "all"}
-            onChange={(e) => onFilterChange(filter.key, e.target.value)}
-          >
-            {filter.options.map((option) => (
-              <option key={`${filter.key}-${option.value || "all"}`} value={option.value || "all"}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      ))}
-    </div>
-  )
+function orderedFilters(report: ReportDefinition) {
+  return [...report.filters].sort((a, b) => {
+    if (a.key === "fy_status") return -1
+    if (b.key === "fy_status") return 1
+    return 0
+  })
 }
 
 function ReportActions({
@@ -132,22 +106,22 @@ function ReportActions({
   reportKey: string
   busy: boolean
   generatingKey: string | null
-  onGenerate: (reportKey: string, format: ReportFormat) => void
+  onGenerate: (format: ReportFormat) => void
 }) {
   return (
-    <div className="grid grid-cols-2 gap-2">
+    <div className="flex w-full gap-2 sm:w-auto sm:shrink-0">
       <Button
         type="button"
         variant="outline"
         size="sm"
         disabled={busy}
-        className="h-9 w-full bg-background"
-        onClick={() => onGenerate(reportKey, "xlsx")}
+        className={cn(exportBtnClass, "bg-background")}
+        onClick={() => onGenerate("xlsx")}
       >
         {busy && generatingKey === `${reportKey}:xlsx` ? (
-          <Loader2 className="size-4 animate-spin" aria-hidden />
+          <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
         ) : (
-          <FileSpreadsheet className="size-4" aria-hidden />
+          <FileSpreadsheet className="size-4 shrink-0" aria-hidden />
         )}
         Excel
       </Button>
@@ -155,13 +129,13 @@ function ReportActions({
         type="button"
         size="sm"
         disabled={busy}
-        className="h-9 w-full"
-        onClick={() => onGenerate(reportKey, "pdf")}
+        className={exportBtnClass}
+        onClick={() => onGenerate("pdf")}
       >
         {busy && generatingKey === `${reportKey}:pdf` ? (
-          <Loader2 className="size-4 animate-spin" aria-hidden />
+          <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
         ) : (
-          <FileText className="size-4" aria-hidden />
+          <FileText className="size-4 shrink-0" aria-hidden />
         )}
         PDF
       </Button>
@@ -172,7 +146,7 @@ function ReportActions({
 function TileHeader({ style, report }: { style: ReportTileStyle; report: ReportDefinition }) {
   const Icon = style.icon
   return (
-    <div className="flex items-start gap-3">
+    <div className="flex h-[7.5rem] shrink-0 items-start gap-3 overflow-hidden">
       <div
         className={cn(
           "flex size-11 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset",
@@ -181,18 +155,54 @@ function TileHeader({ style, report }: { style: ReportTileStyle; report: ReportD
       >
         <Icon className="size-5" aria-hidden />
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <span className="inline-flex rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
           {style.tag}
         </span>
-        <h3 className="mt-1.5 text-base font-semibold leading-snug text-foreground">{report.title}</h3>
+        <h3 className="mt-1.5 line-clamp-2 text-base font-semibold leading-snug text-foreground">
+          {report.title}
+        </h3>
         <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
           {report.description}
         </p>
         {style.hint ? (
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground/90">{style.hint}</p>
+          <p className="mt-1 line-clamp-1 text-xs leading-relaxed text-muted-foreground/90">{style.hint}</p>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+function FilterField({
+  filter,
+  value,
+  onChange,
+}: {
+  filter: ReportDefinition["filters"][number]
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <div className="min-w-0 space-y-1.5">
+      <Label className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+        {filter.label}
+      </Label>
+      <select
+        className={cn(adminSelectClass, "h-9 w-full bg-background text-sm")}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        title={
+          filter.key === "fy_status"
+            ? "Physically verified exports only assets scanned in the current financial year."
+            : undefined
+        }
+      >
+        {filter.options.map((option) => (
+          <option key={`${filter.key}-${option.value || "all"}`} value={option.value || "all"}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }
@@ -204,30 +214,43 @@ function TileControls({
   onGenerate,
   generatingKey,
   busy,
-  filterColumns = 2,
 }: {
   report: ReportDefinition
   filters: ReportFilterValues
   onFilterChange: (key: string, value: string) => void
-  onGenerate: (reportKey: string, format: ReportFormat) => void
+  onGenerate: (format: ReportFormat) => void
   generatingKey: string | null
   busy: boolean
-  filterColumns?: 1 | 2
 }) {
+  const filtersList = orderedFilters(report)
+  const showTwoFilterColumns = filtersList.length > 0
+
   return (
-    <div className="space-y-3 rounded-lg border border-border/60 bg-background/60 p-3.5">
-      <ReportFilters
-        report={report}
-        filters={filters}
-        onFilterChange={onFilterChange}
-        columns={filterColumns}
-      />
-      <ReportActions
-        reportKey={report.key}
-        busy={busy}
-        generatingKey={generatingKey}
-        onGenerate={onGenerate}
-      />
+    <div className="mt-auto shrink-0 rounded-lg border border-border/60 bg-background/70 p-4">
+      <div className="flex min-h-[4.75rem] flex-col gap-4 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
+        {showTwoFilterColumns ? (
+          <div className="grid min-h-[4.75rem] min-w-0 flex-1 gap-3 sm:grid-cols-2">
+            {filtersList.map((filter) => (
+              <FilterField
+                key={filter.key}
+                filter={filter}
+                value={filters[filter.key] ?? "all"}
+                onChange={(value) => onFilterChange(filter.key, value)}
+              />
+            ))}
+            {filtersList.length === 1 ? <div aria-hidden className="hidden min-w-0 sm:block" /> : null}
+          </div>
+        ) : (
+          <div className="min-h-[4.75rem] flex-1" />
+        )}
+
+        <ReportActions
+          reportKey={report.key}
+          busy={busy}
+          generatingKey={generatingKey}
+          onGenerate={onGenerate}
+        />
+      </div>
     </div>
   )
 }
@@ -242,20 +265,18 @@ export function ReportTile({
   report: ReportDefinition
   filters: ReportFilterValues
   onFilterChange: (key: string, value: string) => void
-  onGenerate: (reportKey: string, format: ReportFormat) => void
+  onGenerate: (format: ReportFormat) => void
   generatingKey: string | null
 }) {
   const style = REPORT_TILE_STYLES[report.key] ?? FALLBACK_STYLE
   const busy = generatingKey?.startsWith(`${report.key}:`) ?? false
-  const isWide = style.span === "full"
-  const filterColumns = report.filters.length === 1 ? 1 : 2
 
   return (
     <article
       className={cn(
-        "group relative flex flex-col overflow-hidden rounded-[var(--app-radius-surface)] border shadow-[var(--app-shadow-surface)] transition-shadow hover:shadow-[var(--app-shadow-elevated)]",
+        "group relative flex h-full min-h-[15.5rem] flex-col overflow-hidden rounded-[var(--app-radius-surface)] border shadow-[var(--app-shadow-surface)] transition-shadow hover:shadow-[var(--app-shadow-elevated)]",
         style.surface,
-        isWide ? "lg:col-span-2" : "",
+        style.span === "full" ? "lg:col-span-2" : "",
       )}
     >
       {style.accentBar ? (
@@ -265,34 +286,16 @@ export function ReportTile({
         <div className={cn("pointer-events-none absolute inset-0", style.pattern)} aria-hidden />
       ) : null}
 
-      <div className="relative flex flex-col gap-4 p-[var(--app-card-padding)]">
-        {isWide ? (
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_16.5rem] lg:items-start">
-            <TileHeader style={style} report={report} />
-            <TileControls
-              report={report}
-              filters={filters}
-              onFilterChange={onFilterChange}
-              onGenerate={onGenerate}
-              generatingKey={generatingKey}
-              busy={busy}
-              filterColumns={1}
-            />
-          </div>
-        ) : (
-          <>
-            <TileHeader style={style} report={report} />
-            <TileControls
-              report={report}
-              filters={filters}
-              onFilterChange={onFilterChange}
-              onGenerate={onGenerate}
-              generatingKey={generatingKey}
-              busy={busy}
-              filterColumns={filterColumns as 1 | 2}
-            />
-          </>
-        )}
+      <div className="relative flex flex-1 flex-col gap-4 p-[var(--app-card-padding)]">
+        <TileHeader style={style} report={report} />
+        <TileControls
+          report={report}
+          filters={filters}
+          onFilterChange={onFilterChange}
+          onGenerate={onGenerate}
+          generatingKey={generatingKey}
+          busy={busy}
+        />
       </div>
     </article>
   )
@@ -302,8 +305,8 @@ export function ReportTileSkeleton({ span = "half" }: { span?: "full" | "half" }
   return (
     <div
       className={cn(
-        "h-52 animate-pulse rounded-[var(--app-radius-surface)] border border-border/60 bg-muted/20",
-        span === "full" ? "lg:col-span-2 lg:h-44" : "",
+        "h-full min-h-[15.5rem] animate-pulse rounded-[var(--app-radius-surface)] border border-border/60 bg-muted/20",
+        span === "full" ? "lg:col-span-2" : "",
       )}
     />
   )

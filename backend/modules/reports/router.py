@@ -17,7 +17,7 @@ from modules.reports.schema import (
     ReportFilterOptionPublic,
     ReportFilterPublic,
 )
-from modules.reports.service import FY_STATUS_OPTIONS, ORDER_STATUS_OPTIONS, ReportService
+from modules.reports.service import FY_STATUS_LABELS, FY_STATUS_OPTIONS, ORDER_STATUS_OPTIONS, ReportService
 
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -36,7 +36,7 @@ def _filter_options(kind: str) -> list[ReportFilterOptionPublic]:
         ]
     if kind == "fy_status":
         return [
-            ReportFilterOptionPublic(value=s, label=s.replace("_", " ").title())
+            ReportFilterOptionPublic(value=s, label=FY_STATUS_LABELS.get(s, s.replace("_", " ").title()))
             for s in FY_STATUS_OPTIONS
         ]
     return []

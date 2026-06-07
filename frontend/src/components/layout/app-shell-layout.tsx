@@ -352,8 +352,8 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
           </div>
         </header>
 
-        <main className="flex min-h-0 flex-1 flex-col overflow-auto p-[var(--app-page-padding)]">
-          <div className="flex min-h-0 w-full flex-1 flex-col">{children}</div>
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-[var(--app-page-padding)]">
+          <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto">{children}</div>
         </main>
       </div>
 

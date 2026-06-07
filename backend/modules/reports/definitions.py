@@ -24,15 +24,18 @@ REPORT_DEFINITIONS: tuple[ReportDefinition, ...] = (
         key="asset_register",
         title="Asset register",
         description="Full asset master export with location, financial, and inventory fields.",
-        filters=(ReportFilterDef("plant_id", "Plant", "plant"),),
+        filters=(
+            ReportFilterDef("plant_id", "Plant", "plant"),
+            ReportFilterDef("fy_status", "Physical verification", "fy_status"),
+        ),
     ),
     ReportDefinition(
         key="financial_year_verification",
         title="Financial year physical verification",
-        description="RFID-tagged assets with verification status and scan counts for the financial year.",
+        description="RFID-tagged assets with physical verification status for the financial year.",
         filters=(
             ReportFilterDef("plant_id", "Plant", "plant"),
-            ReportFilterDef("fy_status", "FY status", "fy_status"),
+            ReportFilterDef("fy_status", "Physical verification", "fy_status"),
         ),
     ),
     ReportDefinition(

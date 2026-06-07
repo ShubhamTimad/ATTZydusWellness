@@ -24,8 +24,8 @@ from modules.orders.constants import (
 )
 from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 from modules.platform.org_units.model import OrgUnit
-from modules.platform.settings.financial_year import financial_year_period_for, is_verified_in_financial_year
-from modules.assets.fy_verification import count_verifications_by_asset, resolve_verification_window
+from modules.assets.fy_verification import resolve_verification_window, verified_asset_ids_in_window
+from modules.platform.settings.financial_year import financial_year_period_for
 from modules.reports.export import ReportDocument
 
 
@@ -68,7 +68,7 @@ class ReportService:
         fy_status: str | None = None,
     ) -> ReportDocument:
         if report_key == "asset_register":
-            return self._asset_register(plant_id=plant_id)
+            return self._asset_register(plant_id=plant_id, fy_status=fy_status)
         if report_key == "financial_year_verification":
             return self._financial_year_verification(plant_id=plant_id, fy_status=fy_status)
         if report_key == "physical_orders_summary":
@@ -95,7 +95,17 @@ class ReportService:
             base = base.join(AssetLocationInformation).where(AssetLocationInformation.plant_id == plant_id)
         return base
 
-    def _asset_register(self, *, plant_id: int | None) -> ReportDocument:
+    def _asset_register(self, *, plant_id: int | None, fy_status: str | None = None) -> ReportDocument:
+        normalized_fy = (fy_status or "all").strip().lower()
+        if normalized_fy not in FY_STATUS_OPTIONS:
+            normalized_fy = "all"
+
+        period = financial_year_period_for()
+        window = resolve_verification_window(period)
+        verified_ids: set[int] | None = None
+        if normalized_fy != "all":
+            verified_ids = verified_asset_ids_in_window(self._db, window, plant_id=plant_id)
+
         rows = self._db.scalars(self._asset_base_query(plant_id=plant_id)).unique().all()
         headers = [
             "Asset code",
@@ -113,6 +123,12 @@ class ReportService:
         ]
         data = []
         for asset in rows:
+            if verified_ids is not None:
+                verified = int(asset.id) in verified_ids
+                if normalized_fy == "verified" and not verified:
+                    continue
+                if normalized_fy == "pending" and verified:
+                    continue
             loc = asset.location
             fin = asset.financial
             inv = asset.inventory
@@ -132,25 +148,34 @@ class ReportService:
                     _fmt_date(inv.last_verification_date if inv else None),
                 ]
             )
+        scope_label = {
+            "verified": "Physically verified only",
+            "pending": "Pending verification only",
+            "all": "All assets",
+        }[normalized_fy]
         return ReportDocument(
             title="Asset register",
-            subtitle=f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · {len(data)} assets",
+            subtitle=(
+                f"{scope_label} · Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · {len(data)} assets"
+            ),
             headers=headers,
             rows=data,
         )
 
     def _financial_year_verification(self, *, plant_id: int | None, fy_status: str | None) -> ReportDocument:
         period = financial_year_period_for()
+        window = resolve_verification_window(period)
+        normalized_fy = (fy_status or "all").strip().lower()
+        if normalized_fy not in FY_STATUS_OPTIONS:
+            normalized_fy = "all"
+
         base = self._asset_base_query(plant_id=plant_id).where(
             AssetMaster.lifecycle_status == LIFECYCLE_ACTIVE,
             AssetMaster.rfid_code.isnot(None),
             AssetMaster.rfid_code != "",
         )
         rows = self._db.scalars(base).unique().all()
-        normalized_fy = (fy_status or "all").strip().lower()
-        fy_counts = count_verifications_by_asset(
-            self._db, [int(asset.id) for asset in rows], resolve_verification_window(period)
-        )
+        verified_ids = verified_asset_ids_in_window(self._db, window, plant_id=plant_id)
 
         headers = [
             "Asset code",
@@ -158,8 +183,7 @@ class ReportService:
             "Plant",
             "RFID code",
             "Last verification",
-            "Verifications (FY)",
-            "FY status",
+            "Status",
             "Financial year",
         ]
         data = []
@@ -167,7 +191,7 @@ class ReportService:
             loc = asset.location
             inv = asset.inventory
             last = inv.last_verification_date if inv else None
-            verified = is_verified_in_financial_year(last)
+            verified = int(asset.id) in verified_ids
             row_status = "Verified" if verified else "Pending"
             if normalized_fy == "verified" and not verified:
                 continue
@@ -180,16 +204,20 @@ class ReportService:
                     loc.plant.name if loc and loc.plant else "",
                     asset.rfid_code or "",
                     _fmt_date(last),
-                    str(fy_counts.get(int(asset.id), 0)),
                     row_status,
                     period.label,
                 ]
             )
+        scope_label = {
+            "verified": "Physically verified only",
+            "pending": "Pending verification only",
+            "all": "All RFID-tagged assets",
+        }[normalized_fy]
         return ReportDocument(
-            title=f"Financial year verification · {period.label}",
+            title=f"Financial year physical verification · {period.label}",
             subtitle=(
-                f"Period {period.start.isoformat()} – {period.end.isoformat()} · "
-                f"{len(data)} RFID assets"
+                f"{scope_label} · {window.start.isoformat()} – {window.end.isoformat()} · "
+                f"{len(data)} assets"
             ),
             headers=headers,
             rows=data,
@@ -361,3 +389,8 @@ ORDER_STATUS_OPTIONS = [
 ]
 
 FY_STATUS_OPTIONS = ["all", "verified", "pending"]
+FY_STATUS_LABELS = {
+    "all": "All assets",
+    "verified": "Physically verified only",
+    "pending": "Pending verification only",
+}

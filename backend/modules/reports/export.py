@@ -26,8 +26,27 @@ PDF_BODY_FONT = 7
 PDF_HEADER_FONT = 7.5
 PDF_TITLE_FONT = 16
 PDF_SUBTITLE_FONT = 9
-MIN_COL_WIDTH = 36
+MIN_COL_WIDTH = 28
 MAX_COL_WIDTH = 110
+
+_COMPACT_HEADERS = frozenset({"plant", "status", "scans in period", "scans", "fy status"})
+_MEDIUM_HEADERS = frozenset({"asset code", "rfid code", "rfid", "last verification", "scan time", "created at", "completed at"})
+_FLEXIBLE_HEADERS = frozenset({"asset name", "order number", "rejection reason", "description", "functional location", "actual location"})
+
+
+def _header_key(header: str) -> str:
+    return header.strip().lower()
+
+
+def _column_bounds(header: str, available_width: float) -> tuple[float, float]:
+    key = _header_key(header)
+    if key in _FLEXIBLE_HEADERS:
+        return 72, available_width * 0.45
+    if key in _COMPACT_HEADERS:
+        return 28, 58
+    if key in _MEDIUM_HEADERS or "verification" in key or "date" in key:
+        return 44, 82
+    return MIN_COL_WIDTH, MAX_COL_WIDTH
 
 
 @dataclass(frozen=True)
@@ -102,6 +121,22 @@ def _pdf_styles() -> dict[str, ParagraphStyle]:
             alignment=TA_LEFT,
             wordWrap="LTR",
         ),
+        "summary_label": ParagraphStyle(
+            "ReportSummaryLabel",
+            fontName="Helvetica-Bold",
+            fontSize=8.5,
+            leading=11,
+            textColor=colors.HexColor("#374151"),
+            alignment=TA_LEFT,
+        ),
+        "summary_value": ParagraphStyle(
+            "ReportSummaryValue",
+            fontName="Helvetica",
+            fontSize=8.5,
+            leading=11,
+            textColor=colors.HexColor("#111827"),
+            alignment=TA_LEFT,
+        ),
         "empty": ParagraphStyle(
             "ReportEmpty",
             parent=base["Normal"],
@@ -116,31 +151,64 @@ def _pdf_styles() -> dict[str, ParagraphStyle]:
 def _column_weights(headers: list[str], rows: list[list[str]]) -> list[float]:
     weights: list[float] = []
     for idx, header in enumerate(headers):
+        key = _header_key(header)
+        content_cap = 80 if key == "asset name" else 48
         max_len = len(header)
         for row in rows:
             if idx < len(row):
                 cell = _safe_cell(row[idx])
-                max_len = max(max_len, min(len(cell), 48))
-        if header.lower() in {"asset name", "asset code", "order number", "rejection reason"}:
-            max_len = max(max_len, 18)
-        if header.lower() in {"last verification", "scan time", "created at", "completed at"}:
+                max_len = max(max_len, min(len(cell), content_cap))
+        if key in _FLEXIBLE_HEADERS:
+            max_len = max(max_len, 24)
+        if key in _COMPACT_HEADERS:
+            max_len = min(max_len, 10)
+        if key in {"last verification", "scan time", "created at", "completed at"}:
             max_len = max(max_len, 14)
-        weights.append(float(max(max_len, 8)))
+        weights.append(float(max(max_len, 6)))
     return weights
 
 
 def _column_widths(headers: list[str], rows: list[list[str]], available_width: float) -> list[float]:
     weights = _column_weights(headers, rows)
-    total = sum(weights) or 1.0
-    raw = [available_width * (w / total) for w in weights]
-    clamped = [max(MIN_COL_WIDTH, min(MAX_COL_WIDTH, w)) for w in raw]
-    total_clamped = sum(clamped)
-    if total_clamped > available_width:
-        scale = available_width / total_clamped
-        clamped = [w * scale for w in clamped]
-    elif total_clamped < available_width:
-        clamped[-1] += available_width - total_clamped
-    return clamped
+    bounds = [_column_bounds(header, available_width) for header in headers]
+    mins = [lo for lo, _ in bounds]
+    maxs = [hi for _, hi in bounds]
+    total_weight = sum(weights) or 1.0
+
+    widths = [mins[i] + (available_width - sum(mins)) * (weights[i] / total_weight) for i in range(len(headers))]
+
+    for _ in range(12):
+        for i in range(len(widths)):
+            widths[i] = max(mins[i], min(maxs[i], widths[i]))
+        delta = available_width - sum(widths)
+        if abs(delta) < 0.5:
+            break
+        growable = [
+            (i, weights[i])
+            for i in range(len(widths))
+            if delta > 0 and widths[i] < maxs[i] - 0.5
+        ]
+        if not growable:
+            if delta < 0:
+                scale = available_width / sum(widths)
+                widths = [w * scale for w in widths]
+            break
+        grow_weight = sum(w for _, w in growable)
+        for i, weight in growable:
+            share = delta * (weight / grow_weight)
+            widths[i] = min(maxs[i], widths[i] + share)
+
+    remainder = available_width - sum(widths)
+    if abs(remainder) > 0.5:
+        flex_indices = [i for i, header in enumerate(headers) if _header_key(header) in _FLEXIBLE_HEADERS]
+        if flex_indices:
+            flex_weight = sum(weights[i] for i in flex_indices) or 1.0
+            for i in flex_indices:
+                widths[i] += remainder * (weights[i] / flex_weight)
+        elif widths:
+            widths[0] += remainder
+
+    return widths
 
 
 def _pdf_header_block(document: ReportDocument, styles: dict[str, ParagraphStyle], width: float) -> Table:
@@ -247,11 +315,18 @@ def build_xlsx(document: ReportDocument) -> bytes:
         ws.append([_safe_cell(v) for v in row])
 
     for col_idx, header in enumerate(document.headers, start=1):
+        key = _header_key(header)
         max_len = len(header)
         for row in document.rows:
             if col_idx - 1 < len(row):
                 max_len = max(max_len, len(_safe_cell(row[col_idx - 1])))
-        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 48)
+        if key in _FLEXIBLE_HEADERS:
+            width_cap = 64
+        elif key in _COMPACT_HEADERS:
+            width_cap = 16
+        else:
+            width_cap = 48
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, width_cap)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -267,8 +342,8 @@ def _pdf_summary_block(
         return None
     rows = [
         [
-            Paragraph(_clean_pdf_text(label), styles["header"]),
-            Paragraph(_clean_pdf_text(value), styles["cell"]),
+            Paragraph(_clean_pdf_text(label), styles["summary_label"]),
+            Paragraph(_clean_pdf_text(value), styles["summary_value"]),
         ]
         for label, value in document.summary
     ]
@@ -277,13 +352,17 @@ def _pdf_summary_block(
         TableStyle(
             [
                 ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F3F4F6")),
+                ("BACKGROUND", (1, 0), (1, -1), colors.white),
+                ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#374151")),
+                ("TEXTCOLOR", (1, 0), (1, -1), colors.HexColor("#111827")),
                 ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
                 ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D1D5DB")),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
             ]
         )
     )

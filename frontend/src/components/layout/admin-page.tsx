@@ -12,6 +12,8 @@ export type AdminPageProps = {
   fullWidth?: boolean
   /** Tighter vertical rhythm for data-dense screens */
   dense?: boolean
+  /** Fill viewport height; table area scrolls internally (list pages). */
+  viewportFill?: boolean
   className?: string
 }
 
@@ -22,6 +24,7 @@ export function AdminPage({
   actions,
   fullWidth = false,
   dense = false,
+  viewportFill = false,
   className,
 }: AdminPageProps) {
   return (
@@ -30,6 +33,9 @@ export function AdminPage({
         "app-page mx-auto w-full",
         fullWidth ? "max-w-none" : "max-w-7xl",
         dense ? "gap-[var(--app-grid-gap)]" : "gap-[var(--app-section-gap)]",
+        viewportFill
+          ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+          : "min-h-0 flex-1 overflow-y-auto",
         className,
       )}
     >

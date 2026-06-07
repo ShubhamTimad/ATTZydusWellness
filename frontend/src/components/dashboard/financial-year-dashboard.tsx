@@ -1,4 +1,7 @@
+import { CalendarRange, ScanLine, ShieldCheck, Timer } from "lucide-react"
+
 import { DashboardBarChart, DashboardChartGrid, ChartPanel, PENDING_COLOR } from "@/components/dashboard/dashboard-charts"
+import { DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
 import { CoverageBar, DashboardPanel, KpiCard, KpiGrid } from "@/components/dashboard/dashboard-kpi"
 import type { FinancialYearDashboardModule } from "@/lib/assets-types"
 import { BRAND_COLOR } from "@/lib/brand"
@@ -9,44 +12,61 @@ function formatDate(iso: string) {
 }
 
 export function FinancialYearDashboard({ data }: { data: FinancialYearDashboardModule }) {
+  const theme = DASHBOARD_THEMES.fy
   const showPlantBreakdown = shouldShowPlantBreakdown(data.by_plant)
   const periodLabel = `${formatDate(data.start)} – ${formatDate(data.end)}`
 
-  const stats = [
-    { label: "Verified this FY", value: data.verified_in_fy, hint: data.label },
-    {
-      label: "Verification scans",
-      value: data.total_fy_verification_events,
-      hint: "Total RFID scans recorded this FY",
-    },
-    { label: "Pending verification", value: data.pending_fy_verification, hint: "RFID assets not yet verified" },
-    { label: "Coverage", value: `${data.coverage_pct}%`, hint: `${data.verified_in_fy} of ${data.total_rfid_assets} assets` },
-  ]
-
   return (
     <DashboardPanel
-      title={`Financial year physical verification · ${data.label}`}
-      description={`Verification window ${periodLabel}. Each RFID scan during physical verification is counted.`}
-      action={{ label: "FY verification", to: "/dashboard/assets?tab=fy" }}
+      title={`Physical verification · ${data.label}`}
+      description={`Scan window ${periodLabel}`}
+      theme={theme}
     >
-      <CoverageBar value={data.coverage_pct} />
+      <CoverageBar value={data.coverage_pct} label="FY verification coverage" tone="emerald" />
 
-      <KpiGrid>
-        {stats.map((s) => (
-          <KpiCard key={s.label} label={s.label} value={s.value} hint={s.hint} accent />
-        ))}
+      <KpiGrid className="sm:grid-cols-2">
+        <KpiCard
+          label="Verified this FY"
+          value={data.verified_in_fy}
+          hint={data.label}
+          icon={ShieldCheck}
+          tint={theme.kpiTint}
+          accent
+        />
+        <KpiCard
+          label="Verification scans"
+          value={data.total_fy_verification_events}
+          hint="RFID scans recorded"
+          icon={ScanLine}
+          tint={theme.kpiTint}
+          accent
+        />
+        <KpiCard
+          label="Pending verification"
+          value={data.pending_fy_verification}
+          hint="Not yet verified"
+          icon={Timer}
+          tint={theme.kpiTint}
+        />
+        <KpiCard
+          label="RFID assets"
+          value={data.total_rfid_assets}
+          hint={`${data.coverage_pct}% coverage`}
+          icon={CalendarRange}
+          tint={theme.kpiTint}
+        />
       </KpiGrid>
 
       {showPlantBreakdown ? (
         <DashboardChartGrid columns={1}>
           <ChartPanel
-            title="FY verification by plant"
-            description="Verified vs pending RFID assets per plant."
+            title="Verification by plant"
+            description="Verified vs pending RFID assets."
           >
             <DashboardBarChart
               data={data.by_plant}
               xKey="plant"
-              height={224}
+              height={200}
               series={[
                 { dataKey: "verified", name: "Verified", stackId: "fy", fill: BRAND_COLOR, radius: [0, 0, 0, 0] },
                 { dataKey: "pending", name: "Pending", stackId: "fy", fill: PENDING_COLOR, radius: [4, 4, 0, 0] },

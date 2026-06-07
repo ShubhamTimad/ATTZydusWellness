@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Link, useParams } from "react-router-dom"
-import { ChevronDown, CheckCircle2, Clock3, Lock, Package, ScanLine, XCircle } from "lucide-react"
+import { CheckCircle2, Clock3, Lock, Package, ScanLine, XCircle } from "lucide-react"
 import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
@@ -14,9 +14,10 @@ import {
   AdminTableHeaderRow,
 } from "@/components/layout/admin-ui"
 import {
+  AdminTableBodyRow,
+  AdminTableEmptyRow,
   ListPageHeader,
   WorkspaceTabs,
-  WorkspaceTabsContent,
   WorkspaceTabsList,
   WorkspaceTabsTrigger,
 } from "@/components/layout/list-page-ui"
@@ -141,8 +142,8 @@ export function OrderDetailPage() {
   const [rejectReason, setRejectReason] = React.useState("")
   const [rejectMode, setRejectMode] = React.useState<"items" | "order" | "execution">("items")
   const [closureRejectConfirmOpen, setClosureRejectConfirmOpen] = React.useState(false)
+  const [closureRejectBlockedOpen, setClosureRejectBlockedOpen] = React.useState(false)
   const [closureRejectVerifiedCodes, setClosureRejectVerifiedCodes] = React.useState<string[]>([])
-  const [auditOpen, setAuditOpen] = React.useState(false)
   const [reassignOpen, setReassignOpen] = React.useState(false)
   const [executors, setExecutors] = React.useState<ExecutorUser[]>([])
   const [reassignTo, setReassignTo] = React.useState("")
@@ -151,7 +152,10 @@ export function OrderDetailPage() {
   const canExecute = hasPermission("order.execute")
   const canCreate = hasPermission("order.create")
   const canUpdate = hasPermission("order.update")
-  const canReassignOrder = hasPermission("order.reassign")
+  const canReassignOrder =
+    hasPermission("order.reassign") ||
+    hasPermission("order.create") ||
+    hasPermission("order.manage")
 
   const load = React.useCallback(async () => {
     if (!id) return
@@ -275,8 +279,8 @@ export function OrderDetailPage() {
     return canScan && !item.physically_verified && item.verification_status !== "rejected"
   }
 
-  function itemIsRejectableAtClosure(item: PhysicalOrderItem): boolean {
-    return canReviewClosure && !item.physically_verified
+  function itemIsSelectableAtClosure(_item: PhysicalOrderItem): boolean {
+    return canReviewClosure
   }
 
   function beginClosureLineReject() {
@@ -290,7 +294,8 @@ export function OrderDetailPage() {
       return
     }
     if (verified.length > 0 && nonVerified.length === 0) {
-      toast.error("Cannot reject: all selected assets are physically verified.")
+      setClosureRejectVerifiedCodes(verified.map((item) => item.asset_code))
+      setClosureRejectBlockedOpen(true)
       return
     }
     if (verified.length > 0) {
@@ -303,17 +308,26 @@ export function OrderDetailPage() {
     setRejectOpen(true)
   }
 
+  function beginClosureLineApprove() {
+    if (!order || selected.size === 0) return
+    void runAction("/approval/approve-items", { item_ids: [...selected] })
+  }
+
   const showRowSelection = canReviewClosure || canScan
   const selectableItems = filteredItems.filter((item) =>
-    canReviewClosure ? itemIsRejectableAtClosure(item) : itemIsRejectableDuringExecution(item),
+    canReviewClosure ? itemIsSelectableAtClosure(item) : itemIsRejectableDuringExecution(item),
   )
 
   const showRejectColumn = order.rejected_item_count > 0 || canReviewClosure
   const tableColSpan = (showRowSelection ? 1 : 0) + 4 + (showRejectColumn ? 1 : 0)
+  const activeProgressStep =
+    order.progress.steps.find((step) => step.key === order.progress.current_step_key) ??
+    order.progress.steps.find((step) => step.status === "active")
 
   return (
     <AdminPage fullWidth actions={<AdminBackLink to="/dashboard/orders">Orders</AdminBackLink>}>
       <ListPageHeader
+        className="shrink-0"
         title={order.order_number}
         description={`${order.plant_name} · ${order.cost_center_code}${
           order.assigned_to_name
@@ -326,7 +340,7 @@ export function OrderDetailPage() {
       />
 
       {canReviewCreation && order.approval_notice?.message ? (
-        <Alert className="border-amber-200/80 bg-amber-50/90 dark:border-amber-900/50 dark:bg-amber-950/30">
+        <Alert className="shrink-0 border-amber-200/80 bg-amber-50/90 dark:border-amber-900/50 dark:bg-amber-950/30">
           <AlertTitle>Financial year verification</AlertTitle>
           <AlertDescription className="space-y-2">
             <p>{order.approval_notice.message}</p>
@@ -350,7 +364,7 @@ export function OrderDetailPage() {
         </Alert>
       ) : null}
 
-      <AdminPanel className="overflow-hidden p-0">
+      <AdminPanel className="shrink-0 overflow-hidden p-0">
         <div className="border-b border-border/60 bg-muted/15 px-4 py-3 sm:px-5">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             Order progress
@@ -361,6 +375,9 @@ export function OrderDetailPage() {
             currentStepKey={order.progress.current_step_key}
             orderStatus={order.status}
           />
+          {activeProgressStep?.detail ? (
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{activeProgressStep.detail}</p>
+          ) : null}
         </div>
 
         <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
@@ -404,7 +421,7 @@ export function OrderDetailPage() {
           ) : null}
         </div>
         {order.remarks ? (
-          <p className="border-t border-border/60 px-4 py-3 text-sm leading-relaxed text-muted-foreground sm:px-5">
+          <p className="shrink-0 border-t border-border/60 px-4 py-3 text-sm leading-relaxed text-foreground sm:px-5">
             {order.remarks}
           </p>
         ) : null}
@@ -535,7 +552,7 @@ export function OrderDetailPage() {
                   type="button"
                   variant="outline"
                   disabled={busy || selected.size === 0}
-                  onClick={() => void runAction("/approval/approve-items", { item_ids: [...selected] })}
+                  onClick={beginClosureLineApprove}
                 >
                   Approve selected
                 </Button>
@@ -556,9 +573,9 @@ export function OrderDetailPage() {
         ) : null}
       </AdminPanel>
 
-      <AdminPanel className="mt-4 overflow-hidden p-0">
+      <AdminPanel className="shrink-0 overflow-hidden p-0">
         <div className="border-b border-border/60 bg-muted/10 px-4 py-2.5 sm:px-5">
-          <p className="text-sm font-medium">Assets</p>
+          <p className="text-sm font-medium text-foreground">Assets</p>
         </div>
         <div className="border-b border-border/60 px-4 py-2 sm:px-5">
           <WorkspaceTabs value={itemFilter} onValueChange={(value) => setItemFilter(value as ItemFilter)}>
@@ -573,10 +590,9 @@ export function OrderDetailPage() {
                 </>
               ) : null}
             </WorkspaceTabsList>
-            <WorkspaceTabsContent value={itemFilter} />
           </WorkspaceTabs>
         </div>
-        <Table>
+        <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>
               {showRowSelection ? (
@@ -602,21 +618,17 @@ export function OrderDetailPage() {
           </TableHeader>
           <TableBody>
             {filteredItems.length === 0 ? (
-              <tr>
-                <td colSpan={tableColSpan} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                  No assets in this view.
-                </td>
-              </tr>
+              <AdminTableEmptyRow colSpan={tableColSpan}>No assets in this view.</AdminTableEmptyRow>
             ) : (
               filteredItems.map((item) => {
                 const scannable = itemIsScannable(item)
                 const isSelectedForScan = selectedScanItemId === item.id
                 const rowTone = itemRowTone(item)
                 return (
-                  <tr
+                  <AdminTableBodyRow
                     key={item.id}
+                    interactive={scannable}
                     className={cn(
-                      "border-b border-border/60",
                       rowTone === "approved" && "bg-emerald-50/70 dark:bg-emerald-950/20",
                       rowTone === "rejected" && "bg-red-50/80 dark:bg-red-950/25",
                       scannable && "cursor-pointer hover:bg-muted/30",
@@ -636,7 +648,7 @@ export function OrderDetailPage() {
                             disabled={
                               canScan
                                 ? !itemIsRejectableDuringExecution(item)
-                                : !itemIsRejectableAtClosure(item)
+                                : !itemIsSelectableAtClosure(item)
                             }
                             onCheckedChange={(on) => {
                               setSelected((prev) => {
@@ -650,7 +662,7 @@ export function OrderDetailPage() {
                         </div>
                       </AdminTableCell>
                     ) : null}
-                    <AdminTableCell>
+                    <AdminTableCell className="whitespace-normal">
                       <Link
                         to={`/dashboard/assets/${item.asset_id}`}
                         className="font-mono text-xs text-primary hover:underline"
@@ -658,9 +670,11 @@ export function OrderDetailPage() {
                       >
                         {item.asset_code}
                       </Link>
-                      <p className="mt-0.5 text-sm">{item.asset_name}</p>
+                      <p className="mt-0.5 text-sm text-foreground">{item.asset_name}</p>
                     </AdminTableCell>
-                    <AdminTableCell className="font-mono text-xs">{item.rfid_code ?? "—"}</AdminTableCell>
+                    <AdminTableCell className="font-mono text-xs text-foreground">
+                      {item.rfid_code ?? "—"}
+                    </AdminTableCell>
                     <AdminTableCell>
                       {item.verification_status === "rejected" && !item.physically_verified ? (
                         <Badge variant="destructive">Rejected</Badge>
@@ -675,7 +689,7 @@ export function OrderDetailPage() {
                         <Badge variant="outline">{item.verification_status}</Badge>
                       )}
                     </AdminTableCell>
-                    <AdminTableCell className="text-sm">
+                    <AdminTableCell className="whitespace-normal text-sm text-foreground">
                       {item.physically_verified ? (
                         <>
                           <div>{formatDate(item.last_verification_date)}</div>
@@ -688,7 +702,7 @@ export function OrderDetailPage() {
                       )}
                     </AdminTableCell>
                     {showRejectColumn ? (
-                      <AdminTableCell className="text-sm">
+                      <AdminTableCell className="whitespace-normal text-sm text-foreground">
                         {item.rejection_reason ? (
                           <span className="text-destructive">{item.rejection_reason}</span>
                         ) : item.physically_verified ? (
@@ -698,7 +712,7 @@ export function OrderDetailPage() {
                         )}
                       </AdminTableCell>
                     ) : null}
-                  </tr>
+                  </AdminTableBodyRow>
                 )
               })
             )}
@@ -707,34 +721,27 @@ export function OrderDetailPage() {
       </AdminPanel>
 
       {order.audit.length > 0 ? (
-        <AdminPanel className="mt-4 overflow-hidden p-0">
-          <button
-            type="button"
-            className="flex w-full items-center justify-between px-[var(--app-card-padding)] py-3 text-left text-sm font-medium hover:bg-muted/30"
-            onClick={() => setAuditOpen((open) => !open)}
-          >
-            <span>Activity ({order.audit.length})</span>
-            <ChevronDown className={cn("size-4 text-muted-foreground transition-transform", auditOpen && "rotate-180")} />
-          </button>
-          {auditOpen ? (
-            <ul className="border-t border-border/60 px-[var(--app-card-padding)] py-2">
-              {[...order.audit].reverse().map((ev) => (
-                <li
-                  key={ev.id}
-                  className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-b border-border/40 py-2.5 text-sm last:border-0"
-                >
-                  <div className="min-w-0">
-                    <span className="font-medium">{ev.label}</span>
-                    {ev.actor_name ? <span className="text-muted-foreground"> · {ev.actor_name}</span> : null}
-                    {ev.detail ? <p className="text-xs text-muted-foreground">{ev.detail}</p> : null}
-                  </div>
-                  <time className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                    {formatDt(ev.created_at)}
-                  </time>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+        <AdminPanel className="shrink-0 overflow-hidden p-0">
+          <div className="border-b border-border/60 bg-muted/10 px-[var(--app-card-padding)] py-2.5">
+            <p className="text-sm font-medium text-foreground">Activity ({order.audit.length})</p>
+          </div>
+          <ul className="px-[var(--app-card-padding)] py-2">
+            {[...order.audit].reverse().map((ev) => (
+              <li
+                key={ev.id}
+                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-b border-border/40 py-2.5 text-sm last:border-0"
+              >
+                <div className="min-w-0">
+                  <span className="font-medium">{ev.label}</span>
+                  {ev.actor_name ? <span className="text-muted-foreground"> · {ev.actor_name}</span> : null}
+                  {ev.detail ? <p className="text-xs text-muted-foreground">{ev.detail}</p> : null}
+                </div>
+                <time className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {formatDt(ev.created_at)}
+                </time>
+              </li>
+            ))}
+          </ul>
         </AdminPanel>
       ) : null}
 
@@ -839,25 +846,53 @@ export function OrderDetailPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={closureRejectBlockedOpen} onOpenChange={setClosureRejectBlockedOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Cannot reject verified assets</DialogTitle>
+            <DialogDescription>
+              Physically verified assets cannot be rejected.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="dialog-body">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Verified
+            </p>
+            <p className="font-mono text-sm font-medium text-foreground">
+              {closureRejectVerifiedCodes.join(", ")}
+            </p>
+          </div>
+          <div className="dialog-footer-actions">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setClosureRejectBlockedOpen(false)}
+            >
+              OK
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={closureRejectConfirmOpen} onOpenChange={setClosureRejectConfirmOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Verified assets selected</DialogTitle>
             <DialogDescription>
-              {closureRejectVerifiedCodes.length > 0 ? (
-                <>
-                  These assets are already physically verified and cannot be rejected:{" "}
-                  <span className="font-medium text-foreground">
-                    {closureRejectVerifiedCodes.join(", ")}
-                  </span>
-                  . Continue to reject only the non-verified assets?
-                </>
-              ) : (
-                "Continue to reject only the non-verified assets?"
-              )}
+              Verified assets will be skipped. Reject the rest?
             </DialogDescription>
           </DialogHeader>
-          <div className="flex justify-end gap-2">
+          {closureRejectVerifiedCodes.length > 0 ? (
+            <div className="dialog-body">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Skipped
+              </p>
+              <p className="font-mono text-sm font-medium text-foreground">
+                {closureRejectVerifiedCodes.join(", ")}
+              </p>
+            </div>
+          ) : null}
+          <div className="dialog-footer-actions">
             <Button type="button" variant="outline" onClick={() => setClosureRejectConfirmOpen(false)}>
               Cancel
             </Button>
@@ -870,7 +905,7 @@ export function OrderDetailPage() {
                 setRejectOpen(true)
               }}
             >
-              Reject non-verified only
+              Reject others
             </Button>
           </div>
         </DialogContent>

@@ -822,16 +822,22 @@ class AssetMasterService:
         window_label = ""
         if res.scan_window_start and res.scan_window_end:
             window_label = f"{res.scan_window_start.isoformat()} – {res.scan_window_end.isoformat()}"
+        scope_label = {
+            "verified": "Physically verified only",
+            "pending": "Pending verification only",
+            "all": "All RFID-tagged assets",
+        }.get(export_mode, "All RFID-tagged assets")
         subtitle_parts = [
             res.financial_year_label or "Financial year",
+            scope_label,
             f"Scans {window_label}" if window_label else "",
         ]
         summary = (
             ("Financial year", res.financial_year_label or "—"),
+            ("Verification scope", scope_label),
             ("Scan period", window_label or "—"),
             ("Verified assets", str(res.verified_assets_total or 0)),
             ("Pending assets", str(res.pending_assets_total or 0)),
-            ("Verification scans", str(res.total_fy_verification_events or 0)),
             ("RFID-tagged assets", str(res.total_rfid_assets or 0)),
             ("Rows exported", str(len(all_items))),
         )
@@ -841,7 +847,6 @@ class AssetMasterService:
             "Plant",
             "RFID code",
             "Last verification",
-            "Scans in period",
             "Status",
         ]
         rows = []
@@ -853,7 +858,6 @@ class AssetMasterService:
                     item.plant_name or "",
                     item.rfid_code or "",
                     item.last_verification_date.isoformat() if item.last_verification_date else "",
-                    str(item.fy_verification_count or 0),
                     "Verified" if item.fy_verified else "Pending",
                 ]
             )

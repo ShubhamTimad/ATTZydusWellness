@@ -3,12 +3,21 @@ import { toast } from "sonner"
 
 import { ReportTile, ReportTileSkeleton } from "@/components/reports/report-tile"
 import { ApiError, downloadFile, getJson } from "@/lib/api"
-import type { ReportCatalog, ReportFilterValues, ReportFormat } from "@/lib/reports-types"
+import type { ReportCatalog, ReportDefinition, ReportFilterValues, ReportFormat } from "@/lib/reports-types"
 
-const DEFAULT_FILTERS: ReportFilterValues = {
-  plant_id: "all",
-  status: "all",
-  fy_status: "all",
+function buildInitialFilters(report: ReportDefinition): ReportFilterValues {
+  const values: ReportFilterValues = {}
+  for (const filter of report.filters) {
+    if (filter.key === "fy_status") {
+      values[filter.key] =
+        report.key === "financial_year_verification" || report.key === "asset_register"
+          ? "verified"
+          : "all"
+    } else {
+      values[filter.key] = "all"
+    }
+  }
+  return values
 }
 
 function normalizeFilterValue(value: string): string | undefined {
@@ -17,14 +26,15 @@ function normalizeFilterValue(value: string): string | undefined {
 }
 
 function buildDownloadPath(
-  reportKey: string,
+  report: ReportDefinition,
   format: ReportFormat,
   filters: ReportFilterValues,
 ): string {
-  const params = new URLSearchParams({ report: reportKey, format })
-  for (const [key, value] of Object.entries(filters)) {
+  const params = new URLSearchParams({ report: report.key, format })
+  for (const filter of report.filters) {
+    const value = filters[filter.key] ?? "all"
     const normalized = normalizeFilterValue(value)
-    if (normalized) params.set(key, normalized)
+    if (normalized) params.set(filter.key, normalized)
   }
   return `/reports/generate?${params.toString()}`
 }
@@ -44,7 +54,7 @@ export function ReportsPage() {
         if (cancelled) return
         setCatalog(data)
         setFilterState(
-          Object.fromEntries(data.reports.map((report) => [report.key, { ...DEFAULT_FILTERS }])),
+          Object.fromEntries(data.reports.map((report) => [report.key, buildInitialFilters(report)])),
         )
         setLoadError(null)
       } catch (e) {
@@ -63,19 +73,19 @@ export function ReportsPage() {
     setFilterState((prev) => ({
       ...prev,
       [reportKey]: {
-        ...(prev[reportKey] ?? DEFAULT_FILTERS),
+        ...(prev[reportKey] ?? {}),
         [filterKey]: value,
       },
     }))
   }
 
-  async function handleGenerate(reportKey: string, format: ReportFormat) {
-    const filters = filterState[reportKey] ?? DEFAULT_FILTERS
-    const token = `${reportKey}:${format}`
+  async function handleGenerate(report: ReportDefinition, format: ReportFormat) {
+    const filters = filterState[report.key] ?? buildInitialFilters(report)
+    const token = `${report.key}:${format}`
     setGeneratingKey(token)
     try {
-      const path = buildDownloadPath(reportKey, format, filters)
-      await downloadFile(path, `${reportKey}.${format === "xlsx" ? "xlsx" : "pdf"}`)
+      const path = buildDownloadPath(report, format, filters)
+      await downloadFile(path, `${report.key}.${format === "xlsx" ? "xlsx" : "pdf"}`)
       toast.success(`${format.toUpperCase()} report downloaded`)
     } catch (e) {
       const message = e instanceof ApiError ? e.message : "Failed to generate report"
@@ -86,7 +96,7 @@ export function ReportsPage() {
   }
 
   return (
-    <div className="app-page">
+    <div className="app-page flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div>
         <h1 className="app-page-heading">Reports</h1>
         <p className="app-page-subheading mt-1">
@@ -100,7 +110,7 @@ export function ReportsPage() {
         </div>
       ) : null}
 
-      <div className="grid items-start gap-[var(--app-grid-gap)] md:grid-cols-2">
+      <div className="grid auto-rows-fr items-stretch gap-[var(--app-grid-gap)] md:grid-cols-2">
         {loading
           ? Array.from({ length: 5 }).map((_, i) => (
               <ReportTileSkeleton key={i} span={i === 0 ? "full" : "half"} />
@@ -112,9 +122,9 @@ export function ReportsPage() {
               <ReportTile
                 key={report.key}
                 report={report}
-                filters={filterState[report.key] ?? DEFAULT_FILTERS}
+                filters={filterState[report.key] ?? buildInitialFilters(report)}
                 onFilterChange={(key, value) => updateFilter(report.key, key, value)}
-                onGenerate={handleGenerate}
+                onGenerate={(format) => void handleGenerate(report, format)}
                 generatingKey={generatingKey}
               />
             ))

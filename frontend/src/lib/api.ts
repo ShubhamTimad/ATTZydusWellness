@@ -12,7 +12,10 @@ function getAccessToken() {
   }
 }
 
-import { SESSION_IDLE_LOGOUT_EVENT } from "@/lib/session-idle-events"
+import {
+  SESSION_IDLE_LOGOUT_EVENT,
+  type AuthLogoutReason,
+} from "@/lib/session-idle-events"
 
 export class ApiError extends Error {
   status: number
@@ -40,14 +43,30 @@ function parseErrorMessage(data: unknown, status: number): string {
   return `Request failed (${status})`
 }
 
-function maybeDispatchSessionIdle(status: number, data: unknown) {
-  if (status !== 401) return
+const AUTH_PATHS_SKIP_LOGOUT = ["/login", "/refresh", "/forgot-password", "/reset-password"]
+
+function shouldLogoutOn401(path: string): boolean {
+  const normalized = path.startsWith("/") ? path : `/${path}`
+  return !AUTH_PATHS_SKIP_LOGOUT.some(
+    (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`),
+  )
+}
+
+function logoutReasonFrom401(data: unknown): AuthLogoutReason {
   if (data && typeof data === "object") {
     const detail = (data as { detail?: unknown }).detail
-    if (detail === "session_idle") {
-      window.dispatchEvent(new Event(SESSION_IDLE_LOGOUT_EVENT))
-    }
+    if (detail === "session_idle") return "session_idle"
   }
+  return "unauthorized"
+}
+
+function maybeDispatchAuthLogout(status: number, data: unknown, path: string) {
+  if (status !== 401 || !getAccessToken() || !shouldLogoutOn401(path)) return
+  window.dispatchEvent(
+    new CustomEvent(SESSION_IDLE_LOGOUT_EVENT, {
+      detail: { reason: logoutReasonFrom401(data) },
+    }),
+  )
 }
 
 export async function getJson<TResponse>(
@@ -70,7 +89,7 @@ export async function getJson<TResponse>(
   const data = parseResponseBody(text)
 
   if (!res.ok) {
-    maybeDispatchSessionIdle(res.status, data)
+    maybeDispatchAuthLogout(res.status, data, path)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 
@@ -112,7 +131,7 @@ export async function postJson<TResponse>(
   const data = parseResponseBody(text)
 
   if (!res.ok) {
-    maybeDispatchSessionIdle(res.status, data)
+    maybeDispatchAuthLogout(res.status, data, path)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 
@@ -142,7 +161,7 @@ export async function patchJson<TResponse>(
   const data = parseResponseBody(text)
 
   if (!res.ok) {
-    maybeDispatchSessionIdle(res.status, data)
+    maybeDispatchAuthLogout(res.status, data, path)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 
@@ -172,7 +191,7 @@ export async function putJson<TResponse>(
   const data = parseResponseBody(text)
 
   if (!res.ok) {
-    maybeDispatchSessionIdle(res.status, data)
+    maybeDispatchAuthLogout(res.status, data, path)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 
@@ -199,7 +218,7 @@ export async function deleteJson(
   const data = parseResponseBody(text)
 
   if (!res.ok) {
-    maybeDispatchSessionIdle(res.status, data)
+    maybeDispatchAuthLogout(res.status, data, path)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 }
@@ -237,7 +256,7 @@ export async function downloadFile(
     } catch {
       data = text
     }
-    maybeDispatchSessionIdle(res.status, data)
+    maybeDispatchAuthLogout(res.status, data, path)
     throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
   }
 

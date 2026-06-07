@@ -46,7 +46,7 @@ def list_executors(
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[
         object,
-        Depends(require_any_permission("order.create", "order.manage", "order.reassign")),
+        Depends(require_any_permission("order.create", "order.manage", "order.reassign", "order.execute")),
     ],
 ) -> list[ExecutorUserPublic]:
     return svc.list_executors()
@@ -223,7 +223,7 @@ def reassign_order(
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[
         object,
-        Depends(require_any_permission("order.reassign", "order.update", "order.manage")),
+        Depends(require_any_permission("order.reassign", "order.create", "order.update", "order.manage")),
     ],
 ) -> PhysicalOrderDetail:
     if body.assigned_to is None:

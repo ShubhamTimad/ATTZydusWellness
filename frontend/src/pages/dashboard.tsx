@@ -2,7 +2,8 @@ import * as React from "react"
 
 import { AssetDashboard } from "@/components/dashboard/asset-dashboard"
 import { DashboardLoading } from "@/components/dashboard/dashboard-loading"
-import { KpiCard } from "@/components/dashboard/dashboard-kpi"
+import { HeroStatCard } from "@/components/dashboard/dashboard-kpi"
+import { DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
 import { FinancialYearDashboard } from "@/components/dashboard/financial-year-dashboard"
 import { OrdersDashboard } from "@/components/dashboard/orders-dashboard"
 import type { AssetsDashboardModule, FinancialYearDashboardModule } from "@/lib/assets-types"
@@ -35,23 +36,23 @@ function DashboardHero({
 
   return (
     <div className="app-grid app-grid-3">
-      <KpiCard
+      <HeroStatCard
+        theme={DASHBOARD_THEMES.heroOrders}
         label="Open orders"
         value={openOrders}
         hint={`${orders.total_orders} total · ${orders.completed + orders.closed} finished`}
-        accent
       />
-      <KpiCard
-        label="RFID tagged"
+      <HeroStatCard
+        theme={DASHBOARD_THEMES.heroAssets}
+        label="RFID tagged assets"
         value={assets.rfid_tagged}
-        hint={`${assets.rfid_not_tagged} not tagged · ${assets.active_assets} active`}
-        accent
+        hint={`${assets.rfid_not_tagged} not tagged · ${assets.rfid_coverage_pct}% coverage`}
       />
-      <KpiCard
-        label="FY coverage"
+      <HeroStatCard
+        theme={DASHBOARD_THEMES.heroFy}
+        label="FY verification coverage"
         value={`${financialYear.coverage_pct}%`}
         hint={`${financialYear.label} · ${financialYear.verified_in_fy} verified`}
-        accent
       />
     </div>
   )
@@ -87,16 +88,25 @@ export function DashboardPage() {
   const financialYearModule = summary?.modules?.financial_year
 
   return (
-    <div className="app-page">
-      <div>
-        <h1 className="app-page-heading">Dashboard</h1>
-        <p className="app-page-subheading mt-1">
-          Organisation overview for physical verification orders, assets, and financial year physical verification.
-        </p>
+    <div className="app-page flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="relative shrink-0 overflow-hidden rounded-[var(--app-radius-surface)] border border-border/70 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--primary)_6%,var(--card))_0%,var(--card)_50%,color-mix(in_srgb,var(--muted)_40%,var(--card))_100%)] px-5 py-6 sm:px-6">
+        <div
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_100%_0%,color-mix(in_srgb,var(--primary)_10%,transparent)_0%,transparent_45%)]"
+          aria-hidden
+        />
+        <div className="relative">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Organisation overview
+          </p>
+          <h1 className="app-page-heading mt-1">Dashboard</h1>
+          <p className="app-page-subheading mt-1.5 max-w-2xl">
+            Physical verification orders, asset register, and financial year verification at a glance.
+          </p>
+        </div>
       </div>
 
       {loadError ? (
-        <Card className="border-dashed border-primary/25">
+        <Card className="shrink-0 border-dashed border-primary/25">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Dashboard data unavailable</CardTitle>
             <CardDescription>{loadError}</CardDescription>
@@ -107,12 +117,14 @@ export function DashboardPage() {
       {loading && !loadError ? <DashboardLoading /> : null}
 
       {!loading && ordersModule && assetsModule && financialYearModule ? (
-        <>
+        <div className="flex flex-col gap-[var(--app-section-gap)]">
           <DashboardHero orders={ordersModule} assets={assetsModule} financialYear={financialYearModule} />
           <OrdersDashboard data={ordersModule} />
-          <AssetDashboard data={assetsModule} />
-          <FinancialYearDashboard data={financialYearModule} />
-        </>
+          <div className="grid items-start gap-[var(--app-section-gap)] xl:grid-cols-2">
+            <AssetDashboard data={assetsModule} />
+            <FinancialYearDashboard data={financialYearModule} />
+          </div>
+        </div>
       ) : null}
     </div>
   )

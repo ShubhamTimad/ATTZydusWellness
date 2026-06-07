@@ -133,7 +133,7 @@ ROLE_SPECS: list[dict[str, object]] = [
     },
     {
         "name": "Operator",
-        "description": "Full workspace access including physical order create, execute, approve, and closure.",
+        "description": "Full workspace access including physical order create, execute, approve, reassignment, and closure.",
         "permissions": "__all__",
     },
     {
@@ -148,12 +148,12 @@ ROLE_SPECS: list[dict[str, object]] = [
     {
         "name": "Physical Order Creator",
         "description": "Create physical verification orders.",
-        "permissions": ["order.create", "order.view"],
+        "permissions": ["order.create", "order.view", "order.reassign"],
     },
     {
         "name": "Physical Order Executor",
         "description": "Execute physical verification on assigned orders.",
-        "permissions": ["order.execute", "order.view"],
+        "permissions": ["order.execute", "order.view", "order.reassign"],
     },
     {
         "name": "Physical Order Approver",
@@ -447,8 +447,26 @@ def _all_permission_codes(db: Session) -> list[str]:
 def _resolve_role_permission_codes(db: Session, spec: dict[str, object]) -> list[str]:
     perms = spec.get("permissions")
     if perms == "__all__":
-        return _all_permission_codes(db)
-    return list(perms)  # type: ignore[arg-type]
+        codes = _all_permission_codes(db)
+    else:
+        codes = list(perms)  # type: ignore[arg-type]
+
+    # Operator must always retain full physical-order capabilities (including reassign).
+    if spec.get("name") == "Operator":
+        order_caps = (
+            "order.view",
+            "order.create",
+            "order.update",
+            "order.execute",
+            "order.approve",
+            "order.reassign",
+            "order.close",
+            "order.complete",
+            "order.manage",
+        )
+        codes = sorted(set(codes) | set(order_caps))
+
+    return codes
 
 
 def _permission_ids(db: Session, codes: list[str]) -> list[int]:
