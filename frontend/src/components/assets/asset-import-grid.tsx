@@ -2,6 +2,7 @@ import * as React from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { AlertCircle } from "lucide-react"
 
+import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { ASSET_IMPORT_GRID_COLUMNS } from "@/lib/asset-master-fields"
 
@@ -16,6 +17,7 @@ export type ImportGridRow = {
 }
 
 const ROW_HEIGHT = 34
+const SELECT_WIDTH = 40
 const ISSUES_WIDTH = 160
 
 function cellDisplayValue(key: string, data: Record<string, unknown>): string {
@@ -85,6 +87,9 @@ const ImportCell = React.memo(function ImportCell({
 type VirtualRowProps = {
   row: ImportGridRow
   rowIndex: number
+  showSelection: boolean
+  selected: boolean
+  onSelectChange: (on: boolean) => void
   onCellChange: (rowIndex: number, key: string, value: string) => void
   style: React.CSSProperties
 }
@@ -92,6 +97,9 @@ type VirtualRowProps = {
 const VirtualImportRow = React.memo(function VirtualImportRow({
   row,
   rowIndex,
+  showSelection,
+  selected,
+  onSelectChange,
   onCellChange,
   style,
 }: VirtualRowProps) {
@@ -107,11 +115,30 @@ const VirtualImportRow = React.memo(function VirtualImportRow({
         rowHasError ? "bg-destructive/[0.04]" : "hover:bg-muted/20",
       )}
     >
+      {showSelection ? (
+        <div
+          className={cn(
+            "sticky left-0 z-[2] flex h-[34px] shrink-0 items-center justify-center border-r border-border/50 bg-card",
+            rowHasError && "bg-destructive/[0.06]",
+          )}
+          style={{ width: SELECT_WIDTH }}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          role="presentation"
+        >
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(on) => onSelectChange(Boolean(on))}
+            aria-label={`Select row ${row.row_number}`}
+          />
+        </div>
+      ) : null}
       <div
         className={cn(
-          "sticky left-0 z-[1] flex h-[34px] w-10 shrink-0 items-center border-r border-border/50 bg-card px-2 tabular-nums text-muted-foreground",
+          "sticky z-[1] flex h-[34px] w-10 shrink-0 items-center border-r border-border/50 bg-card px-2 tabular-nums text-muted-foreground",
           rowHasError && "bg-destructive/[0.06]",
         )}
+        style={showSelection ? { left: SELECT_WIDTH } : undefined}
       >
         {row.row_number}
       </div>
@@ -144,11 +171,25 @@ const VirtualImportRow = React.memo(function VirtualImportRow({
 export type AssetImportGridProps = {
   rows: ImportGridRow[]
   onCellChange: (rowIndex: number, key: string, value: string) => void
+  selectedRowNumbers?: Set<number>
+  onSelectedRowNumbersChange?: (next: Set<number>) => void
   errorsOnly?: boolean
   search?: string
+  /** Fill parent flex area instead of a fixed viewport height. */
+  fillContainer?: boolean
+  className?: string
 }
 
-export function AssetImportGrid({ rows, onCellChange, errorsOnly = false, search = "" }: AssetImportGridProps) {
+export function AssetImportGrid({
+  rows,
+  onCellChange,
+  selectedRowNumbers,
+  onSelectedRowNumbersChange,
+  errorsOnly = false,
+  search = "",
+  fillContainer = false,
+  className,
+}: AssetImportGridProps) {
   const parentRef = React.useRef<HTMLDivElement>(null)
   const deferredRows = React.useDeferredValue(rows)
 
@@ -186,15 +227,58 @@ export function AssetImportGrid({ rows, onCellChange, errorsOnly = false, search
     [onCellChange],
   )
 
+  const showSelection = selectedRowNumbers != null && onSelectedRowNumbersChange != null
+  const visibleRowNumbers = React.useMemo(
+    () => filteredIndices.map((i) => deferredRows[i]?.row_number).filter((n): n is number => n != null),
+    [filteredIndices, deferredRows],
+  )
+  const allVisibleSelected =
+    showSelection &&
+    visibleRowNumbers.length > 0 &&
+    visibleRowNumbers.every((n) => selectedRowNumbers!.has(n))
+
+  function toggleVisibleRows(on: boolean) {
+    if (!onSelectedRowNumbersChange || !selectedRowNumbers) return
+    const next = new Set(selectedRowNumbers)
+    for (const rowNumber of visibleRowNumbers) {
+      if (on) next.add(rowNumber)
+      else next.delete(rowNumber)
+    }
+    onSelectedRowNumbersChange(next)
+  }
+
   return (
-    <div className="rounded-md border border-border/80 bg-card">
+    <div
+      className={cn(
+        "flex min-h-0 flex-col rounded-md border border-border/80 bg-card",
+        fillContainer && "flex-1",
+        className,
+      )}
+    >
       <div
         ref={parentRef}
-        className="h-[min(70vh,720px)] overflow-auto overscroll-contain"
-        style={{ contain: "strict" }}
+        className={cn(
+          "min-h-0 overflow-auto overscroll-contain",
+          fillContainer ? "flex-1" : "h-[min(70vh,720px)]",
+        )}
       >
         <div className="sticky top-0 z-[2] flex w-max min-w-full border-b border-border/60 bg-muted">
-          <div className="sticky left-0 z-[3] flex h-9 w-10 shrink-0 items-center border-r border-border/60 bg-muted px-2 text-xs font-semibold text-muted-foreground">
+          {showSelection ? (
+            <div
+              className="sticky left-0 z-[4] flex h-9 shrink-0 items-center justify-center border-r border-border/60 bg-muted"
+              style={{ width: SELECT_WIDTH }}
+            >
+              <Checkbox
+                checked={allVisibleSelected}
+                onCheckedChange={(on) => toggleVisibleRows(Boolean(on))}
+                aria-label="Select all visible rows"
+              />
+            </div>
+          ) : null}
+          <div
+            className="sticky z-[3] flex h-9 w-10 shrink-0 items-center border-r border-border/60 bg-muted px-2 text-xs font-semibold text-muted-foreground"
+            style={{ left: showSelection ? SELECT_WIDTH : 0 }}
+          >
             #
           </div>
           {ASSET_IMPORT_GRID_COLUMNS.map((col) => (
@@ -227,6 +311,15 @@ export function AssetImportGrid({ rows, onCellChange, errorsOnly = false, search
                 key={row.row_number}
                 row={row}
                 rowIndex={rowIndex}
+                showSelection={showSelection}
+                selected={showSelection ? selectedRowNumbers!.has(row.row_number) : false}
+                onSelectChange={(on) => {
+                  if (!onSelectedRowNumbersChange || !selectedRowNumbers) return
+                  const next = new Set(selectedRowNumbers)
+                  if (on) next.add(row.row_number)
+                  else next.delete(row.row_number)
+                  onSelectedRowNumbersChange(next)
+                }}
                 onCellChange={onCellChangeStable}
                 style={{
                   height: `${virtualRow.size}px`,

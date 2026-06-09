@@ -9,9 +9,147 @@ from sqlalchemy.orm import Session
 
 from modules.assets.import_row_mapper import normalize_import_row
 from modules.assets.model import AssetCategory, AssetMaster
+from modules.asset_masters.model import (
+    ActualLocationMaster,
+    CostCenterMaster,
+    FunctionalLocationMaster,
+)
 from modules.asset_masters.model import TagColorMaster
 from modules.platform.org_units.model import OrgUnit
 from modules.assets.schema import ImportPreviewRow
+
+
+class _LocationMasterLookups:
+    def __init__(self, db: Session) -> None:
+        self.plant_by_code: dict[str, OrgUnit] = {
+            str(p.code).lower(): p
+            for p in db.scalars(select(OrgUnit).where(OrgUnit.type == "PLANT")).all()
+        }
+        self.cost_center_by_plant_code: dict[tuple[int, str], CostCenterMaster] = {
+            (int(cc.plant_id), str(cc.code).lower()): cc
+            for cc in db.scalars(
+                select(CostCenterMaster).where(CostCenterMaster.is_active.is_(True))
+            ).all()
+        }
+        self.functional_by_plant_code: dict[tuple[int, str], FunctionalLocationMaster] = {
+            (int(fl.plant_id), str(fl.code).lower()): fl
+            for fl in db.scalars(
+                select(FunctionalLocationMaster).where(FunctionalLocationMaster.is_active.is_(True))
+            ).all()
+        }
+        self.actual_by_fl_code: dict[tuple[int, str], ActualLocationMaster] = {
+            (int(al.functional_location_id), str(al.code).lower()): al
+            for al in db.scalars(
+                select(ActualLocationMaster).where(ActualLocationMaster.is_active.is_(True))
+            ).all()
+        }
+
+    def resolve_plant(self, plant_code: str) -> OrgUnit | None:
+        if not plant_code:
+            return None
+        return self.plant_by_code.get(plant_code.lower())
+
+    def resolve_cost_center(
+        self, *, plant_id: int | None, code: str
+    ) -> tuple[CostCenterMaster | None, str | None]:
+        key = code.lower()
+        if plant_id is not None:
+            row = self.cost_center_by_plant_code.get((plant_id, key))
+            if row is None:
+                return None, "Cost center not found for this plant."
+            return row, None
+        matches = [cc for (pid, c), cc in self.cost_center_by_plant_code.items() if c == key]
+        if not matches:
+            return None, "Unknown cost center code."
+        if len(matches) > 1:
+            return None, "Cost center exists on multiple plants; specify plant."
+        return matches[0], None
+
+    def resolve_functional_location(
+        self, *, plant_id: int | None, code: str
+    ) -> tuple[FunctionalLocationMaster | None, str | None]:
+        key = code.lower()
+        if plant_id is not None:
+            row = self.functional_by_plant_code.get((plant_id, key))
+            if row is None:
+                return None, "Functional location not found for this plant."
+            return row, None
+        matches = [fl for (pid, c), fl in self.functional_by_plant_code.items() if c == key]
+        if not matches:
+            return None, "Unknown functional location code."
+        if len(matches) > 1:
+            return None, "Functional location exists on multiple plants; specify plant."
+        return matches[0], None
+
+    def resolve_actual_location(
+        self, *, functional_location_id: int, code: str
+    ) -> tuple[ActualLocationMaster | None, str | None]:
+        row = self.actual_by_fl_code.get((functional_location_id, code.lower()))
+        if row is None:
+            return None, "Actual location not found under this functional location."
+        return row, None
+
+
+def _validate_location_masters(
+    lookups: _LocationMasterLookups,
+    field_errors: dict[str, str],
+    *,
+    plant_code: str,
+    cost_center_code: str,
+    functional_location_code: str,
+    actual_location_code: str,
+) -> None:
+    plant = lookups.resolve_plant(plant_code) if plant_code else None
+    if plant_code and plant is None:
+        field_errors["plant_code"] = "Unknown plant code."
+        return
+
+    plant_id = int(plant.id) if plant is not None else None
+    cc_row: CostCenterMaster | None = None
+    fl_row: FunctionalLocationMaster | None = None
+
+    if cost_center_code:
+        cc_row, err = lookups.resolve_cost_center(plant_id=plant_id, code=cost_center_code)
+        if err:
+            field_errors["cost_center"] = err
+        elif cc_row is not None and plant_id is None:
+            plant_id = int(cc_row.plant_id)
+
+    if functional_location_code:
+        fl_row, err = lookups.resolve_functional_location(plant_id=plant_id, code=functional_location_code)
+        if err:
+            field_errors["functional_location"] = err
+        elif fl_row is not None and plant_id is None:
+            plant_id = int(fl_row.plant_id)
+
+    if cc_row and fl_row and int(cc_row.plant_id) != int(fl_row.plant_id):
+        field_errors["functional_location"] = (
+            "Functional location does not belong to the same plant as the cost center."
+        )
+
+    if plant is not None:
+        if cc_row is not None and int(cc_row.plant_id) != int(plant.id):
+            field_errors["cost_center"] = "Cost center does not belong to this plant."
+        if fl_row is not None and int(fl_row.plant_id) != int(plant.id):
+            field_errors["functional_location"] = "Functional location does not belong to this plant."
+
+    if actual_location_code:
+        if not functional_location_code:
+            field_errors["actual_location"] = "Functional location is required when actual location is provided."
+        elif "functional_location" not in field_errors:
+            if fl_row is None:
+                fl_row, err = lookups.resolve_functional_location(
+                    plant_id=plant_id, code=functional_location_code
+                )
+                if err:
+                    field_errors["functional_location"] = err
+            if fl_row is not None:
+                _, err = lookups.resolve_actual_location(
+                    functional_location_id=int(fl_row.id),
+                    code=actual_location_code,
+                )
+                if err:
+                    field_errors["actual_location"] = err
 
 
 def _cell_str(value: Any) -> str:
@@ -22,6 +160,7 @@ def _cell_str(value: Any) -> str:
 
 def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[ImportPreviewRow]:
     """Enrich rows with field_errors, duplicate flags, and valid status."""
+    lookups = _LocationMasterLookups(db)
     codes_in_file: dict[str, list[int]] = {}
     rfids_in_file: dict[str, list[int]] = {}
 
@@ -85,15 +224,18 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
                 field_errors["category_code"] = "Unknown asset category code."
 
         plant_code = _cell_str(row.data.get("plant_code"))
-        if plant_code:
-            plant = db.scalar(
-                select(OrgUnit).where(
-                    func.lower(OrgUnit.code) == plant_code.lower(),
-                    OrgUnit.type == "PLANT",
-                )
+        cost_center_code = _cell_str(row.data.get("cost_center"))
+        functional_location_code = _cell_str(row.data.get("functional_location"))
+        actual_location_code = _cell_str(row.data.get("actual_location"))
+        if plant_code or cost_center_code or functional_location_code or actual_location_code:
+            _validate_location_masters(
+                lookups,
+                field_errors,
+                plant_code=plant_code,
+                cost_center_code=cost_center_code,
+                functional_location_code=functional_location_code,
+                actual_location_code=actual_location_code,
             )
-            if plant is None:
-                field_errors["plant_code"] = "Unknown plant code."
 
         tag_color_code = _cell_str(row.data.get("tag_color_code"))
         if tag_color_code:

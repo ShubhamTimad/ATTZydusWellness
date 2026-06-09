@@ -1,6 +1,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 
+import { AssetExportDialog } from "@/components/assets/asset-export-dialog"
 import { ReportTile, ReportTileSkeleton } from "@/components/reports/report-tile"
 import { ApiError, downloadFile, getJson } from "@/lib/api"
 import type { ReportCatalog, ReportDefinition, ReportFilterValues, ReportFormat } from "@/lib/reports-types"
@@ -9,10 +10,7 @@ function buildInitialFilters(report: ReportDefinition): ReportFilterValues {
   const values: ReportFilterValues = {}
   for (const filter of report.filters) {
     if (filter.key === "fy_status") {
-      values[filter.key] =
-        report.key === "financial_year_verification" || report.key === "asset_register"
-          ? "verified"
-          : "all"
+      values[filter.key] = report.key === "financial_year_verification" ? "verified" : "all"
     } else {
       values[filter.key] = "all"
     }
@@ -44,6 +42,7 @@ export function ReportsPage() {
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [generatingKey, setGeneratingKey] = React.useState<string | null>(null)
+  const [registerOpen, setRegisterOpen] = React.useState(false)
   const [filterState, setFilterState] = React.useState<Record<string, ReportFilterValues>>({})
 
   React.useEffect(() => {
@@ -112,7 +111,7 @@ export function ReportsPage() {
 
       <div className="grid auto-rows-fr items-stretch gap-[var(--app-grid-gap)] md:grid-cols-2">
         {loading
-          ? Array.from({ length: 5 }).map((_, i) => (
+          ? Array.from({ length: 3 }).map((_, i) => (
               <ReportTileSkeleton key={i} span={i === 0 ? "full" : "half"} />
             ))
           : null}
@@ -125,6 +124,7 @@ export function ReportsPage() {
                 filters={filterState[report.key] ?? buildInitialFilters(report)}
                 onFilterChange={(key, value) => updateFilter(report.key, key, value)}
                 onGenerate={(format) => void handleGenerate(report, format)}
+                onOpenRegister={report.key === "asset_register" ? () => setRegisterOpen(true) : undefined}
                 generatingKey={generatingKey}
               />
             ))
@@ -137,6 +137,8 @@ export function ReportsPage() {
           {catalog.plants.length === 1 ? "" : "s"} available for filtering
         </p>
       ) : null}
+
+      <AssetExportDialog variant="register" open={registerOpen} onOpenChange={setRegisterOpen} />
     </div>
   )
 }

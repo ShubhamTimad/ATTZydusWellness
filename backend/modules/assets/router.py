@@ -14,9 +14,14 @@ from modules.assets.schema import (
     AssetCategoryPublic,
     AssetCreateRequest,
     AssetDetailPublic,
+    AssetExportFieldsResponse,
+    AssetExportFieldPublic,
     AssetListResponse,
     AssetUpdateRequest,
     FinancialYearListResponse,
+    ImportCancelBatchResponse,
+    ImportConfirmChunkRequest,
+    ImportConfirmChunkResponse,
     ImportConfirmRequest,
     ImportConfirmResponse,
     ImportPreviewResponse,
@@ -99,6 +104,63 @@ def list_assets(
         fy_scan_to=fy_scan_to,
         sort_by=sort_by,
         sort_dir=sort_dir,
+    )
+
+
+@router.get("/export/fields", response_model=AssetExportFieldsResponse)
+def list_export_fields(
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+) -> AssetExportFieldsResponse:
+    from modules.assets.field_definitions import ASSET_EXPORT_FIELDS, ASSET_EXPORT_FIELD_LABELS
+
+    return AssetExportFieldsResponse(
+        fields=[
+            AssetExportFieldPublic(key=key, label=ASSET_EXPORT_FIELD_LABELS.get(key, key))
+            for key in ASSET_EXPORT_FIELDS
+        ]
+    )
+
+
+@router.get("/export")
+def export_assets(
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+    fields: list[str] = Query(..., min_length=1),
+    plant_id: int | None = Query(None),
+    category_id: int | None = Query(None),
+    cost_center: str | None = Query(None),
+    functional_location: str | None = Query(None),
+    actual_location: str | None = Query(None),
+    fy_verification: str | None = Query(None),
+    fy_start_year: int | None = Query(None, ge=2000, le=2100),
+    fy_scan_from: date | None = Query(None),
+    fy_scan_to: date | None = Query(None),
+    asset_ids: list[int] | None = Query(None),
+    sort_by: str = Query("asset_code"),
+    sort_dir: str = Query("asc"),
+) -> Response:
+    try:
+        content, filename, media_type = svc.export_assets(
+            fields=fields,
+            plant_id=plant_id,
+            category_id=category_id,
+            cost_center=cost_center,
+            functional_location=functional_location,
+            actual_location=actual_location,
+            fy_verification=fy_verification,
+            fy_start_year=fy_start_year,
+            fy_scan_from=fy_scan_from,
+            fy_scan_to=fy_scan_to,
+            asset_ids=asset_ids,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+        )
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -285,6 +347,41 @@ def import_confirm(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=exc.preview.model_dump(mode="json"),
         ) from exc
+
+
+@router.post("/import/confirm-chunk", response_model=ImportConfirmChunkResponse)
+def import_confirm_chunk(
+    body: ImportConfirmChunkRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.import"))],
+) -> ImportConfirmChunkResponse:
+    try:
+        return svc.confirm_import_chunk(body, actor_user_id=int(current.subject))
+    except ImportValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.preview.model_dump(mode="json"),
+        ) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/import/cancel-batch/{batch_id}", response_model=ImportCancelBatchResponse)
+def cancel_import_batch(
+    batch_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.import"))],
+) -> ImportCancelBatchResponse:
+    try:
+        return svc.cancel_import_batch(batch_id, actor_user_id=int(current.subject))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 def _rfid_error_response(exc: DuplicateRfidError | InvalidRfidError) -> HTTPException:
     if isinstance(exc, DuplicateRfidError):

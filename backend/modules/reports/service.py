@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from modules.assets.lifecycle import LIFECYCLE_ACTIVE
 from modules.assets.model import (
-    AssetInventoryInformation,
+    AssetCategory,
     AssetLocationInformation,
     AssetMaster,
 )
@@ -22,7 +22,7 @@ from modules.orders.constants import (
     ORDER_STATUS_PENDING_CLOSURE,
     ORDER_STATUS_REJECTED,
 )
-from modules.orders.model import PhysicalOrder, PhysicalOrderItem
+from modules.orders.model import PhysicalOrder
 from modules.platform.org_units.model import OrgUnit
 from modules.assets.fy_verification import resolve_verification_window, verified_asset_ids_in_window
 from modules.platform.settings.financial_year import financial_year_period_for
@@ -59,6 +59,15 @@ class ReportService:
         ).all()
         return [{"id": int(rid), "name": str(name), "code": str(code)} for rid, name, code in rows]
 
+    def list_categories(self) -> list[AssetCategory]:
+        return list(
+            self._db.scalars(
+                select(AssetCategory)
+                .where(AssetCategory.is_active.is_(True))
+                .order_by(AssetCategory.name.asc())
+            ).all()
+        )
+
     def build(
         self,
         report_key: str,
@@ -67,16 +76,10 @@ class ReportService:
         status: str | None = None,
         fy_status: str | None = None,
     ) -> ReportDocument:
-        if report_key == "asset_register":
-            return self._asset_register(plant_id=plant_id, fy_status=fy_status)
         if report_key == "financial_year_verification":
             return self._financial_year_verification(plant_id=plant_id, fy_status=fy_status)
         if report_key == "physical_orders_summary":
             return self._physical_orders_summary(plant_id=plant_id, status=status)
-        if report_key == "physical_order_details":
-            return self._physical_order_details(plant_id=plant_id, status=status)
-        if report_key == "inventory_mismatch":
-            return self._inventory_mismatch(plant_id=plant_id)
         raise ValueError(f"Unknown report: {report_key}")
 
     def _asset_base_query(self, *, plant_id: int | None):
@@ -94,73 +97,6 @@ class ReportService:
         if plant_id is not None:
             base = base.join(AssetLocationInformation).where(AssetLocationInformation.plant_id == plant_id)
         return base
-
-    def _asset_register(self, *, plant_id: int | None, fy_status: str | None = None) -> ReportDocument:
-        normalized_fy = (fy_status or "all").strip().lower()
-        if normalized_fy not in FY_STATUS_OPTIONS:
-            normalized_fy = "all"
-
-        period = financial_year_period_for()
-        window = resolve_verification_window(period)
-        verified_ids: set[int] | None = None
-        if normalized_fy != "all":
-            verified_ids = verified_asset_ids_in_window(self._db, window, plant_id=plant_id)
-
-        rows = self._db.scalars(self._asset_base_query(plant_id=plant_id)).unique().all()
-        headers = [
-            "Asset code",
-            "Asset name",
-            "Category",
-            "Plant",
-            "RFID code",
-            "Lifecycle",
-            "Approval",
-            "Cost center",
-            "Sub location",
-            "Inventory count",
-            "Physical count",
-            "Last verification",
-        ]
-        data = []
-        for asset in rows:
-            if verified_ids is not None:
-                verified = int(asset.id) in verified_ids
-                if normalized_fy == "verified" and not verified:
-                    continue
-                if normalized_fy == "pending" and verified:
-                    continue
-            loc = asset.location
-            fin = asset.financial
-            inv = asset.inventory
-            data.append(
-                [
-                    asset.asset_code,
-                    asset.asset_name,
-                    asset.category.name if asset.category else "",
-                    loc.plant.name if loc and loc.plant else "",
-                    asset.rfid_code or "",
-                    _status_label(asset.lifecycle_status),
-                    _status_label(asset.approval_status),
-                    fin.cost_center if fin and fin.cost_center else "",
-                    loc.sub_location if loc and loc.sub_location else "",
-                    str(inv.inventory_count) if inv and inv.inventory_count is not None else "",
-                    str(inv.physical_count) if inv and inv.physical_count is not None else "",
-                    _fmt_date(inv.last_verification_date if inv else None),
-                ]
-            )
-        scope_label = {
-            "verified": "Physically verified only",
-            "pending": "Pending verification only",
-            "all": "All assets",
-        }[normalized_fy]
-        return ReportDocument(
-            title="Asset register",
-            subtitle=(
-                f"{scope_label} · Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · {len(data)} assets"
-            ),
-            headers=headers,
-            rows=data,
-        )
 
     def _financial_year_verification(self, *, plant_id: int | None, fy_status: str | None) -> ReportDocument:
         period = financial_year_period_for()
@@ -271,106 +207,8 @@ class ReportService:
                 ]
             )
         return ReportDocument(
-            title="Physical orders summary",
+            title="Physical orders",
             subtitle=f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · {len(data)} orders",
-            headers=headers,
-            rows=data,
-        )
-
-    def _physical_order_details(self, *, plant_id: int | None, status: str | None) -> ReportDocument:
-        rows = self._db.scalars(
-            self._orders_base_query(plant_id=plant_id, status=status).options(
-                selectinload(PhysicalOrder.items).selectinload(PhysicalOrderItem.asset)
-            )
-        ).all()
-        headers = [
-            "Order number",
-            "Plant",
-            "Order status",
-            "Asset code",
-            "Asset name",
-            "RFID code",
-            "Verification status",
-            "Scan time",
-            "Rejection reason",
-        ]
-        data = []
-        for order in rows:
-            plant_name = order.plant.name if order.plant else ""
-            order_status = _status_label(order.status)
-            for item in order.items:
-                asset = item.asset
-                data.append(
-                    [
-                        order.order_number,
-                        plant_name,
-                        order_status,
-                        asset.asset_code if asset else "",
-                        asset.asset_name if asset else "",
-                        asset.rfid_code if asset and asset.rfid_code else "",
-                        _status_label(item.verification_status),
-                        _fmt_dt(item.scan_time),
-                        item.rejection_reason or "",
-                    ]
-                )
-        return ReportDocument(
-            title="Physical order details",
-            subtitle=f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · {len(data)} line items",
-            headers=headers,
-            rows=data,
-        )
-
-    def _inventory_mismatch(self, *, plant_id: int | None) -> ReportDocument:
-        base = (
-            select(AssetMaster)
-            .join(AssetInventoryInformation, AssetInventoryInformation.asset_id == AssetMaster.id)
-            .where(
-                AssetMaster.deleted_at.is_(None),
-                AssetInventoryInformation.inventory_count.isnot(None),
-                AssetInventoryInformation.physical_count.isnot(None),
-                AssetInventoryInformation.inventory_count != AssetInventoryInformation.physical_count,
-            )
-            .options(
-                selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
-                selectinload(AssetMaster.inventory),
-            )
-            .order_by(AssetMaster.asset_code.asc())
-        )
-        if plant_id is not None:
-            base = base.join(
-                AssetLocationInformation,
-                AssetLocationInformation.asset_id == AssetMaster.id,
-            ).where(AssetLocationInformation.plant_id == plant_id)
-
-        rows = self._db.scalars(base).unique().all()
-        headers = [
-            "Asset code",
-            "Asset name",
-            "Plant",
-            "Inventory count",
-            "Physical count",
-            "Difference",
-        ]
-        data = []
-        for asset in rows:
-            inv = asset.inventory
-            loc = asset.location
-            if not inv or inv.inventory_count is None or inv.physical_count is None:
-                continue
-            diff = int(inv.physical_count) - int(inv.inventory_count)
-            data.append(
-                [
-                    asset.asset_code,
-                    asset.asset_name,
-                    loc.plant.name if loc and loc.plant else "",
-                    str(inv.inventory_count),
-                    str(inv.physical_count),
-                    str(diff),
-                ]
-            )
-        return ReportDocument(
-            title="Inventory mismatch",
-            subtitle=f"Generated {datetime.now().strftime('%Y-%m-%d %H:%M')} · {len(data)} assets",
             headers=headers,
             rows=data,
         )

@@ -293,3 +293,42 @@ class ImportConfirmResponse(BaseModel):
     created_count: int
     pending_approval: bool
     errors: list[str] = Field(default_factory=list)
+
+
+class ImportConfirmChunkRequest(BaseModel):
+    rows: list[dict[str, Any]] = Field(min_length=1)
+    filename: str | None = None
+    batch_id: int | None = None
+    chunk_index: int = Field(ge=0)
+    total_chunks: int = Field(ge=1)
+    total_rows: int = Field(ge=1)
+    processed_rows: int = Field(ge=0)
+    is_final_chunk: bool = False
+    initiate_approval: bool = False
+
+
+class ImportConfirmChunkResponse(BaseModel):
+    batch_id: int
+    chunk_created_count: int
+    chunk_error_count: int
+    total_created_count: int
+    processed_rows: int
+    total_rows: int
+    percent: float
+    errors: list[str] = Field(default_factory=list)
+    is_complete: bool
+    pending_approval: bool = False
+
+
+class ImportCancelBatchResponse(BaseModel):
+    batch_id: int
+    assets_removed: int
+
+
+class AssetExportFieldPublic(BaseModel):
+    key: str
+    label: str
+
+
+class AssetExportFieldsResponse(BaseModel):
+    fields: list[AssetExportFieldPublic]

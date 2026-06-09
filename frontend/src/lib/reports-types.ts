@@ -15,6 +15,7 @@ export type ReportDefinition = {
   title: string
   description: string
   filters: ReportFilter[]
+  formats?: ReportFormat[]
 }
 
 export type ReportCatalog = {

@@ -1,6 +1,16 @@
 import * as React from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
-import { Plus, ScanLine, Search, SlidersHorizontal, Upload, X, FileSpreadsheet, FileText } from "lucide-react"
+import {
+  Download,
+  Plus,
+  ScanLine,
+  Search,
+  SlidersHorizontal,
+  Upload,
+  X,
+  FileSpreadsheet,
+  FileText,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
@@ -36,12 +46,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
+import { AssetExportDialog } from "@/components/assets/asset-export-dialog"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
 import { ApiError, deleteJson, downloadFile, getJson, postJson } from "@/lib/api"
 import {
   buildAssetListActionItems,
   countRfidTaggedSelected,
-  countSubmittableSelected,
   selectedAssetsFromList,
 } from "@/lib/asset-actions"
 import type {
@@ -49,10 +59,9 @@ import type {
   AssetRfidAttachResult,
   FinancialYearListResponse,
   FinancialYearOption,
-  SubmitForApprovalResult,
 } from "@/lib/assets-types"
 import { categoryLabel, plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
-import { assetStatusLabel, assetStatusPillTone, canSubmitForApproval } from "@/lib/asset-lifecycle"
+import { assetStatusLabel, assetStatusPillTone } from "@/lib/asset-lifecycle"
 import { hasPermission } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
 import { orderStatusLabel } from "@/lib/orders-types"
@@ -73,6 +82,7 @@ export type AssetListFilters = {
   fy_scan_to: string
   sort_by: string
   sort_dir: string
+  source_type: string
 }
 
 const DEFAULT_FILTERS: AssetListFilters = {
@@ -86,6 +96,7 @@ const DEFAULT_FILTERS: AssetListFilters = {
   fy_scan_to: "",
   sort_by: "created_at",
   sort_dir: "desc",
+  source_type: "",
 }
 
 const DEFAULT_FY_FILTERS: AssetListFilters = {
@@ -213,18 +224,18 @@ export function AssetsListPage() {
   const [fyExportBusy, setFyExportBusy] = React.useState<"xlsx" | "pdf" | null>(null)
   const [fyYearOptions, setFyYearOptions] = React.useState<FinancialYearOption[]>([])
   const [currentFyStartYear, setCurrentFyStartYear] = React.useState<number | null>(null)
+  const [exportOpen, setExportOpen] = React.useState(false)
 
   const filterPlantId = draftFilters.plant_id ? Number(draftFilters.plant_id) : null
   const masters = useAssetMasterLookups(filterPlantId, null, null)
 
   const canCreate = hasPermission("asset.create")
   const canImport = hasPermission("asset.import")
-  const canSubmitApproval = hasPermission("asset.create")
   const canDelete = hasPermission("asset.delete") || hasPermission("asset.manage")
   const canCreateOrder = hasPermission("order.create")
   const canAttachRfid = hasPermission("asset.update") || hasPermission("asset.manage")
-  const showAttachRfid = canAttachRfid && listTab !== "fy"
   const isFyTab = listTab === "fy"
+  const showAttachRfid = canAttachRfid && !isFyTab
   const selectedFyStartYear =
     filters.fy_start_year || (currentFyStartYear != null ? String(currentFyStartYear) : "")
   const selectedFyOption = fyYearOptions.find((o) => String(o.start_year) === selectedFyStartYear)
@@ -371,10 +382,6 @@ export function AssetsListPage() {
     () => selectedAssetsFromList(items, selected),
     [items, selected],
   )
-  const submittableCount = React.useMemo(
-    () => countSubmittableSelected(selectedRows, canSubmitApproval),
-    [selectedRows, canSubmitApproval],
-  )
   const rfidTaggedCount = React.useMemo(
     () => countRfidTaggedSelected(selectedRows),
     [selectedRows],
@@ -383,22 +390,12 @@ export function AssetsListPage() {
     () =>
       buildAssetListActionItems({
         selectedCount: selected.size,
-        submittableCount,
         rfidTaggedCount,
-        canSubmitApproval,
         canDelete,
         canAttachRfid: showAttachRfid,
         canCreateOrder,
       }),
-    [
-      selected.size,
-      submittableCount,
-      rfidTaggedCount,
-      canSubmitApproval,
-      canDelete,
-      showAttachRfid,
-      canCreateOrder,
-    ],
+    [selected.size, rfidTaggedCount, canDelete, showAttachRfid, canCreateOrder],
   )
 
   const attachRfidRow = selectedRows.length === 1 ? selectedRows[0] : null
@@ -481,38 +478,6 @@ export function AssetsListPage() {
       toast.error(e instanceof ApiError ? e.message : "Failed to attach RFID.")
     } finally {
       setRfidSaving(false)
-    }
-  }
-
-  async function submitSelectedForApproval() {
-    const ids = selectedRows
-      .filter((row) => canSubmitForApproval(row.lifecycle_status, row.approval_status))
-      .map((r) => r.id)
-    if (ids.length === 0) {
-      toast.error("No selected assets can be submitted for approval.")
-      return
-    }
-    setBulkActionBusy(true)
-    try {
-      const res = await postJson<SubmitForApprovalResult>("/admin/assets/submit-for-approval", {
-        asset_ids: ids,
-      })
-      if (res.submitted_count > 0) {
-        toast.success(
-          `${res.submitted_count} asset(s) submitted for approval.${res.activated_count > 0 ? ` ${res.activated_count} activated (no workflow).` : ""}`,
-        )
-      } else if (res.activated_count > 0) {
-        toast.success(`${res.activated_count} asset(s) activated (no approval workflow configured).`)
-      }
-      if (res.errors.length > 0) {
-        toast.error(res.errors.slice(0, 2).join(" "))
-      }
-      setSelected(new Set())
-      await load()
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Submit for approval failed.")
-    } finally {
-      setBulkActionBusy(false)
     }
   }
 
@@ -624,10 +589,6 @@ export function AssetsListPage() {
       void beginCreatePhysicalOrder()
       return
     }
-    if (actionId === "submit-for-approval") {
-      void submitSelectedForApproval()
-      return
-    }
     if (actionId === "open") {
       const id = selectedRows[0]?.id
       if (id != null) navigate(String(id))
@@ -648,6 +609,16 @@ export function AssetsListPage() {
 
   const actionButtons = (
     <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={listToolbarBtnClass}
+        onClick={() => setExportOpen(true)}
+      >
+        <Download className="size-4" aria-hidden />
+        Export
+      </Button>
       {canImport ? (
         <Button variant="outline" size="sm" className={listToolbarBtnClass} asChild>
           <Link to="/dashboard/assets/import">
@@ -673,7 +644,7 @@ export function AssetsListPage() {
         <div className="shrink-0 space-y-[var(--app-grid-gap)]">
           <ListPageHeader
             className="shrink-0"
-            title="Assets"
+            title={isFyTab ? "Financial year physical verification" : "Assets"}
             description={
               isFyTab
                 ? "Filter RFID scans by financial year and date range. View verified asset totals and export reports."
@@ -691,8 +662,18 @@ export function AssetsListPage() {
                 setFilters((f) => ({ ...DEFAULT_FY_FILTERS, plant_id: f.plant_id, category_id: f.category_id }))
                 setDraftFilters((f) => ({ ...DEFAULT_FY_FILTERS, plant_id: f.plant_id, category_id: f.category_id }))
               } else {
-                setFilters((f) => ({ ...DEFAULT_FILTERS, plant_id: f.plant_id, category_id: f.category_id, rfid_status: f.rfid_status }))
-                setDraftFilters((f) => ({ ...DEFAULT_FILTERS, plant_id: f.plant_id, category_id: f.category_id, rfid_status: f.rfid_status }))
+                setFilters((f) => ({
+                  ...DEFAULT_FILTERS,
+                  plant_id: f.plant_id,
+                  category_id: f.category_id,
+                  rfid_status: f.rfid_status,
+                }))
+                setDraftFilters((f) => ({
+                  ...DEFAULT_FILTERS,
+                  plant_id: f.plant_id,
+                  category_id: f.category_id,
+                  rfid_status: f.rfid_status,
+                }))
               }
               setPage(1)
               setSelected(new Set())
@@ -1483,6 +1464,21 @@ export function AssetsListPage() {
           setSelected(new Set())
           navigate(`/dashboard/orders/${order.id}`)
         }}
+      />
+
+      <AssetExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        listTab={listTab}
+        fySubTab={fySubTab}
+        initialPlantId={filters.plant_id}
+        initialCategoryId={filters.category_id}
+        initialFyStartYear={selectedFyStartYear}
+        scanFrom={effectiveScanFrom}
+        scanTo={effectiveScanTo}
+        selectedAssetIds={[...selected]}
+        fyYearOptions={fyYearOptions}
+        currentFyStartYear={currentFyStartYear}
       />
     </AdminPage>
   )

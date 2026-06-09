@@ -1,7 +1,6 @@
 import type { LucideIcon } from "lucide-react"
 import type { AssetListItem } from "@/lib/assets-types"
-import { canSubmitForApproval } from "@/lib/asset-lifecycle"
-import { ClipboardList, ExternalLink, Pencil, Send, Trash2, X, ScanLine } from "lucide-react"
+import { ClipboardList, ExternalLink, Pencil, Trash2, X, ScanLine } from "lucide-react"
 
 export type AssetActionItem = {
   id: string
@@ -19,34 +18,20 @@ export function selectedAssetsFromList(
   return items.filter((row) => selected.has(row.id))
 }
 
-export function countSubmittableSelected(
-  rows: AssetListItem[],
-  canSubmit: boolean,
-): number {
-  if (!canSubmit) return 0
-  return rows.filter((row) =>
-    canSubmitForApproval(row.lifecycle_status, row.approval_status),
-  ).length
-}
-
 export function countRfidTaggedSelected(rows: { rfid_code?: string | null }[]): number {
   return rows.filter((r) => (r.rfid_code || "").trim().length > 0).length
 }
 
 export function buildAssetListActionItems(opts: {
   selectedCount: number
-  submittableCount: number
   rfidTaggedCount?: number
-  canSubmitApproval: boolean
   canDelete: boolean
   canAttachRfid?: boolean
   canCreateOrder?: boolean
 }): AssetActionItem[] {
   const {
     selectedCount,
-    submittableCount,
     rfidTaggedCount = 0,
-    canSubmitApproval,
     canDelete,
     canAttachRfid,
     canCreateOrder,
@@ -75,19 +60,6 @@ export function buildAssetListActionItems(opts: {
       hint: rfidHint,
       disabled: selectedCount === 0 || rfidTaggedCount === 0,
       icon: ClipboardList,
-    })
-  }
-
-  if (canSubmitApproval) {
-    actions.push({
-      id: "submit-for-approval",
-      label: "Submit for approval",
-      hint:
-        submittableCount > 0
-          ? `${submittableCount} of ${selectedCount} selected`
-          : "No selected assets are eligible",
-      disabled: submittableCount === 0,
-      icon: Send,
     })
   }
 
@@ -120,24 +92,12 @@ export function buildAssetListActionItems(opts: {
 }
 
 export function buildAssetDetailActionItems(opts: {
-  canSubmitApproval: boolean
-  canSubmit: boolean
   canUpdate: boolean
   canEdit: boolean
   editing: boolean
 }): AssetActionItem[] {
-  const { canSubmitApproval, canSubmit, canUpdate, canEdit, editing } = opts
+  const { canUpdate, canEdit, editing } = opts
   const actions: AssetActionItem[] = []
-
-  if (canSubmitApproval) {
-    actions.push({
-      id: "submit-for-approval",
-      label: "Submit for approval",
-      hint: canSubmit ? undefined : "Not available for this status",
-      disabled: !canSubmit || editing,
-      icon: Send,
-    })
-  }
 
   if (canUpdate) {
     actions.push({
@@ -146,7 +106,6 @@ export function buildAssetDetailActionItems(opts: {
       icon: ScanLine,
     })
   }
-
 
   if (canUpdate) {
     actions.push({
@@ -157,8 +116,6 @@ export function buildAssetDetailActionItems(opts: {
       icon: Pencil,
     })
   }
-
-
 
   return actions
 }

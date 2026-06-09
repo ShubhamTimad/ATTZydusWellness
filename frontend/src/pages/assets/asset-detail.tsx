@@ -17,12 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
-import type {
-  AssetAuditEvent,
-  AssetDetail,
-  AssetRfidAttachResult,
-  SubmitForApprovalResult,
-} from "@/lib/assets-types"
+import type { AssetAuditEvent, AssetDetail, AssetRfidAttachResult } from "@/lib/assets-types"
 import {
   ASSET_VIEW_SECTIONS,
   type AssetViewSectionConfig,
@@ -37,7 +32,7 @@ import {
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { buildAssetDetailActionItems } from "@/lib/asset-actions"
-import { assetStatusLabel, canSubmitForApproval } from "@/lib/asset-lifecycle"
+import { assetStatusLabel } from "@/lib/asset-lifecycle"
 import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
@@ -133,7 +128,6 @@ export function AssetDetailPage() {
   const [loading, setLoading] = React.useState(true)
   const [editing, setEditing] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
-  const [submittingApproval, setSubmittingApproval] = React.useState(false)
   const [auditRows, setAuditRows] = React.useState<AuditLogRow[]>([])
   const [auditLoading, setAuditLoading] = React.useState(false)
 
@@ -143,7 +137,6 @@ export function AssetDetailPage() {
   const [rfidSaving, setRfidSaving] = React.useState(false)
 
   const canUpdate = hasPermission("asset.update") || hasPermission("asset.manage")
-  const canSubmitApproval = hasPermission("asset.create")
 
   const load = React.useCallback(async () => {
     if (!id) return
@@ -193,29 +186,6 @@ export function AssetDetailPage() {
   React.useEffect(() => {
     if (asset?.id) void loadAudit(asset.id)
   }, [asset?.id, loadAudit])
-
-  async function submitForApproval() {
-    if (!asset) return
-    setSubmittingApproval(true)
-    try {
-      const res = await postJson<SubmitForApprovalResult>(
-        `/admin/assets/${asset.id}/submit-for-approval`,
-        {},
-      )
-      if (res.errors.length > 0) {
-        toast.error(res.errors[0] ?? "Could not submit for approval.")
-      } else if (res.activated_count > 0) {
-        toast.success("No approval workflow is configured — asset is now active.")
-      } else {
-        toast.success("Submitted for approval. Approvers will see it in My tasks.")
-      }
-      await load()
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Submit for approval failed.")
-    } finally {
-      setSubmittingApproval(false)
-    }
-  }
 
   async function save() {
     if (!asset) return
@@ -435,27 +405,17 @@ export function AssetDetailPage() {
   }
 
   const canEdit = Boolean(asset && asset.approval_status !== "pending")
-  const canSubmit = Boolean(
-    asset && canSubmitForApproval(asset.lifecycle_status, asset.approval_status),
-  )
   const detailActions = React.useMemo(
     () =>
       buildAssetDetailActionItems({
-        canSubmitApproval,
-        canSubmit,
         canUpdate,
         canEdit,
         editing,
       }),
-    [canSubmitApproval, canSubmit, canUpdate, canEdit, editing],
+    [canUpdate, canEdit, editing],
   )
 
   function handleDetailAction(actionId: string) {
-    if (actionId === "submit-for-approval") {
-      void submitForApproval()
-      return
-    }
-
     if (actionId === "update-rfid") {
       setRfidValue(asset?.rfid_code ?? "")
       setRfidTagColorId(asset?.tag_color_id != null ? String(asset.tag_color_id) : "")
@@ -474,7 +434,7 @@ export function AssetDetailPage() {
       {asset && detailActions.length > 0 ? (
         <AssetActionsMenu
           actions={detailActions}
-          busy={submittingApproval || saving}
+          busy={saving}
           onAction={handleDetailAction}
         />
       ) : null}
@@ -514,7 +474,7 @@ export function AssetDetailPage() {
             <AlertTitle>Asset not found</AlertTitle>
             <AlertDescription>
               <Link to="/dashboard/assets" className="text-primary underline-offset-2 hover:underline">
-                Return to the asset list
+                Return to assets
               </Link>
             </AlertDescription>
           </Alert>

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -25,7 +25,7 @@ from modules.assets.lifecycle import (
     is_awaiting_approval,
     set_asset_active_immediate,
     set_asset_approved_active,
-    set_asset_inactive_draft,
+    set_asset_active_immediate,
     set_asset_pending_approval,
     set_asset_rejected_inactive,
 )
@@ -88,8 +88,12 @@ from modules.assets.schema import (
     FinancialYearOptionPublic,
     AssetLocationPayload,
     AssetUpdateRequest,
+    ImportCancelBatchResponse,
+    ImportConfirmChunkRequest,
+    ImportConfirmChunkResponse,
     ImportConfirmRequest,
     ImportConfirmResponse,
+    ImportPreviewRow,
     ImportPreviewResponse,
     SubmitForApprovalResponse,
 )
@@ -452,7 +456,7 @@ class AssetMasterService:
             source_type="manual",
             created_by=actor_user_id,
         )
-        set_asset_inactive_draft(asset)
+        set_asset_active_immediate(asset)
         self._db.add(asset)
         self._db.flush()
 
@@ -536,26 +540,17 @@ class AssetMasterService:
 
         return cc_desc, fl_desc, al_desc
 
-    def list_assets(
+    def _asset_list_context(
         self,
         *,
-        page: int = 1,
-        page_size: int = 25,
         search: str | None = None,
         plant_id: int | None = None,
         category_id: int | None = None,
-        lifecycle_status: str | None = None,
-        approval_status: str | None = None,
-        rfid_status: str | None = None,
         fy_verification: str | None = None,
         fy_start_year: int | None = None,
         fy_scan_from: date | None = None,
         fy_scan_to: date | None = None,
-        sort_by: str = "created_at",
-        sort_dir: str = "desc",
-    ) -> AssetListResponse:
-        page = max(1, page)
-        page_size = min(max(1, page_size), 100)
+    ) -> tuple[str, Any, VerificationWindow | None, dict[str, int] | None, set[int] | None]:
         fy_mode = (fy_verification or "").strip().lower()
         current_period = financial_year_period_for()
         fy_period = (
@@ -584,16 +579,37 @@ class AssetMasterService:
                 category_id=category_id,
                 search=search,
             )
-        base = (
-            select(AssetMaster)
-            .where(AssetMaster.deleted_at.is_(None))
-            .options(
-                selectinload(AssetMaster.category),
-                selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
-                selectinload(AssetMaster.financial),
-                selectinload(AssetMaster.inventory),
-            )
+        return fy_mode, current_period, scan_window, fy_summary, verified_ids
+
+    def _asset_list_base_query(
+        self,
+        *,
+        search: str | None = None,
+        plant_id: int | None = None,
+        category_id: int | None = None,
+        lifecycle_status: str | None = None,
+        approval_status: str | None = None,
+        rfid_status: str | None = None,
+        fy_verification: str | None = None,
+        fy_start_year: int | None = None,
+        fy_scan_from: date | None = None,
+        fy_scan_to: date | None = None,
+        source_type: str | None = None,
+        cost_center: str | None = None,
+        functional_location: str | None = None,
+        actual_location: str | None = None,
+        asset_ids: list[int] | None = None,
+    ) -> tuple[Any, str, VerificationWindow | None, dict[str, int] | None, set[int] | None, int | None, int | None]:
+        fy_mode, _current_period, scan_window, fy_summary, verified_ids = self._asset_list_context(
+            search=search,
+            plant_id=plant_id,
+            category_id=category_id,
+            fy_verification=fy_verification,
+            fy_start_year=fy_start_year,
+            fy_scan_from=fy_scan_from,
+            fy_scan_to=fy_scan_to,
         )
+        base = select(AssetMaster).where(AssetMaster.deleted_at.is_(None))
         if search:
             q = f"%{search.strip()}%"
             base = base.where(
@@ -609,8 +625,6 @@ class AssetMasterService:
         if lifecycle_status:
             ls = lifecycle_status.strip().lower()
             if ls == LIFECYCLE_INACTIVE:
-                from modules.assets.lifecycle import LIFECYCLE_PENDING_LEGACY
-
                 base = base.where(
                     AssetMaster.lifecycle_status.in_((LIFECYCLE_INACTIVE, LIFECYCLE_PENDING_LEGACY))
                 )
@@ -618,8 +632,41 @@ class AssetMasterService:
                 base = base.where(AssetMaster.lifecycle_status == lifecycle_status)
         if approval_status:
             base = base.where(AssetMaster.approval_status == approval_status)
+        if source_type:
+            base = base.where(AssetMaster.source_type == source_type.strip().lower())
+        if asset_ids:
+            base = base.where(AssetMaster.id.in_(asset_ids))
+
+        location_joined = False
+        financial_joined = False
+
+        def _ensure_location_join() -> None:
+            nonlocal base, location_joined
+            if not location_joined:
+                base = base.join(AssetLocationInformation)
+                location_joined = True
+
+        def _ensure_financial_join() -> None:
+            nonlocal base, financial_joined
+            if not financial_joined:
+                base = base.join(AssetFinancialInformation)
+                financial_joined = True
+
         if plant_id is not None:
-            base = base.join(AssetLocationInformation).where(AssetLocationInformation.plant_id == plant_id)
+            _ensure_location_join()
+            base = base.where(AssetLocationInformation.plant_id == plant_id)
+        cc_filter = (cost_center or "").strip()
+        if cc_filter:
+            _ensure_financial_join()
+            base = base.where(AssetFinancialInformation.cost_center == cc_filter)
+        fl_filter = (functional_location or "").strip()
+        if fl_filter:
+            _ensure_location_join()
+            base = base.where(AssetLocationInformation.functional_location == fl_filter)
+        al_filter = (actual_location or "").strip()
+        if al_filter:
+            _ensure_location_join()
+            base = base.where(AssetLocationInformation.actual_location == al_filter)
 
         rfid_summary_tagged: int | None = None
         rfid_summary_not_tagged: int | None = None
@@ -658,6 +705,70 @@ class AssetMasterService:
             elif fy_mode == "pending":
                 if verified_ids:
                     base = base.where(AssetMaster.id.not_in(verified_ids))
+
+        return (
+            base,
+            fy_mode,
+            scan_window,
+            fy_summary,
+            verified_ids,
+            rfid_summary_tagged,
+            rfid_summary_not_tagged,
+        )
+
+    def list_assets(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 25,
+        search: str | None = None,
+        plant_id: int | None = None,
+        category_id: int | None = None,
+        lifecycle_status: str | None = None,
+        approval_status: str | None = None,
+        rfid_status: str | None = None,
+        fy_verification: str | None = None,
+        fy_start_year: int | None = None,
+        fy_scan_from: date | None = None,
+        fy_scan_to: date | None = None,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
+    ) -> AssetListResponse:
+        page = max(1, page)
+        page_size = min(max(1, page_size), 100)
+        (
+            base,
+            _fy_mode,
+            scan_window,
+            fy_summary,
+            verified_ids,
+            rfid_summary_tagged,
+            rfid_summary_not_tagged,
+        ) = self._asset_list_base_query(
+            search=search,
+            plant_id=plant_id,
+            category_id=category_id,
+            lifecycle_status=lifecycle_status,
+            approval_status=approval_status,
+            rfid_status=rfid_status,
+            fy_verification=fy_verification,
+            fy_start_year=fy_start_year,
+            fy_scan_from=fy_scan_from,
+            fy_scan_to=fy_scan_to,
+        )
+        current_period = financial_year_period_for()
+        fy_mode = (fy_verification or "").strip().lower()
+        fy_period = (
+            resolve_financial_year_period(fy_start_year)
+            if fy_mode in {"verified", "pending", "all"}
+            else None
+        )
+        base = base.options(
+            selectinload(AssetMaster.category),
+            selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
+            selectinload(AssetMaster.financial),
+            selectinload(AssetMaster.inventory),
+        )
 
         count_stmt = select(func.count()).select_from(base.subquery())
         total = int(self._db.scalar(count_stmt) or 0)
@@ -754,6 +865,72 @@ class AssetMasterService:
             rfid_tagged_total=rfid_summary_tagged,
             rfid_not_tagged_total=rfid_summary_not_tagged,
         )
+
+    def export_assets(
+        self,
+        *,
+        fields: list[str],
+        plant_id: int | None = None,
+        category_id: int | None = None,
+        cost_center: str | None = None,
+        functional_location: str | None = None,
+        actual_location: str | None = None,
+        fy_verification: str | None = None,
+        fy_start_year: int | None = None,
+        fy_scan_from: date | None = None,
+        fy_scan_to: date | None = None,
+        asset_ids: list[int] | None = None,
+        sort_by: str = "asset_code",
+        sort_dir: str = "asc",
+        max_rows: int = 100_000,
+    ) -> tuple[bytes, str, str]:
+        from modules.assets.export import build_asset_export_xlsx
+        from modules.assets.field_definitions import ASSET_EXPORT_FIELDS
+
+        allowed = set(ASSET_EXPORT_FIELDS)
+        export_fields = [f for f in fields if f in allowed]
+        if not export_fields:
+            raise ConflictError("Select at least one valid export field.")
+
+        base, *_rest = self._asset_list_base_query(
+            plant_id=plant_id,
+            category_id=category_id,
+            cost_center=cost_center,
+            functional_location=functional_location,
+            actual_location=actual_location,
+            fy_verification=fy_verification,
+            fy_start_year=fy_start_year,
+            fy_scan_from=fy_scan_from,
+            fy_scan_to=fy_scan_to,
+            asset_ids=asset_ids,
+        )
+        base = base.options(
+            selectinload(AssetMaster.category),
+            selectinload(AssetMaster.tag_color),
+            selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
+            selectinload(AssetMaster.financial),
+            selectinload(AssetMaster.inventory),
+        )
+
+        order_col = AssetMaster.asset_code
+        if sort_by == "asset_name":
+            order_col = AssetMaster.asset_name
+        elif sort_by == "created_at":
+            order_col = AssetMaster.created_at
+        elif sort_by == "last_verification_date":
+            order_col = AssetInventoryInformation.last_verification_date
+            base = base.outerjoin(AssetInventoryInformation)
+        if sort_dir.lower() == "desc":
+            base = base.order_by(order_col.desc())
+        else:
+            base = base.order_by(order_col.asc())
+
+        rows = list(self._db.scalars(base.limit(max_rows)).unique().all())
+        content = build_asset_export_xlsx(rows, export_fields)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+        filename = f"assets-export-{stamp}.xlsx"
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        return content, filename, media_type
 
     def list_financial_years(self, *, years_back: int = 10) -> FinancialYearListResponse:
         current = financial_year_period_for()
@@ -1275,27 +1452,17 @@ class AssetMasterService:
         rows = apply_import_validation(self._db, rows_from_raw_dicts(raw_rows))
         return ImportPreviewResponse(**build_preview_response(filename=filename, rows=rows))
 
-    def confirm_import(
-        self, body: ImportConfirmRequest, *, actor_user_id: int | None
-    ) -> ImportConfirmResponse:
-        validated = self.validate_import_rows(filename=body.filename, raw_rows=body.rows)
-        invalid = [r for r in validated.rows if not r.valid]
-        if invalid:
-            raise ImportValidationError(validated)
-
-        batch = AssetImportBatch(
-            filename=body.filename,
-            total_rows=len(body.rows),
-            status="processing",
-            created_by=actor_user_id,
-        )
-        self._db.add(batch)
-        self._db.flush()
-
+    def _import_validated_rows(
+        self,
+        *,
+        batch: AssetImportBatch,
+        validated_rows: list[ImportPreviewRow],
+        actor_user_id: int | None,
+    ) -> tuple[int, list[str]]:
         created = 0
         errors: list[str] = []
 
-        for idx, raw in enumerate(validated.rows, start=1):
+        for idx, raw in enumerate(validated_rows, start=1):
             try:
                 mapped = build_section_payloads(raw.data)
                 code = mapped.get("asset_code") or ""
@@ -1351,7 +1518,7 @@ class AssetMasterService:
                     import_batch_id=batch.id,
                     created_by=actor_user_id,
                 )
-                set_asset_inactive_draft(asset)
+                set_asset_active_immediate(asset)
                 self._db.add(asset)
                 self._db.flush()
                 info = mapped.get("information")
@@ -1385,6 +1552,106 @@ class AssetMasterService:
                 errors.append(f"Row {idx}: duplicate code or RFID.")
             except Exception as exc:
                 errors.append(f"Row {idx}: {exc}")
+
+        return created, errors
+
+    def confirm_import_chunk(
+        self,
+        body: ImportConfirmChunkRequest,
+        *,
+        actor_user_id: int | None,
+    ) -> ImportConfirmChunkResponse:
+        validated = self.validate_import_rows(filename=body.filename, raw_rows=body.rows)
+        invalid = [r for r in validated.rows if not r.valid]
+        if invalid:
+            raise ImportValidationError(validated)
+
+        if body.batch_id is not None:
+            batch = self._db.get(AssetImportBatch, body.batch_id)
+            if batch is None:
+                raise NotFoundError("AssetImportBatch", body.batch_id)
+            if batch.status not in ("processing",):
+                raise ConflictError("Import batch is not accepting further chunks.")
+        else:
+            batch = AssetImportBatch(
+                filename=body.filename,
+                total_rows=body.total_rows,
+                status="processing",
+                created_by=actor_user_id,
+            )
+            self._db.add(batch)
+            self._db.flush()
+
+        created, errors = self._import_validated_rows(
+            batch=batch,
+            validated_rows=validated.rows,
+            actor_user_id=actor_user_id,
+        )
+        batch.valid_rows = int(batch.valid_rows or 0) + created
+        batch.error_rows = int(batch.error_rows or 0) + len(errors)
+
+        processed_rows = min(body.processed_rows, body.total_rows)
+        if body.is_final_chunk:
+            batch.status = "completed" if not batch.error_rows else "completed_with_errors"
+
+        percent = round((processed_rows / body.total_rows) * 100, 1) if body.total_rows else 100.0
+        self._db.commit()
+
+        return ImportConfirmChunkResponse(
+            batch_id=int(batch.id),
+            chunk_created_count=created,
+            chunk_error_count=len(errors),
+            total_created_count=int(batch.valid_rows),
+            processed_rows=processed_rows,
+            total_rows=body.total_rows,
+            percent=percent,
+            errors=errors,
+            is_complete=body.is_final_chunk,
+            pending_approval=False,
+        )
+
+    def cancel_import_batch(self, batch_id: int, *, actor_user_id: int | None) -> ImportCancelBatchResponse:
+        batch = self._db.get(AssetImportBatch, batch_id)
+        if batch is None:
+            raise NotFoundError("AssetImportBatch", batch_id)
+        if batch.status != "processing":
+            raise ConflictError("Only in-progress imports can be cancelled.")
+
+        asset_ids = list(
+            self._db.scalars(
+                select(AssetMaster.id).where(AssetMaster.import_batch_id == int(batch.id))
+            ).all()
+        )
+        if asset_ids:
+            self._db.execute(delete(AssetAuditEvent).where(AssetAuditEvent.asset_id.in_(asset_ids)))
+            self._db.execute(delete(AssetMaster).where(AssetMaster.import_batch_id == int(batch.id)))
+
+        self._db.delete(batch)
+        self._db.commit()
+        return ImportCancelBatchResponse(batch_id=batch_id, assets_removed=len(asset_ids))
+
+    def confirm_import(
+        self, body: ImportConfirmRequest, *, actor_user_id: int | None
+    ) -> ImportConfirmResponse:
+        validated = self.validate_import_rows(filename=body.filename, raw_rows=body.rows)
+        invalid = [r for r in validated.rows if not r.valid]
+        if invalid:
+            raise ImportValidationError(validated)
+
+        batch = AssetImportBatch(
+            filename=body.filename,
+            total_rows=len(body.rows),
+            status="processing",
+            created_by=actor_user_id,
+        )
+        self._db.add(batch)
+        self._db.flush()
+
+        created, errors = self._import_validated_rows(
+            batch=batch,
+            validated_rows=validated.rows,
+            actor_user_id=actor_user_id,
+        )
 
         batch.valid_rows = created
         batch.error_rows = len(errors)

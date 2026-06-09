@@ -246,7 +246,7 @@ export function AssetCreatePage() {
     setCreating(true)
     try {
       const created = await postJson<AssetDetail>("/admin/assets", buildCreatePayload(form))
-      toast.success("Asset created.")
+      toast.success("Asset created and activated.")
       navigate(`/dashboard/assets/${created.id}`, { replace: true })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Create failed.")

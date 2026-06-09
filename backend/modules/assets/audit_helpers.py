@@ -369,8 +369,6 @@ def build_audit_summary(
             return f"Imported by {actor_name}"
         if source == "seed":
             return f"Created (seed data) by {actor_name}"
-        if nv.get("approval_status") == "draft" or nv.get("pending_approval"):
-            return f"Created manually by {actor_name} (inactive — submit for approval when ready)"
         return f"Created manually by {actor_name}"
     if action == "imported":
         return f"Imported by {actor_name}"

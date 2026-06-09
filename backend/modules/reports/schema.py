@@ -20,6 +20,7 @@ class ReportDefinitionPublic(BaseModel):
     title: str
     description: str
     filters: list[ReportFilterPublic]
+    formats: list[str] = ["xlsx", "pdf"]
 
 
 class PlantOptionPublic(BaseModel):

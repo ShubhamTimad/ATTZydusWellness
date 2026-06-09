@@ -1,12 +1,10 @@
 import {
-  AlertTriangle,
   CalendarRange,
   ClipboardList,
   Database,
   FileSpreadsheet,
   FileText,
   Layers,
-  ListTree,
   Loader2,
   type LucideIcon,
 } from "lucide-react"
@@ -15,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { adminSelectClass } from "@/components/layout/admin-ui"
 import type { ReportDefinition, ReportFilterValues, ReportFormat } from "@/lib/reports-types"
+import { categoryLabel, plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
 
 export type ReportTileStyle = {
@@ -39,6 +38,7 @@ export const REPORT_TILE_STYLES: Record<string, ReportTileStyle> = {
     accentBar: "from-primary/80 via-primary to-primary/70",
     pattern:
       "bg-[radial-gradient(circle_at_100%_0%,color-mix(in_srgb,var(--primary)_14%,transparent)_0%,transparent_55%)]",
+    hint: "Filter assets and choose columns in the report builder.",
   },
   financial_year_verification: {
     icon: CalendarRange,
@@ -57,25 +57,6 @@ export const REPORT_TILE_STYLES: Record<string, ReportTileStyle> = {
     iconWrap: "bg-sky-500/10 text-sky-700 ring-sky-500/15 dark:text-sky-300",
     accentBar: "from-sky-500/70 to-sky-600/80",
   },
-  physical_order_details: {
-    icon: ListTree,
-    tag: "Line items",
-    span: "half",
-    surface:
-      "border-indigo-200/70 bg-[linear-gradient(180deg,color-mix(in_srgb,#6366f1_7%,var(--card))_0%,var(--card)_100%)] dark:border-indigo-900/40",
-    iconWrap: "bg-indigo-500/12 text-indigo-700 ring-indigo-500/20 dark:text-indigo-300",
-    accentBar: "from-indigo-500/70 to-violet-600/80",
-  },
-  inventory_mismatch: {
-    icon: AlertTriangle,
-    tag: "Exceptions",
-    span: "half",
-    surface:
-      "border-amber-200/90 bg-[linear-gradient(165deg,color-mix(in_srgb,#d97706_9%,var(--card))_0%,var(--card)_100%)] dark:border-amber-900/40",
-    iconWrap: "bg-amber-500/14 text-amber-800 ring-amber-500/25 dark:text-amber-200",
-    accentBar: "from-amber-500/80 to-orange-500/80",
-    hint: "Shows assets where inventory and physical counts differ.",
-  },
 }
 
 const FALLBACK_STYLE: ReportTileStyle = {
@@ -87,29 +68,76 @@ const FALLBACK_STYLE: ReportTileStyle = {
 }
 
 const exportBtnClass =
-  "h-9 min-w-0 flex-1 gap-1.5 px-3 text-sm font-medium shadow-sm sm:flex-none sm:w-[6.75rem]"
+  "h-9 min-w-[6.75rem] gap-1.5 px-3 text-sm font-medium shadow-sm"
+
+const FILTER_LABELS: Record<string, string> = {
+  plant_id: "Plant",
+  fy_status: "Verification",
+  status: "Order status",
+}
+
+function shortenFilterOptionLabel(key: string, value: string, label: string): string {
+  if (key === "fy_status") {
+    if (value === "verified") return "Verified"
+    if (value === "pending") return "Pending"
+    if (value === "all") return "All"
+  }
+  if (key === "status" && value === "all") return "All statuses"
+  if (key === "plant_id" && value === "all") return "All plants"
+  return label
+}
+
+const FILTER_ORDER = [
+  "plant_id",
+  "category_id",
+  "cost_center",
+  "functional_location",
+  "actual_location",
+  "fy_status",
+  "status",
+]
 
 function orderedFilters(report: ReportDefinition) {
   return [...report.filters].sort((a, b) => {
-    if (a.key === "fy_status") return -1
-    if (b.key === "fy_status") return 1
-    return 0
+    const ai = FILTER_ORDER.indexOf(a.key)
+    const bi = FILTER_ORDER.indexOf(b.key)
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
   })
+}
+
+function masterOptionLabel(code: string, description?: string | null): string {
+  const c = code.trim()
+  const d = description?.trim()
+  return d ? `${c} — ${d}` : c
 }
 
 function ReportActions({
   reportKey,
   busy,
   generatingKey,
+  formats,
   onGenerate,
+  onOpenRegister,
 }: {
   reportKey: string
   busy: boolean
   generatingKey: string | null
+  formats: ReportFormat[]
   onGenerate: (format: ReportFormat) => void
+  onOpenRegister?: () => void
 }) {
+  if (onOpenRegister) {
+    return (
+      <Button type="button" size="sm" className={exportBtnClass} onClick={onOpenRegister}>
+        <FileSpreadsheet className="size-4 shrink-0" aria-hidden />
+        Get report
+      </Button>
+    )
+  }
+
+  const showPdf = formats.includes("pdf")
   return (
-    <div className="flex w-full gap-2 sm:w-auto sm:shrink-0">
+    <div className="flex shrink-0 gap-2">
       <Button
         type="button"
         variant="outline"
@@ -125,20 +153,22 @@ function ReportActions({
         )}
         Excel
       </Button>
-      <Button
-        type="button"
-        size="sm"
-        disabled={busy}
-        className={exportBtnClass}
-        onClick={() => onGenerate("pdf")}
-      >
-        {busy && generatingKey === `${reportKey}:pdf` ? (
-          <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
-        ) : (
-          <FileText className="size-4 shrink-0" aria-hidden />
-        )}
-        PDF
-      </Button>
+      {showPdf ? (
+        <Button
+          type="button"
+          size="sm"
+          disabled={busy}
+          className={exportBtnClass}
+          onClick={() => onGenerate("pdf")}
+        >
+          {busy && generatingKey === `${reportKey}:pdf` ? (
+            <Loader2 className="size-4 shrink-0 animate-spin" aria-hidden />
+          ) : (
+            <FileText className="size-4 shrink-0" aria-hidden />
+          )}
+          PDF
+        </Button>
+      ) : null}
     </div>
   )
 }
@@ -176,20 +206,29 @@ function TileHeader({ style, report }: { style: ReportTileStyle; report: ReportD
 function FilterField({
   filter,
   value,
+  options,
+  disabled,
+  placeholder,
   onChange,
 }: {
   filter: ReportDefinition["filters"][number]
   value: string
+  options: { value: string; label: string }[]
+  disabled?: boolean
+  placeholder?: string
   onChange: (value: string) => void
 }) {
+  const displayLabel = FILTER_LABELS[filter.key] ?? filter.label
+
   return (
-    <div className="min-w-0 space-y-1.5">
+    <div className={cn("min-w-0 space-y-1.5", filter.key === "actual_location" ? "sm:col-span-2" : "")}>
       <Label className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-        {filter.label}
+        {displayLabel}
       </Label>
       <select
-        className={cn(adminSelectClass, "h-9 w-full bg-background text-sm")}
+        className={cn(adminSelectClass, "h-9 w-full min-w-0 bg-background text-sm")}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
         title={
           filter.key === "fy_status"
@@ -197,14 +236,104 @@ function FilterField({
             : undefined
         }
       >
-        {filter.options.map((option) => (
-          <option key={`${filter.key}-${option.value || "all"}`} value={option.value || "all"}>
-            {option.label}
-          </option>
-        ))}
+        {options.length === 0 && placeholder ? (
+          <option value="all">{placeholder}</option>
+        ) : null}
+        {options.map((option) => {
+          const optionValue = option.value || "all"
+          return (
+            <option key={`${filter.key}-${optionValue}`} value={optionValue}>
+              {shortenFilterOptionLabel(filter.key, optionValue, option.label)}
+            </option>
+          )
+        })}
       </select>
     </div>
   )
+}
+
+function resolveFilterOptions(
+  filter: ReportDefinition["filters"][number],
+  filters: ReportFilterValues,
+  masters: ReturnType<typeof useAssetMasterLookups>,
+): { options: { value: string; label: string }[]; disabled?: boolean; placeholder?: string } {
+  const plantId = filters.plant_id && filters.plant_id !== "all" ? Number(filters.plant_id) : null
+
+  if (filter.kind === "category") {
+    return {
+      options: [
+        { value: "all", label: "All categories" },
+        ...masters.categories.map((c) => ({ value: String(c.id), label: categoryLabel(c) })),
+      ],
+    }
+  }
+  if (filter.kind === "cost_center") {
+    return {
+      disabled: !plantId,
+      placeholder: plantId ? "All cost centers" : "Select plant first",
+      options: plantId
+        ? [
+            { value: "all", label: "All cost centers" },
+            ...masters.costCenters.map((cc) => ({
+              value: cc.code,
+              label: masterOptionLabel(cc.code, cc.description),
+            })),
+          ]
+        : [],
+    }
+  }
+  if (filter.kind === "functional_location") {
+    return {
+      disabled: !plantId,
+      placeholder: plantId ? "All functional locations" : "Select plant first",
+      options: plantId
+        ? [
+            { value: "all", label: "All functional locations" },
+            ...masters.functionalLocations.map((fl) => ({
+              value: fl.code,
+              label: masterOptionLabel(fl.code, fl.description),
+            })),
+          ]
+        : [],
+    }
+  }
+  if (filter.kind === "actual_location") {
+    const fl = filters.functional_location
+    const hasFl = Boolean(fl && fl !== "all")
+    return {
+      disabled: !plantId || !hasFl,
+      placeholder: !plantId
+        ? "Select plant first"
+        : !hasFl
+          ? "Select functional location first"
+          : "All actual locations",
+      options: plantId && hasFl
+        ? [
+            { value: "all", label: "All actual locations" },
+            ...masters.actualLocations.map((al) => ({
+              value: al.code,
+              label: masterOptionLabel(al.code, al.description),
+            })),
+          ]
+        : [],
+    }
+  }
+
+  if (filter.kind === "plant") {
+    return {
+      options: [
+        { value: "all", label: "All plants" },
+        ...masters.plants.map((p) => ({ value: String(p.id), label: plantLabel(p) })),
+      ],
+    }
+  }
+
+  return {
+    options: filter.options.map((o) => ({
+      value: o.value || "all",
+      label: shortenFilterOptionLabel(filter.key, o.value || "all", o.label),
+    })),
+  }
 }
 
 function TileControls({
@@ -212,6 +341,7 @@ function TileControls({
   filters,
   onFilterChange,
   onGenerate,
+  onOpenRegister,
   generatingKey,
   busy,
 }: {
@@ -219,37 +349,59 @@ function TileControls({
   filters: ReportFilterValues
   onFilterChange: (key: string, value: string) => void
   onGenerate: (format: ReportFormat) => void
+  onOpenRegister?: () => void
   generatingKey: string | null
   busy: boolean
 }) {
+  const isRegisterDialog = report.key === "asset_register"
+  const plantId = filters.plant_id && filters.plant_id !== "all" ? Number(filters.plant_id) : null
+  const masters = useAssetMasterLookups(
+    plantId,
+    filters.cost_center && filters.cost_center !== "all" ? filters.cost_center : null,
+    filters.functional_location && filters.functional_location !== "all"
+      ? filters.functional_location
+      : null,
+  )
   const filtersList = orderedFilters(report)
-  const showTwoFilterColumns = filtersList.length > 0
+  const formats: ReportFormat[] = report.formats ?? ["xlsx", "pdf"]
+  const showFilters = !isRegisterDialog && filtersList.length > 0
+  const filterColumnClass =
+    filtersList.length === 1 ? "grid-cols-1" : "grid-cols-1 @[26rem]:grid-cols-2"
 
   return (
     <div className="mt-auto shrink-0 rounded-lg border border-border/60 bg-background/70 p-4">
-      <div className="flex min-h-[4.75rem] flex-col gap-4 lg:flex-row lg:items-end lg:justify-between lg:gap-6">
-        {showTwoFilterColumns ? (
-          <div className="grid min-h-[4.75rem] min-w-0 flex-1 gap-3 sm:grid-cols-2">
-            {filtersList.map((filter) => (
-              <FilterField
-                key={filter.key}
-                filter={filter}
-                value={filters[filter.key] ?? "all"}
-                onChange={(value) => onFilterChange(filter.key, value)}
-              />
-            ))}
-            {filtersList.length === 1 ? <div aria-hidden className="hidden min-w-0 sm:block" /> : null}
+      <div className="flex min-h-[4.75rem] flex-col gap-4 @[32rem]:flex-row @[32rem]:items-end @[32rem]:justify-between">
+        {showFilters ? (
+          <div className={cn("grid min-w-0 flex-1 gap-3", filterColumnClass)}>
+            {filtersList.map((filter) => {
+              const resolved = resolveFilterOptions(filter, filters, masters)
+              return (
+                <FilterField
+                  key={filter.key}
+                  filter={filter}
+                  value={filters[filter.key] ?? "all"}
+                  options={resolved.options}
+                  disabled={resolved.disabled}
+                  placeholder={resolved.placeholder}
+                  onChange={(value) => onFilterChange(filter.key, value)}
+                />
+              )
+            })}
           </div>
         ) : (
-          <div className="min-h-[4.75rem] flex-1" />
+          <div className="hidden flex-1 @[32rem]:block" aria-hidden />
         )}
 
-        <ReportActions
-          reportKey={report.key}
-          busy={busy}
-          generatingKey={generatingKey}
-          onGenerate={onGenerate}
-        />
+        <div className="flex shrink-0 justify-end gap-2">
+          <ReportActions
+            reportKey={report.key}
+            busy={busy}
+            generatingKey={generatingKey}
+            formats={formats}
+            onGenerate={onGenerate}
+            onOpenRegister={onOpenRegister}
+          />
+        </div>
       </div>
     </div>
   )
@@ -260,12 +412,14 @@ export function ReportTile({
   filters,
   onFilterChange,
   onGenerate,
+  onOpenRegister,
   generatingKey,
 }: {
   report: ReportDefinition
   filters: ReportFilterValues
   onFilterChange: (key: string, value: string) => void
   onGenerate: (format: ReportFormat) => void
+  onOpenRegister?: () => void
   generatingKey: string | null
 }) {
   const style = REPORT_TILE_STYLES[report.key] ?? FALLBACK_STYLE
@@ -274,7 +428,7 @@ export function ReportTile({
   return (
     <article
       className={cn(
-        "group relative flex h-full min-h-[15.5rem] flex-col overflow-hidden rounded-[var(--app-radius-surface)] border shadow-[var(--app-shadow-surface)] transition-shadow hover:shadow-[var(--app-shadow-elevated)]",
+        "group @container relative flex h-full min-h-[15.5rem] flex-col overflow-hidden rounded-[var(--app-radius-surface)] border shadow-[var(--app-shadow-surface)] transition-shadow hover:shadow-[var(--app-shadow-elevated)]",
         style.surface,
         style.span === "full" ? "lg:col-span-2" : "",
       )}
@@ -293,6 +447,7 @@ export function ReportTile({
           filters={filters}
           onFilterChange={onFilterChange}
           onGenerate={onGenerate}
+          onOpenRegister={report.key === "asset_register" ? onOpenRegister : undefined}
           generatingKey={generatingKey}
           busy={busy}
         />

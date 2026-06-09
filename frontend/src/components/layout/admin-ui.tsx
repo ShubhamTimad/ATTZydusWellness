@@ -56,7 +56,7 @@ export function AdminPanel({
       ) : null}
       <div className={cn(contentClassName)}>{children}</div>
       {footer ? (
-        <div className="shrink-0 border-t border-border/60 bg-muted/20 px-[var(--app-card-padding)] py-3 text-xs text-muted-foreground">
+        <div className="shrink-0 border-t border-border/60 bg-muted/20 px-[var(--app-card-padding)] py-3">
           {footer}
         </div>
       ) : null}

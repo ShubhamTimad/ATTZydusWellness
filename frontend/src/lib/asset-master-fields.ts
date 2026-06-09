@@ -64,6 +64,8 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "rfid_code", label: "RFID code" },
   { key: "tag_color_code", label: "Tag color" },
   { key: "sub_location", label: "Sub location" },
+  { key: "functional_location", label: "Functional location" },
+  { key: "actual_location", label: "Actual location" },
   { key: "cost_center", label: "Cost center" },
   { key: "party_details", label: "Party details" },
   { key: "invoice_no", label: "Invoice no." },
@@ -79,6 +81,38 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "life_span", label: "Life span" },
   { key: "plant_code", label: "Plant name" },
 ]
+
+/** Default export columns (import-compatible). */
+export const ASSET_EXPORT_DEFAULT_FIELDS = ASSET_IMPORT_GRID_COLUMNS.map((c) => c.key)
+
+export type AssetExportFieldGroup = {
+  label: string
+  keys: string[]
+}
+
+/** All exportable columns grouped for the export dialog. */
+export const ASSET_EXPORT_FIELD_GROUPS: AssetExportFieldGroup[] = [
+  {
+    label: "Import template",
+    keys: ASSET_EXPORT_DEFAULT_FIELDS,
+  },
+  {
+    label: "Additional columns",
+    keys: ["profit_center", "plant_name", "category_name", "physical_count", "last_verification_date", "serial_no"],
+  },
+]
+
+export const ASSET_EXPORT_FIELD_LABELS: Record<string, string> = {
+  ...Object.fromEntries(ASSET_IMPORT_GRID_COLUMNS.map((c) => [c.key, c.label])),
+  serial_no: "Serial no.",
+  functional_location: "Functional location",
+  actual_location: "Actual location",
+  profit_center: "Profit center",
+  plant_name: "Plant description",
+  category_name: "Category description",
+  physical_count: "Physical count",
+  last_verification_date: "Last verification date",
+}
 
 const DATE_KEYS = new Set([
   "invoice_date",

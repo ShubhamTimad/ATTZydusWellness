@@ -7,7 +7,7 @@ from dataclasses import dataclass
 class ReportFilterDef:
     key: str
     label: str
-    kind: str  # plant | order_status | fy_status
+    kind: str  # plant | category | cost_center | functional_location | actual_location | order_status | fy_status
     required: bool = False
 
 
@@ -17,17 +17,16 @@ class ReportDefinition:
     title: str
     description: str
     filters: tuple[ReportFilterDef, ...]
+    formats: tuple[str, ...] = ("xlsx", "pdf")
 
 
 REPORT_DEFINITIONS: tuple[ReportDefinition, ...] = (
     ReportDefinition(
         key="asset_register",
         title="Asset register",
-        description="Full asset master export with location, financial, and inventory fields.",
-        filters=(
-            ReportFilterDef("plant_id", "Plant", "plant"),
-            ReportFilterDef("fy_status", "Physical verification", "fy_status"),
-        ),
+        description="Build a custom Excel report — filter assets and pick the columns you need.",
+        filters=(),
+        formats=(),
     ),
     ReportDefinition(
         key="financial_year_verification",
@@ -40,27 +39,12 @@ REPORT_DEFINITIONS: tuple[ReportDefinition, ...] = (
     ),
     ReportDefinition(
         key="physical_orders_summary",
-        title="Physical orders summary",
+        title="Physical orders",
         description="Physical verification orders with status, assignee, and asset counts.",
         filters=(
             ReportFilterDef("plant_id", "Plant", "plant"),
             ReportFilterDef("status", "Order status", "order_status"),
         ),
-    ),
-    ReportDefinition(
-        key="physical_order_details",
-        title="Physical order details",
-        description="Order line items with scan results and verification status per asset.",
-        filters=(
-            ReportFilterDef("plant_id", "Plant", "plant"),
-            ReportFilterDef("status", "Order status", "order_status"),
-        ),
-    ),
-    ReportDefinition(
-        key="inventory_mismatch",
-        title="Inventory mismatch",
-        description="Assets where inventory count does not match physical count.",
-        filters=(ReportFilterDef("plant_id", "Plant", "plant"),),
     ),
 )
 
