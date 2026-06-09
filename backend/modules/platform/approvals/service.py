@@ -304,6 +304,28 @@ class ApprovalEngineService:
                 },
             )
         )
+        self._notify_approvers_for_task(task=task, req=req)
+
+    def _notify_approvers_for_task(self, *, task: ApprovalTask, req: ApprovalRequest) -> None:
+        if task.assigned_role_id is None:
+            return
+        entity_name = self._entity_name_for_request(req)
+        for user in self._users_for_role(int(task.assigned_role_id)):
+            if not user.email:
+                continue
+            try:
+                EmailNotificationService(self._db).trigger_event(
+                    event_code="TASK_ASSIGNED",
+                    payload={
+                        "user_name": user.full_name,
+                        "email": user.email,
+                        "task_name": task.title or "Approval task",
+                        "entity_name": entity_name,
+                        "task_link": self._task_link(int(task.id)),
+                    },
+                )
+            except Exception:
+                pass
 
     def list_my_tasks(self, *, user_id: int) -> list[ApprovalTask]:
         role_ids = self._role_ids_for_user(user_id)
@@ -688,7 +710,8 @@ class ApprovalEngineService:
                 payload = dict(req.payload) if isinstance(req.payload, dict) else {}
                 rework_title = (
                     f"Rework: {approval_task_title(str(req.entity_type), payload)}"
-                    if str(req.entity_type) in ("asset_creation", "asset_import")
+                    if str(req.entity_type)
+                    in ("asset_creation", "asset_import", "physical_order_creation", "physical_order_closure")
                     else "Rework required"
                 )
                 rework_task = ApprovalTask(

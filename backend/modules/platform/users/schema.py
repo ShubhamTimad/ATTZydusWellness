@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator
+
+from core.phone import normalize_phone
 
 
 class RoleSummary(BaseModel):
@@ -21,20 +23,32 @@ class OrgUnitSummary(BaseModel):
 class UserCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
     username: str = Field(min_length=3, max_length=64)
-    phone: str = Field(min_length=3, max_length=32)
+    phone: str = Field(min_length=10, max_length=32)
     email: EmailStr
     role_id: int = Field(ge=1)
     org_unit_id: int = Field(ge=1)
+
+    @field_validator("phone")
+    @classmethod
+    def _validate_phone(cls, value: str) -> str:
+        return normalize_phone(value)
 
 
 class UserUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=1, max_length=255)
     username: str | None = Field(default=None, min_length=3, max_length=64)
-    phone: str | None = Field(default=None, min_length=3, max_length=32)
+    phone: str | None = Field(default=None, min_length=10, max_length=32)
     email: EmailStr | None = None
     role_id: int | None = Field(default=None, ge=1)
     org_unit_id: int | None = Field(default=None, ge=1)
     is_active: bool | None = None
+
+    @field_validator("phone")
+    @classmethod
+    def _validate_phone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_phone(value)
 
 
 class UserPublic(BaseModel):

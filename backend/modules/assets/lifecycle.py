@@ -164,6 +164,10 @@ def entity_display_name(entity_type: str, payload: dict[str, Any] | None, entity
         nm = p.get("full_name")
         if isinstance(nm, str) and nm.strip():
             return nm.strip()
+    if entity_type in ("physical_order_creation", "physical_order_closure"):
+        onum = p.get("order_number")
+        if isinstance(onum, str) and onum.strip():
+            return onum.strip()
     return f"{entity_type}:{entity_id}"
 
 

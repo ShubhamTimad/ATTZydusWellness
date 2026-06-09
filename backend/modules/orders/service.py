@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -65,6 +66,13 @@ from modules.rbac_association import role_permission, user_role
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _order_link(order_id: int) -> str:
+    base = (os.environ.get("FRONTEND_APP_URL") or os.environ.get("FRONTEND_ORIGIN") or "http://localhost:5173").rstrip(
+        "/"
+    )
+    return f"{base}/dashboard/orders/{int(order_id)}"
 
 
 class PhysicalOrderService:
@@ -133,12 +141,13 @@ class PhysicalOrderService:
                 assignee = self._db.get(User, order.assigned_to)
                 if assignee and assignee.email:
                     EmailNotificationService(self._db).trigger_event(
-                        event_code="ORDER_ASSIGNED",
+                        event_code="ORDER_RETURNED_FOR_EXECUTION",
                         payload={
                             "user_name": assignee.full_name,
                             "email": assignee.email,
                             "order_number": order.order_number,
-                            "reason": reason or "",
+                            "reason": reason or "Closure approval rejected.",
+                            "order_link": _order_link(int(order.id)),
                         },
                     )
             except Exception:
@@ -752,6 +761,7 @@ class PhysicalOrderService:
                         "user_name": assignee.full_name,
                         "email": assignee.email,
                         "order_number": order.order_number,
+                        "order_link": _order_link(int(order.id)),
                     },
                 )
         except Exception:
@@ -1511,6 +1521,7 @@ class PhysicalOrderService:
                         "email": creator.email,
                         "order_number": order.order_number,
                         "reason": reason,
+                        "order_link": _order_link(int(order.id)),
                     },
                 )
         except Exception:
@@ -1531,6 +1542,7 @@ class PhysicalOrderService:
                             "user_name": u.full_name,
                             "email": u.email,
                             "order_number": order.order_number,
+                            "order_link": _order_link(int(order.id)),
                         },
                     )
         except Exception:

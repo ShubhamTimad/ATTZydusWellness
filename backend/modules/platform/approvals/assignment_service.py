@@ -47,8 +47,6 @@ def get_workflow_for_action(db: Session, action_code: str) -> ApprovalWorkflow |
     """
     raw = action_code.strip()
     canonical = resolve_registered_action_code(db, action_code)
-    users_create_variants = _permission_code_variants("users.create")
-
     if canonical is not None:
         mapping = db.scalar(
             select(ApprovalWorkflowMapping)
@@ -77,8 +75,6 @@ def get_workflow_for_action(db: Session, action_code: str) -> ApprovalWorkflow |
     asset_import_variants = _permission_code_variants("asset.import")
     order_create_variants = _permission_code_variants("order.create")
     order_complete_variants = _permission_code_variants("order.complete")
-    if (canonical is not None and canonical in users_create_variants) or raw in users_create_variants:
-        return wf_svc.get_active_workflow_for_entity("user_creation")
     if (canonical is not None and canonical in asset_create_variants) or raw in asset_create_variants:
         return wf_svc.get_active_workflow_for_entity("asset_creation")
     if (canonical is not None and canonical in asset_import_variants) or raw in asset_import_variants:

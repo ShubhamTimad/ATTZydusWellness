@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { ApiError, getJson, postJson } from "@/lib/api"
+import { phoneFieldSchema } from "@/lib/phone"
 import { canListOrgUnitsForAssignments, hasPermission } from "@/lib/permissions"
 
 type RoleListItem = { id: number; name: string; org_unit_ids?: number[] }
@@ -60,7 +61,7 @@ type UserPublic = {
 const createUserSchema = z.object({
   full_name: z.string().min(1, "Full name is required").max(255),
   username: z.string().min(3, "Username is required").max(64),
-  phone: z.string().min(3, "Phone is required").max(32),
+  phone: phoneFieldSchema,
   email: z.string().email("Enter a valid email"),
   role_id: z.string().min(1, "Role is required"),
   org_unit_id: z.string().min(1, "Plant is required"),
@@ -165,7 +166,7 @@ export function UserCreatePage() {
 
   return (
     <AdminPage
-      description="Choose a plant, then a role for that plant. A temporary password is emailed after approval (if configured)."
+      description="Choose a plant, then a role for that plant. The user is activated immediately and a temporary password is emailed (if configured)."
       actions={<AdminBackLink to=".." />}
     >
       {error ? (
@@ -196,7 +197,14 @@ export function UserCreatePage() {
 
               <div className="space-y-2">
                 <Label htmlFor="create-phone">Phone</Label>
-                <Input id="create-phone" autoComplete="tel" {...form.register("phone")} />
+                <Input
+                  id="create-phone"
+                  autoComplete="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  placeholder="e.g. 9876543210"
+                  {...form.register("phone")}
+                />
                 {form.formState.errors.phone?.message ? (
                   <p className="text-xs text-destructive">{form.formState.errors.phone.message}</p>
                 ) : null}

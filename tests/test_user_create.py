@@ -14,7 +14,9 @@ from modules.platform.permissions.model import Permission
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
 from modules.platform.users.schema import UserCreate
+from modules.platform.rbac_audit.model import RbacAuditLog
 from modules.platform.users.service import DuplicatePhoneError, UserService
+from sqlalchemy import select
 
 
 @pytest.fixture()
@@ -39,15 +41,14 @@ def test_create_user_assigns_role_and_org(db: Session) -> None:
         UserCreate(
             full_name="Alice Example",
             username="alice.example",
-            phone="+15550000001",
-            password="GoodPass1!",
+            phone="9876543210",
             email="alice@example.com",
             role_id=role.id,
             org_unit_id=plant.id,
         )
     )
     assert user.id > 0
-    assert user.phone == "+15550000001"
+    assert user.phone == "9876543210"
     assert len(user.roles) == 1
     assert user.roles[0].id == role.id
     assert len(user.org_units) == 1
@@ -67,8 +68,7 @@ def test_duplicate_phone_fails(db: Session) -> None:
         UserCreate(
             full_name="A",
             username="user.a",
-            phone="+15550000002",
-            password="GoodPass1!",
+            phone="9876543211",
             email="a@example.com",
             role_id=role.id,
             org_unit_id=plant.id,
@@ -79,12 +79,67 @@ def test_duplicate_phone_fails(db: Session) -> None:
             UserCreate(
                 full_name="B",
                 username="user.b",
-                phone="+15550000002",
-                password="GoodPass2!",
+                phone="9876543211",
                 email="b@example.com",
                 role_id=role.id,
                 org_unit_id=plant.id,
             )
+        )
+
+
+def test_create_user_writes_rbac_audit(db: Session) -> None:
+    plant = OrgUnit(name="Plant A", code="PLT-A", type="PLANT")
+    role = Role(name="Operator", description=None)
+    db.add_all([plant, role])
+    db.commit()
+    db.refresh(plant)
+    db.refresh(role)
+
+    svc = UserService(db)
+    user = svc.create_user(
+        UserCreate(
+            full_name="Audit Example",
+            username="audit.example",
+            phone="9123456789",
+            email="audit@example.com",
+            role_id=role.id,
+            org_unit_id=plant.id,
+        ),
+        actor_user_id=1,
+    )
+    logs = list(
+        db.scalars(
+            select(RbacAuditLog).where(
+                RbacAuditLog.target_type == "user",
+                RbacAuditLog.target_id == user.id,
+            )
+        ).all()
+    )
+    actions = {lg.action for lg in logs}
+    assert actions == {"create"}
+
+
+def test_invalid_phone_fails_validation() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        UserCreate(
+            full_name="Bad Phone",
+            username="bad.phone",
+            phone="123",
+            email="bad@example.com",
+            role_id=1,
+            org_unit_id=1,
+        )
+
+    with pytest.raises(ValidationError):
+        UserCreate(
+            full_name="Landline",
+            username="land.line",
+            phone="5123456789",
+            email="land@example.com",
+            role_id=1,
+            org_unit_id=1,
         )
 
 
@@ -102,8 +157,7 @@ def test_missing_role_fails(db: Session) -> None:
             UserCreate(
                 full_name="A",
                 username="user.missingrole",
-                phone="+15550000003",
-                password="GoodPass1!",
+                phone="9876543212",
                 email="missingrole@example.com",
                 role_id=999,
                 org_unit_id=plant.id,

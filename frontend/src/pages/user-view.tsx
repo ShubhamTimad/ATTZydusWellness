@@ -74,7 +74,7 @@ export function UserViewPage() {
   const [mfaEnabled, setMfaEnabled] = React.useState<boolean>(false)
 
   const canUpdate = hasPermission("users.update")
-  const canViewAudit = hasPermission("approval.view")
+  const canViewAudit = hasPermission("users.view")
   const canResendMfa = hasPermission("mfa.manage")
   const sortedTimeline = React.useMemo(() => {
     const tl = timeline ?? []
@@ -298,14 +298,14 @@ export function UserViewPage() {
             title="Audit trail"
             description={
               canViewAudit
-                ? "Request and approval lifecycle for this user."
-                : "Requires approval.view permission."
+                ? "Creation and change history for this user."
+                : "Requires users.view permission."
             }
             contentClassName="px-5 py-5"
           >
             {!canViewAudit ? (
               <p className="text-sm text-muted-foreground">
-                Missing permission: <span className="font-mono text-foreground/80">approval.view</span>
+                Missing permission: <span className="font-mono text-foreground/80">users.view</span>
               </p>
             ) : sortedTimeline.length === 0 ? (
               <p className="text-sm text-muted-foreground">No audit events found.</p>
@@ -325,7 +325,32 @@ export function UserViewPage() {
                       </span>
                     </div>
                     {ev.type === "created" ? (
-                      <p className="mt-1 text-xs text-muted-foreground">By {ev.user ?? "—"}</p>
+                      <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                        <p>By {ev.user ?? "—"}</p>
+                        {ev.details && typeof ev.details === "object" ? (
+                          <>
+                            {(ev.details as { role_name?: string }).role_name ? (
+                              <p>Role: {String((ev.details as { role_name?: string }).role_name)}</p>
+                            ) : null}
+                            {(ev.details as { org_unit_name?: string }).org_unit_name ? (
+                              <p>Plant: {String((ev.details as { org_unit_name?: string }).org_unit_name)}</p>
+                            ) : null}
+                            {(ev.details as { approval_status?: string }).approval_status === "pending" &&
+                            (ev.details as { awaiting_role?: string }).awaiting_role ? (
+                              <p>
+                                Awaiting approval from{" "}
+                                {String((ev.details as { awaiting_role?: string }).awaiting_role)}
+                              </p>
+                            ) : null}
+                          </>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {ev.type === "activated" ? (
+                      <p className="mt-1 text-xs text-muted-foreground">Activated by {ev.user ?? "—"}</p>
+                    ) : null}
+                    {ev.type === "deactivated" ? (
+                      <p className="mt-1 text-xs text-muted-foreground">Deactivated by {ev.user ?? "—"}</p>
                     ) : null}
                     {ev.type === "approval_step" && ev.action && ev.action !== "pending" ? (
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -349,6 +374,7 @@ export function UserViewPage() {
                     ev.details &&
                     typeof (ev.details as { changes?: object }).changes === "object" ? (
                       <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                        <p>By {ev.user ?? "—"}</p>
                         {Object.entries(
                           (ev.details as { changes: Record<string, { from?: unknown; to?: unknown }> }).changes,
                         ).length === 0 ? (
@@ -360,8 +386,16 @@ export function UserViewPage() {
                                 .changes,
                             ).map(([k, v]) => (
                               <li key={k}>
-                                <span className="font-medium text-foreground/80">{k}</span>:{" "}
-                                {String(v?.from ?? "—")} → {String(v?.to ?? "—")}
+                                <span className="font-medium text-foreground/80">
+                                  {k === "is_active"
+                                    ? "Status"
+                                    : k === "role_name"
+                                      ? "Role"
+                                      : k === "org_unit_name"
+                                        ? "Plant"
+                                        : k.replace(/_/g, " ")}
+                                </span>
+                                : {String(v?.from ?? "—")} → {String(v?.to ?? "—")}
                               </li>
                             ))}
                           </ul>
