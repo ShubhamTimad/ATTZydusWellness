@@ -2,6 +2,54 @@
 
 Use `docker-compose.yml` with `.env.docker` (copy from `.env.docker.example`).
 
+## URLs (what to open in the browser)
+
+Replace `YOUR_SERVER_IP` with your VPS public IP (e.g. `161.97.93.106`) or domain.
+
+| What | URL | Notes |
+|------|-----|--------|
+| **User / workspace login** | `http://YOUR_SERVER_IP:8083/login` | Main app entry |
+| **Admin panel login** | `http://YOUR_SERVER_IP:8083/admin/login` | Superuser / admin UI |
+| **Workspace home** | `http://YOUR_SERVER_IP:8083/dashboard` | After login |
+| **API (via nginx)** | `http://YOUR_SERVER_IP:8083/api/...` | Used by the SPA automatically |
+
+**Do not use port `9005` in the browser.** That is the backend port **inside Docker only** (not published to the host). The React app and `/api` proxy are on **`APP_PORT` (default `8083`)** via the **frontend** container.
+
+### If the page does not load from your PC
+
+1. **Check all containers are up:**
+   ```bash
+   docker compose --env-file .env.docker ps
+   ```
+   You should see `frontend`, `backend`, and `db` all **healthy** or **running**.
+
+2. **Check bind address** in `.env.docker`:
+   ```env
+   APP_HOST_BIND=0.0.0.0
+   APP_PORT=8083
+   ```
+   Default `APP_HOST_BIND=127.0.0.1` only allows access **from the server itself**, not from your laptop. Set `0.0.0.0` for direct public access, then:
+   ```bash
+   docker compose --env-file .env.docker up -d frontend
+   ```
+
+3. **Test on the server:**
+   ```bash
+   curl -I http://127.0.0.1:8083/
+   curl -I http://127.0.0.1:8083/api/docs
+   docker compose --env-file .env.docker logs --tail=50 frontend
+   ```
+
+4. **Firewall** — allow inbound TCP on `8083` (ufw / cloud security group).
+
+5. **Set public URLs** in `.env.docker` (for CORS and password-reset links):
+   ```env
+   FRONTEND_ORIGIN=http://YOUR_SERVER_IP:8083
+   FRONTEND_APP_URL=http://YOUR_SERVER_IP:8083
+   FRONTEND_ADMIN_URL=http://YOUR_SERVER_IP:8083/admin
+   ```
+   Then restart backend: `docker compose --env-file .env.docker up -d backend`
+
 ## First deploy or update
 
 ```bash
