@@ -14,10 +14,16 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 
-# Must match backend BACKEND_PORT in the compose file (8000 local, 9005 server).
+# Must match backend BACKEND_PORT in the compose file (9005 by default).
 ARG BACKEND_UPSTREAM_PORT=9005
+
+RUN apk add --no-cache curl
+
 COPY frontend/nginx.conf /tmp/default.conf
 RUN sed "s/__BACKEND_PORT__/${BACKEND_UPSTREAM_PORT}/" /tmp/default.conf > /etc/nginx/conf.d/default.conf
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
 
 EXPOSE 80
+
+HEALTHCHECK --interval=20s --timeout=5s --retries=10 \
+    CMD curl -fsS http://127.0.0.1/ > /dev/null || exit 1
