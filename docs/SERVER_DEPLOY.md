@@ -108,7 +108,34 @@ The frontend nginx container proxies `/api/*` to the backend and serves the Reac
 | `VITE_API_URL` | Baked into frontend at build time (use `/api`) |
 | `FRONTEND_APP_URL` / `FRONTEND_ORIGIN` | Public URL for reset links and CORS |
 | `ENFORCE_SUPERUSER_ON_ADMIN` | `false` = RBAC; `true` = superuser-only `/admin/*` |
-| `SEED_SYSTEM_EMAIL_TEMPLATES` | Seed email templates during Alembic migrate |
+| `SYNC_MODULES_ON_STARTUP` | `false` (default) — no auto permission/feature sync on start; use Admin → Permissions → Sync |
+| `SEED_SYSTEM_EMAIL_TEMPLATES` | `false` (default) — skip entrypoint email template script; set `true` on first deploy if needed |
+
+## Permissions / email templates (manual, not automatic)
+
+Production defaults **do not** auto-feed the database on every restart.
+
+**Permissions catalog** (after upgrading app code with new modules):
+
+```bash
+docker compose --env-file .env.docker exec backend python /app/scripts/sync_modules.py
+```
+
+Or in the UI: **Admin → Permissions → Sync from config**.
+
+**Email templates** (first deploy or forgot-password setup):
+
+```env
+SEED_SYSTEM_EMAIL_TEMPLATES=true
+```
+
+Then restart backend once, or run:
+
+```bash
+docker compose --env-file .env.docker exec backend python /app/scripts/ensure_system_email_templates.py
+```
+
+Do **not** run `scripts/seed_dummy_data.py` on production — that inserts demo plants, assets, and users.
 
 ## Fix “Password reset email is not configured”
 
