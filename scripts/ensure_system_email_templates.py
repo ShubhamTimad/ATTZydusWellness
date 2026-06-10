@@ -10,7 +10,7 @@ Run from project root::
 
 Inside Docker backend container::
 
-    docker compose -f docker-compose.server.yml exec backend \\
+    docker compose --env-file .env.docker exec backend \\
       python /app/scripts/ensure_system_email_templates.py
 """
 

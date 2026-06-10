@@ -1,6 +1,6 @@
 # Server deploy (Docker)
 
-Use `docker-compose.server.yml` on the host. Copy `.env.docker.example` to `.env.docker` and set secrets plus your public URL.
+Use `docker-compose.yml` with `.env.docker` (copy from `.env.docker.example`).
 
 ## First deploy or update
 
@@ -20,8 +20,8 @@ chmod +x scripts/docker-deploy.sh
 Or run the steps manually:
 
 ```bash
-docker compose --env-file .env.docker -f docker-compose.server.yml build
-docker compose --env-file .env.docker -f docker-compose.server.yml up -d
+docker compose --env-file .env.docker build
+docker compose --env-file .env.docker up -d
 ```
 
 **Always** include `--env-file .env.docker`; otherwise Compose falls back to defaults for DB password, `DATABASE_URL`, app URLs, and ports.
@@ -53,13 +53,13 @@ The frontend nginx container proxies `/api/*` to the backend and serves the Reac
 
 1. **Templates** — should exist after restart; or run manually:
    ```bash
-   docker compose --env-file .env.docker -f docker-compose.server.yml exec backend \
+   docker compose --env-file .env.docker exec backend \
      python /app/scripts/ensure_system_email_templates.py
    ```
 2. **SMTP** — in `.env.docker` set `SMTP_HOST`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, and ensure `SEED_SYSTEM_EMAIL_TEMPLATES=true`, **or** configure **Admin → Settings → Email delivery** (DB overrides env when saved).
 3. **Reset link URL** — set `FRONTEND_APP_URL` (and `FRONTEND_ORIGIN`) to your real app URL, then restart backend:
    ```bash
-   docker compose --env-file .env.docker -f docker-compose.server.yml up -d backend
+   docker compose --env-file .env.docker up -d backend
    ```
 
 ## Fix 403 on `/api/admin/*` for non-superuser roles
@@ -76,25 +76,28 @@ Then restart the backend. Grant the role permissions such as `asset.view`, `mast
 
 ```bash
 # Logs
-docker compose --env-file .env.docker -f docker-compose.server.yml logs -f backend
+docker compose --env-file .env.docker logs -f backend
 
 # DB migrations only (normally automatic on start)
-docker compose --env-file .env.docker -f docker-compose.server.yml exec backend \
+docker compose --env-file .env.docker exec backend \
   alembic -c backend/alembic.ini upgrade head
 
 # Create superuser
-docker compose --env-file .env.docker -f docker-compose.server.yml exec backend \
+docker compose --env-file .env.docker exec backend \
   python /app/create_superuser.py
 
 # Rebuild after code pull
-docker compose --env-file .env.docker -f docker-compose.server.yml up -d --build
+docker compose --env-file .env.docker up -d --build
 ```
 
 ## Local Docker (development)
 
-```bash
-cp .env.docker.example .env.docker
-COMPOSE_FILE=docker-compose.yml ./scripts/docker-deploy.sh
+Same `docker-compose.yml`; set in `.env.docker`:
+
+```env
+APP_HOST_BIND=0.0.0.0
+FRONTEND_APP_URL=http://localhost:8083
+FRONTEND_ORIGIN=http://localhost:8083
 ```
 
-Local compose binds `0.0.0.0:8083` by default so you can open `http://localhost:8083`.
+Then run `./scripts/docker-deploy.sh` and open `http://localhost:8083`.

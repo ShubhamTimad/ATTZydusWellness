@@ -107,9 +107,7 @@ In dev we use Vite proxy, so you can usually leave `VITE_API_URL` **unset**.
 | Mode | Frontend | Backend API |
 |------|----------|-------------|
 | **Local dev** (uvicorn + Vite) | `http://localhost:5173` | `http://localhost:8000` |
-| **Docker** (`docker-compose.yml` or `docker-compose.server.yml`) | `http://localhost:8083` | internal `9005` (proxied via `/api`) |
-
-This repo includes a server-focused compose file: `docker-compose.server.yml`.
+| **Docker** (`docker-compose.yml` + `.env.docker`) | `http://localhost:8083` | internal `9005` (proxied via `/api`) |
 
 - Default host port: `8083`
 - Default host bind: `127.0.0.1` so it does not open a new public port by accident
@@ -137,58 +135,58 @@ Edit `.env.docker` before first start:
 Build images:
 
 ```bash
-docker compose --env-file .env.docker -f docker-compose.server.yml build
+docker compose --env-file .env.docker build
 ```
 
 Start all services:
 
 ```bash
-docker compose --env-file .env.docker -f docker-compose.server.yml up -d
+docker compose --env-file .env.docker up -d
 ```
 
 Or build and start in one command:
 
 ```bash
-docker compose --env-file .env.docker -f docker-compose.server.yml up -d --build
+docker compose --env-file .env.docker up -d --build
 ```
 
 Check status:
 
 ```bash
-docker compose --env-file .env.docker -f docker-compose.server.yml ps
+docker compose --env-file .env.docker ps
 ```
 
 See logs:
 
 ```bash
-docker compose --env-file .env.docker -f docker-compose.server.yml logs -f backend
-docker compose --env-file .env.docker -f docker-compose.server.yml logs -f frontend
+docker compose --env-file .env.docker logs -f backend
+docker compose --env-file .env.docker logs -f frontend
 ```
 
 Stop all services:
 
 ```bash
-docker compose --env-file .env.docker -f docker-compose.server.yml down
+docker compose --env-file .env.docker down
 ```
 
 Clean rebuild:
 
 ```bash
-docker compose --env-file .env.docker -f docker-compose.server.yml down
-docker compose --env-file .env.docker -f docker-compose.server.yml build --no-cache
-docker compose --env-file .env.docker -f docker-compose.server.yml up -d
+docker compose --env-file .env.docker down
+docker compose --env-file .env.docker build --no-cache
+docker compose --env-file .env.docker up -d
 ```
 
 Remove containers and database volume too:
 
 ```bash
-docker compose --env-file .env.docker -f docker-compose.server.yml down -v
+docker compose --env-file .env.docker down -v
 ```
 
 After first boot, create the admin user manually:
 
 ```bash
-docker compose --env-file .env.docker -f docker-compose.server.yml exec backend \
+docker compose --env-file .env.docker exec backend \
   python create_superuser.py --email admin@example.com --password 'ChangeMe@123'
 ```
 
@@ -204,7 +202,7 @@ Notes:
 - Always include `--env-file .env.docker` on server deploy commands. Without it, Compose falls back to defaults for `DATABASE_URL`, DB password, ports, and URLs.
 - `SYNC_MODULES_ON_STARTUP=false` keeps startup-created module rows out of the Docker Postgres database.
 - `SEED_SYSTEM_EMAIL_TEMPLATES=true` plus the backend entrypoint ensures core email templates and mappings exist for forgot-password and onboarding flows.
-- If you later want the RBAC feature/permission catalog, run `docker compose --env-file .env.docker -f docker-compose.server.yml exec backend python scripts/sync_modules.py`.
+- If you later want the RBAC feature/permission catalog, run `docker compose --env-file .env.docker exec backend python scripts/sync_modules.py`.
 
 ---
 
