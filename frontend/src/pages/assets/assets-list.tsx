@@ -799,6 +799,20 @@ export function AssetsListPage() {
 
           {isFyTab ? (
             <>
+              <select
+                className={cn(adminSelectClass, "h-9 max-w-[11rem] shrink-0 text-sm")}
+                value={selectedFyStartYear}
+                onChange={(e) => applyFyYear(e.target.value)}
+                disabled={fyYearOptions.length === 0}
+                aria-label="Financial year for report"
+              >
+                {fyYearOptions.map((option) => (
+                  <option key={option.start_year} value={String(option.start_year)}>
+                    {option.label}
+                    {option.is_current ? " (running)" : ""}
+                  </option>
+                ))}
+              </select>
               <Button
                 type="button"
                 variant="outline"

@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { getJson, patchJson, postJson } from "@/lib/api"
+import { Trash2 } from "lucide-react"
+import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { canListOrgUnitsForAssignments, hasPermission, isSuperuser } from "@/lib/permissions"
 
 type OrgUnitPublic = {
@@ -88,8 +89,12 @@ const ACTION_LABEL: Record<string, string> = {
   create: "Create",
   update: "Edit",
   delete: "Delete",
+  access: "Access",
   act: "Act",
   manage: "Manage",
+  scan: "Scan",
+  execute: "Execute",
+  export: "Export",
 }
 
 function orderedActionColumns(actions: string[]): string[] {
@@ -98,7 +103,7 @@ function orderedActionColumns(actions: string[]): string[] {
   for (const a of ACTION_COLUMNS) {
     if (uniq.has(a)) out.push(a)
   }
-  for (const a of ["act", "manage"]) {
+  for (const a of ["access", "act", "manage", "scan", "execute", "export"]) {
     if (uniq.has(a)) out.push(a)
   }
   // Any other action types should still be shown (stable order).
@@ -130,6 +135,7 @@ export function RolesPage() {
   const [autoSyncAttempted, setAutoSyncAttempted] = React.useState(false)
 
   const canCreateRole = hasPermission("roles.create") || isSuperuser()
+  const canDeleteRole = hasPermission("roles.delete") || isSuperuser()
   /** Same as ``GET /admin/org-units`` (plant pickers for roles vs. Plants admin module). */
   const canLoadPlantList = canListOrgUnitsForAssignments()
 
@@ -261,6 +267,31 @@ export function RolesPage() {
     }
   }
 
+  async function deleteRole() {
+    if (!selectedRole) return
+    if (
+      !window.confirm(
+        `Delete role "${selectedRole.name}"? This is only allowed when no users are assigned to this role.`,
+      )
+    ) {
+      return
+    }
+    toast.loading("Deleting role…", { id: "delete-role" })
+    try {
+      await deleteJson(`/admin/roles/${selectedRole.id}`)
+      toast.success("Role deleted", { id: "delete-role" })
+      setSelectedRole(null)
+      setSelectedRoleId(null)
+      setSelectedPermissionIds(new Set())
+      setLinkedOrgUnitIds(new Set())
+      await loadBase()
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to delete role"
+      toast.error(message, { id: "delete-role" })
+      setError(message)
+    }
+  }
+
   async function syncCatalog() {
     setSyncingCatalog(true)
     toast.loading("Syncing permissions…", { id: "sync-perms" })
@@ -309,7 +340,7 @@ export function RolesPage() {
         </Alert>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+      <div className="grid min-h-0 gap-4 lg:grid-cols-[300px_1fr] lg:items-start">
         <AdminPanel
           title="Roles"
           description="Select a role to edit permissions"
@@ -466,9 +497,24 @@ export function RolesPage() {
                 ? "Adjust plants and permissions"
                 : "You need roles.update to save"
           }
-          contentClassName="p-0"
+          className="flex max-h-[calc(100dvh-11rem)] min-h-0 flex-col"
+          contentClassName="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+          headerActions={
+            selectedRole && canDeleteRole ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-destructive hover:text-destructive"
+                onClick={() => void deleteRole()}
+              >
+                <Trash2 className="size-3.5" aria-hidden />
+                Delete role
+              </Button>
+            ) : undefined
+          }
         >
-          <ScrollArea className="h-[min(540px,70vh)] px-5 py-4">
+          <>
             {catalog === null ? (
               <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
             ) : selectedRoleId == null ? (
@@ -573,7 +619,7 @@ export function RolesPage() {
                           <TableRow>
                             <TableHead className="w-[140px]">Tab</TableHead>
                             {moduleActions.map((act) => (
-                              <TableHead key={act} className="w-[88px] text-center">
+                              <TableHead key={act} className="min-w-[130px] text-center">
                                 {ACTION_LABEL[act] ?? act}
                               </TableHead>
                             ))}
@@ -596,8 +642,8 @@ export function RolesPage() {
                                 const checked = id != null && selectedPermissionIds.has(id)
                                 const disabled = id == null || !canSaveRole
                                 return (
-                                  <TableCell key={act} className="text-center">
-                                    <div className="flex justify-center">
+                                  <TableCell key={act} className="px-2 py-2 align-top">
+                                    <div className="flex flex-col items-center gap-1 text-center">
                                       <Checkbox
                                         checked={checked}
                                         disabled={disabled}
@@ -614,6 +660,18 @@ export function RolesPage() {
                                           setSelectedPermissionIds(next)
                                         }}
                                       />
+                                      <code className="block max-w-[160px] whitespace-normal break-all font-mono text-[10px] leading-snug text-foreground">
+                                        {cell.code}
+                                      </code>
+                                      {cell.description ? (
+                                        <span className="block max-w-[160px] whitespace-normal text-[10px] leading-snug text-muted-foreground">
+                                          {cell.description}
+                                        </span>
+                                      ) : id == null ? (
+                                        <span className="text-[10px] text-amber-700 dark:text-amber-400">
+                                          Not synced
+                                        </span>
+                                      ) : null}
                                     </div>
                                   </TableCell>
                                 )
@@ -629,7 +687,7 @@ export function RolesPage() {
                 ))}
               </div>
             )}
-          </ScrollArea>
+          </>
         </AdminPanel>
       </div>
     </AdminPage>

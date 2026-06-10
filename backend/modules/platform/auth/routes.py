@@ -19,6 +19,7 @@ from modules.platform.auth.login_result import (
     LoginOutcomeMfaOtp,
     LoginOutcomeMfaSetup,
     LoginOutcomeTokens,
+    MobileAccessDeniedError,
     PasswordLoginDisabledError,
 )
 from modules.platform.auth.schema import LoginRequest, RefreshRequest, TokenPair, UserMe
@@ -145,6 +146,15 @@ async def login(
         return JSONResponse(
             status_code=status.HTTP_403_FORBIDDEN,
             content={"error": "password_login_disabled"},
+        )
+    except MobileAccessDeniedError:
+        clear_login_failures(client_ip)
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={
+                "error": "mobile_access_denied",
+                "detail": "Your account is not authorized to use the mobile application.",
+            },
         )
     except CaptchaInvalidError:
         clear_login_failures(client_ip)

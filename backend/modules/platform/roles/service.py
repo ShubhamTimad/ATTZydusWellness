@@ -11,7 +11,7 @@ from modules.rbac_safety import (
     assert_actor_retains_users_view_after_role_permission_change,
     assert_did_not_remove_last_role_based_admin,
     assert_no_empty_permission_set,
-    assert_role_not_last_assignment_for_users,
+    assert_role_not_assigned_to_any_user,
     count_users_with_admin_capability,
 )
 from modules.platform.rbac_versioning.service import (
@@ -170,7 +170,7 @@ class RoleService:
 
     def delete_role(self, role_id: int, *, actor_user_id: int | None = None) -> None:
         admin_before = count_users_with_admin_capability(self._db)
-        assert_role_not_last_assignment_for_users(self._db, role_id)
+        assert_role_not_assigned_to_any_user(self._db, role_id)
         role = self.get_role(role_id)
         old_snapshot = _role_snapshot(role)
         user_ids = list(

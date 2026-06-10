@@ -18,6 +18,10 @@ from modules.reports.schema import (
     ReportFilterOptionPublic,
     ReportFilterPublic,
 )
+from modules.platform.settings.financial_year import (
+    financial_year_period_for,
+    list_financial_year_periods,
+)
 from modules.reports.service import FY_STATUS_LABELS, FY_STATUS_OPTIONS, ORDER_STATUS_OPTIONS, ReportService
 
 
@@ -43,6 +47,19 @@ def _filter_options(kind: str, *, plant_options: list[ReportFilterOptionPublic],
         return [
             ReportFilterOptionPublic(value=s, label=FY_STATUS_LABELS.get(s, s.replace("_", " ").title()))
             for s in FY_STATUS_OPTIONS
+        ]
+    if kind == "financial_year":
+        current = financial_year_period_for()
+        return [
+            ReportFilterOptionPublic(
+                value=str(period.start.year),
+                label=(
+                    f"{period.label} (running)"
+                    if period.start == current.start and period.end == current.end
+                    else period.label
+                ),
+            )
+            for period in list_financial_year_periods(years_back=10)
         ]
     return []
 
@@ -105,6 +122,7 @@ def generate_report(
     actual_location: str | None = Query(None),
     status: str | None = Query(None),
     fy_status: str | None = Query(None),
+    fy_start_year: int | None = Query(None, ge=2000, le=2100),
 ) -> Response:
     _ = current
     definition = report_by_key(report)
@@ -141,6 +159,7 @@ def generate_report(
             plant_id=plant_id,
             status=status,
             fy_status=fy_status,
+            fy_start_year=fy_start_year,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

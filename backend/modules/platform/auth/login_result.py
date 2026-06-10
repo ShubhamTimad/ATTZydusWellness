@@ -29,6 +29,10 @@ class LoginOutcomeMfaOtp:
 LoginOutcome = LoginOutcomeTokens | LoginOutcomeMfaSetup | LoginOutcomeMfaOtp
 
 
+class MobileAccessDeniedError(Exception):
+    """User authenticated but lacks ``mobile.access`` for the mobile client."""
+
+
 class PasswordLoginDisabledError(Exception):
     """Company policy turned off password sign-in."""
 

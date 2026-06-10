@@ -10,29 +10,10 @@ import {
   AdminTableHeaderRow,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
 import { getJson, postJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
-
-type FeaturePublic = {
-  id: number
-  key: string
-  name: string
-}
-
-type PermissionPublic = {
-  id: number
-  feature_id: number
-  action: string
-  code: string
-  description: string | null
-  created_at: string
-}
 
 type CatalogPermission = {
   id: number | null
@@ -58,46 +39,54 @@ type PermissionCatalog = {
   modules: CatalogModule[]
 }
 
+type PermissionCatalogSyncResult = {
+  features_created: number
+  permissions_created: number
+  permission_codes_updated: number
+}
+
 const ACTION_COLUMNS = ["view", "create", "update", "delete"] as const
 const ACTION_LABEL: Record<string, string> = {
   view: "View",
   create: "Create",
   update: "Edit",
   delete: "Delete",
+  access: "Access",
+  scan: "Scan",
+  execute: "Execute",
+  export: "Export",
+}
+
+function orderedActionColumns(actions: string[]): string[] {
+  const uniq = new Set<string>(actions.map((a) => a.trim()).filter(Boolean))
+  const out: string[] = []
+  for (const a of ACTION_COLUMNS) {
+    if (uniq.has(a)) out.push(a)
+  }
+  for (const a of ["access", "act", "manage", "scan", "execute", "export"]) {
+    if (uniq.has(a)) out.push(a)
+  }
+  const rest = Array.from(uniq)
+    .filter((a) => !out.includes(a))
+    .sort((a, b) => a.localeCompare(b))
+  out.push(...rest)
+  return out
 }
 
 export function PermissionsPage() {
-  const [features, setFeatures] = React.useState<FeaturePublic[] | null>(null)
-  const [permissions, setPermissions] = React.useState<PermissionPublic[] | null>(null)
   const [catalog, setCatalog] = React.useState<PermissionCatalog | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const [syncing, setSyncing] = React.useState(false)
 
-  const [open, setOpen] = React.useState(false)
-  const [featureId, setFeatureId] = React.useState("")
-  const [action, setAction] = React.useState("")
-  const [description, setDescription] = React.useState("")
-
-  const featureNameById = React.useMemo(() => {
-    const map = new Map<number, FeaturePublic>()
-    for (const f of features ?? []) map.set(f.id, f)
-    return map
-  }, [features])
+  const canSync = hasPermission("permissions.create") || hasPermission("roles.update")
 
   async function load() {
     setError(null)
     try {
-      const [f, p, cat] = await Promise.all([
-        getJson<FeaturePublic[]>("/admin/features?skip=0&limit=200"),
-        getJson<PermissionPublic[]>("/admin/permissions?skip=0&limit=200"),
-        getJson<PermissionCatalog>("/admin/permissions/catalog"),
-      ])
-      setFeatures(f)
-      setPermissions(p)
+      const cat = await getJson<PermissionCatalog>("/admin/permissions/catalog")
       setCatalog(cat)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load permissions")
-      setFeatures([])
-      setPermissions([])
       setCatalog({ modules: [] })
     }
   }
@@ -106,108 +95,40 @@ export function PermissionsPage() {
     void load()
   }, [])
 
-  async function createPermission() {
-    const fid = Number(featureId)
-    if (!Number.isFinite(fid) || fid <= 0) {
-      setError("Feature ID must be a positive number.")
-      return
-    }
-    if (!action.trim()) {
-      setError("Action is required.")
-      return
-    }
-    setError(null)
-    toast.loading("Creating permission…", { id: "create-perm" })
+  async function syncCatalog() {
+    setSyncing(true)
+    toast.loading("Syncing permissions from config…", { id: "sync-perms-page" })
     try {
-      await postJson<PermissionPublic>("/admin/permissions", {
-        feature_id: fid,
-        action: action.trim(),
-        description: description.trim() ? description.trim() : null,
-      })
-      toast.success("Permission created", { id: "create-perm" })
-      setOpen(false)
-      setFeatureId("")
-      setAction("")
-      setDescription("")
+      const result = await postJson<PermissionCatalogSyncResult>("/admin/permissions/sync", {})
+      toast.success(
+        `Synced ${result.features_created + result.permissions_created + result.permission_codes_updated} change(s)`,
+        { id: "sync-perms-page" },
+      )
       await load()
     } catch (e) {
-      const message = e instanceof Error ? e.message : "Failed to create permission"
-      toast.error(message, { id: "create-perm" })
+      const message = e instanceof Error ? e.message : "Failed to sync permissions"
+      toast.error(message, { id: "sync-perms-page" })
       setError(message)
+    } finally {
+      setSyncing(false)
     }
   }
 
-  const createDialog = hasPermission("permissions.create") ? (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Create permission</DialogTitle>
-                <DialogDescription>
-                  Provide a feature id and action. Code will be generated by the backend.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="dialog-body">
-                <div className="space-y-1.5">
-                  <Label htmlFor="feature_id">Feature ID</Label>
-                  <Input
-                    id="feature_id"
-                    inputMode="numeric"
-                    value={featureId}
-                    onChange={(e) => setFeatureId(e.target.value)}
-                    placeholder="1"
-                  />
-                  {features && features.length > 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      Existing features:{" "}
-                      {features
-                        .slice(0, 3)
-                        .map((f) => `${f.id}:${f.key}`)
-                        .join(", ")}
-                      {features.length > 3 ? " …" : ""}
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="action">Action</Label>
-                  <Input
-                    id="action"
-                    value={action}
-                    onChange={(e) => setAction(e.target.value)}
-                    placeholder="view / create / update / delete"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="desc">Description (optional)</Label>
-                  <Input
-                    id="desc"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="What this permission allows"
-                  />
-                </div>
-
-                <div className="flex justify-end gap-2 border-t border-border/60 pt-3">
-                  <Button variant="outline" size="sm" className="h-9" onClick={() => setOpen(false)}>
-                    Cancel
-                  </Button>
-                  <AdminPrimaryButton type="button" onClick={() => void createPermission()}>
-                    Create
-                  </AdminPrimaryButton>
-                </div>
-              </div>
-      </DialogContent>
-    </Dialog>
-  ) : null
+  const hasMissing = React.useMemo(
+    () =>
+      (catalog?.modules ?? []).some((mod) =>
+        mod.tabs.some((tab) => tab.permissions.some((perm) => perm.id == null)),
+      ),
+    [catalog],
+  )
 
   return (
     <AdminPage
-      description="Permission codes use module.tab.action format. Run scripts/sync_modules.py to sync from config."
+      description="Read-only permission catalog from the backend. Permissions are defined in application config and synced to the database."
       actions={
-        hasPermission("permissions.create") ? (
-          <AdminPrimaryButton type="button" onClick={() => setOpen(true)}>
-            Create permission
+        canSync ? (
+          <AdminPrimaryButton type="button" disabled={syncing} onClick={() => void syncCatalog()}>
+            {syncing ? "Syncing…" : "Sync from config"}
           </AdminPrimaryButton>
         ) : undefined
       }
@@ -219,133 +140,104 @@ export function PermissionsPage() {
         </Alert>
       ) : null}
 
-      <AdminPanel title="By module (catalog)" description="Synced permission matrix from application config">
+      {hasMissing ? (
+        <Alert>
+          <AlertTitle>Missing permission rows</AlertTitle>
+          <AlertDescription>
+            Some permissions exist in config but not in the database yet.
+            {canSync ? " Click Sync from config to create them." : " Ask an administrator to run sync."}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <AdminPanel
+        title="Permission catalog"
+        description="Module → tab → action matrix loaded from GET /admin/permissions/catalog"
+        className="flex max-h-[calc(100dvh-11rem)] min-h-0 flex-col"
+        contentClassName="min-h-0 flex-1 overflow-y-auto"
+      >
         {catalog === null ? (
           <p className="px-5 py-12 text-center text-sm text-muted-foreground">Loading…</p>
         ) : catalog.modules.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-muted-foreground">No modules in catalog.</p>
         ) : (
-          <>
-            <div className="overflow-x-auto px-2 pb-2">
-              <Table className="min-w-[860px]">
-                <TableHeader>
-                  <AdminTableHeaderRow>
-                    <AdminTableHeadCell className="w-[220px]">Module / tab</AdminTableHeadCell>
-                    {ACTION_COLUMNS.map((act) => (
-                      <AdminTableHeadCell key={act} className="w-[160px] text-center">
-                        {ACTION_LABEL[act] ?? act}
-                      </AdminTableHeadCell>
-                    ))}
-                  </AdminTableHeaderRow>
-                </TableHeader>
-                <TableBody>
-                  {catalog.modules.map((mod) => (
-                    <React.Fragment key={mod.key}>
-                      <TableRow className="border-b border-border/60 bg-muted/20 hover:bg-muted/20">
-                        <TableCell colSpan={1 + ACTION_COLUMNS.length} className="px-5 py-2">
-                          <div className="text-sm font-semibold text-foreground">{mod.title}</div>
-                        </TableCell>
-                      </TableRow>
+          <div className="space-y-8 px-2 py-4">
+            {catalog.modules.map((mod) => {
+              const moduleActions = orderedActionColumns(
+                mod.tabs.flatMap((t) => (Array.isArray(t.actions) ? t.actions : [])),
+              )
+              return (
+                <div key={mod.key} className="space-y-2">
+                  <div className="px-3 text-sm font-semibold text-foreground">{mod.title}</div>
+                  <div className="overflow-x-auto">
+                    <Table className="min-w-[720px]">
+                      <TableHeader>
+                        <AdminTableHeaderRow>
+                          <AdminTableHeadCell className="min-w-[160px]">Tab</AdminTableHeadCell>
+                          {moduleActions.map((act) => (
+                            <AdminTableHeadCell key={act} className="min-w-[140px] text-center">
+                              {ACTION_LABEL[act] ?? act}
+                            </AdminTableHeadCell>
+                          ))}
+                        </AdminTableHeaderRow>
+                      </TableHeader>
+                      <TableBody>
+                        {mod.tabs.map((tab) => (
+                          <TableRow key={`${mod.key}.${tab.key}`} className="border-b border-border/40">
+                            <AdminTableCell className="align-top font-medium text-muted-foreground">
+                              {tab.title}
+                            </AdminTableCell>
+                            {moduleActions.map((act) => {
+                              const cell = tab.permissions.find((p) => p.action === act)
+                              if (!cell) {
+                                return (
+                                  <TableCell key={act} className="px-3 py-3 text-center align-top">
+                                    <span className="text-xs text-muted-foreground">—</span>
+                                  </TableCell>
+                                )
+                              }
 
-                      {mod.tabs.map((tab) => (
-                        <TableRow key={`${mod.key}.${tab.key}`} className="border-b border-border/40 hover:bg-muted/10">
-                          <AdminTableCell className="text-muted-foreground">{tab.title}</AdminTableCell>
-                          {ACTION_COLUMNS.map((act) => {
-                            const cell = tab.permissions.find((p) => p.action === act)
-                            if (!cell) {
+                              const synced = cell.id != null
                               return (
-                                <TableCell key={act} className="px-2 text-center align-middle">
-                                  <span className="text-xs text-muted-foreground">—</span>
+                                <TableCell key={act} className="px-3 py-3 align-top">
+                                  <div className="flex flex-col items-center gap-1.5 text-center">
+                                    <Checkbox
+                                      checked={synced}
+                                      disabled
+                                      className="pointer-events-none data-[state=checked]:border-primary data-[state=checked]:bg-primary"
+                                      aria-label={
+                                        synced
+                                          ? `Permission ${cell.code} exists in database`
+                                          : `Permission ${cell.code} missing — sync from config`
+                                      }
+                                    />
+                                    <code className="block max-w-[200px] whitespace-normal break-all font-mono text-[11px] leading-snug text-foreground">
+                                      {cell.code}
+                                    </code>
+                                    {cell.description ? (
+                                      <span className="block max-w-[200px] whitespace-normal text-[11px] leading-snug text-muted-foreground">
+                                        {cell.description}
+                                      </span>
+                                    ) : !synced ? (
+                                      <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                                        Not synced
+                                      </span>
+                                    ) : null}
+                                  </div>
                                 </TableCell>
                               )
-                            }
-
-                            const ok = cell.id != null
-                            return (
-                              <TableCell key={act} className="px-2 py-2 text-center align-middle" title={cell.code}>
-                                <div className="flex flex-col items-center gap-1">
-                                  <Checkbox
-                                    checked={ok}
-                                    disabled
-                                    className="pointer-events-none data-[state=checked]:border-primary data-[state=checked]:bg-primary"
-                                    aria-label={
-                                      ok
-                                        ? `Permission ${cell.code} exists in database`
-                                        : `Permission ${cell.code} missing — run scripts/sync_modules.py`
-                                    }
-                                  />
-                                  <code className="max-w-[150px] truncate font-mono text-[10px] text-muted-foreground">
-                                    {cell.code}
-                                  </code>
-                                </div>
-                              </TableCell>
-                            )
-                          })}
-                        </TableRow>
-                      ))}
-                    </React.Fragment>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <p className="border-t border-border/60 px-5 py-3 text-xs text-muted-foreground">
-              Unchecked cells need <span className="font-mono">python scripts/sync_modules.py</span>.
-            </p>
-          </>
+                            })}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </AdminPanel>
-
-      <AdminPanel title="All permissions (database)" description="Rows stored in the database">
-        <Table>
-          <TableHeader>
-            <AdminTableHeaderRow>
-              <AdminTableHeadCell className="w-[240px]">Feature</AdminTableHeadCell>
-              <AdminTableHeadCell className="w-[140px]">Action</AdminTableHeadCell>
-              <AdminTableHeadCell>Code</AdminTableHeadCell>
-            </AdminTableHeaderRow>
-          </TableHeader>
-          <TableBody>
-            {permissions === null ? (
-              <tr>
-                <td colSpan={3} className="px-5 py-12 text-center text-sm text-muted-foreground">
-                  Loading…
-                </td>
-              </tr>
-            ) : permissions.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="px-5 py-12 text-center text-sm text-muted-foreground">
-                  No permissions found.
-                </td>
-              </tr>
-            ) : (
-              permissions
-                .slice()
-                .sort((a, b) => a.code.localeCompare(b.code))
-                .map((p) => {
-                  const f = featureNameById.get(p.feature_id)
-                  return (
-                    <tr key={p.id} className="border-b border-border/40 last:border-0 hover:bg-muted/15">
-                      <AdminTableCell>
-                        {f ? (
-                          <div className="min-w-0">
-                            <div className="font-medium">{f.name}</div>
-                            <div className="truncate font-mono text-xs text-muted-foreground">{f.key}</div>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">Feature {p.feature_id}</span>
-                        )}
-                      </AdminTableCell>
-                      <AdminTableCell className="font-mono text-xs text-muted-foreground">{p.action}</AdminTableCell>
-                      <AdminTableCell className="font-mono text-xs">{p.code}</AdminTableCell>
-                    </tr>
-                  )
-                })
-            )}
-          </TableBody>
-        </Table>
-      </AdminPanel>
-
-      {createDialog}
     </AdminPage>
   )
 }

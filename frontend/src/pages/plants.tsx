@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Pencil, Plus } from "lucide-react"
+import { Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
@@ -26,7 +26,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { hasPermission, isSuperuser } from "@/lib/permissions"
 
 type OrgUnitPublic = {
@@ -55,6 +55,8 @@ export function PlantsPage() {
 
   const canCreate = hasPermission("org_units.create") || isSuperuser()
   const canUpdate = hasPermission("org_units.update") || isSuperuser()
+  const canDelete = hasPermission("org_units.delete") || isSuperuser()
+  const actionColSpan = (canUpdate ? 1 : 0) + (canDelete ? 1 : 0)
 
   async function load() {
     setError(null)
@@ -114,6 +116,26 @@ export function PlantsPage() {
       setError(message)
     } finally {
       setCreating(false)
+    }
+  }
+
+  async function deletePlant(plant: OrgUnitPublic) {
+    if (
+      !window.confirm(
+        `Delete plant "${plant.code}"? This is only allowed when no users are assigned to this plant.`,
+      )
+    ) {
+      return
+    }
+    toast.loading("Deleting plant…", { id: "delete-plant-page" })
+    try {
+      await deleteJson(`/admin/org-units/${plant.id}`)
+      toast.success("Plant deleted", { id: "delete-plant-page" })
+      if (editPlant?.id === plant.id) closeEdit()
+      await load()
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to delete plant"
+      toast.error(message, { id: "delete-plant-page" })
     }
   }
 
@@ -214,16 +236,16 @@ export function PlantsPage() {
               <AdminTableHeadCell>Code</AdminTableHeadCell>
               <AdminTableHeadCell>Name</AdminTableHeadCell>
               <AdminTableHeadCell className="w-[100px]">Type</AdminTableHeadCell>
-              {canUpdate ? (
-                <AdminTableHeadCell className="w-[100px] text-right">Actions</AdminTableHeadCell>
+              {actionColSpan > 0 ? (
+                <AdminTableHeadCell className="w-[140px] text-right">Actions</AdminTableHeadCell>
               ) : null}
             </AdminTableHeaderRow>
           </TableHeader>
           <TableBody>
             {plants === null ? (
-              <AdminTableEmptyRow colSpan={canUpdate ? 4 : 3}>Loading plants…</AdminTableEmptyRow>
+              <AdminTableEmptyRow colSpan={3 + actionColSpan}>Loading plants…</AdminTableEmptyRow>
             ) : plants.length === 0 ? (
-              <AdminTableEmptyRow colSpan={canUpdate ? 4 : 3}>No plants found.</AdminTableEmptyRow>
+              <AdminTableEmptyRow colSpan={3 + actionColSpan}>No plants found.</AdminTableEmptyRow>
             ) : (
               plants
                 .slice()
@@ -233,18 +255,34 @@ export function PlantsPage() {
                     <AdminTableCell className="font-mono text-sm font-medium">{p.code}</AdminTableCell>
                     <AdminTableCell className="font-medium">{p.name}</AdminTableCell>
                     <AdminTableCell className="font-mono text-xs text-muted-foreground">{p.type}</AdminTableCell>
-                    {canUpdate ? (
+                    {actionColSpan > 0 ? (
                       <AdminTableCell className="text-right">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
-                          onClick={() => openEdit(p)}
-                        >
-                          <Pencil className="size-3.5" aria-hidden />
-                          Edit
-                        </Button>
+                        <div className="flex justify-end gap-1">
+                          {canUpdate ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 gap-1.5 px-2.5 text-muted-foreground hover:text-foreground"
+                              onClick={() => openEdit(p)}
+                            >
+                              <Pencil className="size-3.5" aria-hidden />
+                              Edit
+                            </Button>
+                          ) : null}
+                          {canDelete ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 gap-1.5 px-2.5 text-muted-foreground hover:text-destructive"
+                              onClick={() => void deletePlant(p)}
+                            >
+                              <Trash2 className="size-3.5" aria-hidden />
+                              Delete
+                            </Button>
+                          ) : null}
+                        </div>
                       </AdminTableCell>
                     ) : null}
                   </AdminTableBodyRow>

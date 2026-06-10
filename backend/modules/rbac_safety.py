@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from modules.errors import RbacSafetyError
 from modules.platform.permissions.model import Permission
-from modules.rbac_association import role_permission, user_role
+from modules.rbac_association import role_permission, user_org_unit, user_role
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
 
@@ -95,20 +95,28 @@ def assert_no_empty_permission_set(permission_ids: list[int] | None) -> None:
         raise RbacSafetyError("A role must include at least one permission.")
 
 
-def assert_role_not_last_assignment_for_users(db: Session, role_id: int) -> None:
-    stmt = (
-        select(User)
-        .join(User.roles)
-        .where(Role.id == role_id)
-        .options(selectinload(User.roles))
-        .distinct()
+def assert_role_not_assigned_to_any_user(db: Session, role_id: int) -> None:
+    count = db.scalar(
+        select(func.count()).select_from(user_role).where(user_role.c.role_id == role_id)
     )
-    for user in db.scalars(stmt).unique().all():
-        if len(user.roles) == 1 and user.roles[0].id == role_id:
-            raise RbacSafetyError(
-                "Cannot delete this role while users are assigned only to it. "
-                "Assign another role first."
-            )
+    if count and int(count) > 0:
+        raise RbacSafetyError(
+            "Cannot delete this role while users are assigned to it. "
+            "Reassign or remove those users first."
+        )
+
+
+def assert_org_unit_not_assigned_to_any_user(db: Session, org_unit_id: int) -> None:
+    count = db.scalar(
+        select(func.count())
+        .select_from(user_org_unit)
+        .where(user_org_unit.c.org_unit_id == org_unit_id)
+    )
+    if count and int(count) > 0:
+        raise RbacSafetyError(
+            "Cannot delete this plant while users are assigned to it. "
+            "Reassign or remove those users first."
+        )
 
 
 def count_users_with_admin_capability(db: Session) -> int:

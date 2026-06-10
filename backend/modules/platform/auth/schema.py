@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+ClientType = Literal["web", "mobile"]
 
 
 class LoginRequest(BaseModel):
@@ -16,6 +18,21 @@ class LoginRequest(BaseModel):
     phone: str | None = Field(default=None, max_length=32)
     password: str = Field(min_length=1, max_length=128)
     captcha_token: str | None = Field(default=None, max_length=4096)
+    client_type: ClientType = Field(
+        default="web",
+        description="Set to ``mobile`` when signing in from the mobile APK. Requires ``mobile.access``.",
+    )
+
+    @field_validator("client_type", mode="before")
+    @classmethod
+    def _normalize_client_type(cls, value: object) -> str:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "web"
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in ("web", "mobile"):
+                return normalized
+        raise ValueError("client_type must be 'web' or 'mobile'")
 
     @model_validator(mode="after")
     def _normalize_identifier(self) -> "LoginRequest":

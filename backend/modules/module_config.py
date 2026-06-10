@@ -175,6 +175,27 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
             },
         ],
     },
+    {
+        "key": "mobile",
+        "title": "Mobile application",
+        "tabs": [
+            {
+                "key": "mobile",
+                "title": "Mobile app",
+                "actions": ["access"],
+            },
+            {
+                "key": "asset",
+                "title": "Assets (mobile)",
+                "actions": ["view", "scan"],
+            },
+            {
+                "key": "order",
+                "title": "Orders (mobile)",
+                "actions": ["view", "execute", "scan"],
+            },
+        ],
+    },
 ]
 def flatten_config_actions() -> frozenset[str]:
     """All action strings referenced by MODULE_CONFIG (normalized storage names)."""

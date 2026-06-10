@@ -7,7 +7,7 @@ from dataclasses import dataclass
 class ReportFilterDef:
     key: str
     label: str
-    kind: str  # plant | category | cost_center | functional_location | actual_location | order_status | fy_status
+    kind: str  # plant | category | cost_center | functional_location | actual_location | order_status | fy_status | financial_year
     required: bool = False
 
 
@@ -31,8 +31,9 @@ REPORT_DEFINITIONS: tuple[ReportDefinition, ...] = (
     ReportDefinition(
         key="financial_year_verification",
         title="Financial year physical verification",
-        description="RFID-tagged assets with physical verification status for the financial year.",
+        description="RFID-tagged assets with physical verification status for a selected financial year.",
         filters=(
+            ReportFilterDef("fy_start_year", "Financial year", "financial_year"),
             ReportFilterDef("plant_id", "Plant", "plant"),
             ReportFilterDef("fy_status", "Physical verification", "fy_status"),
         ),

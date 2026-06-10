@@ -71,6 +71,7 @@ const exportBtnClass =
   "h-9 min-w-[6.75rem] gap-1.5 px-3 text-sm font-medium shadow-sm"
 
 const FILTER_LABELS: Record<string, string> = {
+  fy_start_year: "Financial year",
   plant_id: "Plant",
   fy_status: "Verification",
   status: "Order status",
@@ -88,6 +89,7 @@ function shortenFilterOptionLabel(key: string, value: string, label: string): st
 }
 
 const FILTER_ORDER = [
+  "fy_start_year",
   "plant_id",
   "category_id",
   "cost_center",
@@ -232,8 +234,10 @@ function FilterField({
         onChange={(e) => onChange(e.target.value)}
         title={
           filter.key === "fy_status"
-            ? "Physically verified exports only assets scanned in the current financial year."
-            : undefined
+            ? "Filter by physical verification status within the selected financial year."
+            : filter.key === "fy_start_year"
+              ? "Choose which financial year the report should cover."
+              : undefined
         }
       >
         {options.length === 0 && placeholder ? (
@@ -325,6 +329,15 @@ function resolveFilterOptions(
         { value: "all", label: "All plants" },
         ...masters.plants.map((p) => ({ value: String(p.id), label: plantLabel(p) })),
       ],
+    }
+  }
+
+  if (filter.kind === "financial_year") {
+    return {
+      options: filter.options.map((o) => ({
+        value: o.value,
+        label: o.label.replace(" (running)", ""),
+      })),
     }
   }
 

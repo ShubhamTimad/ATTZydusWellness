@@ -250,10 +250,13 @@ export function UserCreatePage() {
 
               <div className="flex items-center justify-between gap-3 sm:col-span-2">
                 <div className="space-y-1">
-                  <div className="text-sm font-medium">Status</div>
-                  <div className="text-xs text-muted-foreground">New users are created as active by default.</div>
+                  <div className="text-sm font-medium">Active</div>
+                  <div className="text-xs text-muted-foreground">Inactive users cannot sign in.</div>
                 </div>
-                <Switch checked={form.watch("is_active")} onCheckedChange={(v) => form.setValue("is_active", v, { shouldDirty: true })} />
+                <Switch
+                  checked={form.watch("is_active")}
+                  onCheckedChange={(v) => form.setValue("is_active", v, { shouldDirty: true })}
+                />
               </div>
             </div>
 

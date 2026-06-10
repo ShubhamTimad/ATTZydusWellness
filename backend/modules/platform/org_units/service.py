@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from modules.platform.org_units.model import OrgUnit
 from modules.platform.org_units.schema import OrgUnitCreate, OrgUnitUpdate
+from modules.rbac_safety import assert_org_unit_not_assigned_to_any_user
 
 
 class NotFoundError(Exception):
@@ -62,3 +63,13 @@ class OrgUnitService:
             raise DuplicateOrgUnitCodeError from exc
         self._db.refresh(row)
         return row
+
+    def delete_org_unit(self, org_unit_id: int) -> None:
+        assert_org_unit_not_assigned_to_any_user(self._db, org_unit_id)
+        row = self.get_org_unit(org_unit_id)
+        self._db.delete(row)
+        try:
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            raise DuplicateOrgUnitCodeError from exc

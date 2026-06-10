@@ -22,7 +22,7 @@ from core.security import (
     verify_password,
 )
 from modules.platform.auth.model import PasswordResetToken, UserSession
-from core.permissions import get_flat_permission_codes_for_user
+from core.permissions import get_flat_permission_codes_for_user, user_has_mobile_access
 from modules.platform.auth.login_result import (
     CaptchaInvalidError,
     ForgotPasswordAccountInactiveError,
@@ -32,6 +32,7 @@ from modules.platform.auth.login_result import (
     LoginOutcomeMfaOtp,
     LoginOutcomeMfaSetup,
     LoginOutcomeTokens,
+    MobileAccessDeniedError,
     PasswordLoginDisabledError,
 )
 from modules.platform.auth.schema import LoginRequest, TokenPair, UserMe
@@ -82,6 +83,13 @@ class AuthService:
         """Public: used after MFA verification."""
         return self._issue_token_pair(user)
 
+    def assert_client_access(self, user: User, client_type: str | None) -> None:
+        if (client_type or "web").lower() != "mobile":
+            return
+        if user.is_superuser or user_has_mobile_access(self._db, int(user.id)):
+            return
+        raise MobileAccessDeniedError
+
     def _load_user_for_login(self, data: LoginRequest) -> User | None:
         if data.email is not None:
             email = str(data.email).lower().strip()
@@ -116,6 +124,8 @@ class AuthService:
             raise InvalidCredentialsError
         if is_password_expired(user):
             raise PasswordExpiredError
+
+        self.assert_client_access(user, data.client_type)
 
         if user.is_superuser:
             return LoginOutcomeTokens(tokens=self._issue_token_pair(user))

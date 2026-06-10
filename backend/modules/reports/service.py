@@ -25,7 +25,7 @@ from modules.orders.constants import (
 from modules.orders.model import PhysicalOrder
 from modules.platform.org_units.model import OrgUnit
 from modules.assets.fy_verification import resolve_verification_window, verified_asset_ids_in_window
-from modules.platform.settings.financial_year import financial_year_period_for
+from modules.platform.settings.financial_year import resolve_financial_year_period
 from modules.reports.export import ReportDocument
 
 
@@ -75,9 +75,14 @@ class ReportService:
         plant_id: int | None = None,
         status: str | None = None,
         fy_status: str | None = None,
+        fy_start_year: int | None = None,
     ) -> ReportDocument:
         if report_key == "financial_year_verification":
-            return self._financial_year_verification(plant_id=plant_id, fy_status=fy_status)
+            return self._financial_year_verification(
+                plant_id=plant_id,
+                fy_status=fy_status,
+                fy_start_year=fy_start_year,
+            )
         if report_key == "physical_orders_summary":
             return self._physical_orders_summary(plant_id=plant_id, status=status)
         raise ValueError(f"Unknown report: {report_key}")
@@ -98,8 +103,14 @@ class ReportService:
             base = base.join(AssetLocationInformation).where(AssetLocationInformation.plant_id == plant_id)
         return base
 
-    def _financial_year_verification(self, *, plant_id: int | None, fy_status: str | None) -> ReportDocument:
-        period = financial_year_period_for()
+    def _financial_year_verification(
+        self,
+        *,
+        plant_id: int | None,
+        fy_status: str | None,
+        fy_start_year: int | None = None,
+    ) -> ReportDocument:
+        period = resolve_financial_year_period(fy_start_year)
         window = resolve_verification_window(period)
         normalized_fy = (fy_status or "all").strip().lower()
         if normalized_fy not in FY_STATUS_OPTIONS:

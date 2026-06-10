@@ -6,10 +6,19 @@ import { ReportTile, ReportTileSkeleton } from "@/components/reports/report-tile
 import { ApiError, downloadFile, getJson } from "@/lib/api"
 import type { ReportCatalog, ReportDefinition, ReportFilterValues, ReportFormat } from "@/lib/reports-types"
 
+function defaultFyStartYear(report: ReportDefinition): string {
+  const fyFilter = report.filters.find((f) => f.key === "fy_start_year")
+  if (!fyFilter || fyFilter.options.length === 0) return ""
+  const running = fyFilter.options.find((o) => o.label.includes("(running)"))
+  return running?.value ?? fyFilter.options[0]?.value ?? ""
+}
+
 function buildInitialFilters(report: ReportDefinition): ReportFilterValues {
   const values: ReportFilterValues = {}
   for (const filter of report.filters) {
-    if (filter.key === "fy_status") {
+    if (filter.key === "fy_start_year") {
+      values[filter.key] = defaultFyStartYear(report)
+    } else if (filter.key === "fy_status") {
       values[filter.key] = report.key === "financial_year_verification" ? "verified" : "all"
     } else {
       values[filter.key] = "all"

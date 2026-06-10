@@ -3,7 +3,9 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from modules.platform.auth.login_result import MobileAccessDeniedError
 from sqlalchemy.orm import Session
 
 from db.session import get_db
@@ -23,6 +25,21 @@ def get_auth_service(db: Session = Depends(get_db)) -> AuthService:
 class MfaVerifyRequest(BaseModel):
     challenge_token: str = Field(min_length=10, max_length=512)
     otp: str = Field(min_length=6, max_length=12)
+    client_type: str = Field(
+        default="web",
+        description="Must match the client_type sent to POST /login (use ``mobile`` for the APK).",
+    )
+
+    @field_validator("client_type", mode="before")
+    @classmethod
+    def _normalize_client_type(cls, value: object) -> str:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "web"
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in ("web", "mobile"):
+                return normalized
+        raise ValueError("client_type must be 'web' or 'mobile'")
 
 
 class MfaSetupInitBody(BaseModel):
@@ -49,6 +66,16 @@ def verify_mfa_otp(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user")
     if not mfa.verify_totp_for_user(int(user.id), payload.otp):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OTP")
+    try:
+        svc.assert_client_access(user, payload.client_type)
+    except MobileAccessDeniedError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "mobile_access_denied",
+                "detail": "Your account is not authorized to use the mobile application.",
+            },
+        ) from None
     mfa.mark_challenge_used(ch)
     return svc.issue_token_pair(user)
 

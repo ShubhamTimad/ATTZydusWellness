@@ -122,6 +122,18 @@ def _has_any_permission(snapshot: _PermissionSnapshot, alternatives: Iterable[st
     return False
 
 
+MOBILE_ACCESS_PERMISSION = "mobile.access"
+
+
+def user_has_mobile_access(db: Session, user_id: int) -> bool:
+    """True when the user may sign in from the mobile client (``mobile.access`` or superuser)."""
+    user = db.get(User, user_id)
+    if user is not None and user.is_superuser:
+        return True
+    codes = set(get_flat_permission_codes_for_user(db, user_id))
+    return not codes.isdisjoint(_permission_code_variants(MOBILE_ACCESS_PERMISSION))
+
+
 def get_flat_permission_codes_for_user(db: Session, user_id: int) -> list[str]:
     """
     Return all permission codes for a user (RBAC via roles), sorted.
