@@ -37,7 +37,6 @@ from modules.platform.auth.login_result import (
 )
 from modules.platform.auth.schema import LoginRequest, TokenPair, UserMe
 from modules.platform.auth_policy.service import get_global_policy
-from modules.platform.settings.session_idle import get_session_idle_timeout_minutes
 from modules.errors import NotFoundError
 from modules.platform.users.model import User
 from modules.platform.emails.service import EmailNotificationService
@@ -56,7 +55,9 @@ class AuthService:
         self._db = db
 
     def _access_token_lifetime(self) -> timedelta:
-        return timedelta(minutes=get_session_idle_timeout_minutes())
+        """JWT lifetime; idle enforcement is separate (``SessionIdleMiddleware``)."""
+        settings = get_settings()
+        return timedelta(minutes=settings.access_token_expire_minutes)
 
     def _issue_token_pair(self, user: User) -> TokenPair:
         settings = get_settings()
@@ -264,6 +265,7 @@ class AuthService:
                 "email": user.email,
                 "reset_link": reset_link,
                 "company_name": "Ultra Workspace",
+                "expiry_minutes": expires_minutes,
             },
         )
         if result.status != "sent":

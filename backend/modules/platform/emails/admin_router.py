@@ -128,7 +128,7 @@ def variables_for_event(event_code: str) -> EmailVariablesResponse:
     # Admin UI uses this as a hint list for each event.
     vars_by_event: dict[str, list[str]] = {
         "USER_CREATED": ["user_name", "username", "email", "company_name", "temp_password", "setup_link"],
-        "FORGOT_PASSWORD": ["user_name", "email", "reset_link", "company_name"],
+        "FORGOT_PASSWORD": ["user_name", "email", "reset_link", "company_name", "expiry_minutes"],
         "PASSWORD_RESET": ["user_name", "email"],
         "TASK_ASSIGNED": ["user_name", "email", "task_name", "entity_name", "task_link"],
         "TASK_APPROVED": ["user_name", "email", "task_name", "entity_name"],

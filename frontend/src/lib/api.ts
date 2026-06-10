@@ -3,16 +3,13 @@ export const API_BASE_URL =
 
 type Json = Record<string, unknown>
 
-function getAccessToken() {
-  try {
-    const t = localStorage.getItem("access_token")
-    return t && t.length > 0 ? t : null
-  } catch {
-    return null
-  }
+type TokenPair = {
+  access_token: string
+  refresh_token: string
 }
 
 import {
+  SESSION_ACTIVITY_EVENT,
   SESSION_IDLE_LOGOUT_EVENT,
   type AuthLogoutReason,
 } from "@/lib/session-idle-events"
@@ -27,6 +24,88 @@ export class ApiError extends Error {
     this.status = status
     this.body = body
   }
+}
+
+function getAccessToken() {
+  try {
+    const t = localStorage.getItem("access_token")
+    return t && t.length > 0 ? t : null
+  } catch {
+    return null
+  }
+}
+
+function getRefreshToken() {
+  try {
+    const t = localStorage.getItem("refresh_token")
+    return t && t.length > 0 ? t : null
+  } catch {
+    return null
+  }
+}
+
+function storeTokens(pair: TokenPair) {
+  localStorage.setItem("access_token", pair.access_token)
+  localStorage.setItem("refresh_token", pair.refresh_token)
+}
+
+function accessTokenExpiresAtMs(token: string): number | null {
+  try {
+    const segment = token.split(".")[1]
+    if (!segment) return null
+    const payload = JSON.parse(atob(segment.replace(/-/g, "+").replace(/_/g, "/"))) as {
+      exp?: unknown
+    }
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null
+  } catch {
+    return null
+  }
+}
+
+const REFRESH_BUFFER_MS = 2 * 60 * 1000
+
+let refreshInFlight: Promise<string | null> | null = null
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return null
+
+  if (refreshInFlight) return refreshInFlight
+
+  refreshInFlight = (async () => {
+    try {
+      const url = `${API_BASE_URL}/refresh`
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+      const text = await res.text()
+      const data = parseResponseBody(text)
+      if (!res.ok) return null
+      const pair = data as Partial<TokenPair>
+      if (typeof pair.access_token !== "string" || typeof pair.refresh_token !== "string") {
+        return null
+      }
+      storeTokens({ access_token: pair.access_token, refresh_token: pair.refresh_token })
+      return pair.access_token
+    } catch {
+      return null
+    } finally {
+      refreshInFlight = null
+    }
+  })()
+
+  return refreshInFlight
+}
+
+async function ensureFreshAccessToken(): Promise<string | null> {
+  const token = getAccessToken()
+  if (!token) return null
+  const expiresAt = accessTokenExpiresAtMs(token)
+  if (expiresAt === null || expiresAt - Date.now() > REFRESH_BUFFER_MS) return token
+  const refreshed = await refreshAccessToken()
+  return refreshed ?? token
 }
 
 function parseErrorMessage(data: unknown, status: number): string {
@@ -52,11 +131,16 @@ function shouldLogoutOn401(path: string): boolean {
   )
 }
 
+function isSessionIdleResponse(data: unknown): boolean {
+  return (
+    data !== null &&
+    typeof data === "object" &&
+    (data as { detail?: unknown }).detail === "session_idle"
+  )
+}
+
 function logoutReasonFrom401(data: unknown): AuthLogoutReason {
-  if (data && typeof data === "object") {
-    const detail = (data as { detail?: unknown }).detail
-    if (detail === "session_idle") return "session_idle"
-  }
+  if (isSessionIdleResponse(data)) return "session_idle"
   return "unauthorized"
 }
 
@@ -69,31 +153,9 @@ function maybeDispatchAuthLogout(status: number, data: unknown, path: string) {
   )
 }
 
-export async function getJson<TResponse>(
-  path: string,
-  init?: Omit<RequestInit, "method">
-): Promise<TResponse> {
-  const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`
-  const token = getAccessToken()
-
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
-
-  const text = await res.text()
-  const data = parseResponseBody(text)
-
-  if (!res.ok) {
-    maybeDispatchAuthLogout(res.status, data, path)
-    throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
-  }
-
-  return data as TResponse
+function notifySessionActivity() {
+  if (!getAccessToken()) return
+  window.dispatchEvent(new CustomEvent(SESSION_ACTIVITY_EVENT))
 }
 
 function parseResponseBody(text: string): unknown {
@@ -108,25 +170,88 @@ function parseResponseBody(text: string): unknown {
   }
 }
 
+type FetchWithAuthOptions = {
+  path: string
+  init?: RequestInit
+  /** When false, do not attempt token refresh on 401 (used for /refresh itself). */
+  allowRefresh?: boolean
+}
+
+async function fetchWithAuth({
+  path,
+  init,
+  allowRefresh = true,
+}: FetchWithAuthOptions): Promise<Response> {
+  const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`
+  const token = await ensureFreshAccessToken()
+
+  const buildHeaders = (accessToken: string | null) => ({
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    ...(init?.headers ?? {}),
+  })
+
+  let res = await fetch(url, {
+    ...init,
+    headers: buildHeaders(token),
+  })
+
+  if (res.status === 401 && allowRefresh && shouldLogoutOn401(path) && getRefreshToken()) {
+    const text = await res.text()
+    const data = parseResponseBody(text)
+    if (!isSessionIdleResponse(data)) {
+      const newToken = await refreshAccessToken()
+      if (newToken) {
+        res = await fetch(url, {
+          ...init,
+          headers: buildHeaders(newToken),
+        })
+        if (res.ok) {
+          notifySessionActivity()
+        }
+        return res
+      }
+    }
+    maybeDispatchAuthLogout(401, data, path)
+    throw new ApiError(parseErrorMessage(data, 401), 401, data)
+  }
+
+  if (res.ok && token) {
+    notifySessionActivity()
+  }
+
+  return res
+}
+
+export async function getJson<TResponse>(
+  path: string,
+  init?: Omit<RequestInit, "method">,
+): Promise<TResponse> {
+  const res = await fetchWithAuth({ path, init: { method: "GET", ...init } })
+  const text = await res.text()
+  const data = parseResponseBody(text)
+
+  if (!res.ok) {
+    maybeDispatchAuthLogout(res.status, data, path)
+    throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
+  }
+
+  return data as TResponse
+}
+
 export async function postJson<TResponse>(
   path: string,
   body: Json,
-  init?: Omit<RequestInit, "method" | "body">
+  init?: Omit<RequestInit, "method" | "body">,
 ): Promise<TResponse> {
-  const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`
-  const token = getAccessToken()
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
+  const res = await fetchWithAuth({
+    path,
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      body: JSON.stringify(body),
+      ...init,
     },
-    body: JSON.stringify(body),
-    ...init,
   })
-
   const text = await res.text()
   const data = parseResponseBody(text)
 
@@ -141,22 +266,17 @@ export async function postJson<TResponse>(
 export async function patchJson<TResponse>(
   path: string,
   body: Json,
-  init?: Omit<RequestInit, "method" | "body">
+  init?: Omit<RequestInit, "method" | "body">,
 ): Promise<TResponse> {
-  const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`
-  const token = getAccessToken()
-
-  const res = await fetch(url, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
+  const res = await fetchWithAuth({
+    path,
+    init: {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      body: JSON.stringify(body),
+      ...init,
     },
-    body: JSON.stringify(body),
-    ...init,
   })
-
   const text = await res.text()
   const data = parseResponseBody(text)
 
@@ -171,22 +291,17 @@ export async function patchJson<TResponse>(
 export async function putJson<TResponse>(
   path: string,
   body: Json,
-  init?: Omit<RequestInit, "method" | "body">
+  init?: Omit<RequestInit, "method" | "body">,
 ): Promise<TResponse> {
-  const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`
-  const token = getAccessToken()
-
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
+  const res = await fetchWithAuth({
+    path,
+    init: {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      body: JSON.stringify(body),
+      ...init,
     },
-    body: JSON.stringify(body),
-    ...init,
   })
-
   const text = await res.text()
   const data = parseResponseBody(text)
 
@@ -202,18 +317,7 @@ export async function deleteJson(
   path: string,
   init?: Omit<RequestInit, "method" | "body">,
 ): Promise<void> {
-  const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`
-  const token = getAccessToken()
-
-  const res = await fetch(url, {
-    method: "DELETE",
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
-
+  const res = await fetchWithAuth({ path, init: { method: "DELETE", ...init } })
   const text = await res.text()
   const data = parseResponseBody(text)
 
@@ -236,17 +340,7 @@ export async function downloadFile(
   fallbackFilename: string,
   init?: Omit<RequestInit, "method">,
 ): Promise<void> {
-  const url = `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`
-  const token = getAccessToken()
-
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    ...init,
-  })
+  const res = await fetchWithAuth({ path, init: { method: "GET", ...init } })
 
   if (!res.ok) {
     const text = await res.text()

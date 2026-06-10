@@ -1,7 +1,11 @@
 import * as React from "react"
 
 import { getJson } from "@/lib/api"
-import { SESSION_IDLE_LOGOUT_EVENT, type AuthLogoutReason } from "@/lib/session-idle-events"
+import {
+  SESSION_ACTIVITY_EVENT,
+  SESSION_IDLE_LOGOUT_EVENT,
+  type AuthLogoutReason,
+} from "@/lib/session-idle-events"
 
 type SessionPolicy = {
   idle_timeout_minutes: number
@@ -155,6 +159,7 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
       onLogoutRef.current(reason)
     }
     window.addEventListener(SESSION_IDLE_LOGOUT_EVENT, onApiIdle)
+    window.addEventListener(SESSION_ACTIVITY_EVENT, markActive)
 
     return () => {
       for (const name of activityEvents) {
@@ -163,6 +168,7 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
       document.removeEventListener("visibilitychange", onVisibility)
       window.clearInterval(intervalId)
       window.removeEventListener(SESSION_IDLE_LOGOUT_EVENT, onApiIdle)
+      window.removeEventListener(SESSION_ACTIVITY_EVENT, markActive)
     }
   }, [computeRemainingMs, enabled])
 
