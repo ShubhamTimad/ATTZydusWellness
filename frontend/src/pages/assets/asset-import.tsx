@@ -90,7 +90,7 @@ export function AssetImportPage() {
   const importCancelledRef = React.useRef(false)
 
   async function rollbackImportBatch(batchId: number) {
-    await postJson<{ batch_id: number; assets_removed: number }>(
+    return postJson<{ batch_id: number; assets_removed: number }>(
       `/admin/assets/import/cancel-batch/${batchId}`,
       {},
     )
