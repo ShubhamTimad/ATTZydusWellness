@@ -17,16 +17,11 @@ done
 echo "Running database migrations..."
 alembic -c backend/alembic.ini upgrade head
 
-_seed_templates="${SEED_SYSTEM_EMAIL_TEMPLATES:-false}"
-case "$(printf '%s' "$_seed_templates" | tr '[:upper:]' '[:lower:]')" in
-  1|true|yes|on)
-    echo "Ensuring system email templates..."
-    python /app/scripts/ensure_system_email_templates.py
-    ;;
-  *)
-    echo "Skipping email template seed (SEED_SYSTEM_EMAIL_TEMPLATES=false)."
-    ;;
-esac
+echo "Ensuring system email templates..."
+python /app/scripts/ensure_system_email_templates.py
+
+echo "Ensuring bootstrap superuser (only if none exists)..."
+python /app/scripts/ensure_bootstrap_superuser.py
 
 BACKEND_PORT="${BACKEND_PORT:-9005}"
 echo "Starting API on port ${BACKEND_PORT}..."

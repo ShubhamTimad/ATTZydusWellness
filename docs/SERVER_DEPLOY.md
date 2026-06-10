@@ -92,9 +92,11 @@ docker compose --env-file .env.docker up -d --build
 On backend container start (`backend/docker-entrypoint.sh`):
 
 1. Waits for PostgreSQL
-2. Runs `alembic upgrade head` (all DB migrations)
-3. Runs `scripts/ensure_system_email_templates.py` (idempotent FORGOT_PASSWORD templates)
-4. Starts Uvicorn on `BACKEND_PORT` (default **9005**)
+2. Runs `alembic upgrade head` (schema migrations only — no demo assets/users)
+3. Ensures system email templates (`ensure_system_email_templates.py`)
+4. Creates bootstrap superuser **only if none exists** (`ensure_bootstrap_superuser.py`)
+5. On API start: syncs permission/feature **catalog** from config when `SYNC_MODULES_ON_STARTUP=true` (not demo data)
+6. Starts Uvicorn on `BACKEND_PORT` (default **9005**)
 
 The frontend nginx container proxies `/api/*` to the backend and serves the React build on port **80** (mapped to `APP_PORT`, default **8083**).
 
@@ -108,34 +110,27 @@ The frontend nginx container proxies `/api/*` to the backend and serves the Reac
 | `VITE_API_URL` | Baked into frontend at build time (use `/api`) |
 | `FRONTEND_APP_URL` / `FRONTEND_ORIGIN` | Public URL for reset links and CORS |
 | `ENFORCE_SUPERUSER_ON_ADMIN` | `false` = RBAC; `true` = superuser-only `/admin/*` |
-| `SYNC_MODULES_ON_STARTUP` | `false` (default) — no auto permission/feature sync on start; use Admin → Permissions → Sync |
-| `SEED_SYSTEM_EMAIL_TEMPLATES` | `false` (default) — skip entrypoint email template script; set `true` on first deploy if needed |
+| `SYNC_MODULES_ON_STARTUP` | `true` — sync permission codes from app config (catalog only) |
+| `SEED_SYSTEM_EMAIL_TEMPLATES` | `true` — ensure forgot-password / core email templates on start |
+| `BOOTSTRAP_SUPERUSER_EMAIL` | First admin email (used only when no superuser exists) |
+| `BOOTSTRAP_SUPERUSER_PASSWORD` | First admin password (change after first login) |
 
-## Permissions / email templates (manual, not automatic)
+## What is **not** auto-seeded
 
-Production defaults **do not** auto-feed the database on every restart.
+Do **not** run these on production — they insert demo plants, assets, orders, and users:
 
-**Permissions catalog** (after upgrading app code with new modules):
+- `scripts/seed_dummy_data.py`
+- `scripts/seed_manual_test_users.py`
+- `scripts/seed_fy_verification_demo.py`
+- `scripts/seed_physical_order_states.py`
+
+**Manual permission sync** (optional, same as startup sync):
 
 ```bash
 docker compose --env-file .env.docker exec backend python /app/scripts/sync_modules.py
 ```
 
-Or in the UI: **Admin → Permissions → Sync from config**.
-
-**Email templates** (first deploy or forgot-password setup):
-
-```env
-SEED_SYSTEM_EMAIL_TEMPLATES=true
-```
-
-Then restart backend once, or run:
-
-```bash
-docker compose --env-file .env.docker exec backend python /app/scripts/ensure_system_email_templates.py
-```
-
-Do **not** run `scripts/seed_dummy_data.py` on production — that inserts demo plants, assets, and users.
+Or **Admin → Permissions → Sync from config**.
 
 ## Fix “Password reset email is not configured”
 
@@ -170,9 +165,9 @@ docker compose --env-file .env.docker logs -f backend
 docker compose --env-file .env.docker exec backend \
   alembic -c backend/alembic.ini upgrade head
 
-# Create superuser
+# Create another superuser manually
 docker compose --env-file .env.docker exec backend \
-  python /app/create_superuser.py
+  python /app/create_superuser.py --email admin@example.com --password 'ChangeMe@123'
 
 # Rebuild after code pull (slow)
 ./scripts/docker-rebuild.sh

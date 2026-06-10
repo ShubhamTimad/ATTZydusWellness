@@ -52,7 +52,7 @@ def admin_login_redirect() -> RedirectResponse:
     return RedirectResponse(url=f"{target.rstrip('/')}/login", status_code=307)
 
 
-if _env_flag("SYNC_MODULES_ON_STARTUP", False):
+if _env_flag("SYNC_MODULES_ON_STARTUP", True):
     db = SessionLocal()
     sync_all_modules_to_db(db)
     db.close()
