@@ -61,15 +61,28 @@ git pull origin develop
 cp -n .env.docker.example .env.docker   # skip if .env.docker already exists
 # Edit .env.docker: JWT_SECRET_KEY, POSTGRES_PASSWORD, FRONTEND_APP_URL, APP_PORT, SMTP_*
 
-chmod +x scripts/docker-deploy.sh
-./scripts/docker-deploy.sh
+chmod +x scripts/docker-*.sh
+./scripts/docker-rebuild.sh    # first time only — builds images (slow)
 ```
 
-Or run the steps manually:
+### Fast vs slow commands
+
+| When | Command | Time |
+|------|---------|------|
+| **First deploy** or **after `git pull`** (code changed) | `./scripts/docker-rebuild.sh` | Several minutes |
+| **Backend code only** changed | `./scripts/docker-rebuild.sh backend` | ~2–5 min |
+| **Frontend code only** changed | `./scripts/docker-rebuild.sh frontend` | ~3–8 min (npm build) |
+| **Only `.env.docker` changed** (bind IP, URLs, SMTP) | `./scripts/docker-up.sh` | ~30 seconds |
+| **Simple restart** | `./scripts/docker-up.sh` | ~30 seconds |
+
+**Do not use `--build` every time** — it re-runs `npm ci` + `vite build` and `pip install`, which is slow.
 
 ```bash
-docker compose --env-file .env.docker build
+# Fast — env change or restart (no rebuild)
 docker compose --env-file .env.docker up -d
+
+# Slow — only after git pull / code change
+docker compose --env-file .env.docker up -d --build
 ```
 
 **Always** include `--env-file .env.docker`; otherwise Compose falls back to defaults for DB password, `DATABASE_URL`, app URLs, and ports.
@@ -134,8 +147,11 @@ docker compose --env-file .env.docker exec backend \
 docker compose --env-file .env.docker exec backend \
   python /app/create_superuser.py
 
-# Rebuild after code pull
-docker compose --env-file .env.docker up -d --build
+# Rebuild after code pull (slow)
+./scripts/docker-rebuild.sh
+
+# Fast restart only
+./scripts/docker-up.sh
 ```
 
 ## Local Docker (development)
