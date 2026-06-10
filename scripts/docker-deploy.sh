@@ -20,6 +20,7 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 echo "==> Using env file: $ENV_FILE"
+echo "==> App URL: http://<your-server-ip>:${APP_PORT:-8083}/login (set APP_HOST_BIND=0.0.0.0 in $ENV_FILE for public access)"
 
 docker compose --env-file "$ENV_FILE" up -d --build
 
