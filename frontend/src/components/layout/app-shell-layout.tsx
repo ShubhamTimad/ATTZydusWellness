@@ -233,7 +233,7 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
             {visibleGroups.map((group) => (
               <div key={group.label} className="space-y-1">
                 {!isSidebarCollapsed ? (
-                  <p className="px-3 pb-0.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+                  <p className="px-3 pb-0.5 text-[10px] font-semibold tracking-[0.08em] text-foreground uppercase">
                     {group.label}
                   </p>
                 ) : null}
@@ -250,7 +250,7 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
                       className={cn(
                         "relative h-9 w-full rounded-[calc(var(--app-radius-surface)-2px)] text-left font-medium",
                         isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-2.5 pl-3",
-                        "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                        "text-foreground hover:bg-muted/70",
                         isActive &&
                           "border-l-2 border-primary bg-primary/8 pl-[calc(0.75rem-2px)] text-primary hover:bg-primary/10 hover:text-primary",
                         isActive && isSidebarCollapsed && "border-l-0 bg-primary/10 pl-0 text-primary",

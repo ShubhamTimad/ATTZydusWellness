@@ -64,9 +64,11 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "rfid_code", label: "RFID code" },
   { key: "tag_color_code", label: "Tag color" },
   { key: "sub_location", label: "Sub location" },
+  { key: "plant_code", label: "Plant name" },
+  { key: "cost_center", label: "Cost center" },
+  { key: "profit_center", label: "Profit center" },
   { key: "functional_location", label: "Functional location" },
   { key: "actual_location", label: "Actual location" },
-  { key: "cost_center", label: "Cost center" },
   { key: "party_details", label: "Party details" },
   { key: "invoice_no", label: "Invoice no." },
   { key: "invoice_date", label: "Invoice date", kind: "date" },
@@ -79,7 +81,7 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "depreciation_rate", label: "Rate of depreciation" },
   { key: "gross_block", label: "Gross block" },
   { key: "life_span", label: "Life span" },
-  { key: "plant_code", label: "Plant name" },
+  { key: "serial_no", label: "Serial no." },
 ]
 
 /** Default export columns (import-compatible). */

@@ -14,8 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { API_BASE_URL, postJson } from "@/lib/api"
-import { ASSET_IMPORT_HEADERS } from "@/lib/asset-master-fields"
+import { API_BASE_URL, downloadFile, postJson } from "@/lib/api"
 
 type PreviewResponse = {
   filename: string | null
@@ -85,6 +84,7 @@ export function AssetImportPage() {
   const [selectedRows, setSelectedRows] = React.useState<Set<number>>(new Set())
   const [importProgress, setImportProgress] = React.useState<ImportProgressState | null>(null)
   const [cancellingImport, setCancellingImport] = React.useState(false)
+  const [downloadingTemplate, setDownloadingTemplate] = React.useState(false)
   const importAbortRef = React.useRef<AbortController | null>(null)
   const importBatchIdRef = React.useRef<number | null>(null)
   const importCancelledRef = React.useRef(false)
@@ -121,6 +121,18 @@ export function AssetImportPage() {
       setCancellingImport(false)
       setImportProgress(null)
       setLoading(false)
+    }
+  }
+
+  async function downloadTemplate() {
+    setDownloadingTemplate(true)
+    try {
+      await downloadFile("/admin/assets/import/template", "asset-import-template.xlsx")
+      toast.success("Import template downloaded.")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to download template.")
+    } finally {
+      setDownloadingTemplate(false)
     }
   }
 
@@ -399,14 +411,17 @@ export function AssetImportPage() {
         <AdminPanel title="Upload file">
           <div className="dialog-body space-y-4">
             <p className="text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">Asset code</span> must be unique for every
-              asset. <span className="font-medium text-foreground">RFID code</span> is optional but must be
-              unique when provided. Rows with errors are shown in an Excel-style grid; fix highlighted
-              cells and re-validate before submit.
+              Download the template, fill your data, then upload the file.
             </p>
-            <p className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
-              {ASSET_IMPORT_HEADERS.join(" · ")}
-            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={downloadingTemplate || loading}
+              onClick={() => void downloadTemplate()}
+            >
+              {downloadingTemplate ? "Downloading…" : "Download import template"}
+            </Button>
             <div className="space-y-1.5">
               <Label htmlFor="import-file">File</Label>
               <Input

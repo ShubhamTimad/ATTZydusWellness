@@ -1521,6 +1521,16 @@ class AssetMasterService:
             )
         return out
 
+    def build_import_template(self) -> tuple[bytes, str, str]:
+        from modules.assets.import_template import build_import_template_xlsx
+
+        content = build_import_template_xlsx(self._db)
+        return (
+            content,
+            "asset-import-template.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     def preview_import(self, *, filename: str | None, content: bytes) -> ImportPreviewResponse:
         rows = apply_import_validation(self._db, parse_upload_file(filename=filename, content=content))
         return ImportPreviewResponse(**build_preview_response(filename=filename, rows=rows))

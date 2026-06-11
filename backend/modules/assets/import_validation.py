@@ -13,6 +13,7 @@ from modules.asset_masters.model import (
     ActualLocationMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
+    ProfitCenterMaster,
 )
 from modules.asset_masters.model import TagColorMaster
 from modules.platform.org_units.model import OrgUnit
@@ -41,6 +42,12 @@ class _LocationMasterLookups:
             (int(al.functional_location_id), str(al.code).lower()): al
             for al in db.scalars(
                 select(ActualLocationMaster).where(ActualLocationMaster.is_active.is_(True))
+            ).all()
+        }
+        self.profit_center_by_cc_code: dict[tuple[int, str], ProfitCenterMaster] = {
+            (int(pc.cost_center_id), str(pc.code).lower()): pc
+            for pc in db.scalars(
+                select(ProfitCenterMaster).where(ProfitCenterMaster.is_active.is_(True))
             ).all()
         }
 
@@ -89,6 +96,22 @@ class _LocationMasterLookups:
             return None, "Actual location not found under this functional location."
         return row, None
 
+    def resolve_profit_center(
+        self, *, cost_center_id: int | None, code: str
+    ) -> tuple[ProfitCenterMaster | None, str | None]:
+        key = code.lower()
+        if cost_center_id is not None:
+            row = self.profit_center_by_cc_code.get((cost_center_id, key))
+            if row is None:
+                return None, "Profit center not found for this cost center."
+            return row, None
+        matches = [pc for (cc_id, c), pc in self.profit_center_by_cc_code.items() if c == key]
+        if not matches:
+            return None, "Unknown profit center code."
+        if len(matches) > 1:
+            return None, "Profit center exists under multiple cost centers; specify cost center."
+        return matches[0], None
+
 
 def _validate_location_masters(
     lookups: _LocationMasterLookups,
@@ -96,6 +119,7 @@ def _validate_location_masters(
     *,
     plant_code: str,
     cost_center_code: str,
+    profit_center_code: str,
     functional_location_code: str,
     actual_location_code: str,
 ) -> None:
@@ -126,6 +150,22 @@ def _validate_location_masters(
         field_errors["functional_location"] = (
             "Functional location does not belong to the same plant as the cost center."
         )
+
+    if profit_center_code:
+        if not cost_center_code:
+            field_errors["profit_center"] = "Cost center is required when profit center is provided."
+        elif "cost_center" not in field_errors:
+            if cc_row is None:
+                cc_row, err = lookups.resolve_cost_center(plant_id=plant_id, code=cost_center_code)
+                if err:
+                    field_errors["cost_center"] = err
+            if cc_row is not None:
+                _, err = lookups.resolve_profit_center(
+                    cost_center_id=int(cc_row.id),
+                    code=profit_center_code,
+                )
+                if err:
+                    field_errors["profit_center"] = err
 
     if plant is not None:
         if cc_row is not None and int(cc_row.plant_id) != int(plant.id):
@@ -225,14 +265,22 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
 
         plant_code = _cell_str(row.data.get("plant_code"))
         cost_center_code = _cell_str(row.data.get("cost_center"))
+        profit_center_code = _cell_str(row.data.get("profit_center"))
         functional_location_code = _cell_str(row.data.get("functional_location"))
         actual_location_code = _cell_str(row.data.get("actual_location"))
-        if plant_code or cost_center_code or functional_location_code or actual_location_code:
+        if (
+            plant_code
+            or cost_center_code
+            or profit_center_code
+            or functional_location_code
+            or actual_location_code
+        ):
             _validate_location_masters(
                 lookups,
                 field_errors,
                 plant_code=plant_code,
                 cost_center_code=cost_center_code,
+                profit_center_code=profit_center_code,
                 functional_location_code=functional_location_code,
                 actual_location_code=actual_location_code,
             )

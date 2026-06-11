@@ -123,7 +123,7 @@ export function useAssetMasterLookups(
 }
 
 export function tagColorLabel(c: TagColorMaster) {
-  return `${c.code} — ${c.name}`
+  return c.name
 }
 
 export function plantLabel(p: PlantOption) {

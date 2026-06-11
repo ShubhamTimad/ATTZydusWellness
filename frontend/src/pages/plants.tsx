@@ -212,7 +212,7 @@ export function PlantsPage() {
 
   return (
     <AdminPage
-      description="Manage plants (org units of type PLANT). Codes must be unique."
+      description=""
       actions={
         canCreate ? (
           <AdminPrimaryButton type="button" onClick={() => setCreateOpen(true)}>

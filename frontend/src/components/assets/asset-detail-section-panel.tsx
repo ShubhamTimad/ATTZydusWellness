@@ -1,11 +1,13 @@
 import * as React from "react"
 import type { LucideIcon } from "lucide-react"
 
+import { TagColorPicker, TagColorSwatch } from "@/components/assets/tag-color-select"
 import { AdminPanel, adminSelectClass } from "@/components/layout/admin-ui"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import type { AssetDetail } from "@/lib/assets-types"
+import type { TagColorMaster } from "@/lib/masters-types"
 import {
   ASSET_FIELD_LABELS,
   ASSET_VIEW_PANEL_MIN_HEIGHT,
@@ -104,6 +106,7 @@ export function AssetDetailSectionPanel({
   selectOptions = {},
   selectPlaceholders = {},
   selectDisabled = {},
+  tagColors = [],
   inventoryDisplay,
   highlightMismatch,
   fieldLayout = "inline",
@@ -122,6 +125,7 @@ export function AssetDetailSectionPanel({
   selectOptions?: Record<string, { value: string; label: string }[]>
   selectPlaceholders?: Record<string, string>
   selectDisabled?: Record<string, boolean>
+  tagColors?: TagColorMaster[]
   inventoryDisplay?: (key: string, asset: AssetDetail) => React.ReactNode
   highlightMismatch?: boolean
   /** Stacked label/value rows — better in narrow containers (e.g. approval dialog). */
@@ -157,7 +161,8 @@ export function AssetDetailSectionPanel({
     if (dateFields.includes(k) || isAssetMasterDateField(k)) return formatDate(String(raw))
     if (k === "asset_category_id") return asset.category_name ?? String(raw)
     if (k === "tag_color_id") {
-      return asset.tag_color_name ?? asset.tag_color_code ?? "—"
+      if (!asset.tag_color_id && !asset.tag_color_hex) return "—"
+      return <TagColorSwatch colorHex={asset.tag_color_hex} />
     }
     if (k === "functional_location") {
       return asset.location?.functional_location_name ?? String(raw)
@@ -235,6 +240,13 @@ export function AssetDetailSectionPanel({
                 <Label className="app-form-label">{formatLabel(k)}</Label>
                 {readonly ? (
                   <Input className="bg-muted/40" value={val} readOnly disabled />
+                ) : k === "tag_color_id" && tagColors.length > 0 ? (
+                  <TagColorPicker
+                    id={`asset-field-${k}`}
+                    value={val}
+                    tagColors={tagColors}
+                    onChange={(next) => onSection(k, next ? Number(next) : null)}
+                  />
                 ) : hasSelect ? (
                   <select
                     className={adminSelectClass}

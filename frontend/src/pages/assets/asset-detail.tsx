@@ -30,7 +30,6 @@ import {
   costCenterLabel,
   profitCenterLabel,
   plantLabel,
-  tagColorLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { buildAssetDetailActionItems } from "@/lib/asset-actions"
@@ -543,15 +542,8 @@ export function AssetDetailPage() {
               value: String(c.id),
               label: categoryLabel(c),
             })),
-            ...(a.rfid_code?.trim()
-              ? {
-                  tag_color_id: masters.tagColors.map((c) => ({
-                    value: String(c.id),
-                    label: tagColorLabel(c),
-                  })),
-                }
-              : {}),
           }}
+          tagColors={a.rfid_code?.trim() ? masters.tagColors : []}
         />
       )
     }

@@ -195,7 +195,7 @@ function TileHeader({ style, report }: { style: ReportTileStyle; report: ReportD
         <Icon className="size-5" aria-hidden />
       </div>
       <div className="min-w-0 flex-1 overflow-hidden">
-        <span className="inline-flex rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
+        <span className="inline-flex rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-foreground uppercase">
           {style.tag}
         </span>
         <h3
@@ -208,7 +208,7 @@ function TileHeader({ style, report }: { style: ReportTileStyle; report: ReportD
         </h3>
         <p
           className={cn(
-            "text-muted-foreground",
+            "text-foreground",
             style.compact
               ? "mt-1.5 line-clamp-2 text-sm leading-relaxed"
               : "mt-1 line-clamp-2 text-sm leading-relaxed",
@@ -217,7 +217,7 @@ function TileHeader({ style, report }: { style: ReportTileStyle; report: ReportD
           {report.description}
         </p>
         {style.hint && !style.compact ? (
-          <p className="mt-1 line-clamp-1 text-xs leading-relaxed text-muted-foreground/90">{style.hint}</p>
+          <p className="mt-1 line-clamp-1 text-xs leading-relaxed text-foreground">{style.hint}</p>
         ) : null}
       </div>
     </div>

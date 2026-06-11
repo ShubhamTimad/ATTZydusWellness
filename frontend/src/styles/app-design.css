@@ -35,7 +35,7 @@
   .app-page-subheading {
     font-size: 0.875rem;
     line-height: 1.5;
-    color: var(--muted-foreground);
+    color: var(--foreground);
   }
 
   .app-section-heading {
@@ -140,7 +140,7 @@
     margin-top: 0.125rem;
     font-size: 0.75rem;
     line-height: 1.45;
-    color: var(--muted-foreground);
+    color: var(--foreground);
   }
 
   .app-kpi-card {

@@ -85,6 +85,36 @@ IMPORT_DECIMAL_FIELDS = frozenset({"gross_block", "depreciation_rate"})
 
 IMPORT_INT_FIELDS = frozenset({"inventory_count"})
 
+# Import template column order (plant and parents before dependent dropdowns).
+ASSET_IMPORT_TEMPLATE_FIELDS: list[str] = [
+    "asset_name",
+    "asset_class",
+    "asset_type",
+    "category_code",
+    "asset_code",
+    "rfid_code",
+    "tag_color_code",
+    "plant_code",
+    "cost_center",
+    "profit_center",
+    "functional_location",
+    "actual_location",
+    "sub_location",
+    "party_details",
+    "invoice_no",
+    "invoice_date",
+    "inventory_count",
+    "voucher_no",
+    "voucher_date",
+    "grn_date",
+    "grn_no",
+    "put_to_use_date",
+    "depreciation_rate",
+    "gross_block",
+    "life_span",
+    "serial_no",
+]
+
 # Default export columns (matches import grid / Assets → Export dialog).
 ASSET_EXPORT_DEFAULT_FIELDS: list[str] = [
     "asset_name",

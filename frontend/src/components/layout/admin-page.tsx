@@ -49,7 +49,7 @@ export function AdminPage({
           {description ? (
             <p
               className={cn(
-                "text-muted-foreground",
+                "text-foreground",
                 dense ? "text-xs" : "max-w-2xl text-sm leading-relaxed",
               )}
             >
@@ -82,7 +82,7 @@ export function AdminSection({
       {title ? (
         <div className="space-y-1">
           <h3 className="app-section-heading">{title}</h3>
-          {description ? <p className="text-xs leading-relaxed text-muted-foreground">{description}</p> : null}
+          {description ? <p className="text-xs leading-relaxed text-foreground">{description}</p> : null}
         </div>
       ) : null}
       {children}

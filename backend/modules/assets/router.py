@@ -311,6 +311,19 @@ def asset_audit(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.get("/import/template")
+def download_import_template(
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.import"))],
+) -> Response:
+    content, filename, media_type = svc.build_import_template()
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/import/preview", response_model=ImportPreviewResponse)
 async def import_preview(
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],

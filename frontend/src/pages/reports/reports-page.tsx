@@ -141,7 +141,7 @@ export function ReportsPage() {
       </div>
 
       {!loading && !loadError && catalog ? (
-        <p className="text-center text-xs text-muted-foreground">
+        <p className="text-center text-xs text-foreground">
           {catalog.reports.length} report types · {catalog.plants.length} plant
           {catalog.plants.length === 1 ? "" : "s"} available for filtering
         </p>
