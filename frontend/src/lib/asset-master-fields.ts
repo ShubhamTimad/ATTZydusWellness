@@ -207,6 +207,7 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
     title: "Financial detail",
     keys: [
       "cost_center",
+      "profit_center",
       "party_details",
       "gross_block",
       "depreciation_rate",

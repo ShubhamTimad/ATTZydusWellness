@@ -25,6 +25,8 @@ export type ReportTileStyle = {
   accentBar?: string
   pattern?: string
   hint?: string
+  /** Shorter tile — e.g. register opens a dialog instead of inline filters. */
+  compact?: boolean
 }
 
 export const REPORT_TILE_STYLES: Record<string, ReportTileStyle> = {
@@ -32,13 +34,13 @@ export const REPORT_TILE_STYLES: Record<string, ReportTileStyle> = {
     icon: Database,
     tag: "Asset master",
     span: "full",
+    compact: true,
     surface:
       "border-primary/20 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--primary)_8%,var(--card))_0%,var(--card)_45%,color-mix(in_srgb,var(--primary)_4%,var(--card))_100%)]",
     iconWrap: "bg-primary/12 text-primary ring-primary/20",
     accentBar: "from-primary/80 via-primary to-primary/70",
     pattern:
       "bg-[radial-gradient(circle_at_100%_0%,color-mix(in_srgb,var(--primary)_14%,transparent)_0%,transparent_55%)]",
-    hint: "Filter assets and choose columns in the report builder.",
   },
   financial_year_verification: {
     icon: CalendarRange,
@@ -107,10 +109,10 @@ function orderedFilters(report: ReportDefinition) {
   })
 }
 
-function masterOptionLabel(code: string, description?: string | null): string {
-  const c = code.trim()
-  const d = description?.trim()
-  return d ? `${c} — ${d}` : c
+function masterOptionLabel(_code: string, name?: string | null): string {
+  const n = name?.trim()
+  if (n) return n
+  return _code.trim()
 }
 
 function ReportActions({
@@ -178,7 +180,12 @@ function ReportActions({
 function TileHeader({ style, report }: { style: ReportTileStyle; report: ReportDefinition }) {
   const Icon = style.icon
   return (
-    <div className="flex h-[7.5rem] shrink-0 items-start gap-3 overflow-hidden">
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-3 overflow-hidden",
+        style.compact ? "min-h-[4.5rem] items-start" : "h-[7.5rem] items-start",
+      )}
+    >
       <div
         className={cn(
           "flex size-11 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset",
@@ -191,13 +198,25 @@ function TileHeader({ style, report }: { style: ReportTileStyle; report: ReportD
         <span className="inline-flex rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground uppercase">
           {style.tag}
         </span>
-        <h3 className="mt-1.5 line-clamp-2 text-base font-semibold leading-snug text-foreground">
+        <h3
+          className={cn(
+            "font-semibold leading-snug text-foreground",
+            style.compact ? "mt-1.5 line-clamp-1 text-lg" : "mt-1.5 line-clamp-2 text-base",
+          )}
+        >
           {report.title}
         </h3>
-        <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+        <p
+          className={cn(
+            "text-muted-foreground",
+            style.compact
+              ? "mt-1.5 line-clamp-2 text-sm leading-relaxed"
+              : "mt-1 line-clamp-2 text-sm leading-relaxed",
+          )}
+        >
           {report.description}
         </p>
-        {style.hint ? (
+        {style.hint && !style.compact ? (
           <p className="mt-1 line-clamp-1 text-xs leading-relaxed text-muted-foreground/90">{style.hint}</p>
         ) : null}
       </div>
@@ -441,7 +460,8 @@ export function ReportTile({
   return (
     <article
       className={cn(
-        "group @container relative flex h-full min-h-[15.5rem] flex-col overflow-hidden rounded-[var(--app-radius-surface)] border shadow-[var(--app-shadow-surface)] transition-shadow hover:shadow-[var(--app-shadow-elevated)]",
+        "group @container relative flex flex-col overflow-hidden rounded-[var(--app-radius-surface)] border shadow-[var(--app-shadow-surface)] transition-shadow hover:shadow-[var(--app-shadow-elevated)]",
+        style.compact ? "h-auto min-h-[8.5rem] self-start" : "h-full min-h-[15.5rem]",
         style.surface,
         style.span === "full" ? "lg:col-span-2" : "",
       )}
@@ -453,27 +473,54 @@ export function ReportTile({
         <div className={cn("pointer-events-none absolute inset-0", style.pattern)} aria-hidden />
       ) : null}
 
-      <div className="relative flex flex-1 flex-col gap-4 p-[var(--app-card-padding)]">
+      <div
+        className={cn(
+          "relative",
+          style.compact
+            ? "flex min-h-[7.75rem] flex-col justify-center gap-4 px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
+            : "flex flex-1 flex-col gap-4 p-[var(--app-card-padding)]",
+        )}
+      >
         <TileHeader style={style} report={report} />
-        <TileControls
-          report={report}
-          filters={filters}
-          onFilterChange={onFilterChange}
-          onGenerate={onGenerate}
-          onOpenRegister={report.key === "asset_register" ? onOpenRegister : undefined}
-          generatingKey={generatingKey}
-          busy={busy}
-        />
+        {style.compact ? (
+          <div className="flex shrink-0 justify-end sm:justify-start">
+            <ReportActions
+              reportKey={report.key}
+              busy={busy}
+              generatingKey={generatingKey}
+              formats={report.formats ?? ["xlsx", "pdf"]}
+              onGenerate={onGenerate}
+              onOpenRegister={report.key === "asset_register" ? onOpenRegister : undefined}
+            />
+          </div>
+        ) : (
+          <TileControls
+            report={report}
+            filters={filters}
+            onFilterChange={onFilterChange}
+            onGenerate={onGenerate}
+            onOpenRegister={report.key === "asset_register" ? onOpenRegister : undefined}
+            generatingKey={generatingKey}
+            busy={busy}
+          />
+        )}
       </div>
     </article>
   )
 }
 
-export function ReportTileSkeleton({ span = "half" }: { span?: "full" | "half" }) {
+export function ReportTileSkeleton({
+  span = "half",
+  compact = false,
+}: {
+  span?: "full" | "half"
+  compact?: boolean
+}) {
   return (
     <div
       className={cn(
-        "h-full min-h-[15.5rem] animate-pulse rounded-[var(--app-radius-surface)] border border-border/60 bg-muted/20",
+        "h-full animate-pulse rounded-[var(--app-radius-surface)] border border-border/60 bg-muted/20",
+        compact ? "h-[8.5rem] self-start" : "h-full min-h-[15.5rem]",
         span === "full" ? "lg:col-span-2" : "",
       )}
     />

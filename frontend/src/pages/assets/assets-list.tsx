@@ -107,11 +107,10 @@ const DEFAULT_FY_FILTERS: AssetListFilters = {
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
 
-function formatMasterLabel(code: string | null | undefined, description: string | null | undefined): string {
-  const c = code?.trim()
-  if (!c) return "—"
-  const d = description?.trim()
-  return d ? `${c} — ${d}` : c
+function formatMasterLabel(_code: string | null | undefined, name: string | null | undefined): string {
+  const n = name?.trim()
+  if (n) return n
+  return _code?.trim() || "—"
 }
 
 function formatPlantLabel(row: { plant_code?: string | null; plant_name?: string | null }): string {
@@ -647,8 +646,8 @@ export function AssetsListPage() {
             title={isFyTab ? "Financial year physical verification" : "Assets"}
             description={
               isFyTab
-                ? "Filter RFID scans by financial year and date range. View verified asset totals and export reports."
-                : "Search, filter, and manage assets across plants. Select rows for bulk actions."
+                ? ""
+                : ""
             }
             actions={actionButtons}
           />

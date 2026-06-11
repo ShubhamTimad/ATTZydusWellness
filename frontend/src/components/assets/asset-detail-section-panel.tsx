@@ -103,6 +103,7 @@ export function AssetDetailSectionPanel({
   plantName,
   selectOptions = {},
   selectPlaceholders = {},
+  selectDisabled = {},
   inventoryDisplay,
   highlightMismatch,
   fieldLayout = "inline",
@@ -120,6 +121,7 @@ export function AssetDetailSectionPanel({
   plantName?: string | null
   selectOptions?: Record<string, { value: string; label: string }[]>
   selectPlaceholders?: Record<string, string>
+  selectDisabled?: Record<string, boolean>
   inventoryDisplay?: (key: string, asset: AssetDetail) => React.ReactNode
   highlightMismatch?: boolean
   /** Stacked label/value rows — better in narrow containers (e.g. approval dialog). */
@@ -156,6 +158,18 @@ export function AssetDetailSectionPanel({
     if (k === "asset_category_id") return asset.category_name ?? String(raw)
     if (k === "tag_color_id") {
       return asset.tag_color_name ?? asset.tag_color_code ?? "—"
+    }
+    if (k === "functional_location") {
+      return asset.location?.functional_location_name ?? String(raw)
+    }
+    if (k === "actual_location") {
+      return asset.location?.actual_location_name ?? String(raw)
+    }
+    if (k === "cost_center") {
+      return asset.financial?.cost_center_name ?? String(raw)
+    }
+    if (k === "profit_center") {
+      return asset.financial?.profit_center_name ?? String(raw)
     }
     return String(raw)
   }
@@ -205,6 +219,7 @@ export function AssetDetailSectionPanel({
           {extra}
           {keys.map((k) => {
             const opts = selectOptions[k]
+            const hasSelect = Object.prototype.hasOwnProperty.call(selectOptions, k)
             const readonly = readOnlyKeys.includes(k)
             const rawVal = fieldValue(k)
             const val = readonly
@@ -220,10 +235,11 @@ export function AssetDetailSectionPanel({
                 <Label className="app-form-label">{formatLabel(k)}</Label>
                 {readonly ? (
                   <Input className="bg-muted/40" value={val} readOnly disabled />
-                ) : opts && opts.length > 0 ? (
+                ) : hasSelect ? (
                   <select
                     className={adminSelectClass}
                     value={val}
+                    disabled={Boolean(selectDisabled[k])}
                     onChange={(e) =>
                       onSection(
                         k,
@@ -236,7 +252,7 @@ export function AssetDetailSectionPanel({
                     }
                   >
                     <option value="">{selectPlaceholders[k] ?? "—"}</option>
-                    {opts.map((o) => (
+                    {(opts ?? []).map((o) => (
                       <option key={o.value} value={o.value}>
                         {o.label}
                       </option>

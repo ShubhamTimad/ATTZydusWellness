@@ -92,10 +92,10 @@ export function buildAssetExportPath(
   return `/admin/assets/export?${q.toString()}`
 }
 
-function masterOptionLabel(code: string, description?: string | null): string {
-  const c = code.trim()
-  const d = description?.trim()
-  return d ? `${c} — ${d}` : c
+function masterOptionLabel(_code: string, name?: string | null): string {
+  const n = name?.trim()
+  if (n) return n
+  return _code.trim()
 }
 
 const EMPTY_FILTERS: AssetExportFilterState = {

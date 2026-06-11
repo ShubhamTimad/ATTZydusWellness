@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils"
 
-/** Official Takeda logo served from `frontend/public/logo.png`. */
-export const TAKEDA_LOGO_SRC = "/logo.png"
+/** Official Takeda logo served from `frontend/public/logo.svg`. */
+export const TAKEDA_LOGO_SRC = "/logo.svg"
 
 type AppBrandMarkProps = {
   className?: string

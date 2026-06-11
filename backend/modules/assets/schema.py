@@ -35,7 +35,9 @@ class AssetLocationPayload(BaseModel):
     plant_id: int | None = None
     sub_location: str | None = None
     functional_location: str | None = None
+    functional_location_name: str | None = None
     actual_location: str | None = None
+    actual_location_name: str | None = None
     building: str | None = None
     floor: str | None = None
     room: str | None = None
@@ -46,8 +48,10 @@ class AssetFinancialPayload(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     cost_center: str | None = None
+    cost_center_name: str | None = None
     laboratory: str | None = None
     profit_center: str | None = None
+    profit_center_name: str | None = None
     cap_date: date | None = None
     gross_block: Decimal | None = None
     party_details: str | None = None

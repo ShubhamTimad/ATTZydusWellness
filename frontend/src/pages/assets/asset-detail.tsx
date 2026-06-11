@@ -28,6 +28,7 @@ import {
   actualLocationLabel,
   functionalLocationLabel,
   costCenterLabel,
+  profitCenterLabel,
   plantLabel,
   tagColorLabel,
   useAssetMasterLookups,
@@ -498,8 +499,7 @@ export function AssetDetailPage() {
     { label: "RFID", value: a.rfid_code ?? "—", mono: true },
     {
       label: "Cost center",
-      value: a.financial?.cost_center ?? "—",
-      mono: true,
+      value: a.financial?.cost_center_name ?? a.financial?.cost_center ?? "—",
     },
   ]
 
@@ -604,6 +604,9 @@ export function AssetDetailPage() {
               ? "—"
               : "Select functional location first",
           }}
+          selectDisabled={{
+            actual_location: !a.location?.functional_location,
+          }}
         />
       )
     }
@@ -623,9 +626,17 @@ export function AssetDetailPage() {
               value: m.code,
               label: costCenterLabel(m),
             })),
+            profit_center: masters.profitCenters.map((m) => ({
+              value: m.code,
+              label: profitCenterLabel(m),
+            })),
           }}
           selectPlaceholders={{
             cost_center: plantId ? "—" : "Select plant first",
+            profit_center: a.financial?.cost_center ? "—" : "Select cost center first",
+          }}
+          selectDisabled={{
+            profit_center: !a.financial?.cost_center,
           }}
         />
       )
@@ -657,7 +668,7 @@ export function AssetDetailPage() {
             <div className="min-w-0">
               <h1 className="app-page-heading truncate">{a.asset_name}</h1>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                {a.location?.functional_location ?? a.asset_code}
+                {a.location?.functional_location_name ?? a.location?.functional_location ?? a.asset_code}
                 {a.plant_name ? ` · ${a.plant_name}` : ""}
               </p>
             </div>

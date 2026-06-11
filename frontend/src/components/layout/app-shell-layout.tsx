@@ -275,9 +275,9 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
           </nav>
           {!isSidebarCollapsed ? (
             <div className="mt-auto border-t border-border/60 p-3">
-              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/25 px-3 py-2.5 text-[11px] leading-snug text-muted-foreground">
+              {/* <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/25 px-3 py-2.5 text-[11px] leading-snug text-muted-foreground">
                 Master data and admin tasks appear here when your role allows.
-              </div>
+              </div> */}
             </div>
           ) : null}
         </div>

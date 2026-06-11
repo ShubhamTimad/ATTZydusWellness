@@ -29,7 +29,7 @@ export function MastersPage() {
     <AdminPage fullWidth>
       <ListPageHeader
         title="Asset masters"
-        description="Maintain reference data used across asset creation, import, and verification."
+        description=""
       />
 
       <WorkspaceTabs defaultValue="categories">

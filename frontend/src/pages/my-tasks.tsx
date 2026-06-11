@@ -43,7 +43,7 @@ function InboxTable({ rows, loading, canView, emptyMessage, onOpen }: InboxTable
   return (
     <AdminDataTable
       title="Inbox"
-      description="Open a row for details, comments, and history."
+      description=""
     >
       <Table className="app-table-head-sticky">
         <TableHeader>
@@ -130,7 +130,7 @@ export function MyTasksPage() {
     <AdminPage fullWidth>
       <ListPageHeader
         title="My tasks"
-        description="Active items that need you. Physical orders are managed under Orders, not here."
+        description=""
       />
 
       <WorkspaceTabs value={inbox} onValueChange={(v) => setInbox(v as "active" | "done")}>

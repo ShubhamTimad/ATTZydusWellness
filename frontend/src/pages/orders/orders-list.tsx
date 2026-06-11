@@ -61,7 +61,7 @@ export function OrdersListPage() {
     <AdminPage fullWidth>
       <ListPageHeader
         title="Physical verification orders"
-        description="Track verification assignments from approval through completion."
+        description=""
       />
 
       <WorkspaceTabs

@@ -51,6 +51,13 @@ function hierarchyNameRequiredMessage(kind: HierarchyKind): string {
   return labels[kind]
 }
 
+function hierarchyDescriptionLabel(kind: HierarchyKind): string {
+  if (kind === "functional-location" || kind === "actual-location") {
+    return "Location description"
+  }
+  return "Description"
+}
+
 type ParentOption = { id: number; label: string }
 
 type Row = {
@@ -87,6 +94,7 @@ export function HierarchicalMasterPanel({
   const [editRow, setEditRow] = React.useState<Row | null>(null)
   const [code, setCode] = React.useState("")
   const [name, setName] = React.useState("")
+  const [description, setDescription] = React.useState("")
   const [plantId, setPlantId] = React.useState("")
   const [parentId, setParentId] = React.useState("")
   const [saving, setSaving] = React.useState(false)
@@ -159,6 +167,7 @@ export function HierarchicalMasterPanel({
   function openCreate() {
     setCode("")
     setName("")
+    setDescription("")
     setPlantId("")
     setParentId("")
     setCreateOpen(true)
@@ -167,26 +176,36 @@ export function HierarchicalMasterPanel({
   function openEdit(row: Row) {
     setEditRow(row)
     setCode(row.code)
-    setName(row.name ?? row.description)
+    setName(row.name ?? "")
+    setDescription(row.description)
     setPlantId("")
     setParentId("")
   }
 
   function buildCreatePayload() {
+    const payload = {
+      code: code.trim(),
+      name: name.trim(),
+      description: description.trim() || undefined,
+    }
     if (kind === "functional-location") {
-      return { code: code.trim(), name: name.trim(), plant_id: Number(plantId) }
+      return { ...payload, plant_id: Number(plantId) }
     }
     if (kind === "cost-center") {
-      return { code: code.trim(), name: name.trim(), plant_id: Number(plantId) }
+      return { ...payload, plant_id: Number(plantId) }
     }
     if (kind === "profit-center") {
-      return { code: code.trim(), name: name.trim(), cost_center_id: Number(parentId) }
+      return { ...payload, cost_center_id: Number(parentId) }
     }
-    return { code: code.trim(), name: name.trim(), functional_location_id: Number(parentId) }
+    return { ...payload, functional_location_id: Number(parentId) }
   }
 
   function buildUpdatePayload() {
-    return { code: code.trim(), name: name.trim() }
+    return {
+      code: code.trim(),
+      name: name.trim(),
+      description: description.trim(),
+    }
   }
 
   async function saveCreate() {
@@ -254,7 +273,8 @@ export function HierarchicalMasterPanel({
 
   const parentColumn =
     kind === "profit-center" ? "Cost center" : kind === "actual-location" ? "Functional location" : null
-  const detailColumnLabel = "Name"
+  const descriptionColumnLabel = hierarchyDescriptionLabel(kind)
+  const tableColSpan = (parentColumn ? 6 : 5) + (showActions ? 1 : 0)
 
   const addButton = canCreate ? (
     <AdminPrimaryButton type="button" className="h-8 gap-1.5" onClick={openCreate}>
@@ -270,7 +290,8 @@ export function HierarchicalMasterPanel({
           <TableHeader>
             <AdminTableHeaderRow>
               <AdminTableHeadCell>Code</AdminTableHeadCell>
-              <AdminTableHeadCell>{detailColumnLabel}</AdminTableHeadCell>
+              <AdminTableHeadCell>Name</AdminTableHeadCell>
+              <AdminTableHeadCell>{descriptionColumnLabel}</AdminTableHeadCell>
               <AdminTableHeadCell>Plant</AdminTableHeadCell>
               {parentColumn ? <AdminTableHeadCell>{parentColumn}</AdminTableHeadCell> : null}
               <AdminTableHeadCell>Status</AdminTableHeadCell>
@@ -279,17 +300,16 @@ export function HierarchicalMasterPanel({
           </TableHeader>
           <TableBody>
             {rows.length === 0 ? (
-              <AdminTableEmptyRow
-                colSpan={(parentColumn ? 5 : 4) + (showActions ? 1 : 0)}
-              >
+              <AdminTableEmptyRow colSpan={tableColSpan}>
                 No records yet.
               </AdminTableEmptyRow>
             ) : (
               rows.map((row) => (
                 <AdminTableBodyRow key={row.id} interactive={false}>
                   <AdminTableCell className="font-mono text-xs">{row.code}</AdminTableCell>
-                  <AdminTableCell>
-                    {row.name ?? row.description}
+                  <AdminTableCell>{row.name ?? "—"}</AdminTableCell>
+                  <AdminTableCell className="text-xs text-muted-foreground">
+                    {row.description || "—"}
                   </AdminTableCell>
                   <AdminTableCell className="text-xs text-muted-foreground">
                     {row.plant_label ?? "—"}
@@ -346,6 +366,8 @@ export function HierarchicalMasterPanel({
         setCode={setCode}
         name={name}
         setName={setName}
+        description={description}
+        setDescription={setDescription}
         plantId={plantId}
         setPlantId={setPlantId}
         parentId={parentId}
@@ -366,6 +388,8 @@ export function HierarchicalMasterPanel({
         setCode={setCode}
         name={name}
         setName={setName}
+        description={description}
+        setDescription={setDescription}
         plantId={plantId}
         setPlantId={setPlantId}
         parentId={parentId}
@@ -391,6 +415,8 @@ function HierarchyDialog({
   setCode,
   name,
   setName,
+  description,
+  setDescription,
   plantId,
   setPlantId,
   parentId,
@@ -411,6 +437,8 @@ function HierarchyDialog({
   setCode: (v: string) => void
   name: string
   setName: (v: string) => void
+  description: string
+  setDescription: (v: string) => void
   plantId: string
   setPlantId: (v: string) => void
   parentId: string
@@ -425,6 +453,7 @@ function HierarchyDialog({
   const needsParentOnCreate = kind === "profit-center" || kind === "actual-location"
   const parentLabel = kind === "profit-center" ? "Cost center *" : "Functional location *"
   const nameFieldLabel = hierarchyNameLabel(kind)
+  const descriptionFieldLabel = hierarchyDescriptionLabel(kind)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -434,13 +463,13 @@ function HierarchyDialog({
           <DialogDescription>
             {isCreate
               ? kind === "cost-center"
-                ? "Select a plant, then enter the cost center code and name."
+                ? "Select a plant, then enter code, name, and description."
                 : kind === "profit-center"
-                  ? "Select plant and cost center, then enter the profit center code and name."
+                  ? "Select plant and cost center, then enter code, name, and description."
                   : kind === "functional-location"
-                    ? "Select a plant, then enter the functional location code and name."
-                    : "Select plant and functional location, then enter the actual location code and name."
-              : "Code is unique within its parent."}
+                    ? "Select a plant, then enter code, name, and location description."
+                    : "Select plant and functional location, then enter code, name, and location description."
+              : "Update code, name, and description. Code is unique within its parent."}
           </DialogDescription>
         </DialogHeader>
         <div className="dialog-body space-y-3">
@@ -520,6 +549,15 @@ function HierarchyDialog({
           <div className="space-y-1.5">
             <Label>{nameFieldLabel}</Label>
             <Input className="h-9" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{descriptionFieldLabel}</Label>
+            <Input
+              className="h-9"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={kind === "functional-location" || kind === "actual-location" ? "Optional details about this location" : "Optional details"}
+            />
           </div>
         </div>
         <div className="flex justify-end gap-2">

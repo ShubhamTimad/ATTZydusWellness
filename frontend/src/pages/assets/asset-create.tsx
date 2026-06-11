@@ -393,6 +393,7 @@ export function AssetCreatePage() {
                   id="actual_location"
                   className={adminSelectClass}
                   value={form.actual_location}
+                  disabled={!form.functional_location}
                   onChange={(e) => patch({ actual_location: e.target.value })}
                 >
                   <option value="">
@@ -508,6 +509,7 @@ export function AssetCreatePage() {
                   id="profit_center"
                   className={adminSelectClass}
                   value={form.profit_center}
+                  disabled={!form.cost_center}
                   onChange={(e) => patch({ profit_center: e.target.value })}
                 >
                   <option value="">{form.cost_center ? "—" : "Select cost center first"}</option>

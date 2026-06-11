@@ -56,7 +56,7 @@ export function useAssetMasterLookups(
       setFunctionalLocations([])
       return
     }
-    const q = `plant_id=${plantId}`
+    const q = `plant_id=${plantId}&active_only=false`
     void getJson<CostCenterMaster[]>(`/admin/asset-masters/cost-centers?${q}`)
       .then(setCostCenters)
       .catch(() => setCostCenters([]))
@@ -72,14 +72,18 @@ export function useAssetMasterLookups(
       return
     }
     const cc = costCenters.find((c) => c.code === costCenterCode)
-    if (!cc) {
-      setProfitCenters([])
+    if (cc) {
+      void getJson<ProfitCenterMaster[]>(
+        `/admin/asset-masters/profit-centers?cost_center_id=${cc.id}&active_only=false`,
+      )
+        .then(setProfitCenters)
+        .catch(() => setProfitCenters([]))
       return
     }
     void getJson<ProfitCenterMaster[]>(
-      `/admin/asset-masters/profit-centers?cost_center_id=${cc.id}`,
+      `/admin/asset-masters/profit-centers?plant_id=${plantId}&active_only=false`,
     )
-      .then(setProfitCenters)
+      .then((rows) => setProfitCenters(rows.filter((p) => p.cost_center_code === costCenterCode)))
       .catch(() => setProfitCenters([]))
   }, [canRead, plantId, costCenterCode, costCenters])
 
@@ -90,14 +94,20 @@ export function useAssetMasterLookups(
       return
     }
     const fl = functionalLocations.find((l) => l.code === functionalLocationCode)
-    if (!fl) {
-      setActualLocations([])
+    if (fl) {
+      void getJson<ActualLocationMaster[]>(
+        `/admin/asset-masters/actual-locations?functional_location_id=${fl.id}&active_only=false`,
+      )
+        .then(setActualLocations)
+        .catch(() => setActualLocations([]))
       return
     }
     void getJson<ActualLocationMaster[]>(
-      `/admin/asset-masters/actual-locations?functional_location_id=${fl.id}`,
+      `/admin/asset-masters/actual-locations?plant_id=${plantId}&active_only=false`,
     )
-      .then(setActualLocations)
+      .then((rows) =>
+        setActualLocations(rows.filter((al) => al.functional_location_code === functionalLocationCode)),
+      )
       .catch(() => setActualLocations([]))
   }, [canRead, plantId, functionalLocationCode, functionalLocations])
 
@@ -124,20 +134,27 @@ export function categoryLabel(c: CategoryMaster) {
   return `${c.code} — ${c.name}`
 }
 
+/** Display label for hierarchy masters — prefer name over stored code. */
+export function masterDisplayName(name?: string | null, code?: string | null): string {
+  const n = name?.trim()
+  if (n) return n
+  return code?.trim() || "—"
+}
+
 export function costCenterLabel(m: CostCenterMaster) {
-  return `${m.code} — ${m.name}`
+  return masterDisplayName(m.name, m.code)
 }
 
 export function profitCenterLabel(m: ProfitCenterMaster) {
-  return `${m.code} — ${m.name}`
+  return masterDisplayName(m.name, m.code)
 }
 
 export function functionalLocationLabel(m: FunctionalLocationMaster) {
-  return `${m.code} — ${m.name}`
+  return masterDisplayName(m.name, m.code)
 }
 
 export function actualLocationLabel(m: ActualLocationMaster) {
-  return `${m.code} — ${m.name}`
+  return masterDisplayName(m.name, m.code)
 }
 
 /** @deprecated Use costCenterLabel */

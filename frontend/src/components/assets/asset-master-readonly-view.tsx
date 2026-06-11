@@ -110,8 +110,7 @@ export function AssetMasterReadOnlyView({ asset }: { asset: AssetDetail }) {
     { label: "RFID", value: asset.rfid_code ?? "—", mono: true },
     {
       label: "Cost center",
-      value: asset.financial?.cost_center ?? "—",
-      mono: true,
+      value: asset.financial?.cost_center_name ?? asset.financial?.cost_center ?? "—",
     },
   ]
 
@@ -120,7 +119,7 @@ export function AssetMasterReadOnlyView({ asset }: { asset: AssetDetail }) {
       <header className="border-b border-border/60 pb-3">
         <h3 className="text-lg font-semibold tracking-tight text-foreground">{asset.asset_name}</h3>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          {asset.location?.functional_location ?? asset.asset_code}
+          {asset.location?.functional_location_name ?? asset.location?.functional_location ?? asset.asset_code}
           {asset.plant_name ? ` · ${asset.plant_name}` : ""}
         </p>
       </header>

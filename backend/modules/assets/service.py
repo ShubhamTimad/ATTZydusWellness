@@ -65,6 +65,7 @@ from modules.asset_masters.model import (
     ActualLocationMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
+    ProfitCenterMaster,
     TagColorMaster,
 )
 from modules.assets.model import (
@@ -490,6 +491,67 @@ class AssetMasterService:
                 raise DuplicateRfidError() from exc
             raise DuplicateAssetCodeError() from exc
         return self.get_asset(asset.id)
+
+    def _master_names_for_asset(
+        self,
+        loc: AssetLocationInformation | None,
+        fin: AssetFinancialInformation | None,
+    ) -> dict[str, str | None]:
+        """Resolve display names for hierarchy masters stored as codes on the asset."""
+        names: dict[str, str | None] = {
+            "functional_location_name": None,
+            "actual_location_name": None,
+            "cost_center_name": None,
+            "profit_center_name": None,
+        }
+        if loc is None or not loc.plant_id:
+            return names
+        pid = int(loc.plant_id)
+        fl_code = (loc.functional_location or "").strip()
+        al_code = (loc.actual_location or "").strip()
+        fl_row: FunctionalLocationMaster | None = None
+        if fl_code:
+            fl_row = self._db.scalar(
+                select(FunctionalLocationMaster).where(
+                    FunctionalLocationMaster.plant_id == pid,
+                    FunctionalLocationMaster.code == fl_code,
+                )
+            )
+            if fl_row is not None:
+                names["functional_location_name"] = str(fl_row.name)
+                if al_code:
+                    al_row = self._db.scalar(
+                        select(ActualLocationMaster).where(
+                            ActualLocationMaster.functional_location_id == fl_row.id,
+                            ActualLocationMaster.code == al_code,
+                        )
+                    )
+                    if al_row is not None:
+                        names["actual_location_name"] = str(al_row.name)
+        if fin is None:
+            return names
+        cc_code = (fin.cost_center or "").strip()
+        pc_code = (fin.profit_center or "").strip()
+        cc_row: CostCenterMaster | None = None
+        if cc_code:
+            cc_row = self._db.scalar(
+                select(CostCenterMaster).where(
+                    CostCenterMaster.plant_id == pid,
+                    CostCenterMaster.code == cc_code,
+                )
+            )
+            if cc_row is not None:
+                names["cost_center_name"] = str(cc_row.name)
+        if pc_code and cc_row is not None:
+            pc_row = self._db.scalar(
+                select(ProfitCenterMaster).where(
+                    ProfitCenterMaster.cost_center_id == cc_row.id,
+                    ProfitCenterMaster.code == pc_code,
+                )
+            )
+            if pc_row is not None:
+                names["profit_center_name"] = str(pc_row.name)
+        return names
 
     def _master_label_lookups(
         self, rows: list[AssetMaster]
@@ -1088,6 +1150,23 @@ class AssetMasterService:
             if rfid
             else None
         )
+        master_names = self._master_names_for_asset(loc, fin)
+        location_payload: AssetLocationPayload | None = None
+        if loc is not None:
+            location_payload = AssetLocationPayload.model_validate(loc).model_copy(
+                update={
+                    "functional_location_name": master_names["functional_location_name"],
+                    "actual_location_name": master_names["actual_location_name"],
+                }
+            )
+        financial_payload: AssetFinancialPayload | None = None
+        if fin is not None:
+            financial_payload = AssetFinancialPayload.model_validate(fin).model_copy(
+                update={
+                    "cost_center_name": master_names["cost_center_name"],
+                    "profit_center_name": master_names["profit_center_name"],
+                }
+            )
         return AssetDetailPublic(
             id=asset.id,
             asset_name=asset.asset_name,
@@ -1113,8 +1192,8 @@ class AssetMasterService:
             updated_at=asset.updated_at,
             plant_name=loc.plant.name if loc and loc.plant else None,
             information=AssetInformationPayload.model_validate(info) if info else None,
-            location=AssetLocationPayload.model_validate(loc) if loc else None,
-            financial=AssetFinancialPayload.model_validate(fin) if fin else None,
+            location=location_payload,
+            financial=financial_payload,
             inventory=AssetInventoryPayload.model_validate(inv) if inv else None,
             financial_year_label=period.label if rfid else None,
             fy_verification_count=fy_count,

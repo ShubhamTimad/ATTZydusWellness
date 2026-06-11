@@ -93,14 +93,18 @@ export type AssetSectionPayloads = {
   plant_id?: number | null
   sub_location?: string | null
   functional_location?: string | null
+  functional_location_name?: string | null
   actual_location?: string | null
+  actual_location_name?: string | null
   building?: string | null
   floor?: string | null
   room?: string | null
   zone?: string | null
   cost_center?: string | null
+  cost_center_name?: string | null
   laboratory?: string | null
   profit_center?: string | null
+  profit_center_name?: string | null
   cap_date?: string | null
   gross_block?: number | string | null
   party_details?: string | null

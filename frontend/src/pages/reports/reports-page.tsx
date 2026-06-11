@@ -107,9 +107,9 @@ export function ReportsPage() {
     <div className="app-page flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div>
         <h1 className="app-page-heading">Reports</h1>
-        <p className="app-page-subheading mt-1">
+        {/* <p className="app-page-subheading mt-1">
           Pick a report tile, set filters, and export to Excel or PDF.
-        </p>
+        </p> */}
       </div>
 
       {loadError ? (
@@ -118,10 +118,10 @@ export function ReportsPage() {
         </div>
       ) : null}
 
-      <div className="grid auto-rows-fr items-stretch gap-[var(--app-grid-gap)] md:grid-cols-2">
+      <div className="grid items-start gap-[var(--app-grid-gap)] md:grid-cols-2">
         {loading
           ? Array.from({ length: 3 }).map((_, i) => (
-              <ReportTileSkeleton key={i} span={i === 0 ? "full" : "half"} />
+              <ReportTileSkeleton key={i} span={i === 0 ? "full" : "half"} compact={i === 0} />
             ))
           : null}
 
