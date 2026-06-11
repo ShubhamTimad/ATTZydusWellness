@@ -2,11 +2,12 @@ import * as React from "react"
 
 import { getJson } from "@/lib/api"
 import type {
+  ActualLocationMaster,
   CategoryMaster,
-  CostCenterChildMaster,
-  FunctionalChildMaster,
-  PlantChildMaster,
+  CostCenterMaster,
+  FunctionalLocationMaster,
   PlantOption,
+  ProfitCenterMaster,
   TagColorMaster,
 } from "@/lib/masters-types"
 import { canListOrgUnitsForAssignments, hasPermission } from "@/lib/permissions"
@@ -18,10 +19,10 @@ export function useAssetMasterLookups(
 ) {
   const [categories, setCategories] = React.useState<CategoryMaster[]>([])
   const [plants, setPlants] = React.useState<PlantOption[]>([])
-  const [functionalLocations, setFunctionalLocations] = React.useState<PlantChildMaster[]>([])
-  const [actualLocations, setActualLocations] = React.useState<FunctionalChildMaster[]>([])
-  const [costCenters, setCostCenters] = React.useState<PlantChildMaster[]>([])
-  const [profitCenters, setProfitCenters] = React.useState<CostCenterChildMaster[]>([])
+  const [functionalLocations, setFunctionalLocations] = React.useState<FunctionalLocationMaster[]>([])
+  const [actualLocations, setActualLocations] = React.useState<ActualLocationMaster[]>([])
+  const [costCenters, setCostCenters] = React.useState<CostCenterMaster[]>([])
+  const [profitCenters, setProfitCenters] = React.useState<ProfitCenterMaster[]>([])
   const [tagColors, setTagColors] = React.useState<TagColorMaster[]>([])
 
   const canRead =
@@ -56,10 +57,10 @@ export function useAssetMasterLookups(
       return
     }
     const q = `plant_id=${plantId}`
-    void getJson<PlantChildMaster[]>(`/admin/asset-masters/cost-centers?${q}`)
+    void getJson<CostCenterMaster[]>(`/admin/asset-masters/cost-centers?${q}`)
       .then(setCostCenters)
       .catch(() => setCostCenters([]))
-    void getJson<PlantChildMaster[]>(`/admin/asset-masters/functional-locations?${q}`)
+    void getJson<FunctionalLocationMaster[]>(`/admin/asset-masters/functional-locations?${q}`)
       .then(setFunctionalLocations)
       .catch(() => setFunctionalLocations([]))
   }, [canRead, plantId])
@@ -75,7 +76,7 @@ export function useAssetMasterLookups(
       setProfitCenters([])
       return
     }
-    void getJson<CostCenterChildMaster[]>(
+    void getJson<ProfitCenterMaster[]>(
       `/admin/asset-masters/profit-centers?cost_center_id=${cc.id}`,
     )
       .then(setProfitCenters)
@@ -93,7 +94,7 @@ export function useAssetMasterLookups(
       setActualLocations([])
       return
     }
-    void getJson<FunctionalChildMaster[]>(
+    void getJson<ActualLocationMaster[]>(
       `/admin/asset-masters/actual-locations?functional_location_id=${fl.id}`,
     )
       .then(setActualLocations)
@@ -123,14 +124,33 @@ export function categoryLabel(c: CategoryMaster) {
   return `${c.code} — ${c.name}`
 }
 
-export function plantChildLabel(m: PlantChildMaster) {
-  return `${m.code} — ${m.description}`
+export function costCenterLabel(m: CostCenterMaster) {
+  return `${m.code} — ${m.name}`
 }
 
-export function costCenterChildLabel(m: CostCenterChildMaster) {
-  return `${m.code} — ${m.description}`
+export function profitCenterLabel(m: ProfitCenterMaster) {
+  return `${m.code} — ${m.name}`
 }
 
-export function functionalChildLabel(m: FunctionalChildMaster) {
-  return `${m.code} — ${m.description}`
+export function functionalLocationLabel(m: FunctionalLocationMaster) {
+  return `${m.code} — ${m.name}`
+}
+
+export function actualLocationLabel(m: ActualLocationMaster) {
+  return `${m.code} — ${m.name}`
+}
+
+/** @deprecated Use costCenterLabel */
+export function plantChildLabel(m: CostCenterMaster) {
+  return costCenterLabel(m)
+}
+
+/** @deprecated Use profitCenterLabel */
+export function costCenterChildLabel(m: ProfitCenterMaster) {
+  return profitCenterLabel(m)
+}
+
+/** @deprecated Use actualLocationLabel */
+export function functionalChildLabel(m: ActualLocationMaster) {
+  return actualLocationLabel(m)
 }

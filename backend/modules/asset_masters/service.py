@@ -13,19 +13,33 @@ from modules.asset_masters.model import (
     TagColorMaster,
 )
 from modules.asset_masters.schema import (
+    FunctionalLocationCreate,
+    FunctionalLocationPublic,
+    FunctionalLocationUpdate,
     CategoryCreate,
     CategoryPublic,
     CategoryUpdate,
-    CostCenterChildCreate,
-    CostCenterChildPublic,
-    FunctionalChildCreate,
-    FunctionalChildPublic,
-    PlantChildCreate,
-    PlantChildPublic,
-    PlantChildUpdate,
+    CostCenterCreate,
+    CostCenterPublic,
+    CostCenterUpdate,
+    ProfitCenterCreate,
+    ProfitCenterPublic,
+    ProfitCenterUpdate,
+    ActualLocationCreate,
+    ActualLocationPublic,
+    ActualLocationUpdate,
     TagColorCreate,
     TagColorPublic,
     TagColorUpdate,
+)
+from modules.asset_masters.safety import (
+    MasterInUseError,
+    assert_actual_location_deletable,
+    assert_category_deletable,
+    assert_cost_center_deletable,
+    assert_functional_location_deletable,
+    assert_profit_center_deletable,
+    assert_tag_color_deletable,
 )
 from modules.errors import ConflictError, NotFoundError
 from modules.platform.org_units.model import OrgUnit
@@ -84,6 +98,14 @@ class AssetMastersService:
         self._db.refresh(row)
         return CategoryPublic.model_validate(row)
 
+    def delete_category(self, category_id: int) -> None:
+        row = self._db.get(AssetCategory, category_id)
+        if row is None:
+            raise NotFoundError("Category", category_id)
+        assert_category_deletable(self._db, category_id)
+        self._db.delete(row)
+        self._db.commit()
+
     # --- Tag colors ---
 
     def list_tag_colors(self, *, active_only: bool = True) -> list[TagColorPublic]:
@@ -129,24 +151,35 @@ class AssetMastersService:
         self._db.refresh(row)
         return TagColorPublic.model_validate(row)
 
+    def delete_tag_color(self, row_id: int) -> None:
+        row = self._db.get(TagColorMaster, row_id)
+        if row is None:
+            raise NotFoundError("Tag color", row_id)
+        assert_tag_color_deletable(self._db, row_id)
+        self._db.delete(row)
+        self._db.commit()
+
     # --- Cost centers (under plant) ---
 
     def list_cost_centers(
         self, *, plant_id: int | None = None, active_only: bool = True
-    ) -> list[PlantChildPublic]:
+    ) -> list[CostCenterPublic]:
         stmt = select(CostCenterMaster).order_by(CostCenterMaster.code)
         if active_only:
             stmt = stmt.where(CostCenterMaster.is_active.is_(True))
         if plant_id is not None:
             stmt = stmt.where(CostCenterMaster.plant_id == plant_id)
         rows = list(self._db.scalars(stmt).all())
-        return [self._plant_child_public(r) for r in rows]
+        return [self._cost_center_public(r) for r in rows]
 
-    def create_cost_center(self, data: PlantChildCreate) -> PlantChildPublic:
+    def create_cost_center(self, data: CostCenterCreate) -> CostCenterPublic:
         self._require_plant(data.plant_id)
+        name = data.name.strip()
+        description = (data.description or "").strip() or name
         row = CostCenterMaster(
             code=data.code,
-            description=data.description.strip(),
+            name=name,
+            description=description,
             plant_id=data.plant_id,
             is_active=True,
         )
@@ -157,14 +190,16 @@ class AssetMastersService:
             self._db.rollback()
             raise DuplicateMasterCodeError("Cost center code already exists for this plant.") from exc
         self._db.refresh(row)
-        return self._plant_child_public(row)
+        return self._cost_center_public(row)
 
-    def update_cost_center(self, row_id: int, data: PlantChildUpdate) -> PlantChildPublic:
+    def update_cost_center(self, row_id: int, data: CostCenterUpdate) -> CostCenterPublic:
         row = self._db.get(CostCenterMaster, row_id)
         if row is None:
             raise NotFoundError("Cost center", row_id)
         if data.code is not None:
             row.code = data.code
+        if data.name is not None:
+            row.name = data.name.strip()
         if data.description is not None:
             row.description = data.description.strip()
         if data.is_active is not None:
@@ -175,13 +210,21 @@ class AssetMastersService:
             self._db.rollback()
             raise DuplicateMasterCodeError("Cost center code already exists for this plant.") from exc
         self._db.refresh(row)
-        return self._plant_child_public(row)
+        return self._cost_center_public(row)
+
+    def delete_cost_center(self, row_id: int) -> None:
+        row = self._db.get(CostCenterMaster, row_id)
+        if row is None:
+            raise NotFoundError("Cost center", row_id)
+        assert_cost_center_deletable(self._db, row)
+        self._db.delete(row)
+        self._db.commit()
 
     # --- Profit centers (under cost center) ---
 
     def list_profit_centers(
         self, *, cost_center_id: int | None = None, plant_id: int | None = None, active_only: bool = True
-    ) -> list[CostCenterChildPublic]:
+    ) -> list[ProfitCenterPublic]:
         stmt = select(ProfitCenterMaster).order_by(ProfitCenterMaster.code)
         if active_only:
             stmt = stmt.where(ProfitCenterMaster.is_active.is_(True))
@@ -190,13 +233,16 @@ class AssetMastersService:
         elif plant_id is not None:
             stmt = stmt.join(CostCenterMaster).where(CostCenterMaster.plant_id == plant_id)
         rows = list(self._db.scalars(stmt).all())
-        return [self._profit_public(r) for r in rows]
+        return [self._profit_center_public(r) for r in rows]
 
-    def create_profit_center(self, data: CostCenterChildCreate) -> CostCenterChildPublic:
+    def create_profit_center(self, data: ProfitCenterCreate) -> ProfitCenterPublic:
         cc = self._require_cost_center(data.cost_center_id)
+        name = data.name.strip()
+        description = (data.description or "").strip() or name
         row = ProfitCenterMaster(
             code=data.code,
-            description=data.description.strip(),
+            name=name,
+            description=description,
             cost_center_id=cc.id,
             is_active=True,
         )
@@ -209,14 +255,16 @@ class AssetMastersService:
                 "Profit center code already exists for this cost center."
             ) from exc
         self._db.refresh(row)
-        return self._profit_public(row)
+        return self._profit_center_public(row)
 
-    def update_profit_center(self, row_id: int, data: PlantChildUpdate) -> CostCenterChildPublic:
+    def update_profit_center(self, row_id: int, data: ProfitCenterUpdate) -> ProfitCenterPublic:
         row = self._db.get(ProfitCenterMaster, row_id)
         if row is None:
             raise NotFoundError("Profit center", row_id)
         if data.code is not None:
             row.code = data.code
+        if data.name is not None:
+            row.name = data.name.strip()
         if data.description is not None:
             row.description = data.description.strip()
         if data.is_active is not None:
@@ -229,26 +277,37 @@ class AssetMastersService:
                 "Profit center code already exists for this cost center."
             ) from exc
         self._db.refresh(row)
-        return self._profit_public(row)
+        return self._profit_center_public(row)
+
+    def delete_profit_center(self, row_id: int) -> None:
+        row = self._db.get(ProfitCenterMaster, row_id)
+        if row is None:
+            raise NotFoundError("Profit center", row_id)
+        assert_profit_center_deletable(self._db, row)
+        self._db.delete(row)
+        self._db.commit()
 
     # --- Functional locations (under plant) ---
 
     def list_functional_locations(
         self, *, plant_id: int | None = None, active_only: bool = True
-    ) -> list[PlantChildPublic]:
+    ) -> list[FunctionalLocationPublic]:
         stmt = select(FunctionalLocationMaster).order_by(FunctionalLocationMaster.code)
         if active_only:
             stmt = stmt.where(FunctionalLocationMaster.is_active.is_(True))
         if plant_id is not None:
             stmt = stmt.where(FunctionalLocationMaster.plant_id == plant_id)
         rows = list(self._db.scalars(stmt).all())
-        return [self._plant_child_public_fl(r) for r in rows]
+        return [self._functional_location_public(r) for r in rows]
 
-    def create_functional_location(self, data: PlantChildCreate) -> PlantChildPublic:
+    def create_functional_location(self, data: FunctionalLocationCreate) -> FunctionalLocationPublic:
         self._require_plant(data.plant_id)
+        name = data.name.strip()
+        description = (data.description or "").strip() or name
         row = FunctionalLocationMaster(
             code=data.code,
-            description=data.description.strip(),
+            name=name,
+            description=description,
             plant_id=data.plant_id,
             is_active=True,
         )
@@ -261,14 +320,18 @@ class AssetMastersService:
                 "Functional location code already exists for this plant."
             ) from exc
         self._db.refresh(row)
-        return self._plant_child_public_fl(row)
+        return self._functional_location_public(row)
 
-    def update_functional_location(self, row_id: int, data: PlantChildUpdate) -> PlantChildPublic:
+    def update_functional_location(
+        self, row_id: int, data: FunctionalLocationUpdate
+    ) -> FunctionalLocationPublic:
         row = self._db.get(FunctionalLocationMaster, row_id)
         if row is None:
             raise NotFoundError("Functional location", row_id)
         if data.code is not None:
             row.code = data.code
+        if data.name is not None:
+            row.name = data.name.strip()
         if data.description is not None:
             row.description = data.description.strip()
         if data.is_active is not None:
@@ -281,7 +344,15 @@ class AssetMastersService:
                 "Functional location code already exists for this plant."
             ) from exc
         self._db.refresh(row)
-        return self._plant_child_public_fl(row)
+        return self._functional_location_public(row)
+
+    def delete_functional_location(self, row_id: int) -> None:
+        row = self._db.get(FunctionalLocationMaster, row_id)
+        if row is None:
+            raise NotFoundError("Functional location", row_id)
+        assert_functional_location_deletable(self._db, row)
+        self._db.delete(row)
+        self._db.commit()
 
     # --- Actual locations (under functional location) ---
 
@@ -291,7 +362,7 @@ class AssetMastersService:
         functional_location_id: int | None = None,
         plant_id: int | None = None,
         active_only: bool = True,
-    ) -> list[FunctionalChildPublic]:
+    ) -> list[ActualLocationPublic]:
         stmt = select(ActualLocationMaster).order_by(ActualLocationMaster.code)
         if active_only:
             stmt = stmt.where(ActualLocationMaster.is_active.is_(True))
@@ -302,13 +373,16 @@ class AssetMastersService:
                 FunctionalLocationMaster.plant_id == plant_id
             )
         rows = list(self._db.scalars(stmt).all())
-        return [self._actual_public(r) for r in rows]
+        return [self._actual_location_public(r) for r in rows]
 
-    def create_actual_location(self, data: FunctionalChildCreate) -> FunctionalChildPublic:
+    def create_actual_location(self, data: ActualLocationCreate) -> ActualLocationPublic:
         fl = self._require_functional_location(data.functional_location_id)
+        name = data.name.strip()
+        description = (data.description or "").strip() or name
         row = ActualLocationMaster(
             code=data.code,
-            description=data.description.strip(),
+            name=name,
+            description=description,
             functional_location_id=fl.id,
             is_active=True,
         )
@@ -321,14 +395,16 @@ class AssetMastersService:
                 "Actual location code already exists for this functional location."
             ) from exc
         self._db.refresh(row)
-        return self._actual_public(row)
+        return self._actual_location_public(row)
 
-    def update_actual_location(self, row_id: int, data: PlantChildUpdate) -> FunctionalChildPublic:
+    def update_actual_location(self, row_id: int, data: ActualLocationUpdate) -> ActualLocationPublic:
         row = self._db.get(ActualLocationMaster, row_id)
         if row is None:
             raise NotFoundError("Actual location", row_id)
         if data.code is not None:
             row.code = data.code
+        if data.name is not None:
+            row.name = data.name.strip()
         if data.description is not None:
             row.description = data.description.strip()
         if data.is_active is not None:
@@ -341,7 +417,15 @@ class AssetMastersService:
                 "Actual location code already exists for this functional location."
             ) from exc
         self._db.refresh(row)
-        return self._actual_public(row)
+        return self._actual_location_public(row)
+
+    def delete_actual_location(self, row_id: int) -> None:
+        row = self._db.get(ActualLocationMaster, row_id)
+        if row is None:
+            raise NotFoundError("Actual location", row_id)
+        assert_actual_location_deletable(self._db, row)
+        self._db.delete(row)
+        self._db.commit()
 
     def _require_plant(self, plant_id: int) -> OrgUnit:
         plant = self._db.get(OrgUnit, plant_id)
@@ -364,11 +448,12 @@ class AssetMastersService:
     def _plant_for(self, plant_id: int) -> OrgUnit | None:
         return self._db.get(OrgUnit, plant_id)
 
-    def _plant_child_public(self, row: CostCenterMaster) -> PlantChildPublic:
+    def _cost_center_public(self, row: CostCenterMaster) -> CostCenterPublic:
         plant = self._plant_for(row.plant_id)
-        return PlantChildPublic(
+        return CostCenterPublic(
             id=row.id,
             code=row.code,
+            name=row.name,
             description=row.description,
             plant_id=row.plant_id,
             plant_code=plant.code if plant else None,
@@ -378,11 +463,12 @@ class AssetMastersService:
             updated_at=row.updated_at,
         )
 
-    def _plant_child_public_fl(self, row: FunctionalLocationMaster) -> PlantChildPublic:
+    def _functional_location_public(self, row: FunctionalLocationMaster) -> FunctionalLocationPublic:
         plant = self._plant_for(row.plant_id)
-        return PlantChildPublic(
+        return FunctionalLocationPublic(
             id=row.id,
             code=row.code,
+            name=row.name,
             description=row.description,
             plant_id=row.plant_id,
             plant_code=plant.code if plant else None,
@@ -392,12 +478,13 @@ class AssetMastersService:
             updated_at=row.updated_at,
         )
 
-    def _profit_public(self, row: ProfitCenterMaster) -> CostCenterChildPublic:
+    def _profit_center_public(self, row: ProfitCenterMaster) -> ProfitCenterPublic:
         cc = row.cost_center or self._db.get(CostCenterMaster, row.cost_center_id)
         plant = self._plant_for(cc.plant_id) if cc else None
-        return CostCenterChildPublic(
+        return ProfitCenterPublic(
             id=row.id,
             code=row.code,
+            name=row.name,
             description=row.description,
             cost_center_id=row.cost_center_id,
             cost_center_code=cc.code if cc else None,
@@ -409,14 +496,15 @@ class AssetMastersService:
             updated_at=row.updated_at,
         )
 
-    def _actual_public(self, row: ActualLocationMaster) -> FunctionalChildPublic:
+    def _actual_location_public(self, row: ActualLocationMaster) -> ActualLocationPublic:
         fl = row.functional_location or self._db.get(
             FunctionalLocationMaster, row.functional_location_id
         )
         plant = self._plant_for(fl.plant_id) if fl else None
-        return FunctionalChildPublic(
+        return ActualLocationPublic(
             id=row.id,
             code=row.code,
+            name=row.name,
             description=row.description,
             functional_location_id=row.functional_location_id,
             functional_location_code=fl.code if fl else None,

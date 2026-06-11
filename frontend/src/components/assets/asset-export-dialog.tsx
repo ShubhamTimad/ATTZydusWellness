@@ -265,7 +265,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                 <option value="">{plantId ? "All cost centers" : "Select plant first"}</option>
                 {masters.costCenters.map((cc) => (
                   <option key={cc.id} value={cc.code}>
-                    {masterOptionLabel(cc.code, cc.description)}
+                    {masterOptionLabel(cc.code, cc.name)}
                   </option>
                 ))}
               </select>
@@ -287,7 +287,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                 <option value="">{plantId ? "All functional locations" : "Select plant first"}</option>
                 {masters.functionalLocations.map((fl) => (
                   <option key={fl.id} value={fl.code}>
-                    {masterOptionLabel(fl.code, fl.description)}
+                    {masterOptionLabel(fl.code, fl.name)}
                   </option>
                 ))}
               </select>
@@ -309,7 +309,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                 </option>
                 {masters.actualLocations.map((al) => (
                   <option key={al.id} value={al.code}>
-                    {masterOptionLabel(al.code, al.description)}
+                    {masterOptionLabel(al.code, al.name)}
                   </option>
                 ))}
               </select>

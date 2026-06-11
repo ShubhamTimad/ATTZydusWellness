@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Pencil, Plus } from "lucide-react"
+import { Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -25,7 +25,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
 import type { PlantOption } from "@/lib/masters-types"
 
@@ -66,6 +66,8 @@ export function MasterCrudPanel({
 
   const canCreate = hasPermission("masters.create")
   const canUpdate = hasPermission("masters.update")
+  const canDelete = hasPermission("masters.delete")
+  const showActions = canUpdate || canDelete
 
   async function load() {
     const data = await getJson<Row[]>(listUrl)
@@ -168,6 +170,26 @@ export function MasterCrudPanel({
     }
   }
 
+  async function deleteRow(row: Row) {
+    const label = kind === "category" || kind === "tag-color" ? row.name ?? row.code : row.code
+    if (
+      !window.confirm(
+        `Delete "${label}"? Allowed only when no assets use this ${title.toLowerCase()}.`,
+      )
+    ) {
+      return
+    }
+    const base = listUrl.replace(/\?.*$/, "").replace(/\/$/, "")
+    try {
+      await deleteJson(`${base}/${row.id}`)
+      toast.success("Deleted.")
+      if (editRow?.id === row.id) setEditRow(null)
+      await load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Delete failed")
+    }
+  }
+
   const addButton = canCreate ? (
     <AdminPrimaryButton type="button" onClick={openCreate}>
       <Plus className="size-3.5" />
@@ -189,12 +211,16 @@ export function MasterCrudPanel({
             {kind === "location" ? <AdminTableHeadCell>Plant</AdminTableHeadCell> : null}
             {kind === "location" ? <AdminTableHeadCell>Type</AdminTableHeadCell> : null}
             <AdminTableHeadCell>Status</AdminTableHeadCell>
-            {canUpdate ? <AdminTableHeadCell className="w-20"> </AdminTableHeadCell> : null}
+            {showActions ? <AdminTableHeadCell className="w-24"> </AdminTableHeadCell> : null}
           </AdminTableHeaderRow>
         </TableHeader>
         <TableBody>
           {rows.length === 0 ? (
-            <AdminTableEmptyRow colSpan={kind === "tag-color" ? 5 : kind === "location" ? 6 : 4}>
+            <AdminTableEmptyRow
+              colSpan={
+                (kind === "tag-color" ? 4 : kind === "location" ? 5 : 3) + (showActions ? 1 : 0)
+              }
+            >
               No records yet.
             </AdminTableEmptyRow>
           ) : (
@@ -225,12 +251,28 @@ export function MasterCrudPanel({
                   <AdminTableCell className="capitalize">{row.location_type ?? "—"}</AdminTableCell>
                 ) : null}
                 <AdminTableCell>{row.is_active ? "Active" : "Inactive"}</AdminTableCell>
-                {canUpdate ? (
+                {showActions ? (
                   <AdminTableCell>
-                    <Button type="button" variant="ghost" size="icon-sm" onClick={() => openEdit(row)}>
-                      <Pencil className="size-3.5" />
-                      <span className="sr-only">Edit</span>
-                    </Button>
+                    <div className="flex items-center gap-0.5">
+                      {canUpdate ? (
+                        <Button type="button" variant="ghost" size="icon-sm" onClick={() => openEdit(row)}>
+                          <Pencil className="size-3.5" />
+                          <span className="sr-only">Edit</span>
+                        </Button>
+                      ) : null}
+                      {canDelete ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => void deleteRow(row)}
+                        >
+                          <Trash2 className="size-3.5" />
+                          <span className="sr-only">Delete</span>
+                        </Button>
+                      ) : null}
+                    </div>
                   </AdminTableCell>
                 ) : null}
               </AdminTableBodyRow>

@@ -25,8 +25,9 @@ import {
 } from "@/lib/asset-master-fields"
 import {
   categoryLabel,
-  functionalChildLabel,
-  plantChildLabel,
+  actualLocationLabel,
+  functionalLocationLabel,
+  costCenterLabel,
   plantLabel,
   tagColorLabel,
   useAssetMasterLookups,
@@ -590,11 +591,11 @@ export function AssetDetailPage() {
           selectOptions={{
             functional_location: masters.functionalLocations.map((l) => ({
               value: l.code,
-              label: plantChildLabel(l),
+              label: functionalLocationLabel(l),
             })),
             actual_location: masters.actualLocations.map((l) => ({
               value: l.code,
-              label: functionalChildLabel(l),
+              label: actualLocationLabel(l),
             })),
           }}
           selectPlaceholders={{
@@ -620,7 +621,7 @@ export function AssetDetailPage() {
           selectOptions={{
             cost_center: masters.costCenters.map((m) => ({
               value: m.code,
-              label: plantChildLabel(m),
+              label: costCenterLabel(m),
             })),
           }}
           selectPlaceholders={{

@@ -852,12 +852,17 @@ def _seed_reference_masters(db: Session, *, plant_id: int) -> None:
         )
         if row is None:
             row = FunctionalLocationMaster(
-                code=str(code), description=str(desc), plant_id=plant_id, is_active=True
+                code=str(code),
+                name=str(desc),
+                description=str(desc),
+                plant_id=plant_id,
+                is_active=True,
             )
             db.add(row)
             db.flush()
             fl_created += 1
         else:
+            row.name = str(desc)
             row.description = str(desc)
             row.is_active = True
             fl_updated += 1
@@ -878,6 +883,7 @@ def _seed_reference_masters(db: Session, *, plant_id: int) -> None:
             db.add(
                 ActualLocationMaster(
                     code=str(code),
+                    name=str(desc),
                     description=str(desc),
                     functional_location_id=fl.id,
                     is_active=True,
@@ -885,6 +891,7 @@ def _seed_reference_masters(db: Session, *, plant_id: int) -> None:
             )
             al_created += 1
         else:
+            row.name = str(desc)
             row.description = str(desc)
             row.is_active = True
 
@@ -899,12 +906,17 @@ def _seed_reference_masters(db: Session, *, plant_id: int) -> None:
         )
         if row is None:
             row = CostCenterMaster(
-                code=str(code), description=str(desc), plant_id=plant_id, is_active=True
+                code=str(code),
+                name=str(desc),
+                description=str(desc),
+                plant_id=plant_id,
+                is_active=True,
             )
             db.add(row)
             db.flush()
             cc_created += 1
         else:
+            row.name = str(desc)
             row.description = str(desc)
             row.is_active = True
             cc_updated += 1
@@ -924,11 +936,16 @@ def _seed_reference_masters(db: Session, *, plant_id: int) -> None:
         if row is None:
             db.add(
                 ProfitCenterMaster(
-                    code=str(code), description=str(desc), cost_center_id=cc.id, is_active=True
+                    code=str(code),
+                    name=str(desc),
+                    description=str(desc),
+                    cost_center_id=cc.id,
+                    is_active=True,
                 )
             )
             pc_created += 1
         else:
+            row.name = str(desc)
             row.description = str(desc)
             row.is_active = True
 

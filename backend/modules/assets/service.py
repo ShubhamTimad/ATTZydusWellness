@@ -511,14 +511,14 @@ class AssetMasterService:
             select(CostCenterMaster).where(CostCenterMaster.plant_id.in_(plant_ids))
         ).all()
         cc_desc: dict[tuple[int, str], str] = {
-            (int(r.plant_id), str(r.code)): str(r.description) for r in cc_rows
+            (int(r.plant_id), str(r.code)): str(r.name) for r in cc_rows
         }
 
         fl_rows = self._db.scalars(
             select(FunctionalLocationMaster).where(FunctionalLocationMaster.plant_id.in_(plant_ids))
         ).all()
         fl_desc: dict[tuple[int, str], str] = {
-            (int(r.plant_id), str(r.code)): str(r.description) for r in fl_rows
+            (int(r.plant_id), str(r.code)): str(r.name) for r in fl_rows
         }
         fl_id_to_key: dict[int, tuple[int, str]] = {
             int(r.id): (int(r.plant_id), str(r.code)) for r in fl_rows
@@ -536,7 +536,7 @@ class AssetMasterService:
                 if parent is None:
                     continue
                 plant_id, fl_code = parent
-                al_desc[(plant_id, fl_code, str(al.code))] = str(al.description)
+                al_desc[(plant_id, fl_code, str(al.code))] = str(al.name)
 
         return cc_desc, fl_desc, al_desc
 

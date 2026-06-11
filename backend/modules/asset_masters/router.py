@@ -11,17 +11,23 @@ from modules.asset_masters.schema import (
     CategoryCreate,
     CategoryPublic,
     CategoryUpdate,
-    CostCenterChildCreate,
-    CostCenterChildPublic,
-    FunctionalChildCreate,
-    FunctionalChildPublic,
-    PlantChildCreate,
-    PlantChildPublic,
-    PlantChildUpdate,
+    CostCenterCreate,
+    CostCenterPublic,
+    CostCenterUpdate,
+    ProfitCenterCreate,
+    ProfitCenterPublic,
+    ProfitCenterUpdate,
+    ActualLocationCreate,
+    ActualLocationPublic,
+    ActualLocationUpdate,
+    FunctionalLocationCreate,
+    FunctionalLocationPublic,
+    FunctionalLocationUpdate,
     TagColorCreate,
     TagColorPublic,
     TagColorUpdate,
 )
+from modules.asset_masters.safety import MasterInUseError
 from modules.asset_masters.service import AssetMastersService, DuplicateMasterCodeError
 from modules.errors import NotFoundError
 
@@ -30,10 +36,21 @@ router = APIRouter(prefix="/asset-masters", tags=["admin", "asset-masters"])
 _MASTER_READ = require_any_permission("masters.view", "asset.view")
 _MASTER_WRITE_CREATE = require_permission("masters.create")
 _MASTER_WRITE_UPDATE = require_permission("masters.update")
+_MASTER_WRITE_DELETE = require_permission("masters.delete")
 
 
 def get_svc(db: Session = Depends(get_db)) -> AssetMastersService:
     return AssetMastersService(db)
+
+
+def _raise_master_errors(exc: Exception) -> None:
+    if isinstance(exc, NotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    if isinstance(exc, DuplicateMasterCodeError):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if isinstance(exc, MasterInUseError):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    raise exc
 
 
 @router.get("/categories", response_model=list[CategoryPublic])
@@ -72,6 +89,18 @@ def update_category(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
+@router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_category(
+    category_id: int,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_DELETE)],
+) -> None:
+    try:
+        svc.delete_category(category_id)
+    except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
+        _raise_master_errors(exc)
+
+
 @router.get("/tag-colors", response_model=list[TagColorPublic])
 def list_tag_colors(
     svc: Annotated[AssetMastersService, Depends(get_svc)],
@@ -108,22 +137,34 @@ def update_tag_color(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.get("/cost-centers", response_model=list[PlantChildPublic])
+@router.delete("/tag-colors/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_tag_color(
+    row_id: int,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_DELETE)],
+) -> None:
+    try:
+        svc.delete_tag_color(row_id)
+    except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
+        _raise_master_errors(exc)
+
+
+@router.get("/cost-centers", response_model=list[CostCenterPublic])
 def list_cost_centers(
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_READ)],
     plant_id: int | None = Query(None),
     active_only: bool = Query(True),
-) -> list[PlantChildPublic]:
+) -> list[CostCenterPublic]:
     return svc.list_cost_centers(plant_id=plant_id, active_only=active_only)
 
 
-@router.post("/cost-centers", response_model=PlantChildPublic, status_code=status.HTTP_201_CREATED)
+@router.post("/cost-centers", response_model=CostCenterPublic, status_code=status.HTTP_201_CREATED)
 def create_cost_center(
-    payload: PlantChildCreate,
+    payload: CostCenterCreate,
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_WRITE_CREATE)],
-) -> PlantChildPublic:
+) -> CostCenterPublic:
     try:
         return svc.create_cost_center(payload)
     except NotFoundError as exc:
@@ -132,13 +173,13 @@ def create_cost_center(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.patch("/cost-centers/{row_id}", response_model=PlantChildPublic)
+@router.patch("/cost-centers/{row_id}", response_model=CostCenterPublic)
 def update_cost_center(
     row_id: int,
-    payload: PlantChildUpdate,
+    payload: CostCenterUpdate,
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_WRITE_UPDATE)],
-) -> PlantChildPublic:
+) -> CostCenterPublic:
     try:
         return svc.update_cost_center(row_id, payload)
     except NotFoundError as exc:
@@ -147,25 +188,37 @@ def update_cost_center(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.get("/profit-centers", response_model=list[CostCenterChildPublic])
+@router.delete("/cost-centers/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_cost_center(
+    row_id: int,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_DELETE)],
+) -> None:
+    try:
+        svc.delete_cost_center(row_id)
+    except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
+        _raise_master_errors(exc)
+
+
+@router.get("/profit-centers", response_model=list[ProfitCenterPublic])
 def list_profit_centers(
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_READ)],
     cost_center_id: int | None = Query(None),
     plant_id: int | None = Query(None),
     active_only: bool = Query(True),
-) -> list[CostCenterChildPublic]:
+) -> list[ProfitCenterPublic]:
     return svc.list_profit_centers(
         cost_center_id=cost_center_id, plant_id=plant_id, active_only=active_only
     )
 
 
-@router.post("/profit-centers", response_model=CostCenterChildPublic, status_code=status.HTTP_201_CREATED)
+@router.post("/profit-centers", response_model=ProfitCenterPublic, status_code=status.HTTP_201_CREATED)
 def create_profit_center(
-    payload: CostCenterChildCreate,
+    payload: ProfitCenterCreate,
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_WRITE_CREATE)],
-) -> CostCenterChildPublic:
+) -> ProfitCenterPublic:
     try:
         return svc.create_profit_center(payload)
     except NotFoundError as exc:
@@ -174,13 +227,13 @@ def create_profit_center(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.patch("/profit-centers/{row_id}", response_model=CostCenterChildPublic)
+@router.patch("/profit-centers/{row_id}", response_model=ProfitCenterPublic)
 def update_profit_center(
     row_id: int,
-    payload: PlantChildUpdate,
+    payload: ProfitCenterUpdate,
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_WRITE_UPDATE)],
-) -> CostCenterChildPublic:
+) -> ProfitCenterPublic:
     try:
         return svc.update_profit_center(row_id, payload)
     except NotFoundError as exc:
@@ -189,24 +242,38 @@ def update_profit_center(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.get("/functional-locations", response_model=list[PlantChildPublic])
+@router.delete("/profit-centers/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_profit_center(
+    row_id: int,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_DELETE)],
+) -> None:
+    try:
+        svc.delete_profit_center(row_id)
+    except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
+        _raise_master_errors(exc)
+
+
+@router.get("/functional-locations", response_model=list[FunctionalLocationPublic])
 def list_functional_locations(
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_READ)],
     plant_id: int | None = Query(None),
     active_only: bool = Query(True),
-) -> list[PlantChildPublic]:
+) -> list[FunctionalLocationPublic]:
     return svc.list_functional_locations(plant_id=plant_id, active_only=active_only)
 
 
 @router.post(
-    "/functional-locations", response_model=PlantChildPublic, status_code=status.HTTP_201_CREATED
+    "/functional-locations",
+    response_model=FunctionalLocationPublic,
+    status_code=status.HTTP_201_CREATED,
 )
 def create_functional_location(
-    payload: PlantChildCreate,
+    payload: FunctionalLocationCreate,
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_WRITE_CREATE)],
-) -> PlantChildPublic:
+) -> FunctionalLocationPublic:
     try:
         return svc.create_functional_location(payload)
     except NotFoundError as exc:
@@ -215,13 +282,13 @@ def create_functional_location(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.patch("/functional-locations/{row_id}", response_model=PlantChildPublic)
+@router.patch("/functional-locations/{row_id}", response_model=FunctionalLocationPublic)
 def update_functional_location(
     row_id: int,
-    payload: PlantChildUpdate,
+    payload: FunctionalLocationUpdate,
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_WRITE_UPDATE)],
-) -> PlantChildPublic:
+) -> FunctionalLocationPublic:
     try:
         return svc.update_functional_location(row_id, payload)
     except NotFoundError as exc:
@@ -230,14 +297,26 @@ def update_functional_location(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.get("/actual-locations", response_model=list[FunctionalChildPublic])
+@router.delete("/functional-locations/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_functional_location(
+    row_id: int,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_DELETE)],
+) -> None:
+    try:
+        svc.delete_functional_location(row_id)
+    except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
+        _raise_master_errors(exc)
+
+
+@router.get("/actual-locations", response_model=list[ActualLocationPublic])
 def list_actual_locations(
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_READ)],
     functional_location_id: int | None = Query(None),
     plant_id: int | None = Query(None),
     active_only: bool = Query(True),
-) -> list[FunctionalChildPublic]:
+) -> list[ActualLocationPublic]:
     return svc.list_actual_locations(
         functional_location_id=functional_location_id,
         plant_id=plant_id,
@@ -245,12 +324,12 @@ def list_actual_locations(
     )
 
 
-@router.post("/actual-locations", response_model=FunctionalChildPublic, status_code=status.HTTP_201_CREATED)
+@router.post("/actual-locations", response_model=ActualLocationPublic, status_code=status.HTTP_201_CREATED)
 def create_actual_location(
-    payload: FunctionalChildCreate,
+    payload: ActualLocationCreate,
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_WRITE_CREATE)],
-) -> FunctionalChildPublic:
+) -> ActualLocationPublic:
     try:
         return svc.create_actual_location(payload)
     except NotFoundError as exc:
@@ -259,16 +338,28 @@ def create_actual_location(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
-@router.patch("/actual-locations/{row_id}", response_model=FunctionalChildPublic)
+@router.patch("/actual-locations/{row_id}", response_model=ActualLocationPublic)
 def update_actual_location(
     row_id: int,
-    payload: PlantChildUpdate,
+    payload: ActualLocationUpdate,
     svc: Annotated[AssetMastersService, Depends(get_svc)],
     _: Annotated[object, Depends(_MASTER_WRITE_UPDATE)],
-) -> FunctionalChildPublic:
+) -> ActualLocationPublic:
     try:
         return svc.update_actual_location(row_id, payload)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except DuplicateMasterCodeError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.delete("/actual-locations/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_actual_location(
+    row_id: int,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_DELETE)],
+) -> None:
+    try:
+        svc.delete_actual_location(row_id)
+    except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
+        _raise_master_errors(exc)

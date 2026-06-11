@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Pencil, Plus } from "lucide-react"
+import { Pencil, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -25,17 +25,38 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
-import type { PlantChildMaster, PlantOption } from "@/lib/masters-types"
+import type { CostCenterMaster, FunctionalLocationMaster, PlantOption } from "@/lib/masters-types"
 
 type HierarchyKind = "cost-center" | "profit-center" | "functional-location" | "actual-location"
+
+function hierarchyNameLabel(kind: HierarchyKind): string {
+  const labels: Record<HierarchyKind, string> = {
+    "cost-center": "Cost center name *",
+    "profit-center": "Profit center name *",
+    "functional-location": "Functional location name *",
+    "actual-location": "Actual location name *",
+  }
+  return labels[kind]
+}
+
+function hierarchyNameRequiredMessage(kind: HierarchyKind): string {
+  const labels: Record<HierarchyKind, string> = {
+    "cost-center": "Enter a cost center name.",
+    "profit-center": "Enter a profit center name.",
+    "functional-location": "Enter a functional location name.",
+    "actual-location": "Enter an actual location name.",
+  }
+  return labels[kind]
+}
 
 type ParentOption = { id: number; label: string }
 
 type Row = {
   id: number
   code: string
+  name?: string
   description: string
   is_active: boolean
   parent_label?: string | null
@@ -65,13 +86,15 @@ export function HierarchicalMasterPanel({
   const [createOpen, setCreateOpen] = React.useState(false)
   const [editRow, setEditRow] = React.useState<Row | null>(null)
   const [code, setCode] = React.useState("")
-  const [desc, setDesc] = React.useState("")
+  const [name, setName] = React.useState("")
   const [plantId, setPlantId] = React.useState("")
   const [parentId, setParentId] = React.useState("")
   const [saving, setSaving] = React.useState(false)
 
   const canCreate = hasPermission("masters.create")
   const canUpdate = hasPermission("masters.update")
+  const canDelete = hasPermission("masters.delete")
+  const showActions = canUpdate || canDelete
   const base = ENDPOINTS[kind]
   const needsPlant = kind === "cost-center" || kind === "functional-location"
   const needsParent = kind === "profit-center" || kind === "actual-location"
@@ -82,6 +105,7 @@ export function HierarchicalMasterPanel({
       data.map((r) => ({
         id: Number(r.id),
         code: String(r.code),
+        name: r.name != null ? String(r.name) : undefined,
         description: String(r.description ?? ""),
         is_active: Boolean(r.is_active),
         parent_label:
@@ -116,12 +140,16 @@ export function HierarchicalMasterPanel({
       kind === "profit-center"
         ? `/admin/asset-masters/cost-centers?plant_id=${plantId}&active_only=true`
         : `/admin/asset-masters/functional-locations?plant_id=${plantId}&active_only=true`
-    void getJson<PlantChildMaster[]>(url)
+    const fetchParents = (): Promise<CostCenterMaster[] | FunctionalLocationMaster[]> =>
+      kind === "actual-location"
+        ? getJson<FunctionalLocationMaster[]>(url)
+        : getJson<CostCenterMaster[]>(url)
+    void fetchParents()
       .then((list) =>
         setParentOptions(
           list.map((p) => ({
             id: p.id,
-            label: `${p.code} — ${p.description}`,
+            label: `${p.code} — ${p.name}`,
           })),
         ),
       )
@@ -130,7 +158,7 @@ export function HierarchicalMasterPanel({
 
   function openCreate() {
     setCode("")
-    setDesc("")
+    setName("")
     setPlantId("")
     setParentId("")
     setCreateOpen(true)
@@ -139,26 +167,33 @@ export function HierarchicalMasterPanel({
   function openEdit(row: Row) {
     setEditRow(row)
     setCode(row.code)
-    setDesc(row.description)
+    setName(row.name ?? row.description)
     setPlantId("")
     setParentId("")
   }
 
   function buildCreatePayload() {
-    if (kind === "cost-center" || kind === "functional-location") {
-      return { code: code.trim(), description: desc.trim(), plant_id: Number(plantId) }
+    if (kind === "functional-location") {
+      return { code: code.trim(), name: name.trim(), plant_id: Number(plantId) }
+    }
+    if (kind === "cost-center") {
+      return { code: code.trim(), name: name.trim(), plant_id: Number(plantId) }
     }
     if (kind === "profit-center") {
-      return { code: code.trim(), description: desc.trim(), cost_center_id: Number(parentId) }
+      return { code: code.trim(), name: name.trim(), cost_center_id: Number(parentId) }
     }
-    return { code: code.trim(), description: desc.trim(), functional_location_id: Number(parentId) }
+    return { code: code.trim(), name: name.trim(), functional_location_id: Number(parentId) }
   }
 
   function buildUpdatePayload() {
-    return { code: code.trim(), description: desc.trim() }
+    return { code: code.trim(), name: name.trim() }
   }
 
   async function saveCreate() {
+    if (!name.trim()) {
+      toast.error(hierarchyNameRequiredMessage(kind))
+      return
+    }
     if (needsPlant && !plantId) {
       toast.error("Select a plant.")
       return
@@ -182,6 +217,10 @@ export function HierarchicalMasterPanel({
 
   async function saveEdit() {
     if (!editRow) return
+    if (!name.trim()) {
+      toast.error(hierarchyNameRequiredMessage(kind))
+      return
+    }
     setSaving(true)
     try {
       await patchJson(`${base}/${editRow.id}`, buildUpdatePayload())
@@ -195,8 +234,27 @@ export function HierarchicalMasterPanel({
     }
   }
 
+  async function deleteRow(row: Row) {
+    if (
+      !window.confirm(
+        `Delete "${row.code}"? Allowed only when no assets use this ${title.toLowerCase()} and it has no child records.`,
+      )
+    ) {
+      return
+    }
+    try {
+      await deleteJson(`${base}/${row.id}`)
+      toast.success("Deleted.")
+      if (editRow?.id === row.id) setEditRow(null)
+      await load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Delete failed")
+    }
+  }
+
   const parentColumn =
     kind === "profit-center" ? "Cost center" : kind === "actual-location" ? "Functional location" : null
+  const detailColumnLabel = "Name"
 
   const addButton = canCreate ? (
     <AdminPrimaryButton type="button" className="h-8 gap-1.5" onClick={openCreate}>
@@ -212,23 +270,27 @@ export function HierarchicalMasterPanel({
           <TableHeader>
             <AdminTableHeaderRow>
               <AdminTableHeadCell>Code</AdminTableHeadCell>
-              <AdminTableHeadCell>Description</AdminTableHeadCell>
+              <AdminTableHeadCell>{detailColumnLabel}</AdminTableHeadCell>
               <AdminTableHeadCell>Plant</AdminTableHeadCell>
               {parentColumn ? <AdminTableHeadCell>{parentColumn}</AdminTableHeadCell> : null}
               <AdminTableHeadCell>Status</AdminTableHeadCell>
-              {canUpdate ? <AdminTableHeadCell className="w-20"> </AdminTableHeadCell> : null}
+              {showActions ? <AdminTableHeadCell className="w-24"> </AdminTableHeadCell> : null}
             </AdminTableHeaderRow>
           </TableHeader>
           <TableBody>
             {rows.length === 0 ? (
-              <AdminTableEmptyRow colSpan={parentColumn ? (canUpdate ? 6 : 5) : canUpdate ? 5 : 4}>
+              <AdminTableEmptyRow
+                colSpan={(parentColumn ? 5 : 4) + (showActions ? 1 : 0)}
+              >
                 No records yet.
               </AdminTableEmptyRow>
             ) : (
               rows.map((row) => (
                 <AdminTableBodyRow key={row.id} interactive={false}>
                   <AdminTableCell className="font-mono text-xs">{row.code}</AdminTableCell>
-                  <AdminTableCell>{row.description}</AdminTableCell>
+                  <AdminTableCell>
+                    {row.name ?? row.description}
+                  </AdminTableCell>
                   <AdminTableCell className="text-xs text-muted-foreground">
                     {row.plant_label ?? "—"}
                   </AdminTableCell>
@@ -238,11 +300,32 @@ export function HierarchicalMasterPanel({
                     </AdminTableCell>
                   ) : null}
                   <AdminTableCell className="text-xs">{row.is_active ? "Active" : "Inactive"}</AdminTableCell>
-                  {canUpdate ? (
+                  {showActions ? (
                     <AdminTableCell>
-                      <Button type="button" variant="ghost" size="sm" className="h-8" onClick={() => openEdit(row)}>
-                        <Pencil className="size-3.5" />
-                      </Button>
+                      <div className="flex items-center gap-0.5">
+                        {canUpdate ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => openEdit(row)}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        ) : null}
+                        {canDelete ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-destructive hover:text-destructive"
+                            onClick={() => void deleteRow(row)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        ) : null}
+                      </div>
                     </AdminTableCell>
                   ) : null}
                 </AdminTableBodyRow>
@@ -261,8 +344,8 @@ export function HierarchicalMasterPanel({
         parentOptions={parentOptions}
         code={code}
         setCode={setCode}
-        desc={desc}
-        setDesc={setDesc}
+        name={name}
+        setName={setName}
         plantId={plantId}
         setPlantId={setPlantId}
         parentId={parentId}
@@ -281,8 +364,8 @@ export function HierarchicalMasterPanel({
         parentOptions={parentOptions}
         code={code}
         setCode={setCode}
-        desc={desc}
-        setDesc={setDesc}
+        name={name}
+        setName={setName}
         plantId={plantId}
         setPlantId={setPlantId}
         parentId={parentId}
@@ -306,8 +389,8 @@ function HierarchyDialog({
   parentOptions,
   code,
   setCode,
-  desc,
-  setDesc,
+  name,
+  setName,
   plantId,
   setPlantId,
   parentId,
@@ -326,8 +409,8 @@ function HierarchyDialog({
   parentOptions: ParentOption[]
   code: string
   setCode: (v: string) => void
-  desc: string
-  setDesc: (v: string) => void
+  name: string
+  setName: (v: string) => void
   plantId: string
   setPlantId: (v: string) => void
   parentId: string
@@ -341,6 +424,7 @@ function HierarchyDialog({
   const needsPlant = kind === "cost-center" || kind === "functional-location"
   const needsParentOnCreate = kind === "profit-center" || kind === "actual-location"
   const parentLabel = kind === "profit-center" ? "Cost center *" : "Functional location *"
+  const nameFieldLabel = hierarchyNameLabel(kind)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -349,7 +433,13 @@ function HierarchyDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {isCreate
-              ? "Select the parent in the hierarchy, then enter code and description."
+              ? kind === "cost-center"
+                ? "Select a plant, then enter the cost center code and name."
+                : kind === "profit-center"
+                  ? "Select plant and cost center, then enter the profit center code and name."
+                  : kind === "functional-location"
+                    ? "Select a plant, then enter the functional location code and name."
+                    : "Select plant and functional location, then enter the actual location code and name."
               : "Code is unique within its parent."}
           </DialogDescription>
         </DialogHeader>
@@ -428,8 +518,8 @@ function HierarchyDialog({
             <Input className="h-9 font-mono uppercase" value={code} onChange={(e) => setCode(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label>Description *</Label>
-            <Input className="h-9" value={desc} onChange={(e) => setDesc(e.target.value)} />
+            <Label>{nameFieldLabel}</Label>
+            <Input className="h-9" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
         </div>
         <div className="flex justify-end gap-2">

@@ -280,7 +280,7 @@ function resolveFilterOptions(
             { value: "all", label: "All cost centers" },
             ...masters.costCenters.map((cc) => ({
               value: cc.code,
-              label: masterOptionLabel(cc.code, cc.description),
+              label: masterOptionLabel(cc.code, cc.name),
             })),
           ]
         : [],
@@ -295,7 +295,7 @@ function resolveFilterOptions(
             { value: "all", label: "All functional locations" },
             ...masters.functionalLocations.map((fl) => ({
               value: fl.code,
-              label: masterOptionLabel(fl.code, fl.description),
+              label: masterOptionLabel(fl.code, fl.name),
             })),
           ]
         : [],
@@ -316,7 +316,7 @@ function resolveFilterOptions(
             { value: "all", label: "All actual locations" },
             ...masters.actualLocations.map((al) => ({
               value: al.code,
-              label: masterOptionLabel(al.code, al.description),
+              label: masterOptionLabel(al.code, al.name),
             })),
           ]
         : [],

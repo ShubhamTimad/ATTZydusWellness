@@ -12,8 +12,8 @@ import {
   isAssetMasterDateField,
   type AssetMasterFieldDef,
 } from "@/lib/asset-master-fields"
-import type { CategoryMaster, PlantChildMaster, PlantOption } from "@/lib/masters-types"
-import { categoryLabel, plantChildLabel, plantLabel } from "@/lib/use-asset-masters"
+import type { CategoryMaster, CostCenterMaster, PlantOption } from "@/lib/masters-types"
+import { categoryLabel, costCenterLabel, plantLabel } from "@/lib/use-asset-masters"
 
 function formatDate(iso: string | null | undefined) {
   if (!iso) return "—"
@@ -66,7 +66,7 @@ export function AssetMasterPanel({
   onFinancial: (key: string, value: string | number | null) => void
   categories: CategoryMaster[]
   plants: PlantOption[]
-  costCenters: PlantChildMaster[]
+  costCenters: CostCenterMaster[]
   plantId: number | null
 }) {
   const viewRows = ASSET_MASTER_FIELDS.map((def) => ({
@@ -122,7 +122,7 @@ function FieldEditor({
   onFinancial: (key: string, value: string | number | null) => void
   categories: CategoryMaster[]
   plants: PlantOption[]
-  costCenters: PlantChildMaster[]
+  costCenters: CostCenterMaster[]
   plantId: number | null
 }) {
   const readonly = def.readonly || def.kind === "readonly"
@@ -209,7 +209,7 @@ function FieldEditor({
           <option value="">{plantId ? "—" : "Select plant first"}</option>
           {costCenters.map((m) => (
             <option key={m.id} value={m.code}>
-              {plantChildLabel(m)}
+              {costCenterLabel(m)}
             </option>
           ))}
         </select>

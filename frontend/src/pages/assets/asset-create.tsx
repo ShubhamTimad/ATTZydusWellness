@@ -21,9 +21,10 @@ import type { AssetDetail } from "@/lib/assets-types"
 import { hasPermission } from "@/lib/permissions"
 import {
   categoryLabel,
-  costCenterChildLabel,
-  functionalChildLabel,
-  plantChildLabel,
+  costCenterLabel,
+  profitCenterLabel,
+  actualLocationLabel,
+  functionalLocationLabel,
   plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
@@ -382,7 +383,7 @@ export function AssetCreatePage() {
                   <option value="">—</option>
                   {masters.functionalLocations.map((l) => (
                     <option key={l.id} value={l.code}>
-                      {plantChildLabel(l)}
+                      {functionalLocationLabel(l)}
                     </option>
                   ))}
                 </select>
@@ -399,7 +400,7 @@ export function AssetCreatePage() {
                   </option>
                   {masters.actualLocations.map((l) => (
                     <option key={l.id} value={l.code}>
-                      {functionalChildLabel(l)}
+                      {actualLocationLabel(l)}
                     </option>
                   ))}
                 </select>
@@ -494,7 +495,7 @@ export function AssetCreatePage() {
                   <option value="">—</option>
                   {masters.costCenters.map((m) => (
                     <option key={m.id} value={m.code}>
-                      {plantChildLabel(m)}
+                      {costCenterLabel(m)}
                     </option>
                   ))}
                 </select>
@@ -512,7 +513,7 @@ export function AssetCreatePage() {
                   <option value="">{form.cost_center ? "—" : "Select cost center first"}</option>
                   {masters.profitCenters.map((m) => (
                     <option key={m.id} value={m.code}>
-                      {costCenterChildLabel(m)}
+                      {profitCenterLabel(m)}
                     </option>
                   ))}
                 </select>
