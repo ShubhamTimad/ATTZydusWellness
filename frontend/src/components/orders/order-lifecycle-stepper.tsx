@@ -9,11 +9,11 @@ type Props = {
   compact?: boolean
 }
 
-/** Must match backend order status → highlighted timeline segment. */
+/** Fallback when backend does not send current_step_key. */
 const STATUS_TO_STEP_KEY: Record<string, string> = {
   draft: "order_created",
   pending_approval: "approved",
-  approved: "approved",
+  approved: "assigned",
   assigned: "assigned",
   in_progress: "in_progress",
   pending_closure_approval: "completed",
@@ -21,15 +21,6 @@ const STATUS_TO_STEP_KEY: Record<string, string> = {
   closed: "closed",
   rejected: "rejected",
 }
-
-const STEP_ORDER = [
-  "order_created",
-  "approved",
-  "assigned",
-  "in_progress",
-  "completed",
-  "closed",
-] as const
 
 function chevronClip(isFirst: boolean, isLast: boolean, notch: number): string {
   const n = `${notch}px`
@@ -42,24 +33,28 @@ function chevronClip(isFirst: boolean, isLast: boolean, notch: number): string {
 type VisualPhase = "completed" | "current" | "upcoming" | "rejected"
 
 function resolveActiveKey(orderStatus?: string, fallbackKey?: string | null): string | null {
+  if (fallbackKey) return fallbackKey
   if (orderStatus && STATUS_TO_STEP_KEY[orderStatus]) {
     return STATUS_TO_STEP_KEY[orderStatus]
   }
-  return fallbackKey ?? null
+  return null
 }
 
-function resolveVisualPhase(step: OrderLifecycleStep, activeKey: string | null, orderStatus?: string): VisualPhase {
+function resolveVisualPhase(
+  step: OrderLifecycleStep,
+  stepIndex: number,
+  steps: OrderLifecycleStep[],
+  activeKey: string | null,
+  orderStatus?: string,
+): VisualPhase {
   if (orderStatus === "rejected" && step.key === "rejected") {
     return "rejected"
   }
   if (step.key === activeKey) {
     return "current"
   }
-  const stepIdx = STEP_ORDER.indexOf(step.key as (typeof STEP_ORDER)[number])
-  const activeIdx = activeKey
-    ? STEP_ORDER.indexOf(activeKey as (typeof STEP_ORDER)[number])
-    : -1
-  if (stepIdx >= 0 && activeIdx >= 0 && stepIdx < activeIdx) {
+  const activeIdx = activeKey ? steps.findIndex((s) => s.key === activeKey) : -1
+  if (activeIdx >= 0 && stepIndex < activeIdx) {
     return "completed"
   }
   return "upcoming"
@@ -83,8 +78,8 @@ function displayLabel(step: OrderLifecycleStep, orderStatus?: string, isCurrent?
   if (isCurrent && orderStatus === "pending_approval" && step.key === "approved") {
     return "PENDING APPROVAL"
   }
-  if (isCurrent && orderStatus === "pending_closure_approval" && step.key === "completed") {
-    return "PENDING CLOSURE"
+  if (step.key === "closure_approved" && isCurrent) {
+    return "APPROVED"
   }
   if (isCurrent && orderStatus === "draft" && step.key === "order_created") {
     return "DRAFT"
@@ -104,7 +99,7 @@ export function OrderLifecycleStepper({ steps, currentStepKey, orderStatus, comp
           const isFirst = index === 0
           const isLast = index === displaySteps.length - 1
           const isCurrent = step.key === activeKey
-          const phase = resolveVisualPhase(step, activeKey, orderStatus)
+          const phase = resolveVisualPhase(step, index, displaySteps, activeKey, orderStatus)
 
           return (
             <li

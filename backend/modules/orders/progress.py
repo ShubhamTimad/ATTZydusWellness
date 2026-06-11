@@ -24,12 +24,14 @@ from modules.orders.constants import (
     ORDER_STATUS_REJECTED,
 )
 from modules.orders.model import PhysicalOrder, PhysicalOrderAudit
+from modules.orders.model import PhysicalOrderItem
 from modules.orders.schema import (
     OrderLifecycleApproverSlot,
     OrderLifecycleStepPublic,
     OrderWorkflowDefinition,
     OrderWorkflowStepDefinition,
     PhysicalOrderAuditPublic,
+    PhysicalOrderAuditVerifiedAsset,
     PhysicalOrderProgressPublic,
 )
 from modules.platform.approvals.assignment_service import get_workflow_for_action
@@ -47,8 +49,8 @@ _AUDIT_LABELS: dict[str, str] = {
     "rejected": "Order rejected",
     "started": "Physical verification started",
     "asset_verified": "Asset physically verified (RFID scan)",
-    "closure_submitted": "Work completed — submitted for closure approval",
-    "closure_approved": "Closure approved",
+    "closure_submitted": "Order completed",
+    "closure_approved": "Approved",
     "completed": "Order completed",
     "closed": "Order closed",
     "returned_for_execution": "Returned to executor after closure rejection",
@@ -65,7 +67,7 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         if assignee is not None:
             suffix = ""
             if new_value.get("auto_assigned"):
-                suffix = " (automatic after approval)"
+                suffix = " (after creation approval)"
             elif new_value.get("intended_only"):
                 suffix = " (intended executor)"
             name = new_value.get("assigned_to_name")
@@ -93,8 +95,7 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         rid = new_value.get("approval_request_id")
         return f"Approval request #{rid}" if rid else None
     if action == "closure_submitted":
-        rid = new_value.get("approval_request_id")
-        return f"Closure approval request #{rid}" if rid else None
+        return None
     if action == "returned_for_execution":
         reason = new_value.get("reason")
         codes = new_value.get("rejected_asset_codes") or []
@@ -125,27 +126,72 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
     return None
 
 
+def _verified_assets_from_items(
+    items: list[PhysicalOrderItem],
+    *,
+    user_name_fn,
+) -> list[PhysicalOrderAuditVerifiedAsset]:
+    out: list[PhysicalOrderAuditVerifiedAsset] = []
+    for item in items:
+        if item.scan_time is None:
+            continue
+        asset = item.asset
+        out.append(
+            PhysicalOrderAuditVerifiedAsset(
+                asset_code=str(asset.asset_code) if asset is not None else str(item.asset_id),
+                asset_name=str(asset.asset_name) if asset is not None else None,
+                rfid_code=str(asset.rfid_code) if asset is not None and asset.rfid_code else None,
+                verified_at=item.scan_time,
+                verified_by_name=user_name_fn(item.verified_by) if item.verified_by else None,
+            )
+        )
+    out.sort(key=lambda row: (row.verified_at is None, row.verified_at))
+    return out
+
+
 def enrich_audit_rows(
     rows: list[PhysicalOrderAudit],
     *,
     user_name_fn,
     db: Session | None = None,
     order_id: int | None = None,
+    order_items: list[PhysicalOrderItem] | None = None,
 ) -> list[PhysicalOrderAuditPublic]:
     out: list[PhysicalOrderAuditPublic] = []
     synthetic_id = -1
+    has_real_creation_approval = any(
+        str(r.action) == "approved" and not (r.new_value or {}).get("auto_approved") for r in rows
+    )
+    has_real_closure_approval = any(str(r.action) == "closure_approved" for r in rows)
+    has_closure_submitted = any(str(r.action) == "closure_submitted" for r in rows)
+
+    verified_assets = (
+        _verified_assets_from_items(order_items, user_name_fn=user_name_fn) if order_items else []
+    )
+
     for r in rows:
         action = str(r.action)
+        if action == "asset_verified":
+            continue
+        if action == "completed" and (has_real_closure_approval or has_closure_submitted):
+            continue
+        if action == "approved" and (r.new_value or {}).get("auto_approved"):
+            continue
+        new_value = dict(r.new_value or {})
+        if action == "assignment_changed" and new_value.get("auto_assigned") and not has_real_creation_approval:
+            new_value.pop("auto_assigned", None)
+            new_value["on_submit"] = True
         out.append(
             PhysicalOrderAuditPublic(
                 id=int(r.id),
                 action=action,
                 label=_AUDIT_LABELS.get(action, action.replace("_", " ").title()),
-                detail=_audit_detail(action, r.old_value, r.new_value),
+                detail=_audit_detail(action, r.old_value, new_value),
                 actor_name=user_name_fn(r.actor_user_id),
                 old_value=r.old_value,
-                new_value=r.new_value,
+                new_value=new_value,
                 created_at=r.created_at,
+                verified_assets=verified_assets if action == "started" else [],
             )
         )
 
@@ -154,6 +200,10 @@ def enrich_audit_rows(
             (ENTITY_TYPE_CREATION, "Creation approval"),
             (ENTITY_TYPE_CLOSURE, "Closure approval"),
         ):
+            if entity_type == ENTITY_TYPE_CREATION and has_real_creation_approval:
+                continue
+            if entity_type == ENTITY_TYPE_CLOSURE and has_real_closure_approval:
+                continue
             req = _latest_approval_request(db, order_id=order_id, entity_type=entity_type)
             if req is None:
                 continue
@@ -246,33 +296,52 @@ def _find_audit_actor(audit_rows: list[PhysicalOrderAudit], action: str, user_na
     return None
 
 
-_STEP_ORDER = (
-    "order_created",
-    "approved",
-    "assigned",
-    "in_progress",
-    "completed",
-    "closed",
-)
+def _step_order(*, has_creation_workflow: bool, has_closure_workflow: bool) -> tuple[str, ...]:
+    """Business lifecycle keys in display order (approval steps only when configured)."""
+    keys: list[str] = ["order_created"]
+    if has_creation_workflow:
+        keys.append("approved")
+    keys.extend(["assigned", "in_progress", "completed"])
+    if has_closure_workflow:
+        keys.append("closure_approved")
+    keys.append("closed")
+    return tuple(keys)
 
-# Which timeline segment is current for each order status (matches status badge).
-_ACTIVE_STEP_FOR_STATUS: dict[str, str] = {
-    ORDER_STATUS_DRAFT: "order_created",
-    ORDER_STATUS_PENDING_APPROVAL: "approved",
-    ORDER_STATUS_APPROVED: "approved",
-    ORDER_STATUS_ASSIGNED: "assigned",
-    ORDER_STATUS_IN_PROGRESS: "in_progress",
-    ORDER_STATUS_PENDING_CLOSURE: "completed",
-    ORDER_STATUS_COMPLETED: "completed",
-    ORDER_STATUS_CLOSED: "closed",
-}
+
+def _active_step_key(
+    order_status: str,
+    *,
+    has_creation_workflow: bool,
+    has_closure_workflow: bool,
+) -> str | None:
+    """Which timeline segment is current for each order status."""
+    if order_status == ORDER_STATUS_DRAFT:
+        return "order_created"
+    if order_status == ORDER_STATUS_PENDING_APPROVAL:
+        return "approved" if has_creation_workflow else "order_created"
+    if order_status == ORDER_STATUS_APPROVED:
+        return "assigned"
+    if order_status == ORDER_STATUS_ASSIGNED:
+        return "assigned"
+    if order_status == ORDER_STATUS_IN_PROGRESS:
+        return "in_progress"
+    if order_status == ORDER_STATUS_PENDING_CLOSURE:
+        return "completed"
+    if order_status == ORDER_STATUS_COMPLETED:
+        return "closure_approved" if has_closure_workflow else "completed"
+    if order_status == ORDER_STATUS_CLOSED:
+        return "closed"
+    if order_status == ORDER_STATUS_REJECTED:
+        return "rejected"
+    return None
 
 
 def _step_phase(
     *,
     order_status: str,
     step_key: str,
-    creation_req: ApprovalRequest | None,
+    step_order: tuple[str, ...],
+    active_key: str | None,
 ) -> str:
     """Return pending | active | completed | rejected for a business lifecycle step."""
     if order_status == ORDER_STATUS_REJECTED:
@@ -282,12 +351,11 @@ def _step_phase(
             return "rejected"
         return "pending"
 
-    active_key = _ACTIVE_STEP_FOR_STATUS.get(order_status)
-    if active_key is None or step_key not in _STEP_ORDER:
+    if active_key is None or step_key not in step_order:
         return "pending"
 
-    step_idx = _STEP_ORDER.index(step_key)
-    active_idx = _STEP_ORDER.index(active_key)
+    step_idx = step_order.index(step_key)
+    active_idx = step_order.index(active_key)
 
     if step_idx < active_idx:
         return "completed"
@@ -305,85 +373,140 @@ def build_order_progress(
 ) -> PhysicalOrderProgressPublic:
     creation_wf = _workflow_definition(db, action_code=ACTION_CREATE, phase="creation")
     closure_wf = _workflow_definition(db, action_code=ACTION_COMPLETE, phase="closure")
-    creation_req = _latest_approval_request(db, order_id=int(order.id), entity_type=ENTITY_TYPE_CREATION)
+    has_creation_workflow = creation_wf is not None
+    has_closure_workflow = closure_wf is not None
+    step_order = _step_order(
+        has_creation_workflow=has_creation_workflow,
+        has_closure_workflow=has_closure_workflow,
+    )
 
     status = str(order.status)
     verified = sum(1 for i in order.items if i.scan_time is not None)
     total = len(order.items)
+    active_key = _active_step_key(
+        status,
+        has_creation_workflow=has_creation_workflow,
+        has_closure_workflow=has_closure_workflow,
+    )
+
+    def phase(step_key: str) -> str:
+        return _step_phase(
+            order_status=status,
+            step_key=step_key,
+            step_order=step_order,
+            active_key=active_key,
+        )
+
+    work_completed_at = (
+        order.completed_at
+        or _find_audit_time(audit_rows, "closure_submitted")
+        or _find_audit_time(audit_rows, "completed")
+    )
 
     steps: list[OrderLifecycleStepPublic] = [
         OrderLifecycleStepPublic(
             key="order_created",
             label="Draft" if status == ORDER_STATUS_DRAFT else "Order Created",
-            status=_step_phase(order_status=status, step_key="order_created", creation_req=creation_req),
+            status=phase("order_created"),
             actor_name=user_name_fn(order.created_by),
             occurred_at=order.created_at,
             detail=f"Order {order.order_number}",
         ),
-        OrderLifecycleStepPublic(
-            key="approved",
-            label="Pending Approval" if status == ORDER_STATUS_PENDING_APPROVAL else "Approved",
-            status=_step_phase(order_status=status, step_key="approved", creation_req=creation_req),
-            actor_name=_find_audit_actor(audit_rows, "approved", user_name_fn),
-            occurred_at=_find_audit_time(audit_rows, "approved"),
-            detail=(
-                "Awaiting creation approval"
-                if status == ORDER_STATUS_PENDING_APPROVAL
-                else None
-            ),
-        ),
-        OrderLifecycleStepPublic(
-            key="assigned",
-            label="Assigned",
-            status=_step_phase(order_status=status, step_key="assigned", creation_req=creation_req),
-            actor_name=user_name_fn(order.assigned_by) if order.assigned_at else None,
-            occurred_at=order.assigned_at,
-            detail=(
-                f"Executor: {user_name_fn(order.assigned_to)}"
-                if order.assigned_to and order.assigned_at
-                else (
-                    f"Pending: {user_name_fn(order.assigned_to)}"
-                    if order.assigned_to
+    ]
+
+    if has_creation_workflow:
+        steps.append(
+            OrderLifecycleStepPublic(
+                key="approved",
+                label="Pending Approval" if status == ORDER_STATUS_PENDING_APPROVAL else "Approved",
+                status=phase("approved"),
+                actor_name=_find_audit_actor(audit_rows, "approved", user_name_fn),
+                occurred_at=_find_audit_time(audit_rows, "approved"),
+                detail=(
+                    "Awaiting creation approval"
+                    if status == ORDER_STATUS_PENDING_APPROVAL
                     else None
-                )
+                ),
+            )
+        )
+
+    steps.extend(
+        [
+            OrderLifecycleStepPublic(
+                key="assigned",
+                label="Assigned",
+                status=phase("assigned"),
+                actor_name=user_name_fn(order.assigned_by) if order.assigned_at else None,
+                occurred_at=order.assigned_at,
+                detail=(
+                    f"Executor: {user_name_fn(order.assigned_to)}"
+                    if order.assigned_to and order.assigned_at
+                    else (
+                        f"Pending: {user_name_fn(order.assigned_to)}"
+                        if order.assigned_to
+                        else None
+                    )
+                ),
             ),
-        ),
-        OrderLifecycleStepPublic(
-            key="in_progress",
-            label="In Progress",
-            status=_step_phase(order_status=status, step_key="in_progress", creation_req=creation_req),
-            actor_name=user_name_fn(order.started_by),
-            occurred_at=order.started_at,
-            detail=(
-                f"{verified} of {total} assets scanned"
-                if status in (ORDER_STATUS_IN_PROGRESS, ORDER_STATUS_PENDING_CLOSURE) and total
-                else None
+            OrderLifecycleStepPublic(
+                key="in_progress",
+                label="In Progress",
+                status=phase("in_progress"),
+                actor_name=user_name_fn(order.started_by),
+                occurred_at=order.started_at,
+                detail=(
+                    f"{verified} of {total} assets scanned"
+                    if status == ORDER_STATUS_IN_PROGRESS and total
+                    else None
+                ),
             ),
-        ),
-        OrderLifecycleStepPublic(
-            key="completed",
-            label=(
-                "Pending Closure"
-                if status == ORDER_STATUS_PENDING_CLOSURE
-                else "Completed"
+            OrderLifecycleStepPublic(
+                key="completed",
+                label="Completed",
+                status=phase("completed"),
+                actor_name=(
+                    _find_audit_actor(audit_rows, "closure_submitted", user_name_fn)
+                    or _find_audit_actor(audit_rows, "completed", user_name_fn)
+                ),
+                occurred_at=work_completed_at,
+                detail=(
+                    "Awaiting approval"
+                    if status == ORDER_STATUS_PENDING_CLOSURE
+                    else None
+                ),
             ),
-            status=_step_phase(order_status=status, step_key="completed", creation_req=creation_req),
-            actor_name=_find_audit_actor(audit_rows, "completed", user_name_fn),
-            occurred_at=order.completed_at,
-            detail=(
-                "Awaiting closure approval"
-                if status == ORDER_STATUS_PENDING_CLOSURE
-                else None
-            ),
-        ),
+        ]
+    )
+
+    if has_closure_workflow:
+        steps.append(
+            OrderLifecycleStepPublic(
+                key="closure_approved",
+                label="Approved",
+                status=phase("closure_approved"),
+                actor_name=_find_audit_actor(audit_rows, "closure_approved", user_name_fn),
+                occurred_at=_find_audit_time(audit_rows, "closure_approved"),
+                detail=(
+                    "Awaiting approval"
+                    if status == ORDER_STATUS_PENDING_CLOSURE
+                    else (
+                        "Ready to close"
+                        if status == ORDER_STATUS_COMPLETED
+                        else None
+                    )
+                ),
+            )
+        )
+
+    steps.append(
         OrderLifecycleStepPublic(
             key="closed",
             label="Closed",
-            status=_step_phase(order_status=status, step_key="closed", creation_req=creation_req),
+            status=phase("closed"),
             actor_name=_find_audit_actor(audit_rows, "closed", user_name_fn),
             occurred_at=order.closed_at,
-        ),
-    ]
+        )
+    )
 
     if status == ORDER_STATUS_REJECTED:
         steps.append(
@@ -397,7 +520,7 @@ def build_order_progress(
             )
         )
 
-    current_key: str | None = _ACTIVE_STEP_FOR_STATUS.get(status)
+    current_key = active_key
     if status == ORDER_STATUS_REJECTED:
         current_key = "rejected"
     if current_key is None and steps:

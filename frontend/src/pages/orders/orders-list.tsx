@@ -23,16 +23,34 @@ import {
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { getJson } from "@/lib/api"
 import {
-  ORDER_TABS,
+  ORDER_STATUS_TABS,
   orderStatusLabel,
+  type OrdersDashboardModule,
   type PhysicalOrderListResponse,
 } from "@/lib/orders-types"
 
+function tabCount(
+  module: OrdersDashboardModule | null,
+  tab: (typeof ORDER_STATUS_TABS)[number],
+): number {
+  if (!module) return 0
+  if (tab.key === "pending_approval") {
+    return (module.pending_approval ?? 0) + (module.pending_closure_approval ?? 0)
+  }
+  if (tab.key === "assigned") {
+    return (module.assigned ?? 0) + (module.approved ?? 0)
+  }
+  if (!tab.countKey) return 0
+  const value = module[tab.countKey]
+  return typeof value === "number" ? value : 0
+}
+
 export function OrdersListPage() {
   const navigate = useNavigate()
-  const [tab, setTab] = React.useState<string>("pending_approval")
+  const [tab, setTab] = React.useState("in_progress")
   const [page, setPage] = React.useState(1)
   const [data, setData] = React.useState<PhysicalOrderListResponse | null>(null)
+  const [counts, setCounts] = React.useState<OrdersDashboardModule | null>(null)
   const [loading, setLoading] = React.useState(false)
 
   const load = React.useCallback(async () => {
@@ -51,6 +69,12 @@ export function OrdersListPage() {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  React.useEffect(() => {
+    void getJson<{ modules: { orders: OrdersDashboardModule } }>("/dashboard/summary")
+      .then((res) => setCounts(res.modules.orders))
+      .catch(() => setCounts(null))
+  }, [tab, data?.total])
 
   const items = data?.items ?? []
   const total = data?.total ?? 0
@@ -72,14 +96,20 @@ export function OrdersListPage() {
         }}
       >
         <WorkspaceTabsList>
-          {ORDER_TABS.map((t) => (
-            <WorkspaceTabsTrigger key={t.key} value={t.key}>
-              {t.label}
-            </WorkspaceTabsTrigger>
-          ))}
+          {ORDER_STATUS_TABS.map((t) => {
+            const count = tabCount(counts, t)
+            return (
+              <WorkspaceTabsTrigger key={t.key} value={t.key}>
+                {t.label}
+                {count > 0 ? (
+                  <span className="ml-1.5 tabular-nums text-muted-foreground">({count})</span>
+                ) : null}
+              </WorkspaceTabsTrigger>
+            )
+          })}
         </WorkspaceTabsList>
 
-        {ORDER_TABS.map((t) => (
+        {ORDER_STATUS_TABS.map((t) => (
           <WorkspaceTabsContent key={t.key} value={t.key}>
             <AdminDataTable
               footer={

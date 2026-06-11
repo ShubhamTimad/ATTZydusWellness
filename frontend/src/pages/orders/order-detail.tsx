@@ -1,6 +1,16 @@
 import * as React from "react"
 import { Link, useParams } from "react-router-dom"
-import { CheckCircle2, Clock3, Lock, Package, ScanLine, XCircle } from "lucide-react"
+import {
+  CheckCircle2,
+  ChevronDown,
+  Clock3,
+  ListTree,
+  Loader2,
+  Lock,
+  Package,
+  ScanLine,
+  XCircle,
+} from "lucide-react"
 import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
@@ -41,6 +51,7 @@ import { ApiError, getJson, postJson } from "@/lib/api"
 import {
   orderStatusLabel,
   type ExecutorUser,
+  type PhysicalOrderAudit,
   type PhysicalOrderDetail,
   type PhysicalOrderItem,
 } from "@/lib/orders-types"
@@ -48,6 +59,17 @@ import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
 type ItemFilter = "all" | "pending" | "verified" | "approved" | "rejected"
+
+const ORDER_ACTION_BUSY_LABELS: Record<string, string> = {
+  "/submit-closure": "Completing order…",
+  "/approval/approve-all": "Approving…",
+  "/approval/approve-order": "Approving…",
+  "/approval/approve-items": "Approving…",
+  "/close": "Closing order…",
+  "/start": "Starting…",
+  "/submit": "Submitting…",
+  "/reassign": "Reassigning…",
+}
 
 function formatDt(iso: string | null | undefined) {
   if (!iso) return "—"
@@ -128,12 +150,99 @@ function OrderStatCard({
   )
 }
 
+function OrderAuditActivityRow({
+  ev,
+  expanded,
+  onToggleVerified,
+}: {
+  ev: PhysicalOrderAudit
+  expanded: boolean
+  onToggleVerified: () => void
+}) {
+  const verifiedAssets = ev.verified_assets ?? []
+  const showVerifiedToggle = ev.action === "started" && verifiedAssets.length > 0
+
+  return (
+    <li className="border-b border-border/40 py-2.5 text-sm last:border-0">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-medium">{ev.label}</span>
+            {showVerifiedToggle ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={onToggleVerified}
+                aria-expanded={expanded}
+                aria-label={
+                  expanded
+                    ? "Hide verified assets"
+                    : `Show ${verifiedAssets.length} verified asset${verifiedAssets.length === 1 ? "" : "s"}`
+                }
+                title={
+                  expanded
+                    ? "Hide verified assets"
+                    : `${verifiedAssets.length} verified asset${verifiedAssets.length === 1 ? "" : "s"}`
+                }
+              >
+                {expanded ? (
+                  <ChevronDown className="size-4" aria-hidden />
+                ) : (
+                  <ListTree className="size-4" aria-hidden />
+                )}
+              </Button>
+            ) : null}
+            {ev.actor_name ? <span className="text-muted-foreground">· {ev.actor_name}</span> : null}
+          </div>
+          {ev.detail ? <p className="mt-0.5 text-xs text-muted-foreground">{ev.detail}</p> : null}
+          {showVerifiedToggle && !expanded ? (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {verifiedAssets.length} asset{verifiedAssets.length === 1 ? "" : "s"} verified — click{" "}
+              <ListTree className="mb-0.5 inline size-3.5" aria-hidden /> to view
+            </p>
+          ) : null}
+        </div>
+        <time className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          {formatDt(ev.created_at)}
+        </time>
+      </div>
+      {showVerifiedToggle && expanded ? (
+        <ul className="mt-2 space-y-1.5 rounded-md border border-border/60 bg-muted/15 px-3 py-2">
+          {verifiedAssets.map((asset) => (
+            <li
+              key={`${asset.asset_code}-${asset.verified_at ?? "pending"}`}
+              className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-xs"
+            >
+              <div className="min-w-0">
+                <span className="font-mono font-medium text-foreground">{asset.asset_code}</span>
+                {asset.asset_name ? (
+                  <span className="text-muted-foreground"> · {asset.asset_name}</span>
+                ) : null}
+                {asset.rfid_code ? (
+                  <p className="font-mono text-[11px] text-muted-foreground">RFID {asset.rfid_code}</p>
+                ) : null}
+              </div>
+              <div className="shrink-0 text-right text-muted-foreground">
+                {asset.verified_at ? <div>{formatDt(asset.verified_at)}</div> : null}
+                {asset.verified_by_name ? <div>{asset.verified_by_name}</div> : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  )
+}
+
 export function OrderDetailPage() {
   const { id } = useParams()
   const [order, setOrder] = React.useState<PhysicalOrderDetail | null>(null)
   const [currentUserId, setCurrentUserId] = React.useState<number | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
+  const [busyAction, setBusyAction] = React.useState<string | null>(null)
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
   const [itemFilter, setItemFilter] = React.useState<ItemFilter>("all")
   const [selectedScanItemId, setSelectedScanItemId] = React.useState<number | null>(null)
@@ -147,6 +256,7 @@ export function OrderDetailPage() {
   const [reassignOpen, setReassignOpen] = React.useState(false)
   const [executors, setExecutors] = React.useState<ExecutorUser[]>([])
   const [reassignTo, setReassignTo] = React.useState("")
+  const [expandedAuditIds, setExpandedAuditIds] = React.useState<Set<number>>(new Set())
 
   const canApprove = hasPermission("order.approve")
   const canExecute = hasPermission("order.execute")
@@ -194,6 +304,7 @@ export function OrderDetailPage() {
   async function runAction(path: string, body?: Record<string, unknown>) {
     if (!id) return
     setBusy(true)
+    setBusyAction(path)
     try {
       const res = await postJson<PhysicalOrderDetail>(
         `/admin/physical-orders/${id}${path}`,
@@ -202,12 +313,12 @@ export function OrderDetailPage() {
       setOrder(res)
       setSelected(new Set())
       if (
-        (path === "/approval/approve-items" ||
-          path === "/approval/approve-all" ||
-          path === "/closure/approve-order") &&
+        (path === "/approval/approve-all" || path === "/closure/approve-order") &&
         res.status === "completed"
       ) {
-        toast.success("Order completed.")
+        toast.success("Order approved.")
+      } else if (path === "/approval/approve-items" && res.status === "completed") {
+        toast.success("Order approved.")
       } else if (path === "/approval/approve-items" && res.status === "pending_closure_approval") {
         toast.success("Selected lines approved.")
       } else if (path === "/approval/reject-items" && res.status === "in_progress") {
@@ -216,6 +327,8 @@ export function OrderDetailPage() {
             ? `Order returned to ${res.assigned_to_name} for rework.`
             : "Order returned to executor for rework.",
         )
+      } else if (path === "/submit-closure") {
+        toast.success("Order completed.")
       } else {
         toast.success("Updated.")
       }
@@ -223,6 +336,7 @@ export function OrderDetailPage() {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
     } finally {
       setBusy(false)
+      setBusyAction(null)
     }
   }
 
@@ -267,15 +381,18 @@ export function OrderDetailPage() {
   const isCreator = currentUserId != null && order.created_by === currentUserId
   const isAssignee = currentUserId != null && order.assigned_to === currentUserId
   const canReviewCreation = isPendingApproval && canApprove
-  const canReviewClosure = isPendingClosure && (isCreator || canApprove)
+  const canReviewClosure = isPendingClosure && canApprove
   const canScan =
     isInProgress && canExecute && isAssignee
   const filteredItems = order.items.filter((item) => matchesItemFilter(item, itemFilter))
   const selectedScanItem = order.items.find((item) => item.id === selectedScanItemId) ?? null
-  const approvedLineCount = order.items.filter(
-    (item) => item.physically_verified && item.verification_status !== "rejected",
-  ).length
-  const showLineOutcomeFilters = isInProgress && (approvedLineCount > 0 || order.rejected_item_count > 0)
+  const showRejectedFilter = isInProgress && order.rejected_item_count > 0
+  const busyLabel = busyAction ? ORDER_ACTION_BUSY_LABELS[busyAction] ?? "Working…" : null
+  const approvingOrder =
+    busyAction === "/approval/approve-all" ||
+    busyAction === "/approval/approve-order" ||
+    busyAction === "/approval/approve-items"
+  const completingOrder = busyAction === "/submit-closure"
 
   const canReassign = isAssigned && canReassignOrder && !isClosed
   const canClose = isCompleted && (canApprove || canUpdate || (canCreate && isCreator))
@@ -444,7 +561,17 @@ export function OrderDetailPage() {
         ) : null}
 
         {hasActions ? (
-          <div className="flex flex-wrap gap-2 border-t border-border/60 bg-muted/10 px-4 py-3 sm:px-5">
+          <div className="relative flex flex-wrap gap-2 border-t border-border/60 bg-muted/10 px-4 py-3 sm:px-5">
+            {busy && busyLabel ? (
+              <div
+                className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-b-[inherit] bg-background/75 backdrop-blur-[1px]"
+                aria-live="polite"
+                aria-busy="true"
+              >
+                <Loader2 className="size-5 animate-spin text-primary" aria-hidden />
+                <span className="text-sm font-medium text-foreground">{busyLabel}</span>
+              </div>
+            ) : null}
             {isRejected && canCreate && isCreator ? (
               <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/submit")}>
                 Resubmit
@@ -470,7 +597,14 @@ export function OrderDetailPage() {
             ) : null}
             {canClose ? (
               <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/close")}>
-                Close
+                {busyAction === "/close" ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Closing…
+                  </>
+                ) : (
+                  "Close"
+                )}
               </AdminPrimaryButton>
             ) : null}
             {canScan ? (
@@ -523,7 +657,14 @@ export function OrderDetailPage() {
                   disabled={busy || order.pending_physical_count > 0}
                   onClick={() => void runAction("/submit-closure")}
                 >
-                  Complete
+                  {completingOrder ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      Completing…
+                    </>
+                  ) : (
+                    "Complete"
+                  )}
                 </AdminPrimaryButton>
                 <Button
                   type="button"
@@ -563,7 +704,14 @@ export function OrderDetailPage() {
             {canReviewClosure ? (
               <>
                 <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/approval/approve-all")}>
-                  Approve all & complete
+                  {approvingOrder ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      Approving…
+                    </>
+                  ) : (
+                    "Approve"
+                  )}
                 </AdminPrimaryButton>
                 <Button
                   type="button"
@@ -597,11 +745,8 @@ export function OrderDetailPage() {
               <WorkspaceTabsTrigger value="all">All ({order.total_count})</WorkspaceTabsTrigger>
               <WorkspaceTabsTrigger value="pending">Pending ({order.pending_physical_count})</WorkspaceTabsTrigger>
               <WorkspaceTabsTrigger value="verified">Verified ({order.physically_verified_count})</WorkspaceTabsTrigger>
-              {showLineOutcomeFilters ? (
-                <>
-                  <WorkspaceTabsTrigger value="approved">Approved ({approvedLineCount})</WorkspaceTabsTrigger>
-                  <WorkspaceTabsTrigger value="rejected">Rejected ({order.rejected_item_count})</WorkspaceTabsTrigger>
-                </>
+              {showRejectedFilter ? (
+                <WorkspaceTabsTrigger value="rejected">Rejected ({order.rejected_item_count})</WorkspaceTabsTrigger>
               ) : null}
             </WorkspaceTabsList>
           </WorkspaceTabs>
@@ -695,7 +840,7 @@ export function OrderDetailPage() {
                       ) : item.physically_verified ? (
                         <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600">
                           <Lock className="size-3" aria-hidden />
-                          {isInProgress ? "Approved" : "Verified"}
+                          Verified
                         </Badge>
                       ) : scannable ? (
                         <Badge variant="secondary">Scan pending</Badge>
@@ -741,19 +886,19 @@ export function OrderDetailPage() {
           </div>
           <ul className="px-[var(--app-card-padding)] py-2">
             {[...order.audit].reverse().map((ev) => (
-              <li
+              <OrderAuditActivityRow
                 key={ev.id}
-                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 border-b border-border/40 py-2.5 text-sm last:border-0"
-              >
-                <div className="min-w-0">
-                  <span className="font-medium">{ev.label}</span>
-                  {ev.actor_name ? <span className="text-muted-foreground"> · {ev.actor_name}</span> : null}
-                  {ev.detail ? <p className="text-xs text-muted-foreground">{ev.detail}</p> : null}
-                </div>
-                <time className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                  {formatDt(ev.created_at)}
-                </time>
-              </li>
+                ev={ev}
+                expanded={expandedAuditIds.has(ev.id)}
+                onToggleVerified={() => {
+                  setExpandedAuditIds((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(ev.id)) next.delete(ev.id)
+                    else next.add(ev.id)
+                    return next
+                  })
+                }}
+              />
             ))}
           </ul>
         </AdminPanel>

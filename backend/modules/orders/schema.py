@@ -94,6 +94,14 @@ class PhysicalOrderListResponse(BaseModel):
     page_size: int
 
 
+class PhysicalOrderAuditVerifiedAsset(BaseModel):
+    asset_code: str
+    asset_name: str | None = None
+    rfid_code: str | None = None
+    verified_at: datetime | None = None
+    verified_by_name: str | None = None
+
+
 class PhysicalOrderAuditPublic(BaseModel):
     id: int
     action: str
@@ -103,6 +111,7 @@ class PhysicalOrderAuditPublic(BaseModel):
     old_value: dict | None
     new_value: dict | None
     created_at: datetime
+    verified_assets: list[PhysicalOrderAuditVerifiedAsset] = Field(default_factory=list)
 
 
 class OrderWorkflowStepDefinition(BaseModel):

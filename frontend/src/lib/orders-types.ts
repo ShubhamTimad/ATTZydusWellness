@@ -77,6 +77,14 @@ export type PhysicalOrderItem = {
   last_verification_date: string | null
 }
 
+export type PhysicalOrderAuditVerifiedAsset = {
+  asset_code: string
+  asset_name: string | null
+  rfid_code: string | null
+  verified_at: string | null
+  verified_by_name: string | null
+}
+
 export type PhysicalOrderAudit = {
   id: number
   action: string
@@ -86,6 +94,7 @@ export type PhysicalOrderAudit = {
   old_value: Record<string, unknown> | null
   new_value: Record<string, unknown> | null
   created_at: string
+  verified_assets?: PhysicalOrderAuditVerifiedAsset[]
 }
 
 export type OrderWorkflowStepDefinition = {
@@ -181,17 +190,29 @@ export type OrdersDashboardModule = {
   by_plant: { plant: string; count: number }[]
 }
 
-export const ORDER_TABS = [
-  { key: "pending_approval", label: "Pending Approval" },
-  { key: "my_orders", label: "My Orders" },
-  { key: "assigned", label: "Assigned" },
-  { key: "assigned_to_me", label: "Assigned To Me" },
-  { key: "in_progress", label: "In Progress" },
-  { key: "pending_closure", label: "Pending Closure Approval" },
-  { key: "completed", label: "Completed" },
-  { key: "closed", label: "Closed" },
-] as const
+export type OrderListTab = {
+  key: string
+  label: string
+  /** Key on OrdersDashboardModule for tab badge counts. */
+  countKey?: keyof OrdersDashboardModule
+}
+
+/** Status tabs aligned with the physical order lifecycle (same order as the progress bar). */
+export const ORDER_STATUS_TABS: OrderListTab[] = [
+  { key: "pending_approval", label: "Pending approval" },
+  { key: "assigned", label: "Assigned", countKey: "assigned" },
+  { key: "in_progress", label: "In progress", countKey: "in_progress" },
+  { key: "completed", label: "Completed", countKey: "completed" },
+  { key: "closed", label: "Closed", countKey: "closed" },
+]
+
+const ORDER_STATUS_LABELS: Record<string, string> = {
+  pending_approval: "Pending approval",
+  pending_closure_approval: "Awaiting approval",
+  in_progress: "In progress",
+}
 
 export function orderStatusLabel(status: string): string {
+  if (ORDER_STATUS_LABELS[status]) return ORDER_STATUS_LABELS[status]
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 }

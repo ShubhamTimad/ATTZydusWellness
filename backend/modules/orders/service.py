@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+import threading
 from datetime import date, datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -166,12 +167,6 @@ class PhysicalOrderService:
             action="closure_approved",
             actor_user_id=actor_user_id,
         )
-        log_order_event(
-            self._db,
-            order_id=int(order.id),
-            action="completed",
-            actor_user_id=actor_user_id,
-        )
         self._notify_completed(order)
 
     def _maybe_complete_closure_after_item_approval(
@@ -265,6 +260,23 @@ class PhysicalOrderService:
             return None
         u = self._db.get(User, user_id)
         return u.full_name if u else None
+
+    def _cached_user_name_fn(self) -> Callable[[int | None], str | None]:
+        cache: dict[int, str | None] = {}
+
+        def resolve(user_id: int | None) -> str | None:
+            if user_id is None:
+                return None
+            key = int(user_id)
+            if key not in cache:
+                cache[key] = self._user_name(key)
+            return cache[key]
+
+        return resolve
+
+    @staticmethod
+    def _run_after_commit(task: Callable[[], None]) -> None:
+        threading.Thread(target=task, daemon=True).start()
 
     def _next_order_number(self) -> str:
         year = datetime.now(timezone.utc).year
@@ -710,62 +722,73 @@ class PhysicalOrderService:
                 new_value={"approval_request_id": int(req.id)},
             )
         else:
-            order.status = ORDER_STATUS_APPROVED
-            reset_codes = self._apply_pending_verification_resets(order, actor_user_id=actor_user_id)
-            log_order_event(
-                self._db,
-                order_id=int(order.id),
-                action="approved",
+            self._apply_pending_verification_resets(order, actor_user_id=actor_user_id)
+            self._activate_assignment(
+                order,
                 actor_user_id=actor_user_id,
-                new_value={
-                    "auto_approved": True,
-                    "reset_verification_assets": reset_codes,
-                },
+                after_creation_approval=False,
             )
-            for item in order.items:
-                if item.verification_status != ITEM_STATUS_REJECTED:
-                    log_asset_order_approved(
-                        self._db,
-                        asset_id=int(item.asset_id),
-                        order=order,
-                        actor_user_id=actor_user_id,
-                    )
-            self._activate_assignment(order, actor_user_id=actor_user_id)
         self._db.commit()
 
-    def _activate_assignment(self, order: PhysicalOrder, *, actor_user_id: int | None) -> None:
+    def _activate_assignment(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int | None,
+        after_creation_approval: bool = True,
+    ) -> None:
         if order.assigned_to is None:
             raise ConflictError("Order has no intended assignee.")
         now = _now_utc()
         order.assigned_by = actor_user_id or order.created_by
         order.assigned_at = now
         order.status = ORDER_STATUS_ASSIGNED
+        assignee = self._db.get(User, order.assigned_to)
+        new_value: dict[str, Any] = {
+            "assigned_to": int(order.assigned_to),
+            "assigned_to_name": assignee.full_name if assignee is not None else None,
+        }
+        if after_creation_approval:
+            new_value["auto_assigned"] = True
+        else:
+            new_value["on_submit"] = True
         log_order_event(
             self._db,
             order_id=int(order.id),
             action="assignment_changed",
             actor_user_id=actor_user_id,
-            new_value={"assigned_to": int(order.assigned_to), "auto_assigned": True},
+            new_value=new_value,
         )
         self._notify_assigned(order)
 
     def _notify_assigned(self, order: PhysicalOrder) -> None:
-        try:
+        order_id = int(order.id)
+        assigned_to = order.assigned_to
+        order_number = order.order_number
+
+        def _send() -> None:
+            from db.session import SessionLocal
             from modules.platform.emails.service import EmailNotificationService
 
-            assignee = self._db.get(User, order.assigned_to) if order.assigned_to else None
-            if assignee and assignee.email:
-                EmailNotificationService(self._db).trigger_event(
-                    event_code="ORDER_ASSIGNED",
-                    payload={
-                        "user_name": assignee.full_name,
-                        "email": assignee.email,
-                        "order_number": order.order_number,
-                        "order_link": _order_link(int(order.id)),
-                    },
-                )
-        except Exception:
-            pass
+            db = SessionLocal()
+            try:
+                assignee = db.get(User, assigned_to) if assigned_to else None
+                if assignee and assignee.email:
+                    EmailNotificationService(db).trigger_event(
+                        event_code="ORDER_ASSIGNED",
+                        payload={
+                            "user_name": assignee.full_name,
+                            "email": assignee.email,
+                            "order_number": order_number,
+                            "order_link": _order_link(order_id),
+                        },
+                    )
+            except Exception:
+                pass
+            finally:
+                db.close()
+
+        self._run_after_commit(_send)
 
     def list_orders(
         self,
@@ -783,8 +806,25 @@ class PhysicalOrderService:
             selectinload(PhysicalOrder.items),
         )
         tab = tab.strip().lower()
-        if tab == "pending_approval":
-            base = base.where(PhysicalOrder.status == ORDER_STATUS_PENDING_APPROVAL)
+        active_statuses = (
+            ORDER_STATUS_PENDING_APPROVAL,
+            ORDER_STATUS_APPROVED,
+            ORDER_STATUS_ASSIGNED,
+            ORDER_STATUS_IN_PROGRESS,
+            ORDER_STATUS_PENDING_CLOSURE,
+        )
+        if tab == "needs_approval":
+            base = base.where(
+                PhysicalOrder.status.in_(
+                    (ORDER_STATUS_PENDING_APPROVAL, ORDER_STATUS_PENDING_CLOSURE)
+                )
+            )
+        elif tab == "active":
+            base = base.where(PhysicalOrder.status.in_(active_statuses))
+        elif tab == "finished":
+            base = base.where(
+                PhysicalOrder.status.in_((ORDER_STATUS_COMPLETED, ORDER_STATUS_CLOSED))
+            )
         elif tab == "my_orders":
             base = base.where(PhysicalOrder.created_by == viewer_id)
         elif tab == "assigned_to_me":
@@ -799,8 +839,17 @@ class PhysicalOrderService:
                     )
                 ),
             )
+        # Legacy tab keys (kept for bookmarks / API clients)
+        elif tab == "pending_approval":
+            base = base.where(
+                PhysicalOrder.status.in_(
+                    (ORDER_STATUS_PENDING_APPROVAL, ORDER_STATUS_PENDING_CLOSURE)
+                )
+            )
         elif tab == "assigned":
-            base = base.where(PhysicalOrder.status == ORDER_STATUS_ASSIGNED)
+            base = base.where(
+                PhysicalOrder.status.in_((ORDER_STATUS_APPROVED, ORDER_STATUS_ASSIGNED))
+            )
         elif tab == "in_progress":
             base = base.where(PhysicalOrder.status == ORDER_STATUS_IN_PROGRESS)
         elif tab == "pending_closure":
@@ -812,17 +861,7 @@ class PhysicalOrderService:
         elif tab == "all":
             pass
         else:
-            base = base.where(
-                PhysicalOrder.status.in_(
-                    (
-                        ORDER_STATUS_PENDING_APPROVAL,
-                        ORDER_STATUS_APPROVED,
-                        ORDER_STATUS_ASSIGNED,
-                        ORDER_STATUS_IN_PROGRESS,
-                        ORDER_STATUS_PENDING_CLOSURE,
-                    )
-                )
-            )
+            base = base.where(PhysicalOrder.status.in_(active_statuses))
 
         total = int(self._db.scalar(select(func.count()).select_from(base.subquery())) or 0)
         rows = self._db.scalars(
@@ -868,9 +907,15 @@ class PhysicalOrderService:
             raise NotFoundError("PhysicalOrder", order_id)
         return order
 
-    def _to_item_public(self, item: PhysicalOrderItem) -> PhysicalOrderItemPublic:
+    def _to_item_public(
+        self,
+        item: PhysicalOrderItem,
+        *,
+        user_name_fn: Callable[[int | None], str | None] | None = None,
+    ) -> PhysicalOrderItemPublic:
         a = item.asset
-        verifier = self._user_name(item.verified_by)
+        resolve_name = user_name_fn or self._user_name
+        verifier = resolve_name(item.verified_by)
         inv = a.inventory if a else None
         return PhysicalOrderItemPublic(
             id=int(item.id),
@@ -888,6 +933,7 @@ class PhysicalOrderService:
 
     def get_order(self, order_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id)
+        user_name_fn = self._cached_user_name_fn()
         physically_verified = self._physically_verified_count(order.items)
         pending_physical = self._pending_physical_count(order.items)
         rejected_items = self._rejected_item_count(order.items)
@@ -898,15 +944,16 @@ class PhysicalOrderService:
         ).all()
         audit = enrich_audit_rows(
             audit_rows,
-            user_name_fn=self._user_name,
+            user_name_fn=user_name_fn,
             db=self._db,
             order_id=order_id,
+            order_items=list(order.items),
         )
         progress = build_order_progress(
             self._db,
             order,
             audit_rows=list(audit_rows),
-            user_name_fn=self._user_name,
+            user_name_fn=user_name_fn,
         )
         cc = order.cost_center
         return PhysicalOrderDetail(
@@ -920,18 +967,18 @@ class PhysicalOrderService:
             status=order.status,
             remarks=order.remarks,
             created_by=order.created_by,
-            created_by_name=self._user_name(order.created_by),
+            created_by_name=user_name_fn(order.created_by),
             assigned_to=order.assigned_to,
-            assigned_to_name=self._user_name(order.assigned_to),
-            assigned_by_name=self._user_name(order.assigned_by),
+            assigned_to_name=user_name_fn(order.assigned_to),
+            assigned_by_name=user_name_fn(order.assigned_by),
             assigned_at=order.assigned_at,
             started_at=order.started_at,
-            started_by_name=self._user_name(order.started_by),
+            started_by_name=user_name_fn(order.started_by),
             completed_at=order.completed_at,
             closed_at=order.closed_at,
             created_at=order.created_at,
             approval_request_id=order.approval_request_id,
-            items=[self._to_item_public(i) for i in order.items],
+            items=[self._to_item_public(i, user_name_fn=user_name_fn) for i in order.items],
             verified_count=physically_verified,
             physically_verified_count=physically_verified,
             pending_physical_count=pending_physical,
@@ -1509,44 +1556,64 @@ class PhysicalOrderService:
         return self.get_order(order_id)
 
     def _notify_rejected(self, order: PhysicalOrder, reason: str) -> None:
-        try:
+        order_id = int(order.id)
+        created_by = order.created_by
+        order_number = order.order_number
+
+        def _send() -> None:
+            from db.session import SessionLocal
             from modules.platform.emails.service import EmailNotificationService
 
-            creator = self._db.get(User, order.created_by) if order.created_by else None
-            if creator and creator.email:
-                EmailNotificationService(self._db).trigger_event(
-                    event_code="ORDER_REJECTED",
-                    payload={
-                        "user_name": creator.full_name,
-                        "email": creator.email,
-                        "order_number": order.order_number,
-                        "reason": reason,
-                        "order_link": _order_link(int(order.id)),
-                    },
-                )
-        except Exception:
-            pass
-
-    def _notify_completed(self, order: PhysicalOrder) -> None:
-        try:
-            from modules.platform.emails.service import EmailNotificationService
-
-            for uid in {order.created_by, order.assigned_to}:
-                if uid is None:
-                    continue
-                u = self._db.get(User, uid)
-                if u and u.email:
-                    EmailNotificationService(self._db).trigger_event(
-                        event_code="ORDER_COMPLETED",
+            db = SessionLocal()
+            try:
+                creator = db.get(User, created_by) if created_by else None
+                if creator and creator.email:
+                    EmailNotificationService(db).trigger_event(
+                        event_code="ORDER_REJECTED",
                         payload={
-                            "user_name": u.full_name,
-                            "email": u.email,
-                            "order_number": order.order_number,
-                            "order_link": _order_link(int(order.id)),
+                            "user_name": creator.full_name,
+                            "email": creator.email,
+                            "order_number": order_number,
+                            "reason": reason,
+                            "order_link": _order_link(order_id),
                         },
                     )
-        except Exception:
-            pass
+            except Exception:
+                pass
+            finally:
+                db.close()
+
+        self._run_after_commit(_send)
+
+    def _notify_completed(self, order: PhysicalOrder) -> None:
+        order_id = int(order.id)
+        order_number = order.order_number
+        recipient_ids = {uid for uid in (order.created_by, order.assigned_to) if uid is not None}
+
+        def _send() -> None:
+            from db.session import SessionLocal
+            from modules.platform.emails.service import EmailNotificationService
+
+            db = SessionLocal()
+            try:
+                for uid in recipient_ids:
+                    u = db.get(User, uid)
+                    if u and u.email:
+                        EmailNotificationService(db).trigger_event(
+                            event_code="ORDER_COMPLETED",
+                            payload={
+                                "user_name": u.full_name,
+                                "email": u.email,
+                                "order_number": order_number,
+                                "order_link": _order_link(order_id),
+                            },
+                        )
+            except Exception:
+                pass
+            finally:
+                db.close()
+
+        self._run_after_commit(_send)
 
 
 # --- Approval engine hooks (called from ApprovalEngineService) ---
