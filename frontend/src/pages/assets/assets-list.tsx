@@ -1508,6 +1508,7 @@ export function AssetsListPage() {
         open={createOrderOpen}
         onOpenChange={setCreateOrderOpen}
         assetIds={eligibleForOrder}
+        plantId={selectedRows[0]?.plant_id ?? null}
         resetVerificationAssetIds={resetVerificationAssetIds}
         onCreated={(order) => {
           setSelected(new Set())

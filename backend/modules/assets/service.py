@@ -77,7 +77,7 @@ from modules.assets.model import (
     AssetLocationInformation,
     AssetMaster,
 )
-from modules.orders.constants import ACTIVE_ORDER_STATUSES, ORDER_STATUS_CLOSED
+from modules.orders.constants import ACTION_COMPLETE, ACTIVE_ORDER_STATUSES, ORDER_STATUS_CLOSED
 from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 from modules.assets.schema import (
     AssetActivePhysicalOrderPublic,
@@ -580,12 +580,14 @@ class AssetMasterService:
     ) -> dict[int, AssetActivePhysicalOrderPublic]:
         if not asset_ids or not statuses:
             return {}
+        has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
         rows = self._db.execute(
             select(
                 PhysicalOrderItem.asset_id,
                 PhysicalOrder.id,
                 PhysicalOrder.order_number,
                 PhysicalOrder.status,
+                PhysicalOrder.closed_at,
                 PhysicalOrder.created_at,
             )
             .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
@@ -596,7 +598,7 @@ class AssetMasterService:
             .order_by(PhysicalOrder.created_at.desc())
         ).all()
         out: dict[int, AssetActivePhysicalOrderPublic] = {}
-        for asset_id, order_id, order_number, order_status, _created in rows:
+        for asset_id, order_id, order_number, order_status, closed_at, _created in rows:
             aid = int(asset_id)
             if aid in out:
                 continue
@@ -604,6 +606,8 @@ class AssetMasterService:
                 order_id=int(order_id),
                 order_number=str(order_number),
                 order_status=str(order_status),
+                closed_at=closed_at,
+                has_closure_workflow=has_closure_workflow,
             )
         return out
 

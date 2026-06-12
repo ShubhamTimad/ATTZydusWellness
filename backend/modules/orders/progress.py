@@ -321,6 +321,7 @@ def _active_step_key(
     *,
     has_creation_workflow: bool,
     has_closure_workflow: bool,
+    work_completed: bool = False,
 ) -> str | None:
     """Which timeline segment is current for each order status."""
     if order_status == ORDER_STATUS_DRAFT:
@@ -328,15 +329,15 @@ def _active_step_key(
     if order_status == ORDER_STATUS_PENDING_APPROVAL:
         return "approved" if has_creation_workflow else "order_created"
     if order_status == ORDER_STATUS_APPROVED:
-        return "assigned"
+        if has_closure_workflow and work_completed:
+            return "closure_approved"
+        return "approved"
     if order_status == ORDER_STATUS_ASSIGNED:
         return "assigned"
     if order_status == ORDER_STATUS_IN_PROGRESS:
         return "in_progress"
-    if order_status == ORDER_STATUS_PENDING_CLOSURE:
+    if order_status in (ORDER_STATUS_PENDING_CLOSURE, ORDER_STATUS_COMPLETED):
         return "completed"
-    if order_status == ORDER_STATUS_COMPLETED:
-        return "closure_approved" if has_closure_workflow else "completed"
     if order_status == ORDER_STATUS_CLOSED:
         return "closed"
     if order_status == ORDER_STATUS_REJECTED:
@@ -395,6 +396,7 @@ def build_order_progress(
         status,
         has_creation_workflow=has_creation_workflow,
         has_closure_workflow=has_closure_workflow,
+        work_completed=order.completed_at is not None,
     )
 
     def phase(step_key: str) -> str:
@@ -479,8 +481,12 @@ def build_order_progress(
                 occurred_at=work_completed_at,
                 detail=(
                     "Awaiting approval"
-                    if status == ORDER_STATUS_PENDING_CLOSURE
-                    else None
+                    if status == ORDER_STATUS_COMPLETED and has_closure_workflow
+                    else (
+                        "Ready to close"
+                        if status == ORDER_STATUS_COMPLETED
+                        else None
+                    )
                 ),
             ),
         ]
@@ -495,13 +501,9 @@ def build_order_progress(
                 actor_name=_find_audit_actor(audit_rows, "closure_approved", user_name_fn),
                 occurred_at=_find_audit_time(audit_rows, "closure_approved"),
                 detail=(
-                    "Awaiting approval"
-                    if status == ORDER_STATUS_PENDING_CLOSURE
-                    else (
-                        "Ready to close"
-                        if status == ORDER_STATUS_COMPLETED
-                        else None
-                    )
+                    "Ready to close"
+                    if status == ORDER_STATUS_APPROVED
+                    else None
                 ),
             )
         )

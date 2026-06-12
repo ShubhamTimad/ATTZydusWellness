@@ -13,7 +13,7 @@ type Props = {
 const STATUS_TO_STEP_KEY: Record<string, string> = {
   draft: "order_created",
   pending_approval: "approved",
-  approved: "assigned",
+  approved: "approved",
   assigned: "assigned",
   in_progress: "in_progress",
   pending_closure_approval: "completed",

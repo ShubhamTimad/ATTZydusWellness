@@ -5,7 +5,7 @@ import threading
 from datetime import date, datetime, timezone
 from typing import Any, Callable
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from modules.asset_masters.model import CostCenterMaster
@@ -62,8 +62,9 @@ from modules.platform.settings.financial_year import financial_year_period_for, 
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow, TaskAuditLog
 from modules.platform.approvals.service import ApprovalEngineService
 from modules.platform.permissions.model import Permission
+from modules.platform.roles.model import Role
 from modules.platform.users.model import User
-from modules.rbac_association import role_permission, user_role
+from modules.rbac_association import role_org_unit, role_permission, user_role, user_org_unit
 
 
 def _now_utc() -> datetime:
@@ -155,20 +156,52 @@ class PhysicalOrderService:
             except Exception:
                 pass
 
+    def _promote_pending_closure_to_completed(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int | None = None,
+        commit: bool = True,
+    ) -> bool:
+        """Legacy: migrate old pending_closure_approval rows to completed."""
+        if order.status != ORDER_STATUS_PENDING_CLOSURE:
+            return False
+        order.status = ORDER_STATUS_COMPLETED
+        if order.completed_at is None:
+            order.completed_at = _now_utc()
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="completed",
+            actor_user_id=actor_user_id,
+            new_value={"promoted_from": ORDER_STATUS_PENDING_CLOSURE},
+        )
+        if commit:
+            self._db.commit()
+        return True
+
+    def _awaiting_closure_approval(self, order: PhysicalOrder) -> bool:
+        if order.status != ORDER_STATUS_COMPLETED:
+            return False
+        if get_workflow_for_action(self._db, ACTION_COMPLETE) is None:
+            return False
+        req = self._latest_closure_approval_request(int(order.id))
+        return req is not None and str(req.status) == "pending"
+
     def _complete_closure_approval(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
         for item in order.items:
             if item.verification_status == ITEM_STATUS_PENDING:
                 item.verification_status = ITEM_STATUS_APPROVED
                 item.rejection_reason = None
-        order.status = ORDER_STATUS_COMPLETED
-        order.completed_at = _now_utc()
+        order.status = ORDER_STATUS_APPROVED
+        if order.completed_at is None:
+            order.completed_at = _now_utc()
         log_order_event(
             self._db,
             order_id=int(order.id),
             action="closure_approved",
             actor_user_id=actor_user_id,
         )
-        self._notify_completed(order)
 
     def _maybe_complete_closure_after_item_approval(
         self,
@@ -475,27 +508,47 @@ class PhysicalOrderService:
         snapshot = _get_cached_permission_snapshot(self._db, user_id)
         return _has_any_permission(snapshot, ("order.execute",))
 
-    def list_executors(self) -> list[ExecutorUserPublic]:
+    def _user_can_view_orders(self, user_id: int) -> bool:
+        snapshot = _get_cached_permission_snapshot(self._db, user_id)
+        return _has_any_permission(snapshot, ("order.view",))
+
+    def _user_may_execute_at_plant(self, user: User, plant_id: int) -> bool:
+        user_plants = {int(ou.id) for ou in (user.org_units or [])}
+        if user_plants and plant_id not in user_plants:
+            return False
+        execute_codes = frozenset({"order.execute", "order:execute"})
+        for role in user.roles or []:
+            role_codes = {str(p.code) for p in (role.permissions or [])}
+            if role_codes.isdisjoint(execute_codes):
+                continue
+            scoped_plants = {int(ou.id) for ou in (role.org_units or [])}
+            if not scoped_plants or plant_id in scoped_plants:
+                return True
+        return False
+
+    def list_executors(self, *, plant_id: int | None = None) -> list[ExecutorUserPublic]:
         """Active users who may be assigned to execute physical orders."""
-        perm = self._db.scalar(select(Permission.id).where(Permission.code == "order.execute"))
-        if perm is None:
-            return []
-        user_ids = {
-            int(uid)
-            for uid in self._db.execute(
-                select(user_role.c.user_id)
-                .join(role_permission, role_permission.c.role_id == user_role.c.role_id)
-                .where(role_permission.c.permission_id == perm)
-            ).scalars()
-        }
-        if not user_ids:
-            return []
         users = self._db.scalars(
-            select(User).where(User.id.in_(user_ids), User.is_active.is_(True)).order_by(User.full_name)
+            select(User)
+            .where(User.is_active.is_(True), User.is_superuser.is_(False))
+            .options(
+                selectinload(User.org_units),
+                selectinload(User.roles).selectinload(Role.permissions),
+                selectinload(User.roles).selectinload(Role.org_units),
+            )
+            .order_by(User.full_name)
         ).all()
-        return [
-            ExecutorUserPublic(id=int(u.id), full_name=u.full_name, email=u.email) for u in users
-        ]
+        out: list[ExecutorUserPublic] = []
+        for user in users:
+            uid = int(user.id)
+            if not self._user_can_execute_orders(uid) or not self._user_can_view_orders(uid):
+                continue
+            if plant_id is not None and not self._user_may_execute_at_plant(user, int(plant_id)):
+                continue
+            out.append(
+                ExecutorUserPublic(id=uid, full_name=user.full_name, email=user.email)
+            )
+        return out
 
     def _apply_pending_verification_resets(
         self,
@@ -748,13 +801,15 @@ class PhysicalOrderService:
         *,
         actor_user_id: int | None,
         after_creation_approval: bool = True,
+        set_status_assigned: bool = True,
     ) -> None:
         if order.assigned_to is None:
             raise ConflictError("Order has no intended assignee.")
         now = _now_utc()
         order.assigned_by = actor_user_id or order.created_by
         order.assigned_at = now
-        order.status = ORDER_STATUS_ASSIGNED
+        if set_status_assigned:
+            order.status = ORDER_STATUS_ASSIGNED
         assignee = self._db.get(User, order.assigned_to)
         new_value: dict[str, Any] = {
             "assigned_to": int(order.assigned_to),
@@ -858,9 +913,20 @@ class PhysicalOrderService:
                     (ORDER_STATUS_PENDING_APPROVAL, ORDER_STATUS_PENDING_CLOSURE)
                 )
             )
+        elif tab == "approved":
+            base = base.where(
+                PhysicalOrder.status == ORDER_STATUS_APPROVED,
+                PhysicalOrder.completed_at.is_not(None),
+            )
         elif tab == "assigned":
             base = base.where(
-                PhysicalOrder.status.in_((ORDER_STATUS_APPROVED, ORDER_STATUS_ASSIGNED))
+                or_(
+                    PhysicalOrder.status == ORDER_STATUS_ASSIGNED,
+                    and_(
+                        PhysicalOrder.status == ORDER_STATUS_APPROVED,
+                        PhysicalOrder.completed_at.is_(None),
+                    ),
+                )
             )
         elif tab == "in_progress":
             base = base.where(PhysicalOrder.status == ORDER_STATUS_IN_PROGRESS)
@@ -881,10 +947,27 @@ class PhysicalOrderService:
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).all()
-        items = [self._to_list_item(o) for o in rows]
+        promoted = False
+        for order in rows:
+            if self._promote_pending_closure_to_completed(order, commit=False):
+                promoted = True
+        if promoted:
+            self._db.commit()
+            rows = self._db.scalars(
+                base.order_by(PhysicalOrder.created_at.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).all()
+        has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
+        items = [self._to_list_item(o, has_closure_workflow=has_closure_workflow) for o in rows]
         return PhysicalOrderListResponse(items=items, total=total, page=page, page_size=page_size)
 
-    def _to_list_item(self, order: PhysicalOrder) -> PhysicalOrderListItem:
+    def _to_list_item(
+        self,
+        order: PhysicalOrder,
+        *,
+        has_closure_workflow: bool = False,
+    ) -> PhysicalOrderListItem:
         cc = order.cost_center
         return PhysicalOrderListItem(
             id=int(order.id),
@@ -896,6 +979,8 @@ class PhysicalOrderService:
             cost_center_description=cc.name if cc else "",
             asset_count=len(order.items),
             status=order.status,
+            closed_at=order.closed_at,
+            has_closure_workflow=has_closure_workflow,
             assigned_to_name=order.assignee.full_name if order.assignee else None,
             created_by_name=order.creator.full_name if order.creator else None,
             created_at=order.created_at,
@@ -945,6 +1030,8 @@ class PhysicalOrderService:
 
     def get_order(self, order_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id)
+        if self._promote_pending_closure_to_completed(order, commit=True):
+            order = self._load_order(order_id)
         user_name_fn = self._cached_user_name_fn()
         physically_verified = self._physically_verified_count(order.items)
         pending_physical = self._pending_physical_count(order.items)
@@ -1059,6 +1146,27 @@ class PhysicalOrderService:
         self._submit_for_creation_approval(order, actor_user_id=actor_user_id)
         return self.get_order(order_id)
 
+    def _find_pending_closure_task(
+        self, order: PhysicalOrder, *, actor_user_id: int
+    ) -> ApprovalTask | None:
+        req = self._latest_closure_approval_request(int(order.id))
+        if req is None or str(req.status) != "pending":
+            return None
+        engine = ApprovalEngineService(self._db)
+        role_ids = engine._role_ids_for_user(actor_user_id)
+        tasks = self._db.scalars(
+            select(ApprovalTask).where(
+                ApprovalTask.request_id == int(req.id),
+                ApprovalTask.status == "pending",
+            )
+        ).all()
+        for task in tasks:
+            if task.assigned_user_id == actor_user_id:
+                return task
+            if task.assigned_role_id is not None and int(task.assigned_role_id) in role_ids:
+                return task
+        return None
+
     def _find_pending_creation_task(
         self, order: PhysicalOrder, *, actor_user_id: int
     ) -> ApprovalTask | None:
@@ -1120,14 +1228,23 @@ class PhysicalOrderService:
 
     def approve_all_items(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id)
-        if order.status == ORDER_STATUS_PENDING_CLOSURE:
+        if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
             self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
             for item in order.items:
                 if item.verification_status == ITEM_STATUS_PENDING:
                     item.verification_status = ITEM_STATUS_APPROVED
                     item.rejection_reason = None
-            self._complete_closure_approval(order, actor_user_id=actor_user_id)
-            self._db.commit()
+            task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)
+            if task is not None:
+                ApprovalEngineService(self._db).act_on_task(
+                    task_id=int(task.id),
+                    actor_user_id=actor_user_id,
+                    action="approve",
+                    comment=None,
+                )
+            else:
+                self._complete_closure_approval(order, actor_user_id=actor_user_id)
+                self._db.commit()
             return self.get_order(order_id)
         if order.status != ORDER_STATUS_PENDING_APPROVAL:
             raise ConflictError("Order is not pending approval.")
@@ -1141,7 +1258,7 @@ class PhysicalOrderService:
     def approve_items(self, order_id: int, item_ids: list[int], *, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id)
         id_set = set(item_ids)
-        if order.status == ORDER_STATUS_PENDING_CLOSURE:
+        if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
             self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
             if not id_set:
                 raise ConflictError("Select at least one line item to approve.")
@@ -1153,6 +1270,15 @@ class PhysicalOrderService:
                     item.verification_status = ITEM_STATUS_APPROVED
                     item.rejection_reason = None
             if id_set == order_item_ids:
+                task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)
+                if task is not None:
+                    ApprovalEngineService(self._db).act_on_task(
+                        task_id=int(task.id),
+                        actor_user_id=actor_user_id,
+                        action="approve",
+                        comment=None,
+                    )
+                    return self.get_order(order_id)
                 self._complete_closure_approval(order, actor_user_id=actor_user_id)
             else:
                 self._maybe_complete_closure_after_item_approval(
@@ -1187,7 +1313,7 @@ class PhysicalOrderService:
                     item.rejection_reason = rejection_reason.strip()
             self._db.commit()
             return self.get_order(order_id)
-        if order.status == ORDER_STATUS_PENDING_CLOSURE:
+        if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
             self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
             id_set = set(item_ids)
             reason = rejection_reason.strip()
@@ -1271,7 +1397,11 @@ class PhysicalOrderService:
 
     def reject_order(self, order_id: int, *, reason: str, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id)
-        if order.status not in (ORDER_STATUS_PENDING_APPROVAL, ORDER_STATUS_PENDING_CLOSURE):
+        if order.status == ORDER_STATUS_PENDING_APPROVAL:
+            pass
+        elif order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
+            pass
+        else:
             raise ConflictError("Order is not in an approval phase.")
         for item in order.items:
             if item.verification_status == ITEM_STATUS_PENDING:
@@ -1297,7 +1427,9 @@ class PhysicalOrderService:
         actor_user_id: int,
     ) -> PhysicalOrderDetail:
         order = self._load_order(order_id)
-        if order.status != ORDER_STATUS_ASSIGNED:
+        if order.status == ORDER_STATUS_APPROVED and order.completed_at is not None:
+            raise ConflictError("Order can only be reassigned before work starts.")
+        if order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
             raise ConflictError("Order can only be reassigned before work starts.")
         if assigned_to == order.assigned_to:
             raise ConflictError("Select a different executor to reassign this order.")
@@ -1332,7 +1464,11 @@ class PhysicalOrderService:
 
     def close_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id)
-        if order.status != ORDER_STATUS_COMPLETED:
+        has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
+        if has_closure_workflow:
+            if order.status != ORDER_STATUS_APPROVED:
+                raise ConflictError("Order must be approved before it can be closed.")
+        elif order.status != ORDER_STATUS_COMPLETED:
             raise ConflictError("Order must be completed before it can be closed.")
         order.status = ORDER_STATUS_CLOSED
         order.closed_at = _now_utc()
@@ -1494,6 +1630,8 @@ class PhysicalOrderService:
         for item in order.items:
             item.verification_status = ITEM_STATUS_PENDING
             item.rejection_reason = None
+        order.status = ORDER_STATUS_COMPLETED
+        order.completed_at = _now_utc()
         wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
         if wf:
             engine = ApprovalEngineService(self._db)
@@ -1529,7 +1667,6 @@ class PhysicalOrderService:
                     created_by=actor_user_id,
                 )
             order.approval_request_id = int(req.id)
-            order.status = ORDER_STATUS_PENDING_CLOSURE
             log_order_event(
                 self._db,
                 order_id=order_id,
@@ -1538,8 +1675,8 @@ class PhysicalOrderService:
                 new_value={"approval_request_id": int(req.id)},
             )
         else:
-            order.status = ORDER_STATUS_COMPLETED
-            order.completed_at = _now_utc()
+            for item in order.items:
+                item.verification_status = ITEM_STATUS_APPROVED
             log_order_event(
                 self._db,
                 order_id=order_id,
@@ -1552,8 +1689,8 @@ class PhysicalOrderService:
 
     def approve_closure_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id)
-        if order.status != ORDER_STATUS_PENDING_CLOSURE:
-            raise ConflictError("Order is not pending closure approval.")
+        if order.status != ORDER_STATUS_COMPLETED or not self._awaiting_closure_approval(order):
+            raise ConflictError("Order is not awaiting closure approval.")
         self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
         rejected = [i for i in order.items if i.verification_status == ITEM_STATUS_REJECTED]
         if rejected:
@@ -1564,6 +1701,15 @@ class PhysicalOrderService:
                 rejected_codes=[i.asset_code for i in rejected],
             )
         else:
+            task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)
+            if task is not None:
+                ApprovalEngineService(self._db).act_on_task(
+                    task_id=int(task.id),
+                    actor_user_id=actor_user_id,
+                    action="approve",
+                    comment=None,
+                )
+                return self.get_order(order_id)
             self._complete_closure_approval(order, actor_user_id=actor_user_id)
         self._db.commit()
         return self.get_order(order_id)

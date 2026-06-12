@@ -51,6 +51,8 @@ export type PhysicalOrderListItem = {
   cost_center_description: string
   asset_count: number
   status: string
+  closed_at?: string | null
+  has_closure_workflow?: boolean
   assigned_to_name: string | null
   created_by_name: string | null
   created_at: string
@@ -148,6 +150,7 @@ export type PhysicalOrderProgress = {
 export type PhysicalOrderDetail = {
   id: number
   order_number: string
+  plant_id: number
   plant_name: string
   cost_center_code: string
   cost_center_description: string
@@ -201,9 +204,10 @@ export type OrderListTab = {
 export const ASSET_PHYSICAL_ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "none", label: "No order" },
   { value: "pending_approval", label: "Pending approval" },
+  { value: "approved", label: "Approved" },
   { value: "assigned", label: "Assigned" },
   { value: "in_progress", label: "In progress" },
-  { value: "pending_closure_approval", label: "Awaiting approval" },
+  { value: "pending_closure_approval", label: "Completed" },
   { value: "completed", label: "Completed" },
   { value: "closed", label: "Closed" },
 ]
@@ -211,6 +215,7 @@ export const ASSET_PHYSICAL_ORDER_STATUS_FILTERS: { value: string; label: string
 /** Status tabs aligned with the physical order lifecycle (same order as the progress bar). */
 export const ORDER_STATUS_TABS: OrderListTab[] = [
   { key: "pending_approval", label: "Pending approval" },
+  { key: "approved", label: "Approved", countKey: "approved" },
   { key: "assigned", label: "Assigned", countKey: "assigned" },
   { key: "in_progress", label: "In progress", countKey: "in_progress" },
   { key: "completed", label: "Completed", countKey: "completed" },
@@ -219,7 +224,10 @@ export const ORDER_STATUS_TABS: OrderListTab[] = [
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
   pending_approval: "Pending approval",
-  pending_closure_approval: "Awaiting approval",
+  approved: "Approved",
+  pending_closure_approval: "Completed",
+  completed: "Completed",
+  closed: "Closed",
   in_progress: "In progress",
 }
 
@@ -231,9 +239,16 @@ export function orderStatusLabel(status: string): string {
 export function orderStatusPillTone(
   status: string,
 ): "neutral" | "success" | "warning" | "danger" {
-  if (status === "completed" || status === "approved" || status === "closed") return "success"
+  if (
+    status === "completed" ||
+    status === "approved" ||
+    status === "closed" ||
+    status === "pending_closure_approval"
+  ) {
+    return "success"
+  }
   if (status === "rejected" || status === "cancelled") return "danger"
-  if (status === "in_progress" || status === "pending_closure_approval" || status === "assigned") {
+  if (status === "in_progress" || status === "assigned") {
     return "warning"
   }
   return "neutral"

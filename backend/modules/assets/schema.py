@@ -143,6 +143,8 @@ class AssetActivePhysicalOrderPublic(BaseModel):
     order_id: int
     order_number: str
     order_status: str
+    closed_at: datetime | None = None
+    has_closure_workflow: bool = False
 
 
 class AssetListItem(BaseModel):

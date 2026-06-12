@@ -49,6 +49,7 @@ import { adminSelectClass } from "@/components/layout/admin-ui"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import {
   orderStatusLabel,
+  orderStatusPillTone,
   type ExecutorUser,
   type PhysicalOrderDetail,
   type PhysicalOrderItem,
@@ -81,13 +82,6 @@ function formatDate(iso: string | null | undefined) {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { dateStyle: "medium" })
 }
 
-
-function statusPillTone(status: string): "neutral" | "success" | "warning" | "danger" {
-  if (status === "completed" || status === "approved" || status === "closed") return "success"
-  if (status === "rejected" || status === "cancelled") return "danger"
-  if (status === "in_progress" || status === "pending_closure_approval" || status === "assigned") return "warning"
-  return "neutral"
-}
 
 function matchesItemFilter(item: PhysicalOrderItem, filter: ItemFilter): boolean {
   if (filter === "pending") {
@@ -205,11 +199,11 @@ export function OrderDetailPage() {
   }, [order, selectedScanItemId])
 
   React.useEffect(() => {
-    if (!reassignOpen) return
-    void getJson<ExecutorUser[]>("/admin/physical-orders/executors")
+    if (!reassignOpen || !order) return
+    void getJson<ExecutorUser[]>(`/admin/physical-orders/executors?plant_id=${order.plant_id}`)
       .then(setExecutors)
       .catch(() => setExecutors([]))
-  }, [reassignOpen])
+  }, [reassignOpen, order?.plant_id])
 
   async function runAction(path: string, body?: Record<string, unknown>) {
     if (!id) return
@@ -223,12 +217,19 @@ export function OrderDetailPage() {
       setOrder(res)
       setSelected(new Set())
       if (
-        (path === "/approval/approve-all" || path === "/closure/approve-order") &&
-        res.status === "completed"
+        path === "/approval/approve-order" &&
+        (res.status === "approved" || res.status === "assigned")
+      ) {
+        toast.success("Order approved.")
+      } else if (
+        (path === "/approval/approve-all" ||
+          path === "/closure/approve-order" ||
+          path === "/approval/approve-items") &&
+        res.status === "approved"
       ) {
         toast.success("Order approved.")
       } else if (path === "/approval/approve-items" && res.status === "completed") {
-        toast.success("Order approved.")
+        toast.success("Selected lines approved.")
       } else if (path === "/approval/approve-items" && res.status === "pending_closure_approval") {
         toast.success("Selected lines approved.")
       } else if (path === "/approval/reject-items" && res.status === "in_progress") {
@@ -281,17 +282,18 @@ export function OrderDetailPage() {
     )
   }
 
+  const hasClosureWorkflow = order.progress.closure_workflow != null
   const isPendingApproval = order.status === "pending_approval"
-  const isPendingClosure = order.status === "pending_closure_approval"
-  const isAssigned = order.status === "assigned" || order.status === "approved"
+  const isAssigned = order.status === "assigned"
   const isInProgress = order.status === "in_progress"
   const isCompleted = order.status === "completed"
+  const isClosureApproved = order.status === "approved"
   const isClosed = order.status === "closed"
   const isRejected = order.status === "rejected"
   const isCreator = currentUserId != null && order.created_by === currentUserId
   const isAssignee = currentUserId != null && order.assigned_to === currentUserId
   const canReviewCreation = isPendingApproval && canApprove
-  const canReviewClosure = isPendingClosure && canApprove
+  const canReviewClosure = isCompleted && hasClosureWorkflow && canApprove
   const canScan =
     isInProgress && canExecute && isAssignee
   const filteredItems = order.items.filter((item) => matchesItemFilter(item, itemFilter))
@@ -305,7 +307,9 @@ export function OrderDetailPage() {
   const completingOrder = busyAction === "/submit-closure"
 
   const canReassign = isAssigned && canReassignOrder && !isClosed
-  const canClose = isCompleted && (canApprove || canUpdate || (canCreate && isCreator))
+  const canClose =
+    (isClosureApproved || (isCompleted && !hasClosureWorkflow)) &&
+    (canApprove || canUpdate || (canCreate && isCreator))
   const hasActions =
     (isRejected && canCreate && isCreator) ||
     (isAssigned && canExecute && isAssignee) ||
@@ -380,7 +384,11 @@ export function OrderDetailPage() {
               : ` · Pending: ${order.assigned_to_name}`
             : ""
         }`}
-        actions={<AdminPillBadge tone={statusPillTone(order.status)}>{orderStatusLabel(order.status)}</AdminPillBadge>}
+        actions={
+          <AdminPillBadge tone={orderStatusPillTone(order.status)}>
+            {orderStatusLabel(order.status)}
+          </AdminPillBadge>
+        }
       />
 
       {canReviewCreation && order.approval_notice?.message ? (

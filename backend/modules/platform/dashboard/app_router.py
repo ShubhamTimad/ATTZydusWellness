@@ -16,6 +16,7 @@ from modules.assets.model import (
     AssetLocationInformation,
     AssetMaster,
 )
+from modules.orders.constants import ORDER_STATUS_APPROVED, ORDER_STATUS_ASSIGNED
 from modules.orders.model import PhysicalOrder
 from modules.platform.org_units.model import OrgUnit
 from modules.assets.fy_verification import (
@@ -183,6 +184,33 @@ def get_dashboard_summary(
         .group_by(PhysicalOrder.status)
     ).all()
     by_status = {str(s): int(c) for s, c in status_rows if s}
+    approved_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(PhysicalOrder)
+            .where(
+                PhysicalOrder.status == ORDER_STATUS_APPROVED,
+                PhysicalOrder.completed_at.is_not(None),
+            )
+        )
+        or 0
+    )
+    assigned_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(PhysicalOrder)
+            .where(
+                or_(
+                    PhysicalOrder.status == ORDER_STATUS_ASSIGNED,
+                    and_(
+                        PhysicalOrder.status == ORDER_STATUS_APPROVED,
+                        PhysicalOrder.completed_at.is_(None),
+                    ),
+                )
+            )
+        )
+        or 0
+    )
     by_plant_order_rows = db.execute(
         select(OrgUnit.name, func.count())
         .select_from(PhysicalOrder)
@@ -196,8 +224,8 @@ def get_dashboard_summary(
             "orders": {
                 "total_orders": sum(by_status.values()),
                 "pending_approval": by_status.get("pending_approval", 0),
-                "approved": by_status.get("approved", 0),
-                "assigned": by_status.get("assigned", 0),
+                "approved": approved_count,
+                "assigned": assigned_count,
                 "in_progress": by_status.get("in_progress", 0),
                 "pending_closure_approval": by_status.get("pending_closure_approval", 0),
                 "completed": by_status.get("completed", 0),

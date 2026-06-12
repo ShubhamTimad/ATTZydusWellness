@@ -19,6 +19,7 @@ type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
   assetIds: number[]
+  plantId?: number | null
   resetVerificationAssetIds?: number[]
   onCreated: (order: PhysicalOrderDetail) => void
 }
@@ -27,6 +28,7 @@ export function CreatePhysicalOrderDialog({
   open,
   onOpenChange,
   assetIds,
+  plantId,
   resetVerificationAssetIds = [],
   onCreated,
 }: Props) {
@@ -37,10 +39,11 @@ export function CreatePhysicalOrderDialog({
 
   React.useEffect(() => {
     if (!open) return
-    void getJson<ExecutorUser[]>("/admin/physical-orders/executors")
+    const q = plantId != null ? `?plant_id=${plantId}` : ""
+    void getJson<ExecutorUser[]>(`/admin/physical-orders/executors${q}`)
       .then(setExecutors)
       .catch(() => setExecutors([]))
-  }, [open])
+  }, [open, plantId])
 
   async function submit() {
     if (!assignedTo) {
@@ -97,8 +100,8 @@ export function CreatePhysicalOrderDialog({
             </select>
             {executors.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                No users with order execution permission. Assign the Operator role (or order.execute) to users who
-                should run physical verification.
+                No operators at this plant with permission to execute physical orders. Assign order.execute and
+                order.view on a role scoped to this plant.
               </p>
             ) : null}
           </div>

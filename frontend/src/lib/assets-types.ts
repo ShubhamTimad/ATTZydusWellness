@@ -4,6 +4,8 @@ export type AssetActivePhysicalOrder = {
   order_id: number
   order_number: string
   order_status: string
+  closed_at?: string | null
+  has_closure_workflow?: boolean
 }
 
 export type AssetListItem = {

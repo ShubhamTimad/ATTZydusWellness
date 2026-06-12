@@ -48,8 +48,12 @@ def list_executors(
         object,
         Depends(require_any_permission("order.create", "order.manage", "order.reassign", "order.execute")),
     ],
+    plant_id: int | None = Query(
+        None,
+        description="Limit to users who may execute orders at this plant.",
+    ),
 ) -> list[ExecutorUserPublic]:
-    return svc.list_executors()
+    return svc.list_executors(plant_id=plant_id)
 
 
 @router.get("", response_model=PhysicalOrderListResponse)

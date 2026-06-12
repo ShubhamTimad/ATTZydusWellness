@@ -82,6 +82,8 @@ class PhysicalOrderListItem(BaseModel):
     cost_center_description: str
     asset_count: int
     status: str
+    closed_at: datetime | None = None
+    has_closure_workflow: bool = False
     assigned_to_name: str | None
     created_by_name: str | None
     created_at: datetime

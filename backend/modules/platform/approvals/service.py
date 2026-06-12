@@ -417,8 +417,8 @@ class ApprovalEngineService:
             set_asset_pending_approval(asset)
         elif entity_type in ("physical_order_creation", "physical_order_closure"):
             from modules.orders.constants import (
+                ORDER_STATUS_COMPLETED,
                 ORDER_STATUS_PENDING_APPROVAL,
-                ORDER_STATUS_PENDING_CLOSURE,
             )
             from modules.orders.model import PhysicalOrder
             from modules.orders.service import PhysicalOrderService
@@ -436,7 +436,7 @@ class ApprovalEngineService:
             if entity_type == "physical_order_creation":
                 order.status = ORDER_STATUS_PENDING_APPROVAL
             else:
-                order.status = ORDER_STATUS_PENDING_CLOSURE
+                order.status = ORDER_STATUS_COMPLETED
         else:
             raise ApprovalError(
                 "Resubmit is only implemented for user creation, asset, and physical order requests."

@@ -37,9 +37,6 @@ function tabCount(
   if (tab.key === "pending_approval") {
     return (module.pending_approval ?? 0) + (module.pending_closure_approval ?? 0)
   }
-  if (tab.key === "assigned") {
-    return (module.assigned ?? 0) + (module.approved ?? 0)
-  }
   if (!tab.countKey) return 0
   const value = module[tab.countKey]
   return typeof value === "number" ? value : 0

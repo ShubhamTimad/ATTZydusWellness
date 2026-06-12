@@ -38,15 +38,6 @@ function WhenCell({ at }: { at: string }) {
   )
 }
 
-function DetailLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[minmax(6.5rem,7.5rem)_1fr] items-baseline gap-x-2 text-[11px] leading-relaxed">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="text-foreground">{value}</dd>
-    </div>
-  )
-}
-
 function ActivityCell({
   ev,
   expanded,
@@ -98,15 +89,17 @@ function ActivityCell({
       </div>
 
       {executorOnCreate ? (
-        <dl className="space-y-0.5 rounded-md border border-border/40 bg-muted/15 px-2.5 py-1.5">
-          <DetailLine label="Executor" value={executorOnCreate} />
-        </dl>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          <span>Executor: </span>
+          <span className="text-foreground">{executorOnCreate}</span>
+        </p>
       ) : null}
 
       {executorOnReassign ? (
-        <dl className="space-y-0.5 rounded-md border border-border/40 bg-muted/15 px-2.5 py-1.5">
-          <DetailLine label="Executor" value={executorOnReassign} />
-        </dl>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          <span>Executor: </span>
+          <span className="text-foreground">{executorOnReassign}</span>
+        </p>
       ) : null}
 
       {otherDetail ? (
