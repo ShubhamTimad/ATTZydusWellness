@@ -140,12 +140,12 @@ export function ReportsPage() {
           : null}
       </div>
 
-      {!loading && !loadError && catalog ? (
+      {/* {!loading && !loadError && catalog ? (
         <p className="text-center text-xs text-foreground">
           {catalog.reports.length} report types · {catalog.plants.length} plant
           {catalog.plants.length === 1 ? "" : "s"} available for filtering
         </p>
-      ) : null}
+      ) : null} */}
 
       <AssetExportDialog variant="register" open={registerOpen} onOpenChange={setRegisterOpen} />
     </div>

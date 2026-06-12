@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -77,7 +77,10 @@ from modules.assets.model import (
     AssetLocationInformation,
     AssetMaster,
 )
+from modules.orders.constants import ACTIVE_ORDER_STATUSES, ORDER_STATUS_CLOSED
+from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 from modules.assets.schema import (
+    AssetActivePhysicalOrderPublic,
     AssetCreateRequest,
     AssetDetailPublic,
     AssetFinancialPayload,
@@ -437,6 +440,23 @@ class AssetMasterService:
     def create_asset(
         self, data: AssetCreateRequest, *, actor_user_id: int | None
     ) -> AssetDetailPublic:
+        from modules.assets.field_definitions import required_manual_create_field_errors
+
+        loc = data.location
+        fin = data.financial
+        required_errors = required_manual_create_field_errors(
+            asset_name=data.asset_name,
+            asset_code=data.asset_code,
+            asset_category_id=data.asset_category_id,
+            plant_id=loc.plant_id if loc else None,
+            cost_center=fin.cost_center if fin else None,
+            profit_center=fin.profit_center if fin else None,
+            functional_location=loc.functional_location if loc else None,
+            actual_location=loc.actual_location if loc else None,
+        )
+        if required_errors:
+            raise ConflictError(next(iter(required_errors.values())))
+
         code = data.asset_code.strip().upper()
         if self._db.scalar(select(AssetMaster.id).where(AssetMaster.asset_code == code, AssetMaster.deleted_at.is_(None))):
             raise DuplicateAssetCodeError()
@@ -553,6 +573,119 @@ class AssetMasterService:
                 names["profit_center_name"] = str(pc_row.name)
         return names
 
+    def _orders_for_assets_by_status(
+        self,
+        asset_ids: list[int],
+        statuses: frozenset[str] | set[str],
+    ) -> dict[int, AssetActivePhysicalOrderPublic]:
+        if not asset_ids or not statuses:
+            return {}
+        rows = self._db.execute(
+            select(
+                PhysicalOrderItem.asset_id,
+                PhysicalOrder.id,
+                PhysicalOrder.order_number,
+                PhysicalOrder.status,
+                PhysicalOrder.created_at,
+            )
+            .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
+            .where(
+                PhysicalOrderItem.asset_id.in_(asset_ids),
+                PhysicalOrder.status.in_(tuple(statuses)),
+            )
+            .order_by(PhysicalOrder.created_at.desc())
+        ).all()
+        out: dict[int, AssetActivePhysicalOrderPublic] = {}
+        for asset_id, order_id, order_number, order_status, _created in rows:
+            aid = int(asset_id)
+            if aid in out:
+                continue
+            out[aid] = AssetActivePhysicalOrderPublic(
+                order_id=int(order_id),
+                order_number=str(order_number),
+                order_status=str(order_status),
+            )
+        return out
+
+    def _active_physical_orders_for_assets(
+        self, asset_ids: list[int]
+    ) -> dict[int, AssetActivePhysicalOrderPublic]:
+        """Active order per asset; if none, the most recent closed order."""
+        if not asset_ids:
+            return {}
+        out = self._orders_for_assets_by_status(asset_ids, ACTIVE_ORDER_STATUSES)
+        missing = [aid for aid in asset_ids if aid not in out]
+        if missing:
+            closed = self._orders_for_assets_by_status(missing, frozenset({ORDER_STATUS_CLOSED}))
+            out.update(closed)
+        return out
+
+    def _displayed_physical_order_subquery(self):
+        """Per-asset physical order shown in the list: latest active, else latest closed."""
+        active_ranked = (
+            select(
+                PhysicalOrderItem.asset_id.label("asset_id"),
+                PhysicalOrder.status.label("order_status"),
+                func.row_number()
+                .over(
+                    partition_by=PhysicalOrderItem.asset_id,
+                    order_by=PhysicalOrder.created_at.desc(),
+                )
+                .label("rn"),
+            )
+            .select_from(PhysicalOrderItem)
+            .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
+            .where(PhysicalOrder.status.in_(tuple(ACTIVE_ORDER_STATUSES)))
+        ).subquery("active_ranked")
+
+        latest_active = (
+            select(active_ranked.c.asset_id, active_ranked.c.order_status)
+            .where(active_ranked.c.rn == 1)
+            .subquery("latest_active")
+        )
+
+        active_asset_ids = select(latest_active.c.asset_id)
+
+        closed_ranked = (
+            select(
+                PhysicalOrderItem.asset_id.label("asset_id"),
+                PhysicalOrder.status.label("order_status"),
+                func.row_number()
+                .over(
+                    partition_by=PhysicalOrderItem.asset_id,
+                    order_by=PhysicalOrder.created_at.desc(),
+                )
+                .label("rn"),
+            )
+            .select_from(PhysicalOrderItem)
+            .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
+            .where(PhysicalOrder.status == ORDER_STATUS_CLOSED)
+        ).subquery("closed_ranked")
+
+        latest_closed_only = select(
+            closed_ranked.c.asset_id,
+            closed_ranked.c.order_status,
+        ).where(
+            closed_ranked.c.rn == 1,
+            closed_ranked.c.asset_id.not_in(active_asset_ids),
+        )
+
+        return union_all(
+            select(latest_active.c.asset_id, latest_active.c.order_status),
+            latest_closed_only,
+        ).subquery("displayed_physical_orders")
+
+    def _apply_physical_order_status_filter(self, base: Any, physical_order_status: str | None) -> Any:
+        if not physical_order_status or not physical_order_status.strip():
+            return base
+        status = physical_order_status.strip().lower()
+        displayed = self._displayed_physical_order_subquery()
+        if status == "none":
+            has_displayed = select(displayed.c.asset_id)
+            return base.where(AssetMaster.id.not_in(has_displayed))
+        matching = select(displayed.c.asset_id).where(displayed.c.order_status == status)
+        return base.where(AssetMaster.id.in_(matching))
+
     def _master_label_lookups(
         self, rows: list[AssetMaster]
     ) -> tuple[
@@ -651,6 +784,7 @@ class AssetMasterService:
         category_id: int | None = None,
         lifecycle_status: str | None = None,
         approval_status: str | None = None,
+        physical_order_status: str | None = None,
         rfid_status: str | None = None,
         fy_verification: str | None = None,
         fy_start_year: int | None = None,
@@ -694,6 +828,8 @@ class AssetMasterService:
                 base = base.where(AssetMaster.lifecycle_status == lifecycle_status)
         if approval_status:
             base = base.where(AssetMaster.approval_status == approval_status)
+        if physical_order_status and scan_window is None:
+            base = self._apply_physical_order_status_filter(base, physical_order_status)
         if source_type:
             base = base.where(AssetMaster.source_type == source_type.strip().lower())
         if asset_ids:
@@ -788,6 +924,7 @@ class AssetMasterService:
         category_id: int | None = None,
         lifecycle_status: str | None = None,
         approval_status: str | None = None,
+        physical_order_status: str | None = None,
         rfid_status: str | None = None,
         fy_verification: str | None = None,
         fy_start_year: int | None = None,
@@ -812,6 +949,7 @@ class AssetMasterService:
             category_id=category_id,
             lifecycle_status=lifecycle_status,
             approval_status=approval_status,
+            physical_order_status=physical_order_status,
             rfid_status=rfid_status,
             fy_verification=fy_verification,
             fy_start_year=fy_start_year,
@@ -858,6 +996,7 @@ class AssetMasterService:
                 self._db, [int(a.id) for a in rows], scan_window
             )
         cc_desc, fl_desc, al_desc = self._master_label_lookups(rows)
+        active_orders = self._active_physical_orders_for_assets([int(a.id) for a in rows])
         items: list[AssetListItem] = []
         for a in rows:
             loc = a.location
@@ -900,6 +1039,7 @@ class AssetMasterService:
                     approval_status=a.approval_status,
                     source_type=a.source_type,
                     created_at=a.created_at,
+                    active_physical_order=active_orders.get(int(a.id)),
                 )
             )
         return AssetListResponse(
@@ -1151,6 +1291,7 @@ class AssetMasterService:
             else None
         )
         master_names = self._master_names_for_asset(loc, fin)
+        active_order = self._active_physical_orders_for_assets([int(asset.id)]).get(int(asset.id))
         location_payload: AssetLocationPayload | None = None
         if loc is not None:
             location_payload = AssetLocationPayload.model_validate(loc).model_copy(
@@ -1196,6 +1337,7 @@ class AssetMasterService:
             financial=financial_payload,
             inventory=AssetInventoryPayload.model_validate(inv) if inv else None,
             financial_year_label=period.label if rfid else None,
+            active_physical_order=active_order,
             fy_verification_count=fy_count,
         )
 
@@ -1471,12 +1613,12 @@ class AssetMasterService:
 
         out: list[AssetAuditEventPublic] = []
         for ev in events:
-            if not include_asset_audit_event(ev.action):
+            nv = ev.new_value if isinstance(ev.new_value, dict) else {}
+            if not include_asset_audit_event(ev.action, new_value=nv):
                 continue
             actor = users_by_id.get(int(ev.actor_user_id)) if ev.actor_user_id else None
             name = actor_display(actor, ev.actor_user_id)
             change_rows: list[AssetAuditChangeLine] = []
-            nv = ev.new_value if isinstance(ev.new_value, dict) else {}
             ov = ev.old_value if isinstance(ev.old_value, dict) else {}
             if ev.action == "updated" and isinstance(nv.get("changes"), dict):
                 change_rows = [

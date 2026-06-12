@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { ClipboardList, DollarSign, FileText, MapPin, Package } from "lucide-react"
 import { toast } from "sonner"
 
+import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { TagColorSelect } from "@/components/assets/tag-color-select"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
@@ -16,7 +17,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { ApiError, postJson } from "@/lib/api"
-import { ASSET_FIELD_LABELS } from "@/lib/asset-master-fields"
+import {
+  ASSET_FIELD_LABELS,
+  ASSET_REQUIRED_MANUAL_FIELDS,
+  isAssetManualFieldRequired,
+} from "@/lib/asset-master-fields"
 import type { AssetDetail } from "@/lib/assets-types"
 import { hasPermission } from "@/lib/permissions"
 import {
@@ -124,6 +129,26 @@ function label(key: string, fallback: string) {
   return ASSET_FIELD_LABELS[key] ?? fallback
 }
 
+function validateCreateForm(form: CreateForm): string | null {
+  const checks: { key: string; label: string; ok: boolean }[] = [
+    { key: "asset_name", label: "Asset name", ok: Boolean(form.asset_name.trim()) },
+    { key: "asset_code", label: "Asset code", ok: Boolean(form.asset_code.trim()) },
+    { key: "asset_category_id", label: "Asset category", ok: Boolean(form.asset_category_id) },
+    { key: "plant_id", label: "Plant name", ok: Boolean(form.plant_id) },
+    { key: "cost_center", label: "Cost center", ok: Boolean(form.cost_center.trim()) },
+    { key: "profit_center", label: "Profit center", ok: Boolean(form.profit_center.trim()) },
+    {
+      key: "functional_location",
+      label: "Functional location",
+      ok: Boolean(form.functional_location.trim()),
+    },
+    { key: "actual_location", label: "Actual location", ok: Boolean(form.actual_location.trim()) },
+  ]
+  const missing = checks.filter((c) => ASSET_REQUIRED_MANUAL_FIELDS.has(c.key) && !c.ok)
+  if (missing.length === 0) return null
+  return `${missing[0]!.label} is required.`
+}
+
 function strOrNull(v: string): string | null {
   const t = v.trim()
   return t || null
@@ -200,7 +225,7 @@ function FormField({
     <div className={cn("app-form-field", className)}>
       <Label htmlFor={id} className="app-form-label">
         {labelText}
-        {required ? " *" : ""}
+        {required ? <RequiredFieldMark /> : null}
       </Label>
       {children}
     </div>
@@ -240,8 +265,9 @@ export function AssetCreatePage() {
   }, [masters.plants, form.plant_id])
 
   async function createAsset() {
-    if (!form.asset_name.trim() || !form.asset_code.trim()) {
-      toast.error("Asset name and code are required.")
+    const validationError = validateCreateForm(form)
+    if (validationError) {
+      toast.error(validationError)
       return
     }
     setCreating(true)
@@ -324,7 +350,11 @@ export function AssetCreatePage() {
               <FormField id="asset_type" labelText={label("asset_type", "Asset type")}>
                 <Input id="asset_type" value={form.asset_type} onChange={(e) => patch({ asset_type: e.target.value })} />
               </FormField>
-              <FormField id="asset_category_id" labelText={label("asset_category_id", "Asset category")}>
+              <FormField
+                id="asset_category_id"
+                labelText={label("asset_category_id", "Asset category")}
+                required={isAssetManualFieldRequired("asset_category_id")}
+              >
                 <select
                   id="asset_category_id"
                   className={adminSelectClass}
@@ -360,7 +390,11 @@ export function AssetCreatePage() {
             contentClassName="px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <FormField labelText={label("plant_id", "Plant name")} className="sm:col-span-2">
+              <FormField
+                labelText={label("plant_id", "Plant name")}
+                required={isAssetManualFieldRequired("plant_id")}
+                className="sm:col-span-2"
+              >
                 <Input
                   readOnly
                   disabled
@@ -371,7 +405,11 @@ export function AssetCreatePage() {
               <FormField id="sub_location" labelText={label("sub_location", "Sub location")}>
                 <Input id="sub_location" value={form.sub_location} onChange={(e) => patch({ sub_location: e.target.value })} />
               </FormField>
-              <FormField id="functional_location" labelText={label("functional_location", "Functional location")}>
+              <FormField
+                id="functional_location"
+                labelText={label("functional_location", "Functional location")}
+                required={isAssetManualFieldRequired("functional_location")}
+              >
                 <select
                   id="functional_location"
                   className={adminSelectClass}
@@ -388,7 +426,11 @@ export function AssetCreatePage() {
                   ))}
                 </select>
               </FormField>
-              <FormField id="actual_location" labelText={label("actual_location", "Actual location")}>
+              <FormField
+                id="actual_location"
+                labelText={label("actual_location", "Actual location")}
+                required={isAssetManualFieldRequired("actual_location")}
+              >
                 <select
                   id="actual_location"
                   className={adminSelectClass}
@@ -486,7 +528,11 @@ export function AssetCreatePage() {
             contentClassName="px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <FormField id="cost_center" labelText={label("cost_center", "Cost center")}>
+              <FormField
+                id="cost_center"
+                labelText={label("cost_center", "Cost center")}
+                required={isAssetManualFieldRequired("cost_center")}
+              >
                 <select
                   id="cost_center"
                   className={adminSelectClass}
@@ -504,7 +550,11 @@ export function AssetCreatePage() {
               <FormField labelText="Cost center description">
                 <Input readOnly disabled className="bg-muted/40" value={costCenterDesc} />
               </FormField>
-              <FormField id="profit_center" labelText="Profit center">
+              <FormField
+                id="profit_center"
+                labelText="Profit center"
+                required={isAssetManualFieldRequired("profit_center")}
+              >
                 <select
                   id="profit_center"
                   className={adminSelectClass}

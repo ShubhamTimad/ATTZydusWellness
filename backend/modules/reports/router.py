@@ -124,7 +124,11 @@ def generate_report(
     fy_status: str | None = Query(None),
     fy_start_year: int | None = Query(None, ge=2000, le=2100),
 ) -> Response:
-    _ = current
+    try:
+        generated_by_user_id = int(current.subject)
+    except (TypeError, ValueError):
+        generated_by_user_id = None
+
     definition = report_by_key(report)
     if definition is None:
         raise HTTPException(status_code=404, detail="Report not found")
@@ -160,6 +164,7 @@ def generate_report(
             status=status,
             fy_status=fy_status,
             fy_start_year=fy_start_year,
+            generated_by_user_id=generated_by_user_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

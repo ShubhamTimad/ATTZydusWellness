@@ -1,5 +1,11 @@
 export type AssetCategory = { id: number; code: string; name: string; is_active: boolean }
 
+export type AssetActivePhysicalOrder = {
+  order_id: number
+  order_number: string
+  order_status: string
+}
+
 export type AssetListItem = {
   id: number
   asset_name: string
@@ -28,6 +34,7 @@ export type AssetListItem = {
   approval_status: string
   source_type: string
   created_at: string
+  active_physical_order?: AssetActivePhysicalOrder | null
 }
 
 export type AssetRfidAttachResult = {
@@ -157,6 +164,7 @@ export type AssetDetail = {
   inventory?: AssetSectionPayloads | null
   financial_year_label?: string | null
   fy_verification_count?: number | null
+  active_physical_order?: AssetActivePhysicalOrder | null
 }
 
 export type AssetAuditChangeLine = {

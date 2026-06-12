@@ -8,9 +8,11 @@ import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import type { AssetDetail } from "@/lib/assets-types"
 import type { TagColorMaster } from "@/lib/masters-types"
+import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import {
   ASSET_FIELD_LABELS,
   ASSET_VIEW_PANEL_MIN_HEIGHT,
+  isAssetManualFieldRequired,
   isAssetMasterDateField,
 } from "@/lib/asset-master-fields"
 import type { AssetViewSectionConfig } from "@/lib/asset-master-fields"
@@ -237,9 +239,18 @@ export function AssetDetailSectionPanel({
             const mono = k === "asset_code" || k === "rfid_code"
             return (
               <div key={k} className="app-form-field">
-                <Label className="app-form-label">{formatLabel(k)}</Label>
+                <Label className="app-form-label">
+                  {formatLabel(k)}
+                  {isAssetManualFieldRequired(k) ? <RequiredFieldMark /> : null}
+                </Label>
                 {readonly ? (
-                  <Input className="bg-muted/40" value={val} readOnly disabled />
+                  inventoryDisplay && config.id === "inventory" ? (
+                    <div className="flex min-h-9 items-center rounded-md border border-input bg-muted/40 px-3 py-2 text-sm">
+                      {inventoryDisplay(k, asset)}
+                    </div>
+                  ) : (
+                    <Input className="bg-muted/40" value={val} readOnly disabled />
+                  )
                 ) : k === "tag_color_id" && tagColors.length > 0 ? (
                   <TagColorPicker
                     id={`asset-field-${k}`}

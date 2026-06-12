@@ -197,6 +197,17 @@ export type OrderListTab = {
   countKey?: keyof OrdersDashboardModule
 }
 
+/** Physical order status filter on the asset list (matches the Order status column). */
+export const ASSET_PHYSICAL_ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: "none", label: "No order" },
+  { value: "pending_approval", label: "Pending approval" },
+  { value: "assigned", label: "Assigned" },
+  { value: "in_progress", label: "In progress" },
+  { value: "pending_closure_approval", label: "Awaiting approval" },
+  { value: "completed", label: "Completed" },
+  { value: "closed", label: "Closed" },
+]
+
 /** Status tabs aligned with the physical order lifecycle (same order as the progress bar). */
 export const ORDER_STATUS_TABS: OrderListTab[] = [
   { key: "pending_approval", label: "Pending approval" },
@@ -215,4 +226,15 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
 export function orderStatusLabel(status: string): string {
   if (ORDER_STATUS_LABELS[status]) return ORDER_STATUS_LABELS[status]
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+export function orderStatusPillTone(
+  status: string,
+): "neutral" | "success" | "warning" | "danger" {
+  if (status === "completed" || status === "approved" || status === "closed") return "success"
+  if (status === "rejected" || status === "cancelled") return "danger"
+  if (status === "in_progress" || status === "pending_closure_approval" || status === "assigned") {
+    return "warning"
+  }
+  return "neutral"
 }

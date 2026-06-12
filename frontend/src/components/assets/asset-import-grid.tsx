@@ -287,7 +287,14 @@ export function AssetImportGrid({
               className="flex h-9 shrink-0 items-center px-2 text-xs font-semibold text-foreground"
               style={{ width: col.kind === "date" ? 128 : 120 }}
             >
-              {col.label}
+              {col.required ? (
+                <>
+                  {col.label}
+                  <span className="text-destructive"> *</span>
+                </>
+              ) : (
+                col.label
+              )}
             </div>
           ))}
           <div

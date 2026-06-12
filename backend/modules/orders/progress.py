@@ -62,6 +62,12 @@ _AUDIT_LABELS: dict[str, str] = {
 def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -> str | None:
     new_value = new_value or {}
     old_value = old_value or {}
+    if action == "order_created":
+        name = new_value.get("assigned_to_name")
+        if name:
+            return str(name)
+        assignee = new_value.get("assigned_to")
+        return f"User #{assignee}" if assignee else None
     if action == "assignment_changed":
         assignee = new_value.get("assigned_to")
         if assignee is not None:
@@ -156,6 +162,7 @@ def enrich_audit_rows(
     db: Session | None = None,
     order_id: int | None = None,
     order_items: list[PhysicalOrderItem] | None = None,
+    assigned_to_name: str | None = None,
 ) -> list[PhysicalOrderAuditPublic]:
     out: list[PhysicalOrderAuditPublic] = []
     synthetic_id = -1
@@ -177,10 +184,11 @@ def enrich_audit_rows(
             continue
         if action == "approved" and (r.new_value or {}).get("auto_approved"):
             continue
+        if action == "assignment_changed":
+            continue
         new_value = dict(r.new_value or {})
-        if action == "assignment_changed" and new_value.get("auto_assigned") and not has_real_creation_approval:
-            new_value.pop("auto_assigned", None)
-            new_value["on_submit"] = True
+        if action == "order_created" and not new_value.get("assigned_to_name") and assigned_to_name:
+            new_value["assigned_to_name"] = assigned_to_name
         out.append(
             PhysicalOrderAuditPublic(
                 id=int(r.id),

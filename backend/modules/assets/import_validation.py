@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from modules.assets.field_definitions import required_import_field_errors
 from modules.assets.import_row_mapper import normalize_import_row
 from modules.assets.model import AssetCategory, AssetMaster
 from modules.asset_masters.model import (
@@ -218,14 +219,10 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
         duplicate_asset_code = False
         duplicate_rfid_code = False
 
-        name = _cell_str(row.data.get("asset_name"))
-        if not name:
-            field_errors["asset_name"] = "Asset name is required."
+        field_errors.update(required_import_field_errors(row.data))
 
         code = _cell_str(row.data.get("asset_code")).upper()
-        if not code:
-            field_errors["asset_code"] = "Asset code is required."
-        else:
+        if code:
             if len(codes_in_file.get(code, [])) > 1:
                 field_errors["asset_code"] = "Duplicate asset code in this file."
                 duplicate_asset_code = True
@@ -268,22 +265,15 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
         profit_center_code = _cell_str(row.data.get("profit_center"))
         functional_location_code = _cell_str(row.data.get("functional_location"))
         actual_location_code = _cell_str(row.data.get("actual_location"))
-        if (
-            plant_code
-            or cost_center_code
-            or profit_center_code
-            or functional_location_code
-            or actual_location_code
-        ):
-            _validate_location_masters(
-                lookups,
-                field_errors,
-                plant_code=plant_code,
-                cost_center_code=cost_center_code,
-                profit_center_code=profit_center_code,
-                functional_location_code=functional_location_code,
-                actual_location_code=actual_location_code,
-            )
+        _validate_location_masters(
+            lookups,
+            field_errors,
+            plant_code=plant_code,
+            cost_center_code=cost_center_code,
+            profit_center_code=profit_center_code,
+            functional_location_code=functional_location_code,
+            actual_location_code=actual_location_code,
+        )
 
         tag_color_code = _cell_str(row.data.get("tag_color_code"))
         if tag_color_code:

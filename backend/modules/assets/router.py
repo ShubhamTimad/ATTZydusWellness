@@ -70,6 +70,10 @@ def list_assets(
     category_id: int | None = Query(None),
     lifecycle_status: str | None = Query(None),
     approval_status: str | None = Query(None),
+    physical_order_status: str | None = Query(
+        None,
+        description="Filter by displayed physical order status, or none for assets with no order.",
+    ),
     rfid_status: str | None = Query(
         None,
         description="Filter by RFID tag: tagged | not_tagged",
@@ -97,6 +101,7 @@ def list_assets(
         category_id=category_id,
         lifecycle_status=lifecycle_status,
         approval_status=approval_status,
+        physical_order_status=physical_order_status,
         rfid_status=rfid_status,
         fy_verification=fy_verification,
         fy_start_year=fy_start_year,
@@ -261,6 +266,8 @@ def create_asset(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "invalid_tag_color", "message": exc.message},
         ) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.patch("/{asset_id}", response_model=AssetDetailPublic)

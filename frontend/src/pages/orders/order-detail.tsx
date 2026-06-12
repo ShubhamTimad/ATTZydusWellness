@@ -2,9 +2,7 @@ import * as React from "react"
 import { Link, useParams } from "react-router-dom"
 import {
   CheckCircle2,
-  ChevronDown,
   Clock3,
-  ListTree,
   Loader2,
   Lock,
   Package,
@@ -31,6 +29,7 @@ import {
   WorkspaceTabsList,
   WorkspaceTabsTrigger,
 } from "@/components/layout/list-page-ui"
+import { OrderAuditLog } from "@/components/orders/order-audit-log"
 import { OrderLifecycleStepper } from "@/components/orders/order-lifecycle-stepper"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -51,7 +50,6 @@ import { ApiError, getJson, postJson } from "@/lib/api"
 import {
   orderStatusLabel,
   type ExecutorUser,
-  type PhysicalOrderAudit,
   type PhysicalOrderDetail,
   type PhysicalOrderItem,
 } from "@/lib/orders-types"
@@ -150,92 +148,6 @@ function OrderStatCard({
   )
 }
 
-function OrderAuditActivityRow({
-  ev,
-  expanded,
-  onToggleVerified,
-}: {
-  ev: PhysicalOrderAudit
-  expanded: boolean
-  onToggleVerified: () => void
-}) {
-  const verifiedAssets = ev.verified_assets ?? []
-  const showVerifiedToggle = ev.action === "started" && verifiedAssets.length > 0
-
-  return (
-    <li className="border-b border-border/40 py-2.5 text-sm last:border-0">
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="font-medium">{ev.label}</span>
-            {showVerifiedToggle ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-                onClick={onToggleVerified}
-                aria-expanded={expanded}
-                aria-label={
-                  expanded
-                    ? "Hide verified assets"
-                    : `Show ${verifiedAssets.length} verified asset${verifiedAssets.length === 1 ? "" : "s"}`
-                }
-                title={
-                  expanded
-                    ? "Hide verified assets"
-                    : `${verifiedAssets.length} verified asset${verifiedAssets.length === 1 ? "" : "s"}`
-                }
-              >
-                {expanded ? (
-                  <ChevronDown className="size-4" aria-hidden />
-                ) : (
-                  <ListTree className="size-4" aria-hidden />
-                )}
-              </Button>
-            ) : null}
-            {ev.actor_name ? <span className="text-muted-foreground">· {ev.actor_name}</span> : null}
-          </div>
-          {ev.detail ? <p className="mt-0.5 text-xs text-muted-foreground">{ev.detail}</p> : null}
-          {showVerifiedToggle && !expanded ? (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {verifiedAssets.length} asset{verifiedAssets.length === 1 ? "" : "s"} verified — click{" "}
-              <ListTree className="mb-0.5 inline size-3.5" aria-hidden /> to view
-            </p>
-          ) : null}
-        </div>
-        <time className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {formatDt(ev.created_at)}
-        </time>
-      </div>
-      {showVerifiedToggle && expanded ? (
-        <ul className="mt-2 space-y-1.5 rounded-md border border-border/60 bg-muted/15 px-3 py-2">
-          {verifiedAssets.map((asset) => (
-            <li
-              key={`${asset.asset_code}-${asset.verified_at ?? "pending"}`}
-              className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-xs"
-            >
-              <div className="min-w-0">
-                <span className="font-mono font-medium text-foreground">{asset.asset_code}</span>
-                {asset.asset_name ? (
-                  <span className="text-muted-foreground"> · {asset.asset_name}</span>
-                ) : null}
-                {asset.rfid_code ? (
-                  <p className="font-mono text-[11px] text-muted-foreground">RFID {asset.rfid_code}</p>
-                ) : null}
-              </div>
-              <div className="shrink-0 text-right text-muted-foreground">
-                {asset.verified_at ? <div>{formatDt(asset.verified_at)}</div> : null}
-                {asset.verified_by_name ? <div>{asset.verified_by_name}</div> : null}
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </li>
-  )
-}
-
 export function OrderDetailPage() {
   const { id } = useParams()
   const [order, setOrder] = React.useState<PhysicalOrderDetail | null>(null)
@@ -256,8 +168,6 @@ export function OrderDetailPage() {
   const [reassignOpen, setReassignOpen] = React.useState(false)
   const [executors, setExecutors] = React.useState<ExecutorUser[]>([])
   const [reassignTo, setReassignTo] = React.useState("")
-  const [expandedAuditIds, setExpandedAuditIds] = React.useState<Set<number>>(new Set())
-
   const canApprove = hasPermission("order.approve")
   const canExecute = hasPermission("order.execute")
   const canCreate = hasPermission("order.create")
@@ -879,30 +789,7 @@ export function OrderDetailPage() {
         </Table>
       </AdminPanel>
 
-      {order.audit.length > 0 ? (
-        <AdminPanel className="shrink-0 overflow-hidden p-0">
-          <div className="border-b border-border/60 bg-muted/10 px-[var(--app-card-padding)] py-2.5">
-            <p className="text-sm font-medium text-foreground">Activity ({order.audit.length})</p>
-          </div>
-          <ul className="px-[var(--app-card-padding)] py-2">
-            {[...order.audit].reverse().map((ev) => (
-              <OrderAuditActivityRow
-                key={ev.id}
-                ev={ev}
-                expanded={expandedAuditIds.has(ev.id)}
-                onToggleVerified={() => {
-                  setExpandedAuditIds((prev) => {
-                    const next = new Set(prev)
-                    if (next.has(ev.id)) next.delete(ev.id)
-                    else next.add(ev.id)
-                    return next
-                  })
-                }}
-              />
-            ))}
-          </ul>
-        </AdminPanel>
-      ) : null}
+      <OrderAuditLog rows={order.audit} />
 
       <Dialog open={reassignOpen} onOpenChange={setReassignOpen}>
         <DialogContent>

@@ -21,7 +21,7 @@ from modules.asset_masters.model import (
     ProfitCenterMaster,
     TagColorMaster,
 )
-from modules.assets.field_definitions import ASSET_EXPORT_FIELD_LABELS, ASSET_IMPORT_TEMPLATE_FIELDS
+from modules.assets.field_definitions import ASSET_IMPORT_TEMPLATE_FIELDS, import_field_header_label
 from modules.assets.model import AssetCategory
 from modules.platform.org_units.model import OrgUnit
 
@@ -103,7 +103,7 @@ def build_import_template_xlsx(db: Session) -> bytes:
     ws_instructions = wb.create_sheet(INSTRUCTIONS_SHEET)
 
     fields = ASSET_IMPORT_TEMPLATE_FIELDS
-    headers = [ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title()) for key in fields]
+    headers = [import_field_header_label(key) for key in fields]
     header_fill = PatternFill("solid", fgColor="1F4E79")
     header_font = Font(bold=True, color="FFFFFF")
     for col_idx, header in enumerate(headers, start=1):
@@ -297,7 +297,11 @@ def build_import_template_xlsx(db: Session) -> bytes:
         ("", ""),
         ("How to use", ""),
         ("1.", "Fill one row per asset on the Import sheet. Do not change header row names."),
-        ("2.", "Required: Asset name and Asset code (unique). RFID is optional but must be unique when set."),
+        (
+            "2.",
+            "Required (*): Asset name, Asset code, Asset category, Plant, Cost center, Profit center, "
+            "Functional location, and Actual location. RFID is optional but must be unique when set.",
+        ),
         ("3.", "Select Plant name first — Cost center, Profit center, and Functional location lists depend on it."),
         ("4.", "Select Cost center before Profit center. Select Functional location before Actual location."),
         ("5.", "Use codes from the dropdowns (not descriptions). Tag color is only valid when RFID is provided."),

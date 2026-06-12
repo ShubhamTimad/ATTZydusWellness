@@ -139,6 +139,12 @@ class AssetRfidAttachPublic(BaseModel):
     tag_color_name: str | None = None
     tag_color_hex: str | None = None
 
+class AssetActivePhysicalOrderPublic(BaseModel):
+    order_id: int
+    order_number: str
+    order_status: str
+
+
 class AssetListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -165,6 +171,7 @@ class AssetListItem(BaseModel):
     approval_status: str
     source_type: str
     created_at: datetime
+    active_physical_order: AssetActivePhysicalOrderPublic | None = None
 
 
 class AssetListResponse(BaseModel):
@@ -232,6 +239,7 @@ class AssetDetailPublic(BaseModel):
     plant_name: str | None = None
     financial_year_label: str | None = None
     fy_verification_count: int | None = None
+    active_physical_order: AssetActivePhysicalOrderPublic | None = None
 
 
 class AssetAuditChangeLine(BaseModel):

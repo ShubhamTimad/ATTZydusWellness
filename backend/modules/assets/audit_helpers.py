@@ -189,15 +189,24 @@ ORDER_ASSET_AUDIT_ACTIONS = frozenset(
 # Shown on asset detail audit trail (order lifecycle only).
 ASSET_AUDIT_VISIBLE_ORDER_ACTIONS = frozenset(
     {
-        "physical_order_approved",
-        "physical_order_started",
+        "physical_order_created",
         "physical_verification_reset",
         "physical_order_verified",
     }
 )
 
 
-def include_asset_audit_event(action: str) -> bool:
+def include_asset_audit_event(
+    action: str,
+    *,
+    new_value: dict[str, Any] | None = None,
+) -> bool:
+    nv = new_value or {}
+    if action == "physical_order_created":
+        # Re-audit: reset on approval is shown as "Order created" with count/date changes.
+        return not bool(nv.get("pending_reset_on_approval"))
+    if action == "physical_order_approved":
+        return False
     if action in ORDER_ASSET_AUDIT_ACTIONS:
         return action in ASSET_AUDIT_VISIBLE_ORDER_ACTIONS
     return True
@@ -271,14 +280,16 @@ def compact_order_audit_text(
     ref = _order_ref(nv, ov)
     prefix = f"{ref} · " if ref else ""
 
+    if action == "physical_order_created":
+        return f"{prefix}Order created".lstrip(" · ")
     if action == "physical_order_approved":
         return f"{prefix}Order approved".lstrip(" · ")
     if action == "physical_order_started":
         return f"{prefix}Verification started".lstrip(" · ")
     if action == "physical_order_verified":
-        return f"{prefix}Verified in order".lstrip(" · ")
+        return f"{prefix}Verified".lstrip(" · ")
     if action == "physical_verification_reset":
-        return f"{prefix}Count & date reset on approval".lstrip(" · ")
+        return f"{prefix}Order created".lstrip(" · ")
     return f"{prefix}{action.replace('_', ' ')}".lstrip(" · ")
 
 
@@ -302,7 +313,7 @@ def activity_verb_for_action(action: str, new_value: dict[str, Any] | None, sour
     if action == "physical_order_verified":
         return "Verified in order"
     if action == "physical_verification_reset":
-        return "Count & date updated"
+        return "Order created"
     if action in ORDER_ASSET_AUDIT_ACTIONS:
         return "Physical order"
     if action == "created":

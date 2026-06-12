@@ -5,11 +5,13 @@ import type { LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
+import { AssetAuditLog, type AssetAuditLogRow } from "@/components/assets/asset-audit-log"
+import { renderPhysicalOrderInventoryField } from "@/lib/asset-physical-order-display"
 import { AssetDetailSectionPanel } from "@/components/assets/asset-detail-section-panel"
+import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
   AdminBackLink,
-  AdminPanel,
   AdminPrimaryButton,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
@@ -50,33 +52,6 @@ function formatDate(iso: string | null | undefined) {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString(undefined, { dateStyle: "medium" })
-}
-
-type AuditLogRow = {
-  id: string
-  at: string
-  action: string
-  activityVerb: string
-  actorName: string | null
-  summary: string
-  changes: { field_label: string; from_value: string; to_value: string }[]
-}
-
-const VISIBLE_ORDER_AUDIT_ACTIONS = new Set([
-  "physical_order_approved",
-  "physical_order_started",
-  "physical_verification_reset",
-  "physical_order_verified",
-])
-
-function isPhysicalOrderAudit(action: string) {
-  return VISIBLE_ORDER_AUDIT_ACTIONS.has(action)
-}
-
-function hasInventoryAuditChanges(row: AuditLogRow) {
-  return row.changes.some(
-    (c) => c.field_label === "Physical count" || c.field_label === "Last verification date",
-  )
 }
 
 const INVENTORY_READONLY = new Set([
@@ -129,7 +104,7 @@ export function AssetDetailPage() {
   const [loading, setLoading] = React.useState(true)
   const [editing, setEditing] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
-  const [auditRows, setAuditRows] = React.useState<AuditLogRow[]>([])
+  const [auditRows, setAuditRows] = React.useState<AssetAuditLogRow[]>([])
   const [auditLoading, setAuditLoading] = React.useState(false)
 
   const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
@@ -389,6 +364,8 @@ export function AssetDetailPage() {
     verified && inv != null && phys != null && inv !== phys
 
   function inventoryDisplayValue(key: string, a: AssetDetail): React.ReactNode {
+    const orderField = renderPhysicalOrderInventoryField(key, a)
+    if (orderField !== undefined) return orderField
     if (key === "inventory_count") return "1"
     if (key === "physical_count") {
       const v = a.inventory?.physical_count
@@ -562,7 +539,10 @@ export function AssetDetailPage() {
           extra={
             editing ? (
               <div className="space-y-1.5 sm:col-span-2">
-                <Label className="text-xs">Plant name</Label>
+                <Label className="app-form-label">
+                  Plant name
+                  <RequiredFieldMark />
+                </Label>
                 <select
                   className={cn(adminSelectClass, "h-9")}
                   value={a.location?.plant_id ?? ""}
@@ -687,129 +667,3 @@ export function AssetDetailPage() {
   )
 }
 
-function auditActivityText(row: AuditLogRow): string {
-  const summary = row.summary?.trim()
-  if (summary) {
-    let text = summary.split("\n")[0]?.trim() ?? summary
-    const actor = row.actorName?.trim()
-    if (actor && text.endsWith(` · ${actor}`)) {
-      text = text.slice(0, -(` · ${actor}`).length)
-    }
-    if (actor && text.endsWith(` by ${actor}`)) {
-      text = text.slice(0, -(` by ${actor}`).length)
-    }
-    return text
-  }
-  return row.activityVerb.replace(/\s+by\s*$/i, "").trim() || row.activityVerb
-}
-
-function InventoryAuditChanges({ changes }: { changes: AuditLogRow["changes"] }) {
-  const rows = changes.filter(
-    (c) => c.field_label === "Physical count" || c.field_label === "Last verification date",
-  )
-  if (rows.length === 0) return null
-  return (
-    <dl className="mt-1 grid max-w-md gap-1 rounded-md border border-border/50 bg-muted/20 px-2.5 py-1.5 text-xs">
-      {rows.map((change) => (
-        <div
-          key={`${change.field_label}-${change.from_value}-${change.to_value}`}
-          className="grid grid-cols-[minmax(7rem,42%)_1fr] items-baseline gap-x-2"
-        >
-          <dt className="text-muted-foreground">{change.field_label}</dt>
-          <dd className="tabular-nums text-foreground">
-            <span>{change.from_value}</span>
-            <span className="mx-1 text-muted-foreground" aria-hidden>
-              →
-            </span>
-            <span className="font-semibold text-foreground">{change.to_value}</span>
-          </dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
-function AuditChangeLines({ row }: { row: AuditLogRow }) {
-  const visible = row.changes.slice(0, 4)
-  const extra = row.changes.length - visible.length
-  return (
-    <ul className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
-      {visible.map((change) => (
-        <li key={`${change.field_label}-${change.from_value}-${change.to_value}`}>
-          <span>{change.field_label}:</span> {change.from_value}
-          <span className="mx-0.5" aria-hidden>
-            →
-          </span>
-          <span className="text-foreground">{change.to_value}</span>
-        </li>
-      ))}
-      {extra > 0 ? <li className="text-[11px]">+{extra} more field(s)</li> : null}
-    </ul>
-  )
-}
-
-function AssetAuditLog({ rows, loading }: { rows: AuditLogRow[]; loading: boolean }) {
-  const countLabel = rows.length > 0 ? `${rows.length} event${rows.length === 1 ? "" : "s"}` : null
-
-  return (
-    <AdminPanel
-      title="Audit trail"
-      description={
-        countLabel
-          ? `${countLabel} — order approval, verification start, and count/date updates.`
-          : "Order approval, verification start, and inventory count/date changes."
-      }
-      contentClassName="p-0"
-    >
-      {loading ? (
-        <p className="px-4 py-6 text-sm text-muted-foreground">Loading audit trail…</p>
-      ) : rows.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-muted-foreground">No audit events recorded yet.</p>
-      ) : (
-        <div className="max-h-[min(22rem,50vh)] overflow-y-auto overscroll-y-contain">
-          <div className="sticky top-0 z-[1] hidden border-b border-border/60 bg-muted/40 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:grid sm:grid-cols-[9.5rem_6.5rem_1fr] sm:gap-3">
-            <span>When</span>
-            <span>By</span>
-            <span>Activity</span>
-          </div>
-          <ul className="divide-y divide-border/40">
-            {rows.map((row) => {
-              const orderEvent = isPhysicalOrderAudit(row.action)
-              const activity = auditActivityText(row)
-              return (
-                <li
-                  key={row.id}
-                  className={cn(
-                    "px-4 py-2 transition-colors hover:bg-muted/10 sm:grid sm:grid-cols-[9.5rem_6.5rem_1fr] sm:items-start sm:gap-3",
-                    orderEvent && "bg-primary/[0.03]",
-                  )}
-                >
-                  <p className="shrink-0 text-[11px] tabular-nums text-muted-foreground sm:pt-0.5">
-                    {formatDateTime(row.at)}
-                  </p>
-                  <p className="truncate text-xs font-medium text-foreground">
-                    {row.actorName?.trim() || "System"}
-                  </p>
-                  <div className="min-w-0 sm:col-span-1">
-                    <p className="flex flex-wrap items-center gap-1.5 text-xs leading-snug text-foreground">
-                      {orderEvent ? (
-                        <span className="inline-flex shrink-0 rounded border border-primary/25 bg-primary/8 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-primary">
-                          Order
-                        </span>
-                      ) : null}
-                      <span className="min-w-0 break-words">{activity}</span>
-                    </p>
-                    {orderEvent && hasInventoryAuditChanges(row) ? (
-                      <InventoryAuditChanges changes={row.changes} />
-                    ) : null}
-                    {!orderEvent && row.changes.length > 0 ? <AuditChangeLines row={row} /> : null}
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-    </AdminPanel>
-  )
-}

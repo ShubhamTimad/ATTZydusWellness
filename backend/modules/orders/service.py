@@ -13,6 +13,7 @@ from modules.assets.model import AssetFinancialInformation, AssetLocationInforma
 from modules.errors import ConflictError, NotFoundError
 from modules.orders.asset_order_audit import (
     log_asset_order_approved,
+    log_asset_order_created,
     log_asset_order_started,
     log_asset_physically_verified,
 )
@@ -666,6 +667,15 @@ class PhysicalOrderService:
                     verification_status=ITEM_STATUS_PENDING,
                 )
             )
+        self._db.flush()
+        for a in assets:
+            log_asset_order_created(
+                self._db,
+                asset_id=int(a.id),
+                order=order,
+                actor_user_id=actor_user_id,
+                pending_reset=int(a.id) in reset_ids,
+            )
         log_order_event(
             self._db,
             order_id=int(order.id),
@@ -674,6 +684,8 @@ class PhysicalOrderService:
             new_value={
                 "order_number": order.order_number,
                 "asset_count": len(assets),
+                "assigned_to": body.assigned_to,
+                "assigned_to_name": assignee.full_name,
                 "reset_on_approval_asset_ids": sorted(reset_ids) if reset_ids else [],
                 "financial_year": period.label if reset_ids else None,
             },
@@ -948,6 +960,7 @@ class PhysicalOrderService:
             db=self._db,
             order_id=order_id,
             order_items=list(order.items),
+            assigned_to_name=user_name_fn(order.assigned_to) if order.assigned_to else None,
         )
         progress = build_order_progress(
             self._db,

@@ -53,22 +53,50 @@ export type AssetImportColumn = {
   key: string
   label: string
   kind?: "text" | "date" | "readonly"
+  required?: boolean
+}
+
+/** Required for create/import (physical order prerequisites; RFID optional at create). */
+export const ASSET_REQUIRED_MANUAL_FIELDS = new Set([
+  "asset_name",
+  "asset_code",
+  "asset_category_id",
+  "plant_id",
+  "cost_center",
+  "profit_center",
+  "functional_location",
+  "actual_location",
+])
+
+export const ASSET_REQUIRED_IMPORT_FIELDS = new Set([
+  "asset_name",
+  "asset_code",
+  "category_code",
+  "plant_code",
+  "cost_center",
+  "profit_center",
+  "functional_location",
+  "actual_location",
+])
+
+export function isAssetManualFieldRequired(key: string): boolean {
+  return ASSET_REQUIRED_MANUAL_FIELDS.has(key)
 }
 
 export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
-  { key: "asset_name", label: "Asset name" },
+  { key: "asset_name", label: "Asset name", required: true },
   { key: "asset_class", label: "Asset class" },
   { key: "asset_type", label: "Asset type" },
-  { key: "category_code", label: "Asset category" },
-  { key: "asset_code", label: "Asset code" },
+  { key: "category_code", label: "Asset category", required: true },
+  { key: "asset_code", label: "Asset code", required: true },
   { key: "rfid_code", label: "RFID code" },
   { key: "tag_color_code", label: "Tag color" },
   { key: "sub_location", label: "Sub location" },
-  { key: "plant_code", label: "Plant name" },
-  { key: "cost_center", label: "Cost center" },
-  { key: "profit_center", label: "Profit center" },
-  { key: "functional_location", label: "Functional location" },
-  { key: "actual_location", label: "Actual location" },
+  { key: "plant_code", label: "Plant name", required: true },
+  { key: "cost_center", label: "Cost center", required: true },
+  { key: "profit_center", label: "Profit center", required: true },
+  { key: "functional_location", label: "Functional location", required: true },
+  { key: "actual_location", label: "Actual location", required: true },
   { key: "party_details", label: "Party details" },
   { key: "invoice_no", label: "Invoice no." },
   { key: "invoice_date", label: "Invoice date", kind: "date" },
@@ -154,6 +182,8 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   physical_count: "Physical count",
   last_verification_date: "Last verification date",
   fy_verification_count: "Verifications this FY",
+  physical_order_id: "Physical order ID",
+  physical_order_status: "Order status",
 }
 
 export type AssetViewSectionId = "information" | "location" | "financial" | "inventory"
@@ -227,8 +257,22 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
   {
     id: "inventory",
     title: "Inventory & verification",
-    keys: ["inventory_count", "physical_count", "last_verification_date", "fy_verification_count"],
-    readOnlyKeys: ["inventory_count", "physical_count", "last_verification_date", "fy_verification_count"],
+    keys: [
+      "inventory_count",
+      "physical_count",
+      "last_verification_date",
+      "fy_verification_count",
+      "physical_order_id",
+      "physical_order_status",
+    ],
+    readOnlyKeys: [
+      "inventory_count",
+      "physical_count",
+      "last_verification_date",
+      "fy_verification_count",
+      "physical_order_id",
+      "physical_order_status",
+    ],
   },
 ]
 

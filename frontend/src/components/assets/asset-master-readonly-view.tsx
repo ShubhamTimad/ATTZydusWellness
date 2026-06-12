@@ -9,6 +9,7 @@ import {
   type AssetViewSectionConfig,
   type AssetViewSectionId,
 } from "@/lib/asset-master-fields"
+import { renderPhysicalOrderInventoryField } from "@/lib/asset-physical-order-display"
 import { assetStatusLabel } from "@/lib/asset-lifecycle"
 import { cn } from "@/lib/utils"
 
@@ -58,6 +59,8 @@ function SummaryStrip({ items }: { items: SummaryItem[] }) {
 }
 
 function inventoryDisplayValue(key: string, asset: AssetDetail): React.ReactNode {
+  const orderField = renderPhysicalOrderInventoryField(key, asset)
+  if (orderField !== undefined) return orderField
   if (key === "inventory_count") return "1"
   if (key === "physical_count") {
     const v = asset.inventory?.physical_count

@@ -64,7 +64,11 @@ import { categoryLabel, plantLabel, useAssetMasterLookups } from "@/lib/use-asse
 import { assetStatusLabel, assetStatusPillTone } from "@/lib/asset-lifecycle"
 import { hasPermission } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
-import { orderStatusLabel } from "@/lib/orders-types"
+import {
+  ASSET_PHYSICAL_ORDER_STATUS_FILTERS,
+  orderStatusLabel,
+  orderStatusPillTone,
+} from "@/lib/orders-types"
 import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
 import { cn } from "@/lib/utils"
 
@@ -74,7 +78,7 @@ export type AssetFySubTab = "verified" | "pending"
 export type AssetListFilters = {
   plant_id: string
   category_id: string
-  lifecycle_status: string
+  physical_order_status: string
   approval_status: string
   rfid_status: string
   fy_start_year: string
@@ -88,7 +92,7 @@ export type AssetListFilters = {
 const DEFAULT_FILTERS: AssetListFilters = {
   plant_id: "",
   category_id: "",
-  lifecycle_status: "",
+  physical_order_status: "",
   approval_status: "",
   rfid_status: "",
   fy_start_year: "",
@@ -142,7 +146,7 @@ function countActiveFilters(
     if (f.fy_scan_from && f.fy_scan_from !== defaultScanFrom) n += 1
     if (f.fy_scan_to && f.fy_scan_to !== defaultScanTo) n += 1
   } else {
-    if (f.lifecycle_status) n += 1
+    if (f.physical_order_status) n += 1
     if (f.approval_status) n += 1
     if (f.rfid_status) n += 1
   }
@@ -162,7 +166,7 @@ function buildQueryParams(
   if (search.trim()) q.set("search", search.trim())
   if (filters.plant_id) q.set("plant_id", filters.plant_id)
   if (filters.category_id) q.set("category_id", filters.category_id)
-  if (filters.lifecycle_status) q.set("lifecycle_status", filters.lifecycle_status)
+  if (filters.physical_order_status) q.set("physical_order_status", filters.physical_order_status)
   if (filters.approval_status) q.set("approval_status", filters.approval_status)
   if (listTab === "all" && filters.rfid_status) q.set("rfid_status", filters.rfid_status)
   if (listTab === "fy") {
@@ -604,7 +608,7 @@ export function AssetsListPage() {
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const tableColSpan = isFyTab ? 15 : 13
+  const tableColSpan = isFyTab ? 17 : 15
 
   const actionButtons = (
     <>
@@ -665,12 +669,14 @@ export function AssetsListPage() {
                   ...DEFAULT_FILTERS,
                   plant_id: f.plant_id,
                   category_id: f.category_id,
+                  physical_order_status: f.physical_order_status,
                   rfid_status: f.rfid_status,
                 }))
                 setDraftFilters((f) => ({
                   ...DEFAULT_FILTERS,
                   plant_id: f.plant_id,
                   category_id: f.category_id,
+                  physical_order_status: f.physical_order_status,
                   rfid_status: f.rfid_status,
                 }))
               }
@@ -936,19 +942,20 @@ export function AssetsListPage() {
               {!isFyTab ? (
                 <>
                   <div className="app-form-field">
-                    <Label className="app-form-label text-muted-foreground">Lifecycle</Label>
+                    <Label className="app-form-label text-muted-foreground">Physical order status</Label>
                     <select
                       className={adminSelectClass}
-                      value={draftFilters.lifecycle_status}
+                      value={draftFilters.physical_order_status}
                       onChange={(e) =>
-                        setDraftFilters((f) => ({ ...f, lifecycle_status: e.target.value }))
+                        setDraftFilters((f) => ({ ...f, physical_order_status: e.target.value }))
                       }
                     >
                       <option value="">All</option>
-                      <option value="active">Active</option>
-                      <option value="pending_approval">Pending approval</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="draft">Draft</option>
+                      {ASSET_PHYSICAL_ORDER_STATUS_FILTERS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div className="app-form-field">
@@ -1076,11 +1083,16 @@ export function AssetsListPage() {
                 }}
               />
             ) : null}
-            {!isFyTab && filters.lifecycle_status ? (
+            {!isFyTab && filters.physical_order_status ? (
               <FilterChip
-                label={`Lifecycle: ${filters.lifecycle_status.replace(/_/g, " ")}`}
+                label={`Order status: ${
+                  ASSET_PHYSICAL_ORDER_STATUS_FILTERS.find(
+                    (o) => o.value === filters.physical_order_status,
+                  )?.label ?? orderStatusLabel(filters.physical_order_status)
+                }`}
                 onRemove={() => {
-                  setFilters((f) => ({ ...f, lifecycle_status: "" }))
+                  setFilters((f) => ({ ...f, physical_order_status: "" }))
+                  setDraftFilters((f) => ({ ...f, physical_order_status: "" }))
                   setPage(1)
                 }}
               />
@@ -1151,6 +1163,8 @@ export function AssetsListPage() {
                     <AdminTableHeadCell>FY status</AdminTableHeadCell>
                   </>
                 ) : null}
+                <AdminTableHeadCell>Physical order ID</AdminTableHeadCell>
+                <AdminTableHeadCell>Order status</AdminTableHeadCell>
               </AdminTableHeaderRow>
             </TableHeader>
             <TableBody>
@@ -1256,6 +1270,28 @@ export function AssetsListPage() {
                         </AdminTableCell>
                       </>
                     ) : null}
+                    <AdminTableCell className="font-mono text-xs">
+                      {row.active_physical_order ? (
+                        <Link
+                          to={`/dashboard/orders/${row.active_physical_order.order_id}`}
+                          className="text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {row.active_physical_order.order_number}
+                        </Link>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </AdminTableCell>
+                    <AdminTableCell>
+                      {row.active_physical_order ? (
+                        <AdminPillBadge tone={orderStatusPillTone(row.active_physical_order.order_status)}>
+                          {orderStatusLabel(row.active_physical_order.order_status)}
+                        </AdminPillBadge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </AdminTableCell>
                   </AdminTableBodyRow>
                 ))
               )}

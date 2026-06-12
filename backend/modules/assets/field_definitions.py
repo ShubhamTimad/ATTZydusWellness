@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 # Excel headers (case-insensitive) -> canonical import key
 IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
     "asset_name": ["asset name", "asset_name"],
@@ -84,6 +86,82 @@ IMPORT_DATE_FIELDS = frozenset(
 IMPORT_DECIMAL_FIELDS = frozenset({"gross_block", "depreciation_rate"})
 
 IMPORT_INT_FIELDS = frozenset({"inventory_count"})
+
+# Required for manual create and import (physical order prerequisites; RFID optional at create).
+ASSET_REQUIRED_IMPORT_FIELD_KEYS: frozenset[str] = frozenset(
+    {
+        "asset_name",
+        "asset_code",
+        "category_code",
+        "plant_code",
+        "cost_center",
+        "profit_center",
+        "functional_location",
+        "actual_location",
+    }
+)
+
+ASSET_REQUIRED_MANUAL_FIELD_KEYS: frozenset[str] = frozenset(
+    {
+        "asset_name",
+        "asset_code",
+        "asset_category_id",
+        "plant_id",
+        "cost_center",
+        "profit_center",
+        "functional_location",
+        "actual_location",
+    }
+)
+
+
+def _required_text(value: Any) -> bool:
+    return bool(str(value or "").strip())
+
+
+def required_import_field_errors(data: dict[str, Any]) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    for key in ASSET_REQUIRED_IMPORT_FIELD_KEYS:
+        if not _required_text(data.get(key)):
+            label = ASSET_FIELD_LABELS.get(key, key.replace("_", " ").title())
+            if key == "category_code":
+                label = "Asset category"
+            elif key == "plant_code":
+                label = "Plant name"
+            errors[key] = f"{label} is required."
+    return errors
+
+
+def required_manual_create_field_errors(
+    *,
+    asset_name: str,
+    asset_code: str,
+    asset_category_id: int | None,
+    plant_id: int | None,
+    cost_center: str | None,
+    profit_center: str | None,
+    functional_location: str | None,
+    actual_location: str | None,
+) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    text_checks = (
+        ("asset_name", asset_name),
+        ("asset_code", asset_code),
+        ("cost_center", cost_center),
+        ("profit_center", profit_center),
+        ("functional_location", functional_location),
+        ("actual_location", actual_location),
+    )
+    for key, value in text_checks:
+        if not _required_text(value):
+            label = ASSET_FIELD_LABELS.get(key, key.replace("_", " ").title())
+            errors[key] = f"{label} is required."
+    if asset_category_id is None:
+        errors["asset_category_id"] = "Asset category is required."
+    if plant_id is None:
+        errors["plant_id"] = "Plant name is required."
+    return errors
+
 
 # Import template column order (plant and parents before dependent dropdowns).
 ASSET_IMPORT_TEMPLATE_FIELDS: list[str] = [
@@ -193,3 +271,10 @@ ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
     "source_type": "Source",
     "serial_no": "Serial no.",
 }
+
+
+def import_field_header_label(key: str) -> str:
+    label = ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title())
+    if key in ASSET_REQUIRED_IMPORT_FIELD_KEYS:
+        return f"{label} *"
+    return label
