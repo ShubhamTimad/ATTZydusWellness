@@ -10,7 +10,11 @@ from modules.assets.schema import ImportPreviewRow
 
 
 def _normalize_header(h: str) -> str:
-    return (h or "").strip().lower().replace("_", " ")
+    s = (h or "").strip().lower().replace("_", " ")
+    # Import template marks required columns with a trailing "*".
+    if s.endswith("*"):
+        s = s[:-1].rstrip()
+    return s
 
 
 def _map_headers(raw_headers: list[str]) -> dict[int, str]:
@@ -26,10 +30,27 @@ def _map_headers(raw_headers: list[str]) -> dict[int, str]:
     return out
 
 
-def _parse_row(mapped: dict[str, str], row_number: int) -> ImportPreviewRow:
+def is_blank_import_row(data: dict[str, Any]) -> bool:
+    """True when every cell in the row is empty (template padding rows, etc.)."""
+    if not data:
+        return True
+    for value in data.values():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if value.strip():
+                return False
+        else:
+            return False
+    return True
+
+
+def _parse_row(mapped: dict[str, str], row_number: int) -> ImportPreviewRow | None:
     data = normalize_import_row(
         {k: (v.strip() if isinstance(v, str) else v) for k, v in mapped.items() if v not in (None, "")}
     )
+    if is_blank_import_row(data):
+        return None
     return ImportPreviewRow(
         row_number=row_number,
         valid=False,
@@ -51,7 +72,9 @@ def parse_upload_file(*, filename: str | None, content: bytes) -> list[ImportPre
         out: list[ImportPreviewRow] = []
         for i, row in enumerate(rows_iter[1:], start=2):
             mapped = {header_map[j]: row[j] for j in header_map if j < len(row)}
-            out.append(_parse_row(mapped, i))
+            parsed = _parse_row(mapped, i)
+            if parsed is not None:
+                out.append(parsed)
         return out
 
     try:
@@ -70,5 +93,7 @@ def parse_upload_file(*, filename: str | None, content: bytes) -> list[ImportPre
     for i, row in enumerate(rows_iter[1:], start=2):
         cells = [str(c).strip() if c is not None else "" for c in row]
         mapped = {header_map[j]: cells[j] for j in header_map if j < len(cells)}
-        out.append(_parse_row(mapped, i))
+        parsed = _parse_row(mapped, i)
+        if parsed is not None:
+            out.append(parsed)
     return out

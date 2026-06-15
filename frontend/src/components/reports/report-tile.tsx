@@ -70,7 +70,7 @@ const FALLBACK_STYLE: ReportTileStyle = {
 }
 
 const exportBtnClass =
-  "h-9 min-w-[6.75rem] gap-1.5 px-3 text-sm font-medium shadow-sm"
+  "h-9 min-w-0 gap-1.5 px-3 text-sm font-medium shadow-sm sm:min-w-[6.75rem]"
 
 const FILTER_LABELS: Record<string, string> = {
   fy_start_year: "Financial year",
@@ -141,7 +141,7 @@ function ReportActions({
 
   const showPdf = formats.includes("pdf")
   return (
-    <div className="flex shrink-0 gap-2">
+    <div className="flex shrink-0 flex-wrap justify-end gap-2">
       <Button
         type="button"
         variant="outline"
@@ -182,8 +182,8 @@ function TileHeader({ style, report }: { style: ReportTileStyle; report: ReportD
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center gap-3 overflow-hidden",
-        style.compact ? "min-h-[4.5rem] items-start" : "h-[7.5rem] items-start",
+        "flex shrink-0 items-start gap-3 overflow-hidden",
+        style.compact ? "min-h-[4.5rem]" : "min-h-0",
       )}
     >
       <div
@@ -424,7 +424,7 @@ function TileControls({
           <div className="hidden flex-1 @[32rem]:block" aria-hidden />
         )}
 
-        <div className="flex shrink-0 justify-end gap-2">
+        <div className="flex w-full shrink-0 flex-wrap justify-end gap-2 sm:w-auto">
           <ReportActions
             reportKey={report.key}
             busy={busy}
@@ -460,7 +460,7 @@ export function ReportTile({
   return (
     <article
       className={cn(
-        "group @container relative flex flex-col overflow-hidden rounded-[var(--app-radius-surface)] border shadow-[var(--app-shadow-surface)] transition-shadow hover:shadow-[var(--app-shadow-elevated)]",
+        "group @container relative flex w-full min-w-0 flex-col overflow-hidden rounded-[var(--app-radius-surface)] border shadow-[var(--app-shadow-surface)] transition-shadow hover:shadow-[var(--app-shadow-elevated)]",
         style.compact ? "h-auto min-h-[8.5rem] self-start" : "h-full min-h-[15.5rem]",
         style.surface,
         style.span === "full" ? "lg:col-span-2" : "",
@@ -477,13 +477,13 @@ export function ReportTile({
         className={cn(
           "relative",
           style.compact
-            ? "flex min-h-[7.75rem] flex-col justify-center gap-4 px-6 py-5 sm:flex-row sm:items-center sm:justify-between sm:gap-6"
+            ? "flex min-h-[7.75rem] flex-col justify-center gap-4 p-[var(--app-card-padding)] @[32rem]:flex-row @[32rem]:items-center @[32rem]:justify-between @[32rem]:gap-6"
             : "flex flex-1 flex-col gap-4 p-[var(--app-card-padding)]",
         )}
       >
         <TileHeader style={style} report={report} />
         {style.compact ? (
-          <div className="flex shrink-0 justify-end sm:justify-start">
+          <div className="flex shrink-0 flex-wrap justify-start gap-2 @[32rem]:justify-end">
             <ReportActions
               reportKey={report.key}
               busy={busy}

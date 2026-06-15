@@ -24,6 +24,7 @@ from modules.asset_masters.model import (
     TagColorMaster,
 )
 from modules.assets.field_definitions import ASSET_IMPORT_TEMPLATE_FIELDS, import_field_header_label
+from modules.assets.import_master_resolve import master_import_label, plant_import_label
 from modules.assets.model import AssetCategory
 from modules.platform.org_units.model import OrgUnit
 
@@ -121,9 +122,9 @@ def build_import_template_xlsx(db: Session) -> bytes:
     list_col = 1
 
     plants = list(db.scalars(select(OrgUnit).where(OrgUnit.type == "PLANT").order_by(OrgUnit.code)).all())
-    plant_codes = [str(p.code) for p in plants]
-    row_start, row_end = _write_vertical_list(ws_lists, list_col, plant_codes)
-    if plant_codes:
+    plant_labels = [plant_import_label(p) for p in plants]
+    row_start, row_end = _write_vertical_list(ws_lists, list_col, plant_labels)
+    if plant_labels:
         _define_list_range(wb, "Plants", LISTS_SHEET, list_col, row_start, row_end)
     list_col += 1
 
@@ -134,9 +135,11 @@ def build_import_template_xlsx(db: Session) -> bytes:
             .order_by(AssetCategory.code)
         ).all()
     )
-    category_codes = [str(c.code) for c in categories]
-    row_start, row_end = _write_vertical_list(ws_lists, list_col, category_codes)
-    if category_codes:
+    category_labels = [
+        master_import_label(name=str(c.name), code=str(c.code)) for c in categories
+    ]
+    row_start, row_end = _write_vertical_list(ws_lists, list_col, category_labels)
+    if category_labels:
         _define_list_range(wb, "Categories", LISTS_SHEET, list_col, row_start, row_end)
     list_col += 1
 
@@ -147,9 +150,11 @@ def build_import_template_xlsx(db: Session) -> bytes:
             .order_by(TagColorMaster.code)
         ).all()
     )
-    tag_color_codes = [str(t.code) for t in tag_colors]
-    row_start, row_end = _write_vertical_list(ws_lists, list_col, tag_color_codes)
-    if tag_color_codes:
+    tag_color_labels = [
+        master_import_label(name=str(t.name), code=str(t.code)) for t in tag_colors
+    ]
+    row_start, row_end = _write_vertical_list(ws_lists, list_col, tag_color_labels)
+    if tag_color_labels:
         _define_list_range(wb, "TagColors", LISTS_SHEET, list_col, row_start, row_end)
     list_col += 1
 
@@ -160,9 +165,11 @@ def build_import_template_xlsx(db: Session) -> bytes:
             .order_by(AssetCustodianMaster.code)
         ).all()
     )
-    custodian_codes = [str(c.code) for c in custodians]
-    row_start, row_end = _write_vertical_list(ws_lists, list_col, custodian_codes)
-    if custodian_codes:
+    custodian_labels = [
+        master_import_label(name=str(c.name), code=str(c.code)) for c in custodians
+    ]
+    row_start, row_end = _write_vertical_list(ws_lists, list_col, custodian_labels)
+    if custodian_labels:
         _define_list_range(wb, "AssetCustodians", LISTS_SHEET, list_col, row_start, row_end)
     list_col += 1
 
@@ -173,9 +180,11 @@ def build_import_template_xlsx(db: Session) -> bytes:
             .order_by(AssetConditionMaster.code)
         ).all()
     )
-    condition_codes = [str(c.code) for c in conditions]
-    row_start, row_end = _write_vertical_list(ws_lists, list_col, condition_codes)
-    if condition_codes:
+    condition_labels = [
+        master_import_label(name=str(c.name), code=str(c.code)) for c in conditions
+    ]
+    row_start, row_end = _write_vertical_list(ws_lists, list_col, condition_labels)
+    if condition_labels:
         _define_list_range(wb, "AssetConditions", LISTS_SHEET, list_col, row_start, row_end)
     list_col += 1
 
@@ -192,11 +201,17 @@ def build_import_template_xlsx(db: Session) -> bytes:
 
     plant_by_id = {int(p.id): p for p in plants}
     for plant in plants:
-        codes = [str(cc.code) for cc in cc_by_plant.get(int(plant.id), [])]
+        labels = [
+            master_import_label(name=str(cc.name), code=str(cc.code))
+            for cc in cc_by_plant.get(int(plant.id), [])
+        ]
         col = list_col
-        row_start, row_end = _write_vertical_list(ws_lists, col, codes)
-        if codes:
-            range_name = _unique_range_name(f"CC_{_safe_code(str(plant.code))}", used_names)
+        row_start, row_end = _write_vertical_list(ws_lists, col, labels)
+        if labels:
+            range_name = _unique_range_name(
+                f"CC_{_safe_code(plant_import_label(plant))}",
+                used_names,
+            )
             _define_list_range(wb, range_name, LISTS_SHEET, col, row_start, row_end)
         list_col += 1
 
@@ -216,12 +231,15 @@ def build_import_template_xlsx(db: Session) -> bytes:
         plant = plant_by_id.get(int(cc.plant_id))
         if plant is None:
             continue
-        codes = [str(pc.code) for pc in pc_by_cc.get(int(cc.id), [])]
+        labels = [
+            master_import_label(name=str(pc.name), code=str(pc.code))
+            for pc in pc_by_cc.get(int(cc.id), [])
+        ]
         col = list_col
-        row_start, row_end = _write_vertical_list(ws_lists, col, codes)
-        if codes:
+        row_start, row_end = _write_vertical_list(ws_lists, col, labels)
+        if labels:
             range_name = _unique_range_name(
-                f"PC_{_safe_code(str(plant.code))}__{_safe_code(str(cc.code))}",
+                f"PC_{_safe_code(plant_import_label(plant))}__{_safe_code(master_import_label(name=str(cc.name), code=str(cc.code)))}",
                 used_names,
             )
             _define_list_range(wb, range_name, LISTS_SHEET, col, row_start, row_end)
@@ -239,11 +257,17 @@ def build_import_template_xlsx(db: Session) -> bytes:
         fl_by_plant[int(fl.plant_id)].append(fl)
 
     for plant in plants:
-        codes = [str(fl.code) for fl in fl_by_plant.get(int(plant.id), [])]
+        labels = [
+            master_import_label(name=str(fl.name), code=str(fl.code))
+            for fl in fl_by_plant.get(int(plant.id), [])
+        ]
         col = list_col
-        row_start, row_end = _write_vertical_list(ws_lists, col, codes)
-        if codes:
-            range_name = _unique_range_name(f"FL_{_safe_code(str(plant.code))}", used_names)
+        row_start, row_end = _write_vertical_list(ws_lists, col, labels)
+        if labels:
+            range_name = _unique_range_name(
+                f"FL_{_safe_code(plant_import_label(plant))}",
+                used_names,
+            )
             _define_list_range(wb, range_name, LISTS_SHEET, col, row_start, row_end)
         list_col += 1
 
@@ -263,12 +287,15 @@ def build_import_template_xlsx(db: Session) -> bytes:
         plant = plant_by_id.get(int(fl.plant_id))
         if plant is None:
             continue
-        codes = [str(al.code) for al in al_by_fl.get(int(fl.id), [])]
+        labels = [
+            master_import_label(name=str(al.name), code=str(al.code))
+            for al in al_by_fl.get(int(fl.id), [])
+        ]
         col = list_col
-        row_start, row_end = _write_vertical_list(ws_lists, col, codes)
-        if codes:
+        row_start, row_end = _write_vertical_list(ws_lists, col, labels)
+        if labels:
             range_name = _unique_range_name(
-                f"AL_{_safe_code(str(plant.code))}__{_safe_code(str(fl.code))}",
+                f"AL_{_safe_code(plant_import_label(plant))}__{_safe_code(master_import_label(name=str(fl.name), code=str(fl.code)))}",
                 used_names,
             )
             _define_list_range(wb, range_name, LISTS_SHEET, col, row_start, row_end)
@@ -276,23 +303,22 @@ def build_import_template_xlsx(db: Session) -> bytes:
 
     ws_lists.sheet_state = "hidden"
 
-    if "plant_code" in col_map and plant_codes:
-        plant_col = f"${get_column_letter(col_map['plant_code'])}"
+    if "plant_code" in col_map and plant_labels:
         _add_list_validation(ws_import, col=col_map["plant_code"], formula="=Plants")
 
-    if "category_code" in col_map and category_codes:
+    if "category_code" in col_map and category_labels:
         _add_list_validation(ws_import, col=col_map["category_code"], formula="=Categories")
 
-    if "tag_color_code" in col_map and tag_color_codes:
+    if "tag_color_code" in col_map and tag_color_labels:
         _add_list_validation(ws_import, col=col_map["tag_color_code"], formula="=TagColors")
 
-    if "asset_custodian_code" in col_map and custodian_codes:
+    if "asset_custodian_code" in col_map and custodian_labels:
         _add_list_validation(ws_import, col=col_map["asset_custodian_code"], formula="=AssetCustodians")
 
-    if "asset_condition_code" in col_map and condition_codes:
+    if "asset_condition_code" in col_map and condition_labels:
         _add_list_validation(ws_import, col=col_map["asset_condition_code"], formula="=AssetConditions")
 
-    if "plant_code" in col_map and "cost_center" in col_map and plant_codes:
+    if "plant_code" in col_map and "cost_center" in col_map and plant_labels:
         plant_ref = f"{get_column_letter(col_map['plant_code'])}2"
         formula = (
             f'=IF({plant_ref}="","",INDIRECT("CC_"&{_excel_sanitize_expr(plant_ref)}))'
@@ -308,7 +334,7 @@ def build_import_template_xlsx(db: Session) -> bytes:
         )
         _add_list_validation(ws_import, col=col_map["profit_center"], formula=formula)
 
-    if "plant_code" in col_map and "functional_location" in col_map and plant_codes:
+    if "plant_code" in col_map and "functional_location" in col_map and plant_labels:
         plant_ref = f"{get_column_letter(col_map['plant_code'])}2"
         formula = (
             f'=IF({plant_ref}="","",INDIRECT("FL_"&{_excel_sanitize_expr(plant_ref)}))'
@@ -338,11 +364,11 @@ def build_import_template_xlsx(db: Session) -> bytes:
         ),
         ("3.", "Select Plant name first — Cost center, Profit center, and Functional location lists depend on it."),
         ("4.", "Select Cost center before Profit center. Select Functional location before Actual location."),
-        ("5.", "Use codes from the dropdowns (not descriptions). Tag color is only valid when RFID is provided."),
+        ("5.", "Use display names from the dropdowns (codes are also accepted). Tag color is only valid when RFID is provided."),
         ("6.", "Dates: use YYYY-MM-DD (e.g. 2024-06-15). Leave Inventory count blank to default to 1."),
         ("7.", "Save as .xlsx and upload via Assets → Import."),
         ("", ""),
-        ("Master data in this file", f"{len(plant_codes)} plants · {len(category_codes)} categories · "
+        ("Master data in this file", f"{len(plant_labels)} plants · {len(category_labels)} categories · "
          f"{len(cost_centers)} cost centers · {len(profit_centers)} profit centers · "
          f"{len(functional_locations)} functional locations · {len(actual_locations)} actual locations"),
     ]

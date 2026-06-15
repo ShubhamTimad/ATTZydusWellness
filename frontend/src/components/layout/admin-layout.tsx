@@ -8,10 +8,13 @@ import {
   Link2,
   LogOut,
   Mail,
+  Menu,
   Settings,
   Shield,
   Users,
 } from "lucide-react"
+
+import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -155,69 +158,104 @@ export function AdminLayout({
     }))
     .filter((group) => group.items.length > 0)
 
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false)
+
+  function handleNavigate(id: AdminNavId) {
+    onNavigate(id)
+    setMobileNavOpen(false)
+  }
+
+  const sidebarHeader = (
+    <div className="flex items-center gap-3">
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent ring-1 ring-sidebar-border">
+        <img src="/logo.svg" alt="" className="h-7 w-auto object-contain" />
+      </div>
+      <div className="min-w-0 leading-tight">
+        <p className="truncate text-sm font-semibold text-sidebar-foreground">Admin Console</p>
+        <p className="truncate text-xs text-sidebar-foreground/65">Superadmin</p>
+      </div>
+    </div>
+  )
+
+  const renderNav = () => (
+    <nav className="space-y-5 p-3">
+      {visibleGroups.map((group) => (
+        <div key={group.label} className="space-y-1">
+          <p className="px-2 text-[11px] font-semibold tracking-wider text-sidebar-foreground/50 uppercase">
+            {group.label}
+          </p>
+          <ul className="flex flex-col gap-0.5">
+            {group.items.map((item) => {
+              const Icon = item.icon
+              const isActive = activeId === item.id
+              return (
+                <li key={item.id}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "h-9 w-full justify-start gap-2.5 rounded-lg border border-transparent px-2.5 text-left text-sm font-medium text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      isActive &&
+                        "border-sidebar-primary/30 bg-sidebar-primary/15 text-sidebar-primary-foreground shadow-sm hover:bg-sidebar-primary/20",
+                    )}
+                    onClick={() => handleNavigate(item.id)}
+                  >
+                    <Icon
+                      className={cn(
+                        "size-4 shrink-0",
+                        isActive ? "text-primary" : "text-sidebar-foreground/55",
+                      )}
+                      aria-hidden
+                    />
+                    <span className="truncate">{item.label}</span>
+                  </Button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      ))}
+    </nav>
+  )
+
   return (
     <div className="admin-shell flex h-svh min-h-0 w-full bg-background text-foreground">
-      <aside className="flex w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-sm">
+      <aside className="hidden w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-sm lg:flex">
         <div className="flex h-[4.25rem] items-center gap-3 border-b border-sidebar-border px-4">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent ring-1 ring-sidebar-border">
-            <img src="/logo.svg" alt="" className="h-7 w-auto object-contain" />
-          </div>
-          <div className="min-w-0 leading-tight">
-            <p className="truncate text-sm font-semibold text-sidebar-foreground">Admin Console</p>
-            <p className="truncate text-xs text-sidebar-foreground/65">Superadmin</p>
-          </div>
+          {sidebarHeader}
         </div>
 
-        <ScrollArea className="min-h-0 flex-1">
-          <nav className="space-y-5 p-3">
-            {visibleGroups.map((group) => (
-              <div key={group.label} className="space-y-1">
-                <p className="px-2 text-[11px] font-semibold tracking-wider text-sidebar-foreground/50 uppercase">
-                  {group.label}
-                </p>
-                <ul className="flex flex-col gap-0.5">
-                  {group.items.map((item) => {
-                    const Icon = item.icon
-                    const isActive = activeId === item.id
-                    return (
-                      <li key={item.id}>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className={cn(
-                            "h-9 w-full justify-start gap-2.5 rounded-lg border border-transparent px-2.5 text-left text-sm font-medium text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                            isActive &&
-                              "border-sidebar-primary/30 bg-sidebar-primary/15 text-sidebar-primary-foreground shadow-sm hover:bg-sidebar-primary/20",
-                          )}
-                          onClick={() => onNavigate(item.id)}
-                        >
-                          <Icon
-                            className={cn(
-                              "size-4 shrink-0",
-                              isActive ? "text-primary" : "text-sidebar-foreground/55",
-                            )}
-                            aria-hidden
-                          />
-                          <span className="truncate">{item.label}</span>
-                        </Button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            ))}
-          </nav>
-        </ScrollArea>
+        <ScrollArea className="min-h-0 flex-1">{renderNav()}</ScrollArea>
 
         <div className="border-t border-sidebar-border p-3">
           <p className="px-2 text-[11px] text-sidebar-foreground/45">Workspace template</p>
         </div>
       </aside>
 
+      <MobileNavDrawer
+        open={mobileNavOpen}
+        onOpenChange={setMobileNavOpen}
+        className="bg-sidebar text-sidebar-foreground"
+        header={sidebarHeader}
+        ariaLabel="Admin navigation menu"
+      >
+        {renderNav()}
+      </MobileNavDrawer>
+
       <div className="flex min-w-0 flex-1 flex-col admin-canvas">
         <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border/80 bg-background/95 px-6 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0 lg:hidden"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation menu"
+            >
+              <Menu className="size-4 opacity-80" aria-hidden />
+            </Button>
             <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
           </div>
           <div className="flex shrink-0 items-center gap-3">

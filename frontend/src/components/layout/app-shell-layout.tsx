@@ -10,6 +10,7 @@ import {
   Package,
   FileBarChart,
   ShoppingCart,
+  Menu,
   PanelLeft,
   Settings,
   Shield,
@@ -21,6 +22,7 @@ import { Link, useLocation } from "react-router-dom"
 
 import { ProfileDialog } from "@/components/profile-dialog"
 import { AppBrandMark } from "@/components/layout/app-brand-mark"
+import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer"
 import { SessionIdleNavbarBadge } from "@/components/session-idle-navbar-badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -178,6 +180,7 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
   const title = activeItem?.label ?? "Dashboard"
   const [profileOpen, setProfileOpen] = React.useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
+  const [mobileNavOpen, setMobileNavOpen] = React.useState(false)
   React.useEffect(() => {
     try {
       setIsSidebarCollapsed(localStorage.getItem("ui.sidebarCollapsed") === "1")
@@ -185,6 +188,9 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
       // ignore
     }
   }, [])
+  React.useEffect(() => {
+    setMobileNavOpen(false)
+  }, [location.pathname])
   function toggleSidebar() {
     setIsSidebarCollapsed((v) => {
       const next = !v
@@ -207,6 +213,56 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
     return `${a}${b}`.slice(0, 2)
   }, [userEmail])
 
+  const navContent = (collapsed: boolean, onNavigate?: () => void) => (
+    <nav
+      className={cn("flex flex-col gap-3 px-2 py-3", collapsed && "px-1.5 gap-2")}
+      aria-label="Workspace"
+    >
+      {visibleGroups.map((group) => (
+        <div key={group.label} className="space-y-1">
+          {!collapsed ? (
+            <p className="px-3 pb-0.5 text-[10px] font-semibold tracking-[0.08em] text-foreground uppercase">
+              {group.label}
+            </p>
+          ) : null}
+          {group.items.map((item) => {
+            const Icon = item.icon
+            const isActive = pathMatchesNav(location.pathname, item.to)
+            return (
+              <Button
+                key={item.id}
+                type="button"
+                variant="ghost"
+                size="sm"
+                title={collapsed ? item.label : undefined}
+                className={cn(
+                  "relative h-9 w-full rounded-[calc(var(--app-radius-surface)-2px)] text-left font-medium",
+                  collapsed ? "justify-center px-0" : "justify-start gap-2.5 pl-3",
+                  "text-foreground hover:bg-muted/70",
+                  isActive &&
+                    "border-l-2 border-primary bg-primary/8 pl-[calc(0.75rem-2px)] text-primary hover:bg-primary/10 hover:text-primary",
+                  isActive && collapsed && "border-l-0 bg-primary/10 pl-0 text-primary",
+                )}
+                asChild
+              >
+                <Link to={item.to} onClick={onNavigate}>
+                  <Icon
+                    className={cn(
+                      "size-4 shrink-0",
+                      isActive ? "text-primary opacity-100" : "opacity-70",
+                    )}
+                    aria-hidden
+                  />
+                  {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                </Link>
+              </Button>
+            )
+          })}
+        </div>
+      ))}
+    </nav>
+  )
+
   return (
     <div className="flex h-svh min-h-0 w-full app-canvas text-foreground">
       <aside
@@ -226,66 +282,34 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
         </Link>
         <Separator className="shrink-0" />
         <div className="flex min-h-0 flex-1 flex-col">
-          <nav
-            className={cn("flex flex-col gap-3 px-2 py-3", isSidebarCollapsed && "px-1.5 gap-2")}
-            aria-label="Workspace"
-          >
-            {visibleGroups.map((group) => (
-              <div key={group.label} className="space-y-1">
-                {!isSidebarCollapsed ? (
-                  <p className="px-3 pb-0.5 text-[10px] font-semibold tracking-[0.08em] text-foreground uppercase">
-                    {group.label}
-                  </p>
-                ) : null}
-                {group.items.map((item) => {
-                  const Icon = item.icon
-                  const isActive = pathMatchesNav(location.pathname, item.to)
-                  return (
-                    <Button
-                      key={item.id}
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      title={isSidebarCollapsed ? item.label : undefined}
-                      className={cn(
-                        "relative h-9 w-full rounded-[calc(var(--app-radius-surface)-2px)] text-left font-medium",
-                        isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-2.5 pl-3",
-                        "text-foreground hover:bg-muted/70",
-                        isActive &&
-                          "border-l-2 border-primary bg-primary/8 pl-[calc(0.75rem-2px)] text-primary hover:bg-primary/10 hover:text-primary",
-                        isActive && isSidebarCollapsed && "border-l-0 bg-primary/10 pl-0 text-primary",
-                      )}
-                      asChild
-                    >
-                      <Link to={item.to}>
-                        <Icon
-                          className={cn(
-                            "size-4 shrink-0",
-                            isActive ? "text-primary opacity-100" : "opacity-70",
-                          )}
-                          aria-hidden
-                        />
-                        {!isSidebarCollapsed ? <span className="truncate">{item.label}</span> : null}
-                      </Link>
-                    </Button>
-                  )
-                })}
-              </div>
-            ))}
-          </nav>
+          {navContent(isSidebarCollapsed)}
           {!isSidebarCollapsed ? (
-            <div className="mt-auto border-t border-border/60 p-3">
-              {/* <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/25 px-3 py-2.5 text-[11px] leading-snug text-muted-foreground">
-                Master data and admin tasks appear here when your role allows.
-              </div> */}
-            </div>
+            <div className="mt-auto border-t border-border/60 p-3" />
           ) : null}
         </div>
       </aside>
 
+      <MobileNavDrawer
+        open={mobileNavOpen}
+        onOpenChange={setMobileNavOpen}
+        header={<AppBrandMark size="sm" showSubtitle={false} />}
+      >
+        {navContent(false, () => setMobileNavOpen(false))}
+      </MobileNavDrawer>
+
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border/80 bg-card/95 px-[var(--app-page-padding)] shadow-[var(--app-shadow-surface)] backdrop-blur supports-[backdrop-filter]:bg-card/90">
           <div className="flex min-w-0 items-center gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0 lg:hidden"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Open navigation menu"
+            >
+              <Menu className="size-4 opacity-80" aria-hidden />
+            </Button>
             <Button
               type="button"
               variant="ghost"

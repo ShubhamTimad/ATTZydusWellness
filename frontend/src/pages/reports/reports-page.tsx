@@ -104,7 +104,7 @@ export function ReportsPage() {
   }
 
   return (
-    <div className="app-page flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div className="app-page flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-x-hidden overflow-y-auto">
       <div>
         <h1 className="app-page-heading">Reports</h1>
         {/* <p className="app-page-subheading mt-1">
@@ -118,7 +118,7 @@ export function ReportsPage() {
         </div>
       ) : null}
 
-      <div className="grid items-start gap-[var(--app-grid-gap)] md:grid-cols-2">
+      <div className="grid w-full min-w-0 grid-cols-1 items-start gap-[var(--app-grid-gap)] lg:grid-cols-2">
         {loading
           ? Array.from({ length: 3 }).map((_, i) => (
               <ReportTileSkeleton key={i} span={i === 0 ? "full" : "half"} compact={i === 0} />
