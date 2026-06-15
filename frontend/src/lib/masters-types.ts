@@ -76,3 +76,17 @@ export type TagColorMaster = {
   color_hex: string | null
   is_active: boolean
 }
+
+export type AssetCustodianMaster = {
+  id: number
+  code: string
+  name: string
+  is_active: boolean
+}
+
+export type AssetConditionMaster = {
+  id: number
+  code: string
+  name: string
+  is_active: boolean
+}

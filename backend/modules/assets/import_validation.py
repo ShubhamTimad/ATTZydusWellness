@@ -16,7 +16,7 @@ from modules.asset_masters.model import (
     FunctionalLocationMaster,
     ProfitCenterMaster,
 )
-from modules.asset_masters.model import TagColorMaster
+from modules.asset_masters.model import TagColorMaster, AssetCustodianMaster, AssetConditionMaster
 from modules.platform.org_units.model import OrgUnit
 from modules.assets.schema import ImportPreviewRow
 
@@ -288,6 +288,28 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
                 )
                 if tc is None:
                     field_errors["tag_color_code"] = "Unknown tag color code."
+
+        asset_custodian_code = _cell_str(row.data.get("asset_custodian_code"))
+        if asset_custodian_code:
+            custodian = db.scalar(
+                select(AssetCustodianMaster).where(
+                    func.lower(AssetCustodianMaster.code) == asset_custodian_code.lower(),
+                    AssetCustodianMaster.is_active.is_(True),
+                )
+            )
+            if custodian is None:
+                field_errors["asset_custodian_code"] = "Unknown asset custodian code."
+
+        asset_condition_code = _cell_str(row.data.get("asset_condition_code"))
+        if asset_condition_code:
+            condition = db.scalar(
+                select(AssetConditionMaster).where(
+                    func.lower(AssetConditionMaster.code) == asset_condition_code.lower(),
+                    AssetConditionMaster.is_active.is_(True),
+                )
+            )
+            if condition is None:
+                field_errors["asset_condition_code"] = "Unknown asset condition code."
 
         if field_errors:
             errors = list(dict.fromkeys(field_errors.values()))

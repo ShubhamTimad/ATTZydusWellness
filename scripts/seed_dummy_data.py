@@ -744,7 +744,6 @@ def _enrich_demo_asset_spec(spec: dict[str, object], *, today: date) -> dict[str
     s.setdefault("asset_description", f"Operational asset — {s['asset_name']}")
     s.setdefault("engineering_description", f"Engineering install and calibration notes for {code}.")
     s.setdefault("qa_description", f"QA classification per internal SOP for {cat} assets.")
-    s.setdefault("is_local_finance_user", False)
     s.setdefault("asset_allocation", f"Allocated to {cc}")
     s.setdefault("pm_equipment_id", f"PM-{n:04d}")
 
@@ -783,7 +782,6 @@ def _apply_demo_asset_spec(
     info.asset_description = str(spec["asset_description"])
     info.engineering_description = str(spec["engineering_description"])
     info.qa_description = str(spec["qa_description"])
-    info.is_local_finance_user = bool(spec["is_local_finance_user"])
     info.asset_allocation = str(spec["asset_allocation"])
     info.pm_equipment_id = str(spec["pm_equipment_id"])
 

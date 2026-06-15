@@ -43,7 +43,7 @@ type Row = {
 type MasterCrudPanelProps = {
   title: string
   listUrl: string
-  kind: "simple" | "category" | "location" | "tag-color"
+  kind: "simple" | "category" | "location" | "tag-color" | "code-name"
   plants?: PlantOption[]
 }
 
@@ -105,7 +105,7 @@ export function MasterCrudPanel({
     if (kind === "category") {
       setName(row.name ?? "")
       setDesc(row.description)
-    } else if (kind === "tag-color") {
+    } else if (kind === "tag-color" || kind === "code-name") {
       setName(row.name ?? row.description)
       setColorHex(row.color_hex ?? "")
       setDesc("")
@@ -127,6 +127,9 @@ export function MasterCrudPanel({
         name: name.trim(),
         color_hex: colorHex.trim() || null,
       }
+    }
+    if (kind === "code-name") {
+      return { code: code.trim(), name: name.trim() }
     }
     if (kind === "location") {
       return {
@@ -171,7 +174,7 @@ export function MasterCrudPanel({
   }
 
   async function deleteRow(row: Row) {
-    const label = kind === "category" || kind === "tag-color" ? row.name ?? row.code : row.code
+    const label = kind === "category" || kind === "tag-color" || kind === "code-name" ? row.name ?? row.code : row.code
     if (
       !window.confirm(
         `Delete "${label}"? Allowed only when no assets use this ${title.toLowerCase()}.`,
@@ -198,7 +201,7 @@ export function MasterCrudPanel({
   ) : null
 
   const nameColumnLabel =
-    kind === "category" || kind === "tag-color" ? "Name" : "Description"
+    kind === "category" || kind === "tag-color" || kind === "code-name" ? "Name" : "Description"
 
   return (
     <AdminDataTable title={title} headerActions={addButton}>
@@ -218,7 +221,7 @@ export function MasterCrudPanel({
           {rows.length === 0 ? (
             <AdminTableEmptyRow
               colSpan={
-                (kind === "tag-color" ? 4 : kind === "location" ? 5 : 3) + (showActions ? 1 : 0)
+                (kind === "tag-color" ? 4 : kind === "location" ? 5 : kind === "code-name" ? 3 : 3) + (showActions ? 1 : 0)
               }
             >
               No records yet.
@@ -228,7 +231,7 @@ export function MasterCrudPanel({
               <AdminTableBodyRow key={row.id} interactive={false}>
                 <AdminTableCell className="font-mono text-xs">{row.code}</AdminTableCell>
                 <AdminTableCell>
-                  {kind === "category" || kind === "tag-color"
+                  {kind === "category" || kind === "tag-color" || kind === "code-name"
                     ? row.name ?? row.description
                     : row.description}
                 </AdminTableCell>
@@ -413,6 +416,11 @@ function MasterForm({
             />
           </div>
         </>
+      ) : kind === "code-name" ? (
+        <div className="app-form-field">
+          <Label className="app-form-label">Name *</Label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
       ) : (
         <div className="app-form-field">
           <Label className="app-form-label">Description *</Label>

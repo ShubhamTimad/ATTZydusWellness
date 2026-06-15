@@ -36,6 +36,8 @@ def asset_export_value(asset: AssetMaster, field: str) -> Any:
     plant = loc.plant if loc else None
     category = asset.category
     tag = asset.tag_color
+    custodian = asset.asset_custodian
+    condition = asset.asset_condition
 
     values: dict[str, Any] = {
         "asset_name": asset.asset_name,
@@ -47,6 +49,8 @@ def asset_export_value(asset: AssetMaster, field: str) -> Any:
         "category_code": category.code if category else None,
         "category_name": category.name if category else None,
         "tag_color_code": tag.code if tag else None,
+        "asset_custodian_code": custodian.code if custodian else None,
+        "asset_condition_code": condition.code if condition else None,
         "sub_location": loc.sub_location if loc else None,
         "functional_location": loc.functional_location if loc else None,
         "actual_location": loc.actual_location if loc else None,

@@ -63,6 +63,8 @@ from modules.assets.import_validation import (
 )
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    AssetConditionMaster,
+    AssetCustodianMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
@@ -136,6 +138,12 @@ class InvalidRfidError(Exception):
 
 
 class InvalidTagColorError(Exception):
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+class InvalidAssetMasterLookupError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(message)
@@ -278,6 +286,46 @@ class AssetMasterService:
             return int(row.id)
         return None
 
+    def _resolve_asset_custodian_id(
+        self, *, asset_custodian_id: int | None, asset_custodian_code: str | None
+    ) -> int | None:
+        if asset_custodian_id is not None:
+            row = self._db.get(AssetCustodianMaster, asset_custodian_id)
+            if row is None or not row.is_active:
+                raise InvalidAssetMasterLookupError("Unknown or inactive asset custodian.")
+            return int(row.id)
+        if asset_custodian_code:
+            row = self._db.scalar(
+                select(AssetCustodianMaster).where(
+                    func.lower(AssetCustodianMaster.code) == asset_custodian_code.strip().lower(),
+                    AssetCustodianMaster.is_active.is_(True),
+                )
+            )
+            if row is None:
+                raise InvalidAssetMasterLookupError("Unknown asset custodian code.")
+            return int(row.id)
+        return None
+
+    def _resolve_asset_condition_id(
+        self, *, asset_condition_id: int | None, asset_condition_code: str | None
+    ) -> int | None:
+        if asset_condition_id is not None:
+            row = self._db.get(AssetConditionMaster, asset_condition_id)
+            if row is None or not row.is_active:
+                raise InvalidAssetMasterLookupError("Unknown or inactive asset condition.")
+            return int(row.id)
+        if asset_condition_code:
+            row = self._db.scalar(
+                select(AssetConditionMaster).where(
+                    func.lower(AssetConditionMaster.code) == asset_condition_code.strip().lower(),
+                    AssetConditionMaster.is_active.is_(True),
+                )
+            )
+            if row is None:
+                raise InvalidAssetMasterLookupError("Unknown asset condition code.")
+            return int(row.id)
+        return None
+
     def _set_tag_color(self, asset: AssetMaster, tag_color_id: int | None) -> None:
         rfid = _normalize_rfid(asset.rfid_code or "")
         if tag_color_id is not None:
@@ -289,6 +337,24 @@ class AssetMasterService:
             asset.tag_color_id = int(tag_color_id)
         else:
             asset.tag_color_id = None
+
+    def _set_asset_custodian(self, asset: AssetMaster, asset_custodian_id: int | None) -> None:
+        if asset_custodian_id is not None:
+            row = self._db.get(AssetCustodianMaster, asset_custodian_id)
+            if row is None or not row.is_active:
+                raise InvalidAssetMasterLookupError("Unknown or inactive asset custodian.")
+            asset.asset_custodian_id = int(asset_custodian_id)
+        else:
+            asset.asset_custodian_id = None
+
+    def _set_asset_condition(self, asset: AssetMaster, asset_condition_id: int | None) -> None:
+        if asset_condition_id is not None:
+            row = self._db.get(AssetConditionMaster, asset_condition_id)
+            if row is None or not row.is_active:
+                raise InvalidAssetMasterLookupError("Unknown or inactive asset condition.")
+            asset.asset_condition_id = int(asset_condition_id)
+        else:
+            asset.asset_condition_id = None
 
     def _resolve_plant_id(self, plant_code: str | None, plant_id: int | None) -> int | None:
         if plant_id is not None:
@@ -490,6 +556,10 @@ class AssetMasterService:
         self._db.add(_apply_inventory(asset.id, data.inventory))
         if data.tag_color_id is not None:
             self._set_tag_color(asset, data.tag_color_id)
+        if data.asset_custodian_id is not None:
+            self._set_asset_custodian(asset, data.asset_custodian_id)
+        if data.asset_condition_id is not None:
+            self._set_asset_condition(asset, data.asset_condition_id)
 
         log_asset_event(
             self._db,
@@ -1113,6 +1183,8 @@ class AssetMasterService:
         base = base.options(
             selectinload(AssetMaster.category),
             selectinload(AssetMaster.tag_color),
+            selectinload(AssetMaster.asset_custodian),
+            selectinload(AssetMaster.asset_condition),
             selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
             selectinload(AssetMaster.financial),
             selectinload(AssetMaster.inventory),
@@ -1271,6 +1343,8 @@ class AssetMasterService:
             .options(
                 selectinload(AssetMaster.category),
                 selectinload(AssetMaster.tag_color),
+            selectinload(AssetMaster.asset_custodian),
+            selectinload(AssetMaster.asset_condition),
                 selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
                 selectinload(AssetMaster.information),
                 selectinload(AssetMaster.financial),
@@ -1326,6 +1400,12 @@ class AssetMasterService:
             tag_color_code=asset.tag_color.code if asset.tag_color else None,
             tag_color_name=asset.tag_color.name if asset.tag_color else None,
             tag_color_hex=asset.tag_color.color_hex if asset.tag_color else None,
+            asset_custodian_id=asset.asset_custodian_id,
+            asset_custodian_code=asset.asset_custodian.code if asset.asset_custodian else None,
+            asset_custodian_name=asset.asset_custodian.name if asset.asset_custodian else None,
+            asset_condition_id=asset.asset_condition_id,
+            asset_condition_code=asset.asset_condition.code if asset.asset_condition else None,
+            asset_condition_name=asset.asset_condition.name if asset.asset_condition else None,
             lifecycle_status=asset.lifecycle_status,
             approval_status=asset.approval_status,
             ownership_type=asset.ownership_type,
@@ -1466,6 +1546,10 @@ class AssetMasterService:
                 asset.tag_color_id = None
         if "tag_color_id" in data.model_dump(exclude_unset=True):
             self._set_tag_color(asset, data.tag_color_id)
+        if "asset_custodian_id" in data.model_dump(exclude_unset=True):
+            self._set_asset_custodian(asset, data.asset_custodian_id)
+        if "asset_condition_id" in data.model_dump(exclude_unset=True):
+            self._set_asset_condition(asset, data.asset_condition_id)
         if data.serial_no is not None:
             asset.serial_no = data.serial_no.strip() or None
         if data.asset_category_id is not None:
@@ -1739,6 +1823,18 @@ class AssetMasterService:
                 except InvalidTagColorError as exc:
                     errors.append(f"Row {raw.row_number}: {exc.message}")
                     continue
+                try:
+                    asset_custodian_id = self._resolve_asset_custodian_id(
+                        asset_custodian_id=None,
+                        asset_custodian_code=str(mapped.get("asset_custodian_code") or "") or None,
+                    )
+                    asset_condition_id = self._resolve_asset_condition_id(
+                        asset_condition_id=None,
+                        asset_condition_code=str(mapped.get("asset_condition_code") or "") or None,
+                    )
+                except InvalidAssetMasterLookupError as exc:
+                    errors.append(f"Row {raw.row_number}: {exc.message}")
+                    continue
                 asset = AssetMaster(
                     asset_name=str(name).strip(),
                     asset_code=str(code).strip().upper(),
@@ -1748,6 +1844,8 @@ class AssetMasterService:
                     asset_class=mapped.get("asset_class"),
                     asset_type=mapped.get("asset_type"),
                     tag_color_id=tag_color_id if rfid else None,
+                    asset_custodian_id=asset_custodian_id,
+                    asset_condition_id=asset_condition_id,
                     ownership_type=str(raw.data.get("ownership_type") or "").strip() or None,
                     source_type="import",
                     import_batch_id=batch.id,

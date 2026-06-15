@@ -65,6 +65,12 @@ class AssetMaster(Base):
     tag_color_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("tag_color_masters.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    asset_custodian_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("asset_custodian_masters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    asset_condition_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("asset_condition_masters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     asset_class: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     asset_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
     lifecycle_status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="draft", index=True)
@@ -88,6 +94,8 @@ class AssetMaster(Base):
 
     category = relationship("AssetCategory")
     tag_color = relationship("TagColorMaster")
+    asset_custodian = relationship("AssetCustodianMaster")
+    asset_condition = relationship("AssetConditionMaster")
     import_batch = relationship("AssetImportBatch", back_populates="assets")
     information = relationship(
         "AssetInformation", back_populates="asset", uselist=False, cascade="all, delete-orphan"
@@ -114,7 +122,6 @@ class AssetInformation(Base):
     asset_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     engineering_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     qa_description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_local_finance_user: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     asset_allocation: Mapped[str | None] = mapped_column(String(255), nullable=True)
     pm_equipment_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
 

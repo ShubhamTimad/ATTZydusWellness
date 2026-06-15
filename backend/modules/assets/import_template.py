@@ -16,6 +16,8 @@ from sqlalchemy.orm import Session
 
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    AssetConditionMaster,
+    AssetCustodianMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
@@ -151,6 +153,32 @@ def build_import_template_xlsx(db: Session) -> bytes:
         _define_list_range(wb, "TagColors", LISTS_SHEET, list_col, row_start, row_end)
     list_col += 1
 
+    custodians = list(
+        db.scalars(
+            select(AssetCustodianMaster)
+            .where(AssetCustodianMaster.is_active.is_(True))
+            .order_by(AssetCustodianMaster.code)
+        ).all()
+    )
+    custodian_codes = [str(c.code) for c in custodians]
+    row_start, row_end = _write_vertical_list(ws_lists, list_col, custodian_codes)
+    if custodian_codes:
+        _define_list_range(wb, "AssetCustodians", LISTS_SHEET, list_col, row_start, row_end)
+    list_col += 1
+
+    conditions = list(
+        db.scalars(
+            select(AssetConditionMaster)
+            .where(AssetConditionMaster.is_active.is_(True))
+            .order_by(AssetConditionMaster.code)
+        ).all()
+    )
+    condition_codes = [str(c.code) for c in conditions]
+    row_start, row_end = _write_vertical_list(ws_lists, list_col, condition_codes)
+    if condition_codes:
+        _define_list_range(wb, "AssetConditions", LISTS_SHEET, list_col, row_start, row_end)
+    list_col += 1
+
     cost_centers = list(
         db.scalars(
             select(CostCenterMaster)
@@ -257,6 +285,12 @@ def build_import_template_xlsx(db: Session) -> bytes:
 
     if "tag_color_code" in col_map and tag_color_codes:
         _add_list_validation(ws_import, col=col_map["tag_color_code"], formula="=TagColors")
+
+    if "asset_custodian_code" in col_map and custodian_codes:
+        _add_list_validation(ws_import, col=col_map["asset_custodian_code"], formula="=AssetCustodians")
+
+    if "asset_condition_code" in col_map and condition_codes:
+        _add_list_validation(ws_import, col=col_map["asset_condition_code"], formula="=AssetConditions")
 
     if "plant_code" in col_map and "cost_center" in col_map and plant_codes:
         plant_ref = f"{get_column_letter(col_map['plant_code'])}2"

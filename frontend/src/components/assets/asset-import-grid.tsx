@@ -4,6 +4,7 @@ import { AlertCircle } from "lucide-react"
 
 import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
+import { adminSelectClass } from "@/components/layout/admin-ui"
 import { ASSET_IMPORT_GRID_COLUMNS } from "@/lib/asset-master-fields"
 
 export type ImportGridRow = {
@@ -31,9 +32,10 @@ function cellDisplayValue(key: string, data: Record<string, unknown>): string {
 
 type ImportCellProps = {
   colKey: string
-  colKind?: "text" | "date" | "readonly"
+  colKind?: "text" | "date" | "readonly" | "select"
   value: string
   error?: string
+  selectOptions?: { value: string; label: string }[]
   onChange: (value: string) => void
 }
 
@@ -42,6 +44,7 @@ const ImportCell = React.memo(function ImportCell({
   colKind,
   value,
   error,
+  selectOptions = [],
   onChange,
 }: ImportCellProps) {
   if (colKind === "readonly") {
@@ -54,6 +57,39 @@ const ImportCell = React.memo(function ImportCell({
         title={error}
       >
         {value || "1"}
+      </div>
+    )
+  }
+
+  if (colKind === "select" && selectOptions.length > 0) {
+    return (
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          title={error}
+          className={cn(
+            adminSelectClass,
+            "h-8 min-w-[7rem] px-2 text-xs",
+            error &&
+              "border-destructive/70 bg-destructive/10 text-destructive focus:border-destructive focus:ring-destructive/30",
+          )}
+        >
+          <option value="">—</option>
+          {selectOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        {error ? (
+          <span
+            className="pointer-events-none absolute top-0.5 right-0.5 text-destructive"
+            title={error}
+          >
+            <AlertCircle className="size-3" aria-hidden />
+          </span>
+        ) : null}
       </div>
     )
   }
@@ -91,6 +127,7 @@ type VirtualRowProps = {
   selected: boolean
   onSelectChange: (on: boolean) => void
   onCellChange: (rowIndex: number, key: string, value: string) => void
+  columnSelectOptions?: Record<string, { value: string; label: string }[]>
   style: React.CSSProperties
 }
 
@@ -101,6 +138,7 @@ const VirtualImportRow = React.memo(function VirtualImportRow({
   selected,
   onSelectChange,
   onCellChange,
+  columnSelectOptions,
   style,
 }: VirtualRowProps) {
   const rowHasError = !row.valid
@@ -153,6 +191,7 @@ const VirtualImportRow = React.memo(function VirtualImportRow({
             colKind={col.kind}
             value={cellDisplayValue(col.key, row.data)}
             error={row.field_errors[col.key]}
+            selectOptions={columnSelectOptions?.[col.key]}
             onChange={(v) => onCellChange(rowIndex, col.key, v)}
           />
         </div>
@@ -171,6 +210,7 @@ const VirtualImportRow = React.memo(function VirtualImportRow({
 export type AssetImportGridProps = {
   rows: ImportGridRow[]
   onCellChange: (rowIndex: number, key: string, value: string) => void
+  columnSelectOptions?: Record<string, { value: string; label: string }[]>
   selectedRowNumbers?: Set<number>
   onSelectedRowNumbersChange?: (next: Set<number>) => void
   errorsOnly?: boolean
@@ -183,6 +223,7 @@ export type AssetImportGridProps = {
 export function AssetImportGrid({
   rows,
   onCellChange,
+  columnSelectOptions,
   selectedRowNumbers,
   onSelectedRowNumbersChange,
   errorsOnly = false,
@@ -328,6 +369,7 @@ export function AssetImportGrid({
                   onSelectedRowNumbersChange(next)
                 }}
                 onCellChange={onCellChangeStable}
+                columnSelectOptions={columnSelectOptions}
                 style={{
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,

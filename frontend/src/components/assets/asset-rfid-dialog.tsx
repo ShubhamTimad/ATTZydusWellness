@@ -18,6 +18,8 @@ type AssetRfidDialogProps = {
   onChange: (value: string) => void
   onSave: () => void
   saving?: boolean
+  /** True when the asset already had an RFID before this dialog was opened. */
+  isUpdate?: boolean
   /** When set, show asset code field (toolbar attach-by-code flow). */
   assetCode?: string
   onAssetCodeChange?: (value: string) => void
@@ -34,6 +36,7 @@ export function AssetRfidDialog({
   onChange,
   onSave,
   saving = false,
+  isUpdate = false,
   assetCode,
   onAssetCodeChange,
   assetCodeReadOnly = false,
@@ -53,7 +56,7 @@ export function AssetRfidDialog({
         <div className="border-b px-6 py-4">
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-lg font-semibold tracking-tight">
-              {value ? "Update RFID" : "Attach RFID"}
+              {isUpdate ? "Update RFID" : "Attach RFID"}
             </DialogTitle>
           </DialogHeader>
 
@@ -132,7 +135,7 @@ export function AssetRfidDialog({
             >
               {saving
                 ? "Saving..."
-                : value
+                : isUpdate
                   ? "Update RFID"
                   : "Attach RFID"}
             </Button>

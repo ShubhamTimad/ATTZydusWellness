@@ -28,6 +28,8 @@ export const ASSET_MASTER_FIELDS: AssetMasterFieldDef[] = [
   { key: "asset_code", label: "Asset code", section: "root", kind: "text" },
   { key: "rfid_code", label: "RFID code", section: "root", kind: "text" },
   { key: "tag_color_id", label: "Tag color", section: "root", kind: "text" },
+  { key: "asset_custodian_id", label: "Asset custodian", section: "root", kind: "text" },
+  { key: "asset_condition_id", label: "Asset condition", section: "root", kind: "text" },
   { key: "sub_location", label: "Sub location", section: "location", kind: "text" },
   { key: "cost_center", label: "Cost center", section: "financial", kind: "cost_center" },
   { key: "party_details", label: "Party details", section: "financial", kind: "text" },
@@ -52,7 +54,7 @@ export const ASSET_IMPORT_HEADERS = ASSET_MASTER_FIELDS.map((f) => f.label)
 export type AssetImportColumn = {
   key: string
   label: string
-  kind?: "text" | "date" | "readonly"
+  kind?: "text" | "date" | "readonly" | "select"
   required?: boolean
 }
 
@@ -90,7 +92,9 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "category_code", label: "Asset category", required: true },
   { key: "asset_code", label: "Asset code", required: true },
   { key: "rfid_code", label: "RFID code" },
-  { key: "tag_color_code", label: "Tag color" },
+  { key: "tag_color_code", label: "Tag color", kind: "select" },
+  { key: "asset_custodian_code", label: "Asset custodian", kind: "select" },
+  { key: "asset_condition_code", label: "Asset condition", kind: "select" },
   { key: "sub_location", label: "Sub location" },
   { key: "plant_code", label: "Plant name", required: true },
   { key: "cost_center", label: "Cost center", required: true },
@@ -156,6 +160,12 @@ export function assetMasterFieldValue(asset: AssetDetail, def: AssetMasterFieldD
   if (def.key === "tag_color_id") {
     return asset.tag_color_name ?? asset.tag_color_code ?? asset.tag_color_id
   }
+  if (def.key === "asset_custodian_id") {
+    return asset.asset_custodian_name ?? asset.asset_custodian_code ?? asset.asset_custodian_id
+  }
+  if (def.key === "asset_condition_id") {
+    return asset.asset_condition_name ?? asset.asset_condition_code ?? asset.asset_condition_id
+  }
   if (def.key === "plant_id") return asset.plant_name ?? asset.location?.plant_id
   if (def.key === "inventory_count") return asset.inventory?.inventory_count ?? 1
   if (def.section === "root") {
@@ -175,6 +185,10 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   asset_category_id: "Asset category",
   tag_color_id: "Tag color",
   tag_color_code: "Tag color",
+  asset_custodian_id: "Asset custodian",
+  asset_custodian_code: "Asset custodian",
+  asset_condition_id: "Asset condition",
+  asset_condition_code: "Asset condition",
   functional_location: "Functional location",
   actual_location: "Actual location",
   building: "Building",
@@ -220,6 +234,8 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
       "asset_code",
       "rfid_code",
       "tag_color_id",
+      "asset_custodian_id",
+      "asset_condition_id",
     ],
   },
   {

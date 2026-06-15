@@ -15,6 +15,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { API_BASE_URL, downloadFile, postJson } from "@/lib/api"
+import {
+  assetConditionLabel,
+  assetCustodianLabel,
+  tagColorLabel,
+  useAssetMasterLookups,
+} from "@/lib/use-asset-masters"
 
 type PreviewResponse = {
   filename: string | null
@@ -72,6 +78,21 @@ function chunkRows<T>(items: T[], size: number): T[][] {
 
 export function AssetImportPage() {
   const navigate = useNavigate()
+  const masters = useAssetMasterLookups()
+  const columnSelectOptions = React.useMemo(
+    () => ({
+      tag_color_code: masters.tagColors.map((c) => ({ value: c.code, label: tagColorLabel(c) })),
+      asset_custodian_code: masters.assetCustodians.map((c) => ({
+        value: c.code,
+        label: assetCustodianLabel(c),
+      })),
+      asset_condition_code: masters.assetConditions.map((c) => ({
+        value: c.code,
+        label: assetConditionLabel(c),
+      })),
+    }),
+    [masters.tagColors, masters.assetCustodians, masters.assetConditions],
+  )
   const [file, setFile] = React.useState<File | null>(null)
   const [preview, setPreview] = React.useState<PreviewResponse | null>(null)
   const [step, setStep] = React.useState<"upload" | "review" | "done">("upload")
@@ -527,6 +548,7 @@ export function AssetImportPage() {
             <AssetImportGrid
               rows={preview.rows}
               onCellChange={handleCellChange}
+              columnSelectOptions={columnSelectOptions}
               selectedRowNumbers={selectedRows}
               onSelectedRowNumbersChange={setSelectedRows}
               errorsOnly={errorsOnly}

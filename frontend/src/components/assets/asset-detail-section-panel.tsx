@@ -166,6 +166,12 @@ export function AssetDetailSectionPanel({
       if (!asset.tag_color_id && !asset.tag_color_hex) return "—"
       return <TagColorSwatch colorHex={asset.tag_color_hex} />
     }
+    if (k === "asset_custodian_id") {
+      return asset.asset_custodian_name ?? asset.asset_custodian_code ?? "—"
+    }
+    if (k === "asset_condition_id") {
+      return asset.asset_condition_name ?? asset.asset_condition_code ?? "—"
+    }
     if (k === "functional_location") {
       return asset.location?.functional_location_name ?? String(raw)
     }
@@ -235,7 +241,11 @@ export function AssetDetailSectionPanel({
                 ? String(asset.asset_category_id ?? "")
                 : k === "tag_color_id"
                   ? String(asset.tag_color_id ?? "")
-                  : String(rawVal ?? "")
+                  : k === "asset_custodian_id"
+                    ? String(asset.asset_custodian_id ?? "")
+                    : k === "asset_condition_id"
+                      ? String(asset.asset_condition_id ?? "")
+                      : String(rawVal ?? "")
             const mono = k === "asset_code" || k === "rfid_code"
             return (
               <div key={k} className="app-form-field">
@@ -266,7 +276,7 @@ export function AssetDetailSectionPanel({
                     onChange={(e) =>
                       onSection(
                         k,
-                        k === "asset_category_id" || k === "tag_color_id"
+                        k === "asset_category_id" || k === "tag_color_id" || k === "asset_custodian_id" || k === "asset_condition_id"
                           ? e.target.value
                             ? Number(e.target.value)
                             : null

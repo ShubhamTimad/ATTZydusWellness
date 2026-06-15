@@ -26,6 +26,8 @@ import {
   type AssetViewSectionId,
 } from "@/lib/asset-master-fields"
 import {
+  assetConditionLabel,
+  assetCustodianLabel,
   categoryLabel,
   actualLocationLabel,
   functionalLocationLabel,
@@ -108,6 +110,7 @@ export function AssetDetailPage() {
   const [auditLoading, setAuditLoading] = React.useState(false)
 
   const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
+  const [rfidDialogIsUpdate, setRfidDialogIsUpdate] = React.useState(false)
   const [rfidValue, setRfidValue] = React.useState("")
   const [rfidTagColorId, setRfidTagColorId] = React.useState("")
   const [rfidSaving, setRfidSaving] = React.useState(false)
@@ -176,6 +179,8 @@ export function AssetDetailPage() {
         asset_code: asset.asset_code,
         rfid_code: asset.rfid_code,
         tag_color_id: asset.tag_color_id,
+        asset_custodian_id: asset.asset_custodian_id,
+        asset_condition_id: asset.asset_condition_id,
         serial_no: asset.serial_no,
         asset_class: asset.asset_class,
         asset_type: asset.asset_type,
@@ -339,12 +344,33 @@ export function AssetDetailPage() {
       })
       return
     }
+    if (field === "asset_custodian_id") {
+      const id = value ? Number(value) : null
+      const row = id ? masters.assetCustodians.find((c) => c.id === id) : null
+      set({
+        asset_custodian_id: id,
+        asset_custodian_code: row?.code ?? null,
+        asset_custodian_name: row?.name ?? null,
+      })
+      return
+    }
+    if (field === "asset_condition_id") {
+      const id = value ? Number(value) : null
+      const row = id ? masters.assetConditions.find((c) => c.id === id) : null
+      set({
+        asset_condition_id: id,
+        asset_condition_code: row?.code ?? null,
+        asset_condition_name: row?.name ?? null,
+      })
+      return
+    }
     set({ [field]: value } as Partial<AssetDetail>)
   }
 
   const rfidDialogProps = {
     open: rfidDialogOpen,
     onOpenChange: setRfidDialogOpen,
+    isUpdate: rfidDialogIsUpdate,
     value: rfidValue,
     onChange: (v: string) => {
       setRfidValue(v)
@@ -397,6 +423,7 @@ export function AssetDetailPage() {
     if (actionId === "update-rfid") {
       setRfidValue(asset?.rfid_code ?? "")
       setRfidTagColorId(asset?.tag_color_id != null ? String(asset.tag_color_id) : "")
+      setRfidDialogIsUpdate(Boolean(asset?.rfid_code?.trim()))
       setRfidDialogOpen(true)
       return
     }
@@ -518,6 +545,14 @@ export function AssetDetailPage() {
             asset_category_id: masters.categories.map((c) => ({
               value: String(c.id),
               label: categoryLabel(c),
+            })),
+            asset_custodian_id: masters.assetCustodians.map((c) => ({
+              value: String(c.id),
+              label: assetCustodianLabel(c),
+            })),
+            asset_condition_id: masters.assetConditions.map((c) => ({
+              value: String(c.id),
+              label: assetConditionLabel(c),
             })),
           }}
           tagColors={a.rfid_code?.trim() ? masters.tagColors : []}

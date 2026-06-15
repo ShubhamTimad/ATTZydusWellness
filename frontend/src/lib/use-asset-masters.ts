@@ -3,6 +3,8 @@ import * as React from "react"
 import { getJson } from "@/lib/api"
 import type {
   ActualLocationMaster,
+  AssetConditionMaster,
+  AssetCustodianMaster,
   CategoryMaster,
   CostCenterMaster,
   FunctionalLocationMaster,
@@ -24,6 +26,8 @@ export function useAssetMasterLookups(
   const [costCenters, setCostCenters] = React.useState<CostCenterMaster[]>([])
   const [profitCenters, setProfitCenters] = React.useState<ProfitCenterMaster[]>([])
   const [tagColors, setTagColors] = React.useState<TagColorMaster[]>([])
+  const [assetCustodians, setAssetCustodians] = React.useState<AssetCustodianMaster[]>([])
+  const [assetConditions, setAssetConditions] = React.useState<AssetConditionMaster[]>([])
 
   const canRead =
     hasPermission("asset.view") || hasPermission("masters.view")
@@ -33,6 +37,20 @@ export function useAssetMasterLookups(
     void getJson<TagColorMaster[]>("/admin/asset-masters/tag-colors")
       .then(setTagColors)
       .catch(() => setTagColors([]))
+  }, [canRead])
+
+  React.useEffect(() => {
+    if (!canRead) return
+    void getJson<AssetCustodianMaster[]>("/admin/asset-masters/asset-custodians?active_only=false")
+      .then(setAssetCustodians)
+      .catch(() => setAssetCustodians([]))
+  }, [canRead])
+
+  React.useEffect(() => {
+    if (!canRead) return
+    void getJson<AssetConditionMaster[]>("/admin/asset-masters/asset-conditions?active_only=false")
+      .then(setAssetConditions)
+      .catch(() => setAssetConditions([]))
   }, [canRead])
 
   React.useEffect(() => {
@@ -119,11 +137,21 @@ export function useAssetMasterLookups(
     costCenters,
     profitCenters,
     tagColors,
+    assetCustodians,
+    assetConditions,
   }
 }
 
 export function tagColorLabel(c: TagColorMaster) {
   return c.name
+}
+
+export function assetCustodianLabel(c: AssetCustodianMaster) {
+  return `${c.code} — ${c.name}`
+}
+
+export function assetConditionLabel(c: AssetConditionMaster) {
+  return `${c.code} — ${c.name}`
 }
 
 export function plantLabel(p: PlantOption) {

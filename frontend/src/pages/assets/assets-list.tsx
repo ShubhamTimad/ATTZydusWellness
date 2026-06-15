@@ -218,6 +218,7 @@ export function AssetsListPage() {
   const [resetVerificationAssetIds, setResetVerificationAssetIds] = React.useState<number[]>([])
   const [fyVerifiedOpen, setFyVerifiedOpen] = React.useState(false)
   const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
+  const [rfidDialogIsUpdate, setRfidDialogIsUpdate] = React.useState(false)
   const [rfidDialogMode, setRfidDialogMode] = React.useState<"by-code" | "selected">("by-code")
   const [rfidAttachAssetId, setRfidAttachAssetId] = React.useState<number | null>(null)
   const [rfidAssetCode, setRfidAssetCode] = React.useState("")
@@ -409,6 +410,7 @@ export function AssetsListPage() {
     setRfidAssetCode("")
     setRfidValue("")
     setRfidTagColorId("")
+    setRfidDialogIsUpdate(false)
     setRfidDialogOpen(true)
   }
 
@@ -420,6 +422,7 @@ export function AssetsListPage() {
     setRfidAssetCode("")
     setRfidValue(row.rfid_code?.trim() ?? "")
     setRfidTagColorId(row.tag_color_id != null ? String(row.tag_color_id) : "")
+    setRfidDialogIsUpdate(Boolean(row.rfid_code?.trim()))
     setRfidDialogOpen(true)
   }
 
@@ -1490,6 +1493,7 @@ export function AssetsListPage() {
       <AssetRfidDialog
         open={rfidDialogOpen}
         onOpenChange={setRfidDialogOpen}
+        isUpdate={rfidDialogIsUpdate}
         value={rfidValue}
         onChange={(v) => {
           setRfidValue(v)

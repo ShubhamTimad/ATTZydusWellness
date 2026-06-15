@@ -15,7 +15,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { ApiError, postJson } from "@/lib/api"
 import {
   ASSET_FIELD_LABELS,
@@ -25,6 +24,8 @@ import {
 import type { AssetDetail } from "@/lib/assets-types"
 import { hasPermission } from "@/lib/permissions"
 import {
+  assetConditionLabel,
+  assetCustodianLabel,
   categoryLabel,
   costCenterLabel,
   profitCenterLabel,
@@ -43,6 +44,8 @@ type CreateForm = {
   asset_category_id: string
   rfid_code: string
   tag_color_id: string
+  asset_custodian_id: string
+  asset_condition_id: string
   serial_no: string
   ownership_type: string
   inventory_no: string
@@ -51,7 +54,6 @@ type CreateForm = {
   qa_description: string
   asset_allocation: string
   pm_equipment_id: string
-  is_local_finance_user: boolean
   plant_id: string
   sub_location: string
   functional_location: string
@@ -88,6 +90,8 @@ const EMPTY_FORM: CreateForm = {
   asset_category_id: "",
   rfid_code: "",
   tag_color_id: "",
+  asset_custodian_id: "",
+  asset_condition_id: "",
   serial_no: "",
   ownership_type: "",
   inventory_no: "",
@@ -96,7 +100,6 @@ const EMPTY_FORM: CreateForm = {
   qa_description: "",
   asset_allocation: "",
   pm_equipment_id: "",
-  is_local_finance_user: false,
   plant_id: "",
   sub_location: "",
   functional_location: "",
@@ -163,6 +166,8 @@ function buildCreatePayload(form: CreateForm) {
     rfid_code: strOrNull(form.rfid_code),
     tag_color_id:
       form.rfid_code.trim() && form.tag_color_id ? Number(form.tag_color_id) : null,
+    asset_custodian_id: form.asset_custodian_id ? Number(form.asset_custodian_id) : null,
+    asset_condition_id: form.asset_condition_id ? Number(form.asset_condition_id) : null,
     serial_no: strOrNull(form.serial_no),
     asset_category_id: form.asset_category_id ? Number(form.asset_category_id) : null,
     ownership_type: strOrNull(form.ownership_type),
@@ -171,7 +176,6 @@ function buildCreatePayload(form: CreateForm) {
       asset_description: strOrNull(form.asset_description),
       engineering_description: strOrNull(form.engineering_description),
       qa_description: strOrNull(form.qa_description),
-      is_local_finance_user: form.is_local_finance_user,
       asset_allocation: strOrNull(form.asset_allocation),
       pm_equipment_id: strOrNull(form.pm_equipment_id),
     },
@@ -369,6 +373,42 @@ export function AssetCreatePage() {
                   ))}
                 </select>
               </FormField>
+              <FormField
+                id="asset_custodian_id"
+                labelText={label("asset_custodian_id", "Asset custodian")}
+              >
+                <select
+                  id="asset_custodian_id"
+                  className={adminSelectClass}
+                  value={form.asset_custodian_id}
+                  onChange={(e) => patch({ asset_custodian_id: e.target.value })}
+                >
+                  <option value="">—</option>
+                  {masters.assetCustodians.map((c) => (
+                    <option key={c.id} value={String(c.id)}>
+                      {assetCustodianLabel(c)}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField
+                id="asset_condition_id"
+                labelText={label("asset_condition_id", "Asset condition")}
+              >
+                <select
+                  id="asset_condition_id"
+                  className={adminSelectClass}
+                  value={form.asset_condition_id}
+                  onChange={(e) => patch({ asset_condition_id: e.target.value })}
+                >
+                  <option value="">—</option>
+                  {masters.assetConditions.map((c) => (
+                    <option key={c.id} value={String(c.id)}>
+                      {assetConditionLabel(c)}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
               <FormField id="serial_no" labelText="Serial no.">
                 <Input id="serial_no" value={form.serial_no} onChange={(e) => patch({ serial_no: e.target.value })} />
               </FormField>
@@ -508,16 +548,6 @@ export function AssetCreatePage() {
                   onChange={(e) => patch({ qa_description: e.target.value })}
                 />
               </FormField>
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/15 px-4 py-3 sm:col-span-2">
-                <div className="space-y-0.5">
-                  <div className="text-sm font-medium">Local finance user</div>
-                  <div className="text-xs text-muted-foreground">Mark when finance data is maintained locally.</div>
-                </div>
-                <Switch
-                  checked={form.is_local_finance_user}
-                  onCheckedChange={(v) => patch({ is_local_finance_user: v })}
-                />
-              </div>
             </div>
           </AdminPanel>
 

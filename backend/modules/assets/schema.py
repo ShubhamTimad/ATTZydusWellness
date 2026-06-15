@@ -24,7 +24,6 @@ class AssetInformationPayload(BaseModel):
     asset_description: str | None = None
     engineering_description: str | None = None
     qa_description: str | None = None
-    is_local_finance_user: bool | None = None
     asset_allocation: str | None = None
     pm_equipment_id: str | None = None
 
@@ -88,6 +87,8 @@ class AssetCreateRequest(BaseModel):
     asset_type: str | None = Field(default=None, max_length=128)
     asset_category_id: int | None = None
     tag_color_id: int | None = None
+    asset_custodian_id: int | None = None
+    asset_condition_id: int | None = None
     ownership_type: str | None = Field(default=None, max_length=64)
     information: AssetInformationPayload | None = None
     location: AssetLocationPayload | None = None
@@ -104,6 +105,8 @@ class AssetUpdateRequest(BaseModel):
     asset_type: str | None = Field(default=None, max_length=128)
     asset_category_id: int | None = None
     tag_color_id: int | None = None
+    asset_custodian_id: int | None = None
+    asset_condition_id: int | None = None
     ownership_type: str | None = None
     lifecycle_status: str | None = None
     information: AssetInformationPayload | None = None
@@ -138,6 +141,12 @@ class AssetRfidAttachPublic(BaseModel):
     tag_color_code: str | None = None
     tag_color_name: str | None = None
     tag_color_hex: str | None = None
+    asset_custodian_id: int | None = None
+    asset_custodian_code: str | None = None
+    asset_custodian_name: str | None = None
+    asset_condition_id: int | None = None
+    asset_condition_code: str | None = None
+    asset_condition_name: str | None = None
 
 class AssetActivePhysicalOrderPublic(BaseModel):
     order_id: int
@@ -225,6 +234,12 @@ class AssetDetailPublic(BaseModel):
     tag_color_code: str | None = None
     tag_color_name: str | None = None
     tag_color_hex: str | None = None
+    asset_custodian_id: int | None = None
+    asset_custodian_code: str | None = None
+    asset_custodian_name: str | None = None
+    asset_condition_id: int | None = None
+    asset_condition_code: str | None = None
+    asset_condition_name: str | None = None
     lifecycle_status: str
     approval_status: str
     ownership_type: str | None

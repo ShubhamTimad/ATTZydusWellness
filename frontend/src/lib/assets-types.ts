@@ -96,7 +96,6 @@ export type AssetSectionPayloads = {
   asset_description?: string | null
   engineering_description?: string | null
   qa_description?: string | null
-  is_local_finance_user?: boolean | null
   asset_allocation?: string | null
   pm_equipment_id?: string | null
   plant_id?: number | null
@@ -150,6 +149,12 @@ export type AssetDetail = {
   tag_color_code: string | null
   tag_color_name: string | null
   tag_color_hex: string | null
+  asset_custodian_id: number | null
+  asset_custodian_code: string | null
+  asset_custodian_name: string | null
+  asset_condition_id: number | null
+  asset_condition_code: string | null
+  asset_condition_name: string | null
   lifecycle_status: string
   approval_status: string
   ownership_type: string | null

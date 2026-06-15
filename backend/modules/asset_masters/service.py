@@ -7,12 +7,20 @@ from sqlalchemy.orm import Session
 from modules.assets.model import AssetCategory
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    AssetConditionMaster,
+    AssetCustodianMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
     TagColorMaster,
 )
 from modules.asset_masters.schema import (
+    AssetConditionCreate,
+    AssetConditionPublic,
+    AssetConditionUpdate,
+    AssetCustodianCreate,
+    AssetCustodianPublic,
+    AssetCustodianUpdate,
     FunctionalLocationCreate,
     FunctionalLocationPublic,
     FunctionalLocationUpdate,
@@ -35,6 +43,8 @@ from modules.asset_masters.schema import (
 from modules.asset_masters.safety import (
     MasterInUseError,
     assert_actual_location_deletable,
+    assert_asset_condition_deletable,
+    assert_asset_custodian_deletable,
     assert_category_deletable,
     assert_cost_center_deletable,
     assert_functional_location_deletable,
@@ -156,6 +166,106 @@ class AssetMastersService:
         if row is None:
             raise NotFoundError("Tag color", row_id)
         assert_tag_color_deletable(self._db, row_id)
+        self._db.delete(row)
+        self._db.commit()
+
+    # --- Asset custodians ---
+
+    def list_asset_custodians(self, *, active_only: bool = True) -> list[AssetCustodianPublic]:
+        stmt = select(AssetCustodianMaster).order_by(AssetCustodianMaster.name)
+        if active_only:
+            stmt = stmt.where(AssetCustodianMaster.is_active.is_(True))
+        rows = list(self._db.scalars(stmt).all())
+        return [AssetCustodianPublic.model_validate(r) for r in rows]
+
+    def create_asset_custodian(self, data: AssetCustodianCreate) -> AssetCustodianPublic:
+        row = AssetCustodianMaster(
+            code=data.code,
+            name=data.name.strip(),
+            is_active=True,
+        )
+        self._db.add(row)
+        try:
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            raise DuplicateMasterCodeError("Asset custodian code already exists.") from exc
+        self._db.refresh(row)
+        return AssetCustodianPublic.model_validate(row)
+
+    def update_asset_custodian(self, row_id: int, data: AssetCustodianUpdate) -> AssetCustodianPublic:
+        row = self._db.get(AssetCustodianMaster, row_id)
+        if row is None:
+            raise NotFoundError("Asset custodian", row_id)
+        if data.code is not None:
+            row.code = data.code
+        if data.name is not None:
+            row.name = data.name.strip()
+        if data.is_active is not None:
+            row.is_active = data.is_active
+        try:
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            raise DuplicateMasterCodeError("Asset custodian code already exists.") from exc
+        self._db.refresh(row)
+        return AssetCustodianPublic.model_validate(row)
+
+    def delete_asset_custodian(self, row_id: int) -> None:
+        row = self._db.get(AssetCustodianMaster, row_id)
+        if row is None:
+            raise NotFoundError("Asset custodian", row_id)
+        assert_asset_custodian_deletable(self._db, row_id)
+        self._db.delete(row)
+        self._db.commit()
+
+    # --- Asset conditions ---
+
+    def list_asset_conditions(self, *, active_only: bool = True) -> list[AssetConditionPublic]:
+        stmt = select(AssetConditionMaster).order_by(AssetConditionMaster.name)
+        if active_only:
+            stmt = stmt.where(AssetConditionMaster.is_active.is_(True))
+        rows = list(self._db.scalars(stmt).all())
+        return [AssetConditionPublic.model_validate(r) for r in rows]
+
+    def create_asset_condition(self, data: AssetConditionCreate) -> AssetConditionPublic:
+        row = AssetConditionMaster(
+            code=data.code,
+            name=data.name.strip(),
+            is_active=True,
+        )
+        self._db.add(row)
+        try:
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            raise DuplicateMasterCodeError("Asset condition code already exists.") from exc
+        self._db.refresh(row)
+        return AssetConditionPublic.model_validate(row)
+
+    def update_asset_condition(self, row_id: int, data: AssetConditionUpdate) -> AssetConditionPublic:
+        row = self._db.get(AssetConditionMaster, row_id)
+        if row is None:
+            raise NotFoundError("Asset condition", row_id)
+        if data.code is not None:
+            row.code = data.code
+        if data.name is not None:
+            row.name = data.name.strip()
+        if data.is_active is not None:
+            row.is_active = data.is_active
+        try:
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            raise DuplicateMasterCodeError("Asset condition code already exists.") from exc
+        self._db.refresh(row)
+        return AssetConditionPublic.model_validate(row)
+
+    def delete_asset_condition(self, row_id: int) -> None:
+        row = self._db.get(AssetConditionMaster, row_id)
+        if row is None:
+            raise NotFoundError("Asset condition", row_id)
+        assert_asset_condition_deletable(self._db, row_id)
         self._db.delete(row)
         self._db.commit()
 

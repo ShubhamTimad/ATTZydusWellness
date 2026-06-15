@@ -40,6 +40,8 @@ export function MastersPage() {
           <WorkspaceTabsTrigger value="cost-centers">Cost centers</WorkspaceTabsTrigger>
           <WorkspaceTabsTrigger value="profit-centers">Profit centers</WorkspaceTabsTrigger>
           <WorkspaceTabsTrigger value="tag-colors">Tag colors</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="asset-custodians">Asset custodians</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="asset-conditions">Asset conditions</WorkspaceTabsTrigger>
         </WorkspaceTabsList>
 
         <WorkspaceTabsContent value="categories">
@@ -82,6 +84,20 @@ export function MastersPage() {
             title="Tag color"
             listUrl="/admin/asset-masters/tag-colors?active_only=false"
             kind="tag-color"
+          />
+        </WorkspaceTabsContent>
+        <WorkspaceTabsContent value="asset-custodians">
+          <MasterCrudPanel
+            title="Asset custodian"
+            listUrl="/admin/asset-masters/asset-custodians?active_only=false"
+            kind="code-name"
+          />
+        </WorkspaceTabsContent>
+        <WorkspaceTabsContent value="asset-conditions">
+          <MasterCrudPanel
+            title="Asset condition"
+            listUrl="/admin/asset-masters/asset-conditions?active_only=false"
+            kind="code-name"
           />
         </WorkspaceTabsContent>
       </WorkspaceTabs>

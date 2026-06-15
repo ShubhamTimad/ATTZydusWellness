@@ -11,6 +11,8 @@ from modules.platform.users.model import User
 AUDIT_FIELD_LABELS: dict[str, str] = {
     **ASSET_FIELD_LABELS,
     "tag_color_id": "Tag color",
+    "asset_custodian_id": "Asset custodian",
+    "asset_condition_id": "Asset condition",
     "asset_category_id": "Asset category",
     "serial_no": "Serial no.",
     "ownership_type": "Ownership",
@@ -59,6 +61,8 @@ def snapshot_asset(asset: AssetMaster) -> dict[str, Any]:
         "serial_no": asset.serial_no,
         "asset_category_id": asset.asset_category_id,
         "tag_color_id": asset.tag_color_id,
+        "asset_custodian_id": asset.asset_custodian_id,
+        "asset_condition_id": asset.asset_condition_id,
         "ownership_type": asset.ownership_type,
     }
     if asset.information:
