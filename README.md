@@ -1,230 +1,108 @@
-# TiMSuperPF — Admin RBAC + UI
+# Asset Tagging and Tracking — Takeda Web
 
-This repo contains:
+Enterprise web application for **asset master data**, **tagging**, **physical verification orders**, and **workflow-driven tracking** for Takeda operations.
 
-- **Backend**: FastAPI + SQLAlchemy + Alembic, JWT auth, RBAC (features → permissions → roles → users), audit logging, DB-backed settings (password policy).
-- **Frontend**: Vite + React + TypeScript + Tailwind v4 + **shadcn/ui**
-  - **User app**: `/login` → `/dashboard`
-  - **Admin app**: `/admin/login` → `/admin/*`
+Built by **TiMAD** as a full-stack platform with role-based access control (RBAC), approval workflows, audit logging, and a branded user workspace plus super-admin console.
 
----
-
-## Project structure
-
-### Backend (Python)
-
-- `app/main.py`
-  - FastAPI app entrypoint
-  - Mounts:
-    - **App API** at `/` (e.g. `/login`, `/me`)
-    - **Admin API** at `/admin/*` (e.g. `/admin/users`)
-  - Adds:
-    - **AdminAuditMiddleware**
-    - **CORS** middleware (dev-friendly)
-  - Convenience redirects:
-    - `GET /admin` → frontend admin UI
-    - `GET /admin/login` → frontend login UI
-
-- `app_api/`  
-  Public app routes (currently auth).
-
-- `admin_api/`  
-  Admin/management routes aggregating module routers (users, roles, permissions, features, settings).
-
-- `modules/`
-  Domain modules:
-  - `modules/auth/`: login/refresh/me, session-backed refresh tokens (`user_sessions`)
-  - `modules/users/`: users CRUD + roles assignment endpoint
-  - `modules/features/`: features (used to group permissions)
-  - `modules/permissions/`: permissions
-  - `modules/roles/`: roles with permission assignment (PATCH with `permission_ids`)
-  - `modules/settings/`: DB settings + admin password policy endpoint
-  - `modules/audit/`: audit log model + middleware for admin mutating routes
-
-- `core/`
-  Cross-cutting:
-  - `core/security.py`: JWT encode/decode + password hashing/verification
-  - `core/auth.py`: current user from Bearer token
-  - `core/permissions.py`: DB-backed permission checks + superuser bypass
-  - `core/password_policy.py`: enforces password rules based on DB settings
-  - `core/config.py`: reads `.env` and builds runtime settings
-
-- `db/`, `alembic/`
-  SQLAlchemy setup + migrations.
-
-### Frontend (React)
-
-- `frontend/`
-  - Vite + React + TS
-  - Tailwind v4 + shadcn/ui (Radix Nova style)
-  - User app routes under `/login`, `/dashboard/*` via `react-router-dom`
-  - Admin UI routes under `/admin/*` via `react-router-dom`
-  - API calls via `src/lib/api.ts` (adds `Authorization: Bearer <token>` automatically)
-
-Key frontend files:
-
-- `frontend/src/main.tsx`: `BrowserRouter` setup
-- `frontend/src/App.tsx`: routes + protected user/admin shells
-- `frontend/src/components/layout/admin-layout.tsx`: sidebar + topbar + user dropdown + sign out
-- `frontend/src/components/layout/app-shell-layout.tsx`: user sidebar + topbar + sign out (distinct UI)
-- `frontend/src/pages/`:
-  - `login.tsx`: email/password login (react-hook-form + zod)
-  - `app-login.tsx`: production-style split login UI for main app (`/login`)
-  - `dashboard.tsx`: starter dashboard for standard users (`/dashboard`)
-  - `users.tsx`: list users (create/view/edit use full-page routes)
-  - `user-create.tsx`: create user (full page)
-  - `user-view.tsx`: view user (full page) + audit trail (latest first)
-  - `user-edit.tsx`: edit user (full page)
-  - `roles.tsx`: roles list + assign permissions (checkboxes grouped by feature)
-  - `permissions.tsx`: list + create permission
-  - `settings.tsx`: switches + JSON editor for password policy
+**Repository:** [Timad-Bharat/Asset-Tagging-and-Tracking-Takeda-Web](https://github.com/Timad-Bharat/Asset-Tagging-and-Tracking-Takeda-Web)
 
 ---
 
-## Environment variables
+## Tech stack
 
-### Backend (`.env` at repo root)
+| Layer | Stack |
+|-------|--------|
+| **Backend** | Python 3.11+, FastAPI, SQLAlchemy, Alembic, PostgreSQL |
+| **Frontend** | Vite, React 19, TypeScript, Tailwind CSS v4, shadcn/ui |
+| **Auth** | JWT (access + refresh), MFA, password policy, session idle |
+| **Deploy** | Docker Compose (nginx + API + Postgres) |
 
-Minimum required:
+---
 
-- **`JWT_SECRET_KEY`**: required for login/JWT signing
-- **`DATABASE_URL`**: your DB connection string
+## Features
 
-Optional (dev convenience):
+- **Asset master** — import/export, hierarchical masters, financial & location fields, lifecycle tracking
+- **Physical verification orders** — assignment, progress, closure, email notifications
+- **RBAC** — features → permissions → roles → users, org-unit (plant) scoping
+- **Approvals & tasks** — unified task inbox, configurable approval workflows
+- **Audit trail** — admin and asset mutation logging
+- **Email engine** — SMTP or DB-backed settings, templated notifications
+- **Dual portals**
+  - **User workspace:** `/login` → `/dashboard/*`
+  - **Super-admin console:** `/admin/login` → `/admin/*`
 
-- `FRONTEND_ADMIN_URL` (default `http://localhost:5173/admin`)
-- `FRONTEND_ORIGIN` (default `http://localhost:5173`)
+---
 
-### Frontend (`frontend/.env`)
+## Repository layout
 
-In dev we use Vite proxy, so you can usually leave `VITE_API_URL` **unset**.
+```
+.
+├── backend/           # FastAPI app, modules, Alembic migrations
+├── frontend/          # React SPA (Vite)
+├── scripts/           # Ops helpers (sync_modules, seeds, docker scripts)
+├── tests/             # Pytest suite
+├── docs/              # Deployment and permissions reference
+├── docker-compose.yml
+├── requirements.txt
+├── create_superuser.py
+├── .env.example       # Local dev template (copy to .env)
+└── .env.docker.example
+```
 
-- If `VITE_API_URL` is set, requests go directly to that origin.
-- If `VITE_API_URL` is empty/unset, requests go to same-origin paths like `/login` and `/admin/*` (and Vite proxies them in dev).
+---
 
-## Deployment (Docker/server)
+## Branching
 
-| Mode | Frontend | Backend API |
-|------|----------|-------------|
-| **Local dev** (uvicorn + Vite) | `http://localhost:5173` | `http://localhost:8000` |
-| **Docker** (`docker-compose.yml` + `.env.docker`) | `http://localhost:8083` | internal `9005` (proxied via `/api`) |
+| Branch | Purpose |
+|--------|---------|
+| `main` | Stable, release-ready code |
+| `develop` | Active integration branch for ongoing work |
 
-- Default host port: `8083`
-- Default host bind: `127.0.0.1` so it does not open a new public port by accident
-- Backend and Postgres stay private inside the Docker network
-- No demo scripts are executed during container startup
+Clone and work from `develop` unless you are cutting a release.
 
-### First start on server
+---
+
+## Quick start (local development)
+
+### Prerequisites
+
+- Python 3.11+
+- Node.js 20+ and npm
+- PostgreSQL
+
+### 1. Environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` — at minimum set:
+
+- `DATABASE_URL` — PostgreSQL connection string
+- `JWT_SECRET_KEY` — long random secret for token signing
+
+Never commit `.env`. Only `.env.example` and `.env.docker.example` belong in git.
+
+### 2. Backend
 
 From the repo root:
 
 ```bash
-cp .env.docker.example .env.docker
-```
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-Edit `.env.docker` before first start:
+alembic -c backend/alembic.ini upgrade head
+python scripts/sync_modules.py
 
-- `JWT_SECRET_KEY`
-- `POSTGRES_PASSWORD`
-- `FRONTEND_APP_URL`
-- `FRONTEND_ORIGIN`
-- `FRONTEND_ADMIN_URL`
-- `SMTP_*` if you want real email delivery
-- `APP_HOST_BIND=0.0.0.0` only if you want direct public access on port `8083`
-
-Build images:
-
-```bash
-docker compose --env-file .env.docker build
-```
-
-Start all services:
-
-```bash
-docker compose --env-file .env.docker up -d
-```
-
-Or build and start in one command:
-
-```bash
-docker compose --env-file .env.docker up -d --build
-```
-
-Check status:
-
-```bash
-docker compose --env-file .env.docker ps
-```
-
-See logs:
-
-```bash
-docker compose --env-file .env.docker logs -f backend
-docker compose --env-file .env.docker logs -f frontend
-```
-
-Stop all services:
-
-```bash
-docker compose --env-file .env.docker down
-```
-
-Clean rebuild:
-
-```bash
-docker compose --env-file .env.docker down
-docker compose --env-file .env.docker build --no-cache
-docker compose --env-file .env.docker up -d
-```
-
-Remove containers and database volume too:
-
-```bash
-docker compose --env-file .env.docker down -v
-```
-
-After first boot, create the admin user manually:
-
-```bash
-docker compose --env-file .env.docker exec backend \
-  python create_superuser.py --email admin@example.com --password 'ChangeMe@123'
-```
-
-Then open:
-
-- Admin login: `http://your-server-ip:8083/admin/login`
-- User login: `http://your-server-ip:8083/login`
-
-Notes:
-
-- If your server already has Nginx/Caddy on ports `80` or `443`, keep `APP_HOST_BIND=127.0.0.1` and proxy your domain to `127.0.0.1:8083`.
-- If you need direct access without a reverse proxy, set `APP_HOST_BIND=0.0.0.0`.
-- Always include `--env-file .env.docker` on server deploy commands. Without it, Compose falls back to defaults for `DATABASE_URL`, DB password, ports, and URLs.
-- `SYNC_MODULES_ON_STARTUP=false` keeps startup-created module rows out of the Docker Postgres database.
-- `SEED_SYSTEM_EMAIL_TEMPLATES=true` plus the backend entrypoint ensures core email templates and mappings exist for forgot-password and onboarding flows.
-- If you later want the RBAC feature/permission catalog, run `docker compose --env-file .env.docker exec backend python scripts/sync_modules.py`.
-
----
-
-## How to run (development)
-
-### 1) Backend
-
-From repo root:
-
-```bash
-source venv/bin/activate
 uvicorn app.main:app --reload --app-dir backend --port 8000
 ```
 
-Useful URLs:
+API docs: `http://localhost:8000/docs`
 
-- `GET /docs` — Swagger UI
-- `GET /openapi.json`
+### 3. Frontend
 
-### 2) Frontend
-
-In another terminal:
+In a second terminal:
 
 ```bash
 cd frontend
@@ -234,231 +112,122 @@ npm run dev
 
 Open:
 
-- **Admin UI**: `http://localhost:5173/admin`
-- **Login**: `http://localhost:5173/admin/login`
-- **User login**: `http://localhost:5173/login`
-- **User dashboard**: `http://localhost:5173/dashboard`
+- User login: `http://localhost:5173/login`
+- Dashboard: `http://localhost:5173/dashboard`
+- Admin login: `http://localhost:5173/admin/login`
 
----
-
-## Dev proxy (frontend → backend)
-
-`frontend/vite.config.ts` proxies:
-
-- `/login` → backend (`http://localhost:8000`) **only for API/XHR** requests
-  - HTML navigations like `/login` stay in the SPA so the React route renders
-- `/dashboard` → backend for API calls (e.g. `GET /dashboard/summary`); HTML navigations stay in the SPA
-- `/tasks`, `/auth`, `/approvals`, `/audit` → backend
-- `/admin/*` → backend **only for API/XHR** requests
-  - HTML navigations like `/admin/login` stay in the SPA to avoid redirect loops
-
-This lets frontend call:
-
-- `POST /login`
-- `GET /me`
-- `GET /dashboard/summary`
-- `GET /tasks/my-tasks`
-- `GET /admin/users`, etc.
-
-…without requiring `VITE_API_URL` in dev.
-
----
-
-## Authentication flow
-
-### Login
-
-- **User app login**: UI submits `POST /login` with JSON:
-
-```json
-{ "email": "admin@admin.com", "password": "Admin123!" }
-```
-
-Or phone-based login:
-
-```json
-{ "phone": "+15550000001", "password": "Admin123!" }
-```
-
-- Response returns:
-  - `access_token`
-  - `refresh_token`
-
-Frontend stores tokens in `localStorage`:
-
-- `access_token`
-- `refresh_token`
-
-### Signed-in user
-
-- UI calls `GET /me` with `Authorization: Bearer <access_token>`
-- Top-right dropdown shows the real email from `/me`
-
-### Sign out
-
-- Clears tokens from `localStorage`
-- Redirects to:
-  - **User app**: `/login`
-  - **Admin app**: `/admin/login`
-
-### User vs admin separation (frontend)
-
-- `/login` is the **main app** portal:
-  - standard users → `/dashboard`
-  - **superusers are blocked** here and must use `/admin/login`
-- `/admin/*` is the **admin** portal:
-  - non-superusers are redirected to `/dashboard`
-
----
-
-## RBAC model (how permissions work)
-
-High-level:
-
-- **Feature**: a functional area (e.g. `users`, `roles`, `settings`)
-- **Permission**: belongs to a feature + action (e.g. `users:create`)
-- **Role**: contains many permissions
-- **User**: has many roles
-
-Backend supports:
-
-- List/create features
-- List/create permissions
-- List/get/update roles with `permission_ids`
-- Assign roles to a user
-
----
-
-## Admin API endpoints (common)
-
-All admin endpoints are mounted under `/admin`.
-
-### Users
-
-- `GET /admin/users?skip=0&limit=50`
-- `POST /admin/users`
-- `PATCH /admin/users/{user_id}`
-- `POST /admin/users/{user_id}/roles/{role_id}` (assign role)
-
-### Org units (plants / departments)
-
-- `GET /admin/org-units?type=PLANT`
-- `POST /admin/org-units`
-
-### Roles
-
-- `GET /admin/roles?skip=0&limit=50`
-- `GET /admin/roles/{role_id}` (includes `permissions`)
-- `PATCH /admin/roles/{role_id}` with `{ "permission_ids": [1,2,3] }`
-
-### Features
-
-- `GET /admin/features?skip=0&limit=200`
-- `POST /admin/features`
-
-### Permissions
-
-- `GET /admin/permissions?skip=0&limit=200`
-- `POST /admin/permissions`
-
-### Settings (password policy)
-
-- `GET /admin/settings/password-policy`
-- `PUT /admin/settings/password-policy`
-
-Password policy keys are stored in the DB settings table:
-
-- `password.min_length`
-- `password.require_uppercase`
-- `password.require_lowercase`
-- `password.require_digit`
-- `password.require_special`
-- `password.max_age_days` (`0` disables expiry)
-
----
-
-## Admin UI pages (what exists)
-
-All pages are under `http://localhost:5173/admin/*`:
-
-- **Overview**: `/admin`
-- **Users**: `/admin/users`
-  - Table list users
-  - Full-page flows:
-    - Create: `/admin/users/new`
-    - View: `/admin/users/:id` (shows **Audit Trail** below user details; latest first)
-    - Edit: `/admin/users/:id/edit`
-- **Roles**: `/admin/roles`
-  - Select role
-  - Assign permissions with checkboxes grouped by feature
-  - Save writes to `PATCH /admin/roles/{id}`
-- **Permissions**: `/admin/permissions`
-  - Table list permissions
-  - Create permission dialog (feature_id + action)
-- **Settings**: `/admin/settings`
-  - Switches + numeric fields + JSON editor for password policy
-
----
-
-## User UI pages (what exists)
-
-All pages are under `http://localhost:5173/*`:
-
-- **Login**: `/login` (split-screen login)
-- **Dashboard**: `/dashboard` (starter user shell with left sidebar + top navbar)
-- **Users** (when permitted): `/dashboard/users`
-  - Full-page flows:
-    - Create: `/dashboard/users/new`
-    - View: `/dashboard/users/:id` (shows **Audit Trail** below user details; latest first)
-    - Edit: `/dashboard/users/:id/edit`
-
----
-
-## Creating a superuser
-
-From repo root:
+### 4. Create a superuser
 
 ```bash
-source venv/bin/activate
-python create_superuser.py --email admin@admin.com --password "Admin123!"
+source .venv/bin/activate
+python create_superuser.py --email admin@example.com --password 'ChangeMe@123'
 ```
-
-Notes:
-
-- Password is validated using the **DB-backed password policy**.
-- The script imports `db.models` so SQLAlchemy relationships are registered before DB queries.
 
 ---
 
-## Common troubleshooting
-
-### `RuntimeError: JWT_SECRET_KEY is required`
-
-Set it in the repo root `.env`:
+## Docker deployment
 
 ```bash
-JWT_SECRET_KEY="your-long-random-secret"
+cp .env.docker.example .env.docker
+# Edit JWT_SECRET_KEY, POSTGRES_PASSWORD, FRONTEND_* URLs, SMTP_* as needed
+
+docker compose --env-file .env.docker up -d --build
 ```
 
-Restart uvicorn.
+Default browser URL: `http://localhost:8083`
 
-### `OPTIONS /login 405 Method Not Allowed`
+See `docs/SERVER_DEPLOY.md` for production notes (firewall, `APP_HOST_BIND`, reverse proxy).
 
-Fixed by enabling CORS middleware in `app/main.py`.
+After first boot:
 
-### `/admin/login` redirect loop in dev
-
-Fixed by Vite proxy `bypass` that prevents proxying HTML navigations for `/admin/*`.
-
-### Logged in but “blank page”
-
-Was caused by nested routers not rendering an `<Outlet />`. The `/admin` route now renders `<Outlet />` correctly.
+```bash
+docker compose --env-file .env.docker exec backend \
+  python create_superuser.py --email admin@example.com --password 'ChangeMe@123'
+```
 
 ---
 
-## Next steps (nice-to-haves)
+## Environment variables
 
-- Add “Create role” UI and “Create feature” UI (optional; APIs already exist).
-- Add refresh-token handling (auto refresh on 401).
-- Add audit log page (`/admin/audit`) backed by API.
-- Improve user app routes under `/dashboard/*` (master data, planning, performance, etc.).
+### Backend (`.env` at repo root)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL URL |
+| `JWT_SECRET_KEY` | Yes | JWT signing secret |
+| `FRONTEND_APP_URL` | No | Links in emails (default `http://localhost:5173`) |
+| `FRONTEND_ORIGIN` | No | CORS origin |
+| `SMTP_*` | No | Email delivery; leave `SMTP_HOST` empty to log emails in dev |
+
+Full list: `.env.example` and `.env.docker.example`.
+
+### Frontend
+
+In local dev, Vite proxies API calls — `VITE_API_URL` is usually **unset**.
+
+For production builds, set `VITE_API_URL=/api` (Docker default).
+
+---
+
+## Database migrations
+
+```bash
+alembic -c backend/alembic.ini upgrade head
+alembic -c backend/alembic.ini revision --autogenerate -m "describe change"
+```
+
+Sync RBAC feature/permission catalog after schema changes:
+
+```bash
+python scripts/sync_modules.py
+```
+
+---
+
+## Testing
+
+```bash
+source .venv/bin/activate
+pytest
+```
+
+---
+
+## What is not committed to git
+
+The following are intentionally excluded via `.gitignore`:
+
+- `.env`, `.env.docker`, and other secret files
+- Python virtualenvs (`.venv/`, `venv/`, `engin/`)
+- `node_modules/`, `frontend/dist/`, build caches
+- `backend/uploads/` (runtime file storage)
+- IDE folders, logs, `__pycache__`, `.pytest_cache`
+
+---
+
+## Documentation
+
+| File | Contents |
+|------|----------|
+| `docs/SERVER_DEPLOY.md` | Docker server deployment |
+| `docs/PERMISSIONS_REFERENCE.md` | RBAC permission codes |
+| `docs/API_DOCUMENTATION.md` | API overview |
+| `IMPLEMENTATION_NOTES.md` | Internal build notes and module map |
+
+---
+
+## Troubleshooting
+
+**`RuntimeError: JWT_SECRET_KEY is required`** — set it in `.env` and restart the backend.
+
+**Database connection errors** — verify PostgreSQL is running and `DATABASE_URL` matches your local DB name/user/password.
+
+**Blank page after login** — check browser console and that both backend (`:8000`) and frontend (`:5173`) are running.
+
+**CORS / proxy issues in dev** — see `frontend/vite.config.ts`; HTML navigations stay in the SPA while API calls proxy to the backend.
+
+---
+
+## License
+
+Proprietary — Takeda / TiMAD. All rights reserved unless otherwise agreed in writing.
