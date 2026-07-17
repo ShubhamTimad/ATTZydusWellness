@@ -28,7 +28,6 @@ import {
   profitCenterLabel,
   actualLocationLabel,
   functionalLocationLabel,
-  plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
@@ -524,22 +523,17 @@ export function AssetCreatePage() {
             contentClassName="px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <FormField
-                labelText={fc.getLabel("plant_id", "Plant name")}
-                required={fc.isRequired("plant_id")}
-                className="sm:col-span-2"
-              >
-                <Input
-                  readOnly
-                  disabled
-                  className="bg-muted/40"
-                  value={selectedPlant ? plantLabel(selectedPlant) : "Takeda"}
-                />
-              </FormField>
               {field(
-                "sub_location",
-                <FormField id="sub_location" labelText={fc.getLabel("sub_location", "Sub location")}>
-                  <Input id="sub_location" value={form.sub_location} onChange={(e) => patch({ sub_location: e.target.value })} />
+                "plant_code",
+                <FormField
+                  labelText="Plant Code"
+                >
+                  <Input
+                    readOnly
+                    disabled
+                    className="bg-muted/40 font-mono"
+                    value={selectedPlant?.code ?? "—"}
+                  />
                 </FormField>,
               )}
               <FormField
@@ -564,6 +558,17 @@ export function AssetCreatePage() {
                 </select>
               </FormField>
               <FormField
+                labelText="Plant Name"
+                required={fc.isRequired("plant_id")}
+              >
+                <Input
+                  readOnly
+                  disabled
+                  className="bg-muted/40"
+                  value={selectedPlant?.name ?? "Takeda"}
+                />
+              </FormField>
+              <FormField
                 id="actual_location"
                 labelText={fc.getLabel("actual_location", "Actual location 2")}
                 required={fc.isRequired("actual_location")}
@@ -585,12 +590,12 @@ export function AssetCreatePage() {
                   ))}
                 </select>
               </FormField>
-              <FormField id="building" labelText={fc.getLabel("building", "Building")}>
-                <Input id="building" value={form.building} onChange={(e) => patch({ building: e.target.value })} />
-              </FormField>
-              <FormField id="floor" labelText={fc.getLabel("floor", "Floor")}>
-                <Input id="floor" value={form.floor} onChange={(e) => patch({ floor: e.target.value })} />
-              </FormField>
+              {field(
+                "sub_location",
+                <FormField id="sub_location" labelText={fc.getLabel("sub_location", "Sub location")}>
+                  <Input id="sub_location" value={form.sub_location} onChange={(e) => patch({ sub_location: e.target.value })} />
+                </FormField>,
+              )}
               <FormField id="room" labelText="Room">
                 <Input id="room" value={form.room} onChange={(e) => patch({ room: e.target.value })} />
               </FormField>

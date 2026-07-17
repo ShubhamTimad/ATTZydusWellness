@@ -281,6 +281,7 @@ class AssetDetailPublic(BaseModel):
     has_image: bool = False
     image_filename: str | None = None
     image_content_type: str | None = None
+    plant_code: str | None = None
     information: AssetInformationPayload | None = None
     location: AssetLocationPayload | None = None
     financial: AssetFinancialPayload | None = None

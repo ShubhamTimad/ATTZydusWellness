@@ -32,6 +32,8 @@ export function AssetDetailSectionPanel({
   asset,
   onSection,
   extra,
+  extraAfterFirst,
+  plantCode,
   plantName,
   selectOptions = {},
   selectPlaceholders = {},
@@ -49,6 +51,8 @@ export function AssetDetailSectionPanel({
   asset: AssetDetail
   onSection: (field: string, value: string | number | null) => void
   extra?: React.ReactNode
+  extraAfterFirst?: React.ReactNode
+  plantCode?: string | null
   plantName?: string | null
   selectOptions?: Record<string, { value: string; label: string }[]>
   selectPlaceholders?: Record<string, string>
@@ -173,7 +177,7 @@ export function AssetDetailSectionPanel({
       {editing ? (
         <div className="grid gap-[var(--app-form-gap)] p-[var(--app-card-padding)] sm:grid-cols-2 sm:content-start">
           {extra}
-          {keys.map((k) => {
+          {keys.map((k, index) => {
             const opts = selectOptions[k]
             const hasSelect = Object.prototype.hasOwnProperty.call(selectOptions, k)
             const readonly = readOnlyKeys.includes(k)
@@ -191,7 +195,8 @@ export function AssetDetailSectionPanel({
                       : String(rawVal ?? "")
             const mono = k === "asset_code" || k === "combined_asset_number" || k === "rfid_code"
             return (
-              <div key={k} className="app-form-field">
+              <React.Fragment key={k}>
+              <div className="app-form-field">
                 <Label className="app-form-label">
                   {formatFieldLabel(k)}
                   {isRequired(k) ? <RequiredFieldMark /> : null}
@@ -248,6 +253,8 @@ export function AssetDetailSectionPanel({
                   />
                 )}
               </div>
+              {index === 0 ? extraAfterFirst : null}
+              </React.Fragment>
             )
           })}
         </div>
@@ -258,44 +265,51 @@ export function AssetDetailSectionPanel({
             config.id === "information" && "lg:grid-cols-3",
           )}
         >
-          {config.showPlant && plantName && isVisible("plant_id") ? (
-            <div
-              className={cn(
-                "min-w-0 border-b border-border/60 py-3 sm:col-span-2",
-                config.id === "information" && "lg:col-span-3",
-              )}
-            >
+          {config.showPlant && plantCode && isVisible("plant_code") ? (
+            <div className="min-w-0 border-b border-border/60 py-3">
               <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
-                {getLabel("plant_id", "Plant name")}
+                Plant Code
               </p>
-              <p className="mt-1 text-sm font-normal leading-snug break-words text-foreground">
-                {plantName}
+              <p className="mt-1 font-mono text-xs font-normal leading-snug break-words text-foreground">
+                {plantCode}
               </p>
             </div>
           ) : null}
-          {keys.map((k) => {
+          {keys.map((k, index) => {
             const raw = fieldValue(k)
             const isCount = k === "inventory_count" || k === "physical_count"
             const mono = k === "asset_code" || k === "combined_asset_number" || k === "rfid_code"
             const display = displayValue(k, raw)
             return (
-              <div key={k} className="min-w-0 border-b border-border/60 py-3">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
-                  {formatFieldLabel(k)}
-                </p>
-                <div
-                  className={cn(
-                    "mt-1 text-sm font-normal leading-snug break-words text-foreground",
-                    mono && "font-mono text-xs",
-                    isCount && "tabular-nums",
-                    highlightMismatch && isCount && k === "physical_count" && "text-primary",
-                  )}
-                >
-                  {inventoryDisplay && config.id === "inventory"
-                    ? inventoryDisplay(k, asset)
-                    : display}
+              <React.Fragment key={k}>
+                <div className="min-w-0 border-b border-border/60 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
+                    {formatFieldLabel(k)}
+                  </p>
+                  <div
+                    className={cn(
+                      "mt-1 text-sm font-normal leading-snug break-words text-foreground",
+                      mono && "font-mono text-xs",
+                      isCount && "tabular-nums",
+                      highlightMismatch && isCount && k === "physical_count" && "text-primary",
+                    )}
+                  >
+                    {inventoryDisplay && config.id === "inventory"
+                      ? inventoryDisplay(k, asset)
+                      : display}
+                  </div>
                 </div>
-              </div>
+                {index === 0 && config.showPlant && plantName && isVisible("plant_id") ? (
+                  <div className="min-w-0 border-b border-border/60 py-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
+                      Plant Name
+                    </p>
+                    <p className="mt-1 text-sm font-normal leading-snug break-words text-foreground">
+                      {plantName}
+                    </p>
+                  </div>
+                ) : null}
+              </React.Fragment>
             )
           })}
         </div>

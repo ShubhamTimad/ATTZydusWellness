@@ -17,6 +17,7 @@ import {
   adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -665,12 +666,21 @@ export function AssetDetailPage() {
           asset={a}
           onSection={onLocationSection}
           {...panelCommon}
+          plantCode={a.plant_code}
           plantName={a.plant_name}
           extra={
+            editing && fieldConfig.isVisible("plant_code") ? (
+              <div className="space-y-1.5">
+                <Label className="app-form-label">Plant Code</Label>
+                <Input value={a.plant_code ?? ""} readOnly className="font-mono" />
+              </div>
+            ) : null
+          }
+          extraAfterFirst={
             editing && fieldConfig.isVisible("plant_id") ? (
-              <div className="space-y-1.5 sm:col-span-2">
+              <div className="space-y-1.5">
                 <Label className="app-form-label">
-                  {fieldConfig.getLabel("plant_id", "Plant name")}
+                  Plant Name
                   {fieldConfig.isRequired("plant_id") ? <RequiredFieldMark /> : null}
                 </Label>
                 <select
@@ -769,12 +779,11 @@ export function AssetDetailPage() {
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
             <div className="min-w-0">
               <h1 className="app-page-heading truncate">{a.asset_name}</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                {a.location?.functional_location_name ??
-                  a.location?.functional_location ??
-                  a.asset_code}
-                {a.plant_name ? ` · ${a.plant_name}` : ""}
-              </p>
+              {a.information?.asset_description ? (
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  {a.information.asset_description}
+                </p>
+              ) : null}
             </div>
             <div className="ml-auto flex flex-col items-end gap-1.5">
               <AssetImage

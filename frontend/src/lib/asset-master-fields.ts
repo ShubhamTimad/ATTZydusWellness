@@ -273,8 +273,6 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
     keys: [
       "functional_location",
       "actual_location",
-      "building",
-      "floor",
     ],
   },
   {

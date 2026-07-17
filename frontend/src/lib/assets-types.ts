@@ -171,6 +171,7 @@ export type AssetDetail = {
   has_image: boolean
   image_filename: string | null
   image_content_type: string | null
+  plant_code: string | null
   plant_name: string | null
   information?: AssetSectionPayloads | null
   location?: AssetSectionPayloads | null

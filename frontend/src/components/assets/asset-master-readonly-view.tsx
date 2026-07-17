@@ -95,6 +95,7 @@ function renderSection(asset: AssetDetail, sectionId: AssetViewSectionId) {
       editing={false}
       asset={asset}
       onSection={noop}
+      plantCode={asset.plant_code}
       plantName={asset.plant_name}
       inventoryDisplay={inventoryDisplayValue}
       highlightMismatch={countMismatch}
@@ -121,10 +122,11 @@ export function AssetMasterReadOnlyView({ asset }: { asset: AssetDetail }) {
     <div className="space-y-4">
       <header className="border-b border-border/60 pb-3">
         <h3 className="text-lg font-semibold tracking-tight text-foreground">{asset.asset_name}</h3>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          {asset.location?.functional_location_name ?? asset.location?.functional_location ?? asset.asset_code}
-          {asset.plant_name ? ` · ${asset.plant_name}` : ""}
-        </p>
+        {asset.information?.asset_description ? (
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {asset.information.asset_description}
+          </p>
+        ) : null}
       </header>
 
       <SummaryStrip items={summaryItems} />

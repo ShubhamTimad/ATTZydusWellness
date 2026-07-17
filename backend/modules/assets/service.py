@@ -1645,6 +1645,7 @@ class AssetMasterService:
             has_image=bool(asset.image_content_type),
             image_filename=asset.image_filename,
             image_content_type=asset.image_content_type,
+            plant_code=loc.plant.code if loc and loc.plant else None,
             plant_name=loc.plant.name if loc and loc.plant else None,
             information=AssetInformationPayload.model_validate(info) if info else None,
             location=location_payload,
