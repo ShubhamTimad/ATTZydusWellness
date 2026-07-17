@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from modules.asset_masters.model import (
     ActualLocationMaster,
     AssetConditionMaster,
-    AssetCustodianMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
@@ -18,6 +17,7 @@ from modules.asset_masters.model import (
 )
 from modules.assets.model import AssetCategory
 from modules.platform.org_units.model import OrgUnit
+from modules.platform.users.model import User
 
 T = TypeVar("T")
 
@@ -106,7 +106,7 @@ class ImportMasterLookups:
             db.scalars(select(TagColorMaster).where(TagColorMaster.is_active.is_(True))).all()
         )
         self.custodians = list(
-            db.scalars(select(AssetCustodianMaster).where(AssetCustodianMaster.is_active.is_(True))).all()
+            db.scalars(select(User).where(User.is_active.is_(True))).all()
         )
         self.conditions = list(
             db.scalars(select(AssetConditionMaster).where(AssetConditionMaster.is_active.is_(True))).all()
@@ -124,8 +124,14 @@ class ImportMasterLookups:
         row, _ = _pick_unique_by_code_or_name(self.tag_colors, value, label="tag color")
         return row
 
-    def resolve_custodian(self, value: str) -> AssetCustodianMaster | None:
-        row, _ = _pick_unique_by_code_or_name(self.custodians, value, label="asset custodian")
+    def resolve_custodian(self, value: str) -> User | None:
+        row, _ = _pick_unique_by_code_or_name(
+            self.custodians,
+            value,
+            code_attr="username",
+            name_attr="full_name",
+            label="asset custodian",
+        )
         return row
 
     def resolve_condition(self, value: str) -> AssetConditionMaster | None:
@@ -290,7 +296,7 @@ class ImportMasterLookups:
         if custodian_value:
             custodian = self.resolve_custodian(custodian_value)
             if custodian is not None:
-                out["asset_custodian_code"] = str(custodian.code)
+                out["asset_custodian_code"] = str(custodian.username)
 
         condition_value = str(data.get("asset_condition_code") or "").strip()
         if condition_value:

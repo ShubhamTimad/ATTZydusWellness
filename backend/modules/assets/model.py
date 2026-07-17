@@ -6,11 +6,13 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
     Integer,
     JSON,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -56,7 +58,12 @@ class AssetMaster(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     asset_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    asset_code: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    asset_code: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    combined_asset_number: Mapped[str] = mapped_column(
+        String(128), unique=True, nullable=False, index=True
+    )
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sub_no: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rfid_code: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True, index=True)
     serial_no: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     asset_category_id: Mapped[int | None] = mapped_column(
@@ -66,7 +73,7 @@ class AssetMaster(Base):
         Integer, ForeignKey("tag_color_masters.id", ondelete="SET NULL"), nullable=True, index=True
     )
     asset_custodian_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("asset_custodian_masters.id", ondelete="SET NULL"), nullable=True, index=True
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     asset_condition_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("asset_condition_masters.id", ondelete="SET NULL"), nullable=True, index=True
@@ -91,10 +98,13 @@ class AssetMaster(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    image_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    image_content_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    image_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     category = relationship("AssetCategory")
     tag_color = relationship("TagColorMaster")
-    asset_custodian = relationship("AssetCustodianMaster")
+    asset_custodian = relationship("User", foreign_keys=[asset_custodian_id])
     asset_condition = relationship("AssetConditionMaster")
     import_batch = relationship("AssetImportBatch", back_populates="assets")
     information = relationship(
@@ -193,6 +203,28 @@ class AssetInventoryInformation(Base):
     verification_remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     asset = relationship("AssetMaster", back_populates="inventory")
+
+
+class AssetFieldConfig(Base):
+    """Per-field UI metadata: display label, visibility, and required flag."""
+
+    __tablename__ = "asset_field_config"
+    __table_args__ = (
+        CheckConstraint(
+            "NOT is_required OR is_visible",
+            name="ck_asset_field_config_required_visible",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    field_key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    display_label: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    is_required: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class AssetAuditEvent(Base):

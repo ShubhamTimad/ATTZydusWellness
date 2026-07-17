@@ -82,8 +82,8 @@ export function AssetImportPage() {
   const columnSelectOptions = React.useMemo(
     () => ({
       tag_color_code: masters.tagColors.map((c) => ({ value: c.code, label: tagColorLabel(c) })),
-      asset_custodian_code: masters.assetCustodians.map((c) => ({
-        value: c.code,
+      asset_custodian_code: masters.custodianUsers.map((c) => ({
+        value: c.username,
         label: assetCustodianLabel(c),
       })),
       asset_condition_code: masters.assetConditions.map((c) => ({
@@ -91,7 +91,7 @@ export function AssetImportPage() {
         label: assetConditionLabel(c),
       })),
     }),
-    [masters.tagColors, masters.assetCustodians, masters.assetConditions],
+    [masters.tagColors, masters.custodianUsers, masters.assetConditions],
   )
   const [file, setFile] = React.useState<File | null>(null)
   const [preview, setPreview] = React.useState<PreviewResponse | null>(null)

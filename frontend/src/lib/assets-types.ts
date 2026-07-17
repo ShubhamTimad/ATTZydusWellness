@@ -12,6 +12,7 @@ export type AssetListItem = {
   id: number
   asset_name: string
   asset_code: string
+  combined_asset_number?: string | null
   rfid_code: string | null
   tag_color_id?: number | null
   tag_color_code?: string | null
@@ -139,6 +140,9 @@ export type AssetDetail = {
   id: number
   asset_name: string
   asset_code: string
+  combined_asset_number: string
+  remark?: string | null
+  sub_no?: string | null
   rfid_code: string | null
   serial_no: string | null
   asset_category_id: number | null
@@ -164,6 +168,9 @@ export type AssetDetail = {
   approved_by: number | null
   created_at: string
   updated_at: string
+  has_image: boolean
+  image_filename: string | null
+  image_content_type: string | null
   plant_name: string | null
   information?: AssetSectionPayloads | null
   location?: AssetSectionPayloads | null

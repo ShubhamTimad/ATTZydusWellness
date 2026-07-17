@@ -44,7 +44,6 @@ from modules.asset_masters.safety import (
     MasterInUseError,
     assert_actual_location_deletable,
     assert_asset_condition_deletable,
-    assert_asset_custodian_deletable,
     assert_category_deletable,
     assert_cost_center_deletable,
     assert_functional_location_deletable,
@@ -215,7 +214,6 @@ class AssetMastersService:
         row = self._db.get(AssetCustodianMaster, row_id)
         if row is None:
             raise NotFoundError("Asset custodian", row_id)
-        assert_asset_custodian_deletable(self._db, row_id)
         self._db.delete(row)
         self._db.commit()
 

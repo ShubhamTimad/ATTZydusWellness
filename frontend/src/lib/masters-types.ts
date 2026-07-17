@@ -77,11 +77,11 @@ export type TagColorMaster = {
   is_active: boolean
 }
 
-export type AssetCustodianMaster = {
+export type AssetCustodianUser = {
   id: number
-  code: string
-  name: string
-  is_active: boolean
+  username: string
+  full_name: string
+  email: string | null
 }
 
 export type AssetConditionMaster = {

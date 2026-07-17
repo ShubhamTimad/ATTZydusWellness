@@ -5,7 +5,8 @@ import { AlertCircle } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { adminSelectClass } from "@/components/layout/admin-ui"
-import { ASSET_IMPORT_GRID_COLUMNS } from "@/lib/asset-master-fields"
+import type { AssetImportColumn } from "@/lib/asset-master-fields"
+import { buildImportGridColumns, useAssetFieldConfig } from "@/lib/use-asset-field-config"
 
 export type ImportGridRow = {
   row_number: number
@@ -128,6 +129,7 @@ type VirtualRowProps = {
   onSelectChange: (on: boolean) => void
   onCellChange: (rowIndex: number, key: string, value: string) => void
   columnSelectOptions?: Record<string, { value: string; label: string }[]>
+  columns: AssetImportColumn[]
   style: React.CSSProperties
 }
 
@@ -139,6 +141,7 @@ const VirtualImportRow = React.memo(function VirtualImportRow({
   onSelectChange,
   onCellChange,
   columnSelectOptions,
+  columns,
   style,
 }: VirtualRowProps) {
   const rowHasError = !row.valid
@@ -180,7 +183,7 @@ const VirtualImportRow = React.memo(function VirtualImportRow({
       >
         {row.row_number}
       </div>
-      {ASSET_IMPORT_GRID_COLUMNS.map((col) => (
+      {columns.map((col) => (
         <div
           key={col.key}
           className="shrink-0 px-0.5 py-0.5"
@@ -233,6 +236,8 @@ export function AssetImportGrid({
 }: AssetImportGridProps) {
   const parentRef = React.useRef<HTMLDivElement>(null)
   const deferredRows = React.useDeferredValue(rows)
+  const { config } = useAssetFieldConfig()
+  const columns = React.useMemo(() => buildImportGridColumns(config), [config])
 
   const filteredIndices = React.useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -322,7 +327,7 @@ export function AssetImportGrid({
           >
             #
           </div>
-          {ASSET_IMPORT_GRID_COLUMNS.map((col) => (
+          {columns.map((col) => (
             <div
               key={col.key}
               className="flex h-9 shrink-0 items-center px-2 text-xs font-semibold text-foreground"
@@ -370,6 +375,7 @@ export function AssetImportGrid({
                 }}
                 onCellChange={onCellChangeStable}
                 columnSelectOptions={columnSelectOptions}
+                columns={columns}
                 style={{
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,

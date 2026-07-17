@@ -12,11 +12,16 @@ from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.assets.schema import (
     AssetCategoryPublic,
+    AssetCustodianUserPublic,
     AssetCreateRequest,
     AssetDetailPublic,
     AssetExportFieldsResponse,
+    AssetFieldConfigListResponse,
+    AssetFieldConfigPublic,
     AssetExportFieldPublic,
     AssetListResponse,
+    AssetListColumnsPreference,
+    AssetImagePublic,
     AssetUpdateRequest,
     FinancialYearListResponse,
     ImportCancelBatchResponse,
@@ -40,6 +45,8 @@ from modules.assets.service import (
     ImportValidationError,
     InvalidRfidError,
     InvalidTagColorError,
+    InvalidAssetImageError,
+    MAX_ASSET_IMAGE_BYTES,
 )
 from modules.assets.schema import AssetAuditEventPublic
 from modules.errors import ConflictError, NotFoundError
@@ -57,6 +64,45 @@ def list_categories(
     _: Annotated[object, Depends(require_permission("asset.view"))],
 ) -> list[AssetCategoryPublic]:
     return svc.list_categories()
+
+
+@router.get("/custodian-users", response_model=list[AssetCustodianUserPublic])
+def list_custodian_users(
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("asset.view", "asset.create", "asset.update")),
+    ],
+) -> list[AssetCustodianUserPublic]:
+    return [
+        AssetCustodianUserPublic.model_validate(user)
+        for user in svc.list_custodian_users()
+    ]
+
+
+@router.get("/list-columns", response_model=AssetListColumnsPreference)
+def get_asset_list_columns(
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+) -> AssetListColumnsPreference:
+    return AssetListColumnsPreference(
+        columns=svc.get_asset_list_columns(int(current.subject))
+    )
+
+
+@router.put("/list-columns", response_model=AssetListColumnsPreference)
+def update_asset_list_columns(
+    payload: AssetListColumnsPreference,
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+) -> AssetListColumnsPreference:
+    try:
+        columns = svc.update_asset_list_columns(int(current.subject), payload.columns)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return AssetListColumnsPreference(columns=columns)
 
 
 @router.get("", response_model=AssetListResponse)
@@ -92,6 +138,13 @@ def list_assets(
     fy_scan_to: date | None = Query(None, description="Include RFID scans on or before this date (within FY)."),
     sort_by: str = Query("created_at"),
     sort_dir: str = Query("desc"),
+    asset_code: str | None = Query(None, description="Column filter: asset number contains"),
+    combined_asset_number: str | None = Query(None, description="Column filter: combined asset number contains"),
+    asset_name: str | None = Query(None, description="Column filter: asset name contains"),
+    rfid_code: str | None = Query(None, description="Column filter: RFID code contains"),
+    category: str | None = Query(None, description="Column filter: category code/name contains"),
+    cost_center: str | None = Query(None, description="Column filter: cost center code/name contains"),
+    functional_location: str | None = Query(None, description="Column filter: functional location code/name contains"),
 ) -> AssetListResponse:
     return svc.list_assets(
         page=page,
@@ -109,19 +162,54 @@ def list_assets(
         fy_scan_to=fy_scan_to,
         sort_by=sort_by,
         sort_dir=sort_dir,
+        column_filters={
+            "asset_code": asset_code or "",
+            "combined_asset_number": combined_asset_number or "",
+            "asset_name": asset_name or "",
+            "rfid_code": rfid_code or "",
+            "category": category or "",
+            "cost_center": cost_center or "",
+            "functional_location": functional_location or "",
+        },
+    )
+
+
+@router.get("/field-config", response_model=AssetFieldConfigListResponse)
+def list_field_config(
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+    db: Annotated[Session, Depends(get_db)],
+) -> AssetFieldConfigListResponse:
+    from modules.assets.field_config import AssetFieldConfigService
+
+    svc = AssetFieldConfigService(db)
+    return AssetFieldConfigListResponse(
+        fields=[
+            AssetFieldConfigPublic(
+                field_key=row.field_key,
+                display_label=row.display_label,
+                is_visible=row.is_visible,
+                is_required=row.is_required,
+            )
+            for row in svc.list_all()
+        ]
     )
 
 
 @router.get("/export/fields", response_model=AssetExportFieldsResponse)
 def list_export_fields(
     _: Annotated[object, Depends(require_permission("asset.view"))],
+    db: Annotated[Session, Depends(get_db)],
 ) -> AssetExportFieldsResponse:
-    from modules.assets.field_definitions import ASSET_EXPORT_FIELDS, ASSET_EXPORT_FIELD_LABELS
+    from modules.assets.field_config import AssetFieldConfigService
+    from modules.assets.field_definitions import ASSET_EXPORT_FIELDS
 
+    svc = AssetFieldConfigService(db)
+    labels = svc.label_map()
     return AssetExportFieldsResponse(
         fields=[
-            AssetExportFieldPublic(key=key, label=ASSET_EXPORT_FIELD_LABELS.get(key, key))
+            AssetExportFieldPublic(key=key, label=labels.get(key, key))
             for key in ASSET_EXPORT_FIELDS
+            if svc.is_visible(key, default=True)
         ]
     )
 
@@ -248,6 +336,63 @@ def get_asset(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.get("/{asset_id}/image")
+def get_asset_image(
+    asset_id: int,
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+) -> Response:
+    try:
+        content, content_type, _filename = svc.get_asset_image(asset_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.put("/{asset_id}/image", response_model=AssetImagePublic)
+async def upload_asset_image(
+    asset_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("asset.update", "asset.manage", "asset.create")),
+    ],
+    file: UploadFile = File(...),
+) -> AssetImagePublic:
+    try:
+        content = await file.read(MAX_ASSET_IMAGE_BYTES + 1)
+        return svc.set_asset_image(
+            asset_id,
+            data=content,
+            filename=file.filename,
+            actor_user_id=int(current.subject),
+        )
+    except InvalidAssetImageError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    finally:
+        await file.close()
+
+
+@router.delete("/{asset_id}/image", status_code=status.HTTP_204_NO_CONTENT)
+def delete_asset_image(
+    asset_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_any_permission("asset.update", "asset.manage"))],
+) -> None:
+    try:
+        svc.delete_asset_image(asset_id, actor_user_id=int(current.subject))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.post("", response_model=AssetDetailPublic, status_code=status.HTTP_201_CREATED)
 def create_asset(
     payload: AssetCreateRequest,
@@ -258,7 +403,10 @@ def create_asset(
     try:
         return svc.create_asset(payload, actor_user_id=int(current.subject))
     except DuplicateAssetCodeError:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Asset code already exists.") from None
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Combined Asset No already exists.",
+        ) from None
     except DuplicateRfidError:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="RFID code already exists.") from None
     except InvalidTagColorError as exc:
@@ -285,7 +433,10 @@ def update_asset(
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except DuplicateAssetCodeError:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Asset code already exists.") from None
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Combined Asset No already exists.",
+        ) from None
     except InvalidTagColorError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

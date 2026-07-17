@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 from modules.asset_masters.model import (
     ActualLocationMaster,
     AssetConditionMaster,
-    AssetCustodianMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
@@ -27,6 +26,7 @@ from modules.assets.field_definitions import ASSET_IMPORT_TEMPLATE_FIELDS, impor
 from modules.assets.import_master_resolve import master_import_label, plant_import_label
 from modules.assets.model import AssetCategory
 from modules.platform.org_units.model import OrgUnit
+from modules.platform.users.model import User
 
 IMPORT_SHEET = "Import"
 LISTS_SHEET = "_Lists"
@@ -105,8 +105,11 @@ def build_import_template_xlsx(db: Session) -> bytes:
     ws_lists = wb.create_sheet(LISTS_SHEET)
     ws_instructions = wb.create_sheet(INSTRUCTIONS_SHEET)
 
-    fields = ASSET_IMPORT_TEMPLATE_FIELDS
-    headers = [import_field_header_label(key) for key in fields]
+    from modules.assets.field_config import AssetFieldConfigService
+
+    svc = AssetFieldConfigService(db)
+    fields = [key for key in ASSET_IMPORT_TEMPLATE_FIELDS if svc.is_visible(key)]
+    headers = [import_field_header_label(key, db=db) for key in fields]
     header_fill = PatternFill("solid", fgColor="1F4E79")
     header_font = Font(bold=True, color="FFFFFF")
     for col_idx, header in enumerate(headers, start=1):
@@ -160,13 +163,13 @@ def build_import_template_xlsx(db: Session) -> bytes:
 
     custodians = list(
         db.scalars(
-            select(AssetCustodianMaster)
-            .where(AssetCustodianMaster.is_active.is_(True))
-            .order_by(AssetCustodianMaster.code)
+            select(User)
+            .where(User.is_active.is_(True))
+            .order_by(User.full_name, User.username)
         ).all()
     )
     custodian_labels = [
-        master_import_label(name=str(c.name), code=str(c.code)) for c in custodians
+        f"{c.username} — {c.full_name}" for c in custodians
     ]
     row_start, row_end = _write_vertical_list(ws_lists, list_col, custodian_labels)
     if custodian_labels:

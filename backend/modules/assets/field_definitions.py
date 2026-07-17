@@ -17,6 +17,20 @@ IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
         "category_code",
     ],
     "asset_code": ["asset code", "asset_code", "code"],
+    "combined_asset_number": [
+        "combined asset no",
+        "combined asset number",
+        "combined_asset_number",
+        "combined asset no.",
+        "can",
+    ],
+    "remark": ["remark", "remarks", "notes"],
+    "sub_no": ["sub-no", "sub no", "sub_no", "sub number", "sub-number"],
+    "asset_description": [
+        "asset description",
+        "asset_description",
+        "description",
+    ],
     "rfid_code": ["rfid code", "rfid_code", "rfid", "uhf_rfid_code"],
     "tag_color_code": ["tag color", "tag color code", "tag_color", "tag_color_code"],
     "asset_custodian_code": [
@@ -67,17 +81,21 @@ ASSET_FIELD_LABELS: dict[str, str] = {
     "asset_class": "Asset class",
     "asset_type": "Asset type",
     "asset_category_id": "Asset category",
-    "asset_code": "Asset code",
-    "rfid_code": "RFID code",
+    "asset_code": "Asset Number",
+    "combined_asset_number": "Combined Asset No",
+    "remark": "Remark",
+    "sub_no": "Sub-No",
+    "rfid_code": "RFID Code",
     "tag_color_code": "Tag color",
-    "asset_custodian_id": "Asset custodian",
-    "asset_custodian_code": "Asset custodian",
-    "asset_condition_id": "Asset condition",
-    "asset_condition_code": "Asset condition",
+    "asset_custodian_id": "Asset Custodian",
+    "asset_custodian_code": "Asset Custodian",
+    "asset_condition_id": "Asset Physical Condition",
+    "asset_condition_code": "Asset Physical Condition",
     "sub_location": "Sub location",
     "plant_id": "Plant name",
-    "cost_center": "Cost center",
-    "party_details": "Party details",
+    "cost_center": "Cost Center",
+    "cost_center_name": "Cost Center Name",
+    "party_details": "Party Details",
     "invoice_no": "Invoice no.",
     "invoice_date": "Invoice date",
     "inventory_count": "Inventory count",
@@ -87,11 +105,13 @@ ASSET_FIELD_LABELS: dict[str, str] = {
     "grn_no": "GRN no.",
     "put_to_use_date": "Put to use",
     "depreciation_rate": "Rate of depreciation",
-    "gross_block": "Gross block",
-    "life_span": "Life span",
-    "functional_location": "Functional location",
-    "actual_location": "Actual location",
+    "gross_block": "APC-IGAAP",
+    "life_span": "Life-Span (Years)",
+    "functional_location": "Actual Location 1",
+    "actual_location": "Actual location 2",
     "profit_center": "Profit center",
+    "cap_date": "Capitalization Date",
+    "asset_description": "Asset Description",
 }
 
 IMPORT_DATE_FIELDS = frozenset(
@@ -111,11 +131,10 @@ IMPORT_INT_FIELDS = frozenset({"inventory_count"})
 ASSET_REQUIRED_IMPORT_FIELD_KEYS: frozenset[str] = frozenset(
     {
         "asset_name",
-        "asset_code",
+        "combined_asset_number",
         "category_code",
         "plant_code",
         "cost_center",
-        "profit_center",
         "functional_location",
         "actual_location",
     }
@@ -124,11 +143,10 @@ ASSET_REQUIRED_IMPORT_FIELD_KEYS: frozenset[str] = frozenset(
 ASSET_REQUIRED_MANUAL_FIELD_KEYS: frozenset[str] = frozenset(
     {
         "asset_name",
-        "asset_code",
+        "combined_asset_number",
         "asset_category_id",
         "plant_id",
         "cost_center",
-        "profit_center",
         "functional_location",
         "actual_location",
     }
@@ -139,7 +157,15 @@ def _required_text(value: Any) -> bool:
     return bool(str(value or "").strip())
 
 
-def required_import_field_errors(data: dict[str, Any]) -> dict[str, str]:
+def required_import_field_errors(data: dict[str, Any], *, db: Any | None = None) -> dict[str, str]:
+    if db is not None:
+        from modules.assets.field_config import IMPORT_SCOPE, AssetFieldConfigService, validate_required_fields
+
+        return validate_required_fields(
+            AssetFieldConfigService(db),
+            data,
+            scope_keys=IMPORT_SCOPE,
+        )
     errors: dict[str, str] = {}
     for key in ASSET_REQUIRED_IMPORT_FIELD_KEYS:
         if not _required_text(data.get(key)):
@@ -155,18 +181,38 @@ def required_import_field_errors(data: dict[str, Any]) -> dict[str, str]:
 def required_manual_create_field_errors(
     *,
     asset_name: str,
-    asset_code: str,
+    asset_code: str = "",
+    combined_asset_number: str = "",
     asset_category_id: int | None,
     plant_id: int | None,
     cost_center: str | None,
     profit_center: str | None,
     functional_location: str | None,
     actual_location: str | None,
+    db: Any | None = None,
 ) -> dict[str, str]:
+    if db is not None:
+        from modules.assets.field_config import MANUAL_CREATE_SCOPE, AssetFieldConfigService, validate_required_fields
+
+        return validate_required_fields(
+            AssetFieldConfigService(db),
+            {
+                "asset_name": asset_name,
+                "asset_code": asset_code,
+                "combined_asset_number": combined_asset_number,
+                "asset_category_id": asset_category_id,
+                "plant_id": plant_id,
+                "cost_center": cost_center,
+                "profit_center": profit_center,
+                "functional_location": functional_location,
+                "actual_location": actual_location,
+            },
+            scope_keys=MANUAL_CREATE_SCOPE,
+        )
     errors: dict[str, str] = {}
     text_checks = (
         ("asset_name", asset_name),
-        ("asset_code", asset_code),
+        ("combined_asset_number", combined_asset_number),
         ("cost_center", cost_center),
         ("profit_center", profit_center),
         ("functional_location", functional_location),
@@ -189,7 +235,11 @@ ASSET_IMPORT_TEMPLATE_FIELDS: list[str] = [
     "asset_class",
     "asset_type",
     "category_code",
+    "combined_asset_number",
     "asset_code",
+    "remark",
+    "sub_no",
+    "asset_description",
     "rfid_code",
     "tag_color_code",
     "asset_custodian_code",
@@ -221,7 +271,11 @@ ASSET_EXPORT_DEFAULT_FIELDS: list[str] = [
     "asset_class",
     "asset_type",
     "category_code",
+    "combined_asset_number",
     "asset_code",
+    "remark",
+    "sub_no",
+    "asset_description",
     "rfid_code",
     "tag_color_code",
     "asset_custodian_code",
@@ -251,7 +305,11 @@ ASSET_EXPORT_FIELDS: list[str] = [
     "asset_class",
     "asset_type",
     "category_code",
+    "combined_asset_number",
     "asset_code",
+    "remark",
+    "sub_no",
+    "asset_description",
     "rfid_code",
     "tag_color_code",
     "asset_custodian_code",
@@ -299,7 +357,15 @@ ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
 }
 
 
-def import_field_header_label(key: str) -> str:
+def import_field_header_label(key: str, *, db: Any | None = None) -> str:
+    if db is not None:
+        from modules.assets.field_config import AssetFieldConfigService
+
+        svc = AssetFieldConfigService(db)
+        label = svc.label(key)
+        if svc.is_required(key):
+            return f"{label} *"
+        return label
     label = ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title())
     if key in ASSET_REQUIRED_IMPORT_FIELD_KEYS:
         return f"{label} *"

@@ -251,9 +251,39 @@
   .app-data-table-wrap {
     flex: 1 1 0%;
     min-height: 0;
-    overflow: auto;
+    overflow-x: scroll;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 45%, transparent)
+      color-mix(in srgb, var(--muted) 55%, var(--card));
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+  }
+
+  /* Force classic always-visible scrollbars (macOS/iOS overlay bars hide by default). */
+  .app-data-table-wrap::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+
+  .app-data-table-wrap::-webkit-scrollbar-track {
+    background: color-mix(in srgb, var(--muted) 55%, var(--card));
+  }
+
+  .app-data-table-wrap::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    background-color: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+  }
+
+  .app-data-table-wrap::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--muted-foreground) 65%, transparent);
+  }
+
+  .app-data-table-wrap::-webkit-scrollbar-corner {
+    background: color-mix(in srgb, var(--muted) 55%, var(--card));
   }
 
   .app-data-table-card {
@@ -266,9 +296,9 @@
       0 6px 20px rgb(15 23 42 / 0.05);
   }
 
+  /* Parent scrollport owns both axes so the H-bar stays at the visible bottom. */
   .app-data-table-wrap .app-table-wrap {
-    overflow-x: auto;
-    overflow-y: visible;
+    overflow: visible;
   }
 
   .app-data-table-wrap table {

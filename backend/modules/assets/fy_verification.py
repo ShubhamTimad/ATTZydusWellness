@@ -78,6 +78,7 @@ def _rfid_active_base(
             or_(
                 AssetMaster.asset_name.ilike(q),
                 AssetMaster.asset_code.ilike(q),
+                AssetMaster.combined_asset_number.ilike(q),
                 AssetMaster.serial_no.ilike(q),
                 AssetMaster.rfid_code.ilike(q),
             )

@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
+import { AssetImage, validateAssetImageFile } from "@/components/assets/asset-image"
 import { AssetAuditLog, type AssetAuditLogRow } from "@/components/assets/asset-audit-log"
 import { renderPhysicalOrderInventoryField } from "@/lib/asset-physical-order-display"
 import { AssetDetailSectionPanel } from "@/components/assets/asset-detail-section-panel"
@@ -18,13 +19,22 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import {
+  ApiError,
+  deleteJson,
+  getBlob,
+  getJson,
+  patchJson,
+  postJson,
+  putFormData,
+} from "@/lib/api"
 import type { AssetAuditEvent, AssetDetail, AssetRfidAttachResult } from "@/lib/assets-types"
 import {
   ASSET_VIEW_SECTIONS,
   type AssetViewSectionConfig,
   type AssetViewSectionId,
 } from "@/lib/asset-master-fields"
+import { useAssetFieldConfig } from "@/lib/use-asset-field-config"
 import {
   assetConditionLabel,
   assetCustodianLabel,
@@ -79,14 +89,14 @@ function SummaryStrip({ items }: { items: SummaryItem[] }) {
         {items.map((item) => (
           <div
             key={item.label}
-            className="min-w-0 flex-1 basis-0 px-3 py-2.5 first:pl-[var(--app-card-padding)] last:pr-[var(--app-card-padding)]"
+            className="min-w-0 flex-1 basis-0 px-3 py-2 first:pl-4 last:pr-4"
           >
-            <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="truncate text-[10px] font-bold uppercase tracking-wider text-foreground">
               {item.label}
             </p>
             <p
               className={cn(
-                "mt-0.5 truncate text-sm font-medium text-foreground",
+                "mt-0.5 truncate text-sm font-normal text-foreground",
                 item.mono && "font-mono text-xs",
               )}
               title={typeof item.value === "string" ? item.value : undefined}
@@ -106,6 +116,10 @@ export function AssetDetailPage() {
   const [loading, setLoading] = React.useState(true)
   const [editing, setEditing] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  const [imageUrl, setImageUrl] = React.useState<string | null>(null)
+  const [pendingImageFile, setPendingImageFile] = React.useState<File | null>(null)
+  const [removeImage, setRemoveImage] = React.useState(false)
+  const [imageRevision, setImageRevision] = React.useState(0)
   const [auditRows, setAuditRows] = React.useState<AssetAuditLogRow[]>([])
   const [auditLoading, setAuditLoading] = React.useState(false)
 
@@ -116,6 +130,7 @@ export function AssetDetailPage() {
   const [rfidSaving, setRfidSaving] = React.useState(false)
 
   const canUpdate = hasPermission("asset.update") || hasPermission("asset.manage")
+  const fieldConfig = useAssetFieldConfig()
 
   const load = React.useCallback(async () => {
     if (!id) return
@@ -131,6 +146,28 @@ export function AssetDetailPage() {
   React.useEffect(() => {
     void load().catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load asset"))
   }, [load])
+
+  React.useEffect(() => {
+    if (!asset?.id || !asset.has_image) {
+      setImageUrl(null)
+      return
+    }
+    let cancelled = false
+    let objectUrl: string | null = null
+    void getBlob(`/admin/assets/${asset.id}/image`)
+      .then((blob) => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setImageUrl(objectUrl)
+      })
+      .catch(() => {
+        if (!cancelled) setImageUrl(null)
+      })
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [asset?.id, asset?.has_image, imageRevision])
 
   const plantId = asset?.location?.plant_id ?? null
   const costCenterCode = asset?.financial?.cost_center ?? null
@@ -177,6 +214,9 @@ export function AssetDetailPage() {
       const updated = await patchJson<AssetDetail>(`/admin/assets/${asset.id}`, {
         asset_name: asset.asset_name,
         asset_code: asset.asset_code,
+        combined_asset_number: asset.combined_asset_number,
+        remark: asset.remark ?? null,
+        sub_no: asset.sub_no ?? null,
         rfid_code: asset.rfid_code,
         tag_color_id: asset.tag_color_id,
         asset_custodian_id: asset.asset_custodian_id,
@@ -191,9 +231,23 @@ export function AssetDetailPage() {
         financial: asset.financial ?? {},
         inventory: inventoryPayload,
       })
-      setAsset(updated)
+      if (pendingImageFile) {
+        const body = new FormData()
+        body.append("file", pendingImageFile)
+        await putFormData(`/admin/assets/${asset.id}/image`, body)
+      } else if (removeImage && asset.has_image) {
+        await deleteJson(`/admin/assets/${asset.id}/image`)
+      }
+      const refreshed =
+        pendingImageFile || removeImage
+          ? await getJson<AssetDetail>(`/admin/assets/${asset.id}`)
+          : updated
+      setAsset(refreshed)
+      setPendingImageFile(null)
+      setRemoveImage(false)
+      if (pendingImageFile || removeImage) setImageRevision((revision) => revision + 1)
       setEditing(false)
-      void loadAudit(updated.id)
+      void loadAudit(refreshed.id)
       toast.success("Asset saved.")
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Save failed.")
@@ -314,6 +368,10 @@ export function AssetDetailPage() {
   }
 
   const onInformationSection = (field: string, value: string | number | null) => {
+    if (field === "asset_description") {
+      setSection("information", field, value)
+      return
+    }
     if (field === "asset_category_id") {
       set({ asset_category_id: value as number | null })
       return
@@ -346,11 +404,11 @@ export function AssetDetailPage() {
     }
     if (field === "asset_custodian_id") {
       const id = value ? Number(value) : null
-      const row = id ? masters.assetCustodians.find((c) => c.id === id) : null
+      const row = id ? masters.custodianUsers.find((c) => c.id === id) : null
       set({
         asset_custodian_id: id,
-        asset_custodian_code: row?.code ?? null,
-        asset_custodian_name: row?.name ?? null,
+        asset_custodian_code: row?.username ?? null,
+        asset_custodian_name: row?.full_name ?? null,
       })
       return
     }
@@ -429,8 +487,13 @@ export function AssetDetailPage() {
     }
 
     if (actionId === "edit") {
-      if (editing) setEditing(false)
-      else setEditing(true)
+      if (editing) {
+        setPendingImageFile(null)
+        setRemoveImage(false)
+        setEditing(false)
+      } else {
+        setEditing(true)
+      }
     }
   }
   const toolbar = (
@@ -495,15 +558,32 @@ export function AssetDetailPage() {
 
   const summaryItems: SummaryItem[] = [
     { label: "Status", value: assetStatusLabel(a.lifecycle_status, a.approval_status) },
-    { label: "Asset code", value: a.asset_code, mono: true },
-    { label: "Class / type", value: [a.asset_class, a.asset_type].filter(Boolean).join(" · ") || "—" },
-    { label: "Category", value: a.category_name ?? "—" },
-    { label: "Plant", value: a.plant_name ?? "—" },
-    { label: "RFID", value: a.rfid_code ?? "—", mono: true },
-    {
-      label: "Cost center",
-      value: a.financial?.cost_center_name ?? a.financial?.cost_center ?? "—",
-    },
+    ...(fieldConfig.isVisible("combined_asset_number")
+      ? [
+          {
+            label: fieldConfig.getLabel("combined_asset_number", "Combined Asset No"),
+            value: a.combined_asset_number,
+            mono: true,
+          },
+        ]
+      : []),
+    ...(fieldConfig.isVisible("asset_code")
+      ? [{ label: fieldConfig.getLabel("asset_code", "Asset Number"), value: a.asset_code, mono: true }]
+      : []),
+    ...(fieldConfig.isVisible("asset_condition_id")
+      ? [
+          {
+            label: fieldConfig.getLabel("asset_condition_id", "Asset Physical Condition"),
+            value: a.asset_condition_name ?? a.asset_condition_code ?? "—",
+          },
+        ]
+      : []),
+    ...(fieldConfig.isVisible("asset_category_id")
+      ? [{ label: fieldConfig.getLabel("asset_category_id", "Category"), value: a.category_name ?? "—" }]
+      : []),
+    ...(fieldConfig.isVisible("rfid_code")
+      ? [{ label: fieldConfig.getLabel("rfid_code", "RFID"), value: a.rfid_code ?? "—", mono: true }]
+      : []),
   ]
 
   const sectionsById = Object.fromEntries(
@@ -513,7 +593,9 @@ export function AssetDetailPage() {
   const sectionPanelProps = {
     compact: !editing,
     fieldColumns: (sectionId: AssetViewSectionId) =>
-      !editing && sectionId === "financial" ? (2 as const) : (1 as const),
+      !editing && (sectionId === "financial" || sectionId === "information")
+        ? (2 as const)
+        : (1 as const),
   }
 
   function renderAssetViewSection(sectionId: AssetViewSectionId) {
@@ -525,10 +607,19 @@ export function AssetDetailPage() {
     }
 
     if (sec.id === "information") {
+      const summaryFieldKeys = new Set([
+        "asset_code",
+        "combined_asset_number",
+        "rfid_code",
+        "asset_category_id",
+        "asset_condition_id",
+      ])
       const infoConfig: AssetViewSectionConfig = {
         ...sec,
         keys: sec.keys.filter(
-          (k) => k !== "tag_color_id" || Boolean(a.rfid_code?.trim()),
+          (k) =>
+            (editing || !summaryFieldKeys.has(k)) &&
+            (k !== "tag_color_id" || Boolean(a.rfid_code?.trim())),
         ),
       }
       return (
@@ -546,7 +637,7 @@ export function AssetDetailPage() {
               value: String(c.id),
               label: categoryLabel(c),
             })),
-            asset_custodian_id: masters.assetCustodians.map((c) => ({
+            asset_custodian_id: masters.custodianUsers.map((c) => ({
               value: String(c.id),
               label: assetCustodianLabel(c),
             })),
@@ -560,10 +651,14 @@ export function AssetDetailPage() {
       )
     }
     if (sec.id === "location") {
+      const locationConfig: AssetViewSectionConfig = {
+        ...sec,
+        showPlant: Boolean(sec.showPlant && fieldConfig.isVisible("plant_id")),
+      }
       return (
         <AssetDetailSectionPanel
           key={sec.id}
-          config={sec}
+          config={locationConfig}
           title={sec.title}
           icon={Icon}
           editing={editing}
@@ -572,11 +667,11 @@ export function AssetDetailPage() {
           {...panelCommon}
           plantName={a.plant_name}
           extra={
-            editing ? (
+            editing && fieldConfig.isVisible("plant_id") ? (
               <div className="space-y-1.5 sm:col-span-2">
                 <Label className="app-form-label">
-                  Plant name
-                  <RequiredFieldMark />
+                  {fieldConfig.getLabel("plant_id", "Plant name")}
+                  {fieldConfig.isRequired("plant_id") ? <RequiredFieldMark /> : null}
                 </Label>
                 <select
                   className={cn(adminSelectClass, "h-9")}
@@ -671,28 +766,65 @@ export function AssetDetailPage() {
     <>
       <AdminPage fullWidth dense actions={toolbar} className="w-full pb-6">
         <section aria-label="Asset details" className="flex shrink-0 flex-col gap-3">
-          <header className="flex flex-wrap items-end justify-between gap-3 border-b border-border/60 pb-3">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
             <div className="min-w-0">
               <h1 className="app-page-heading truncate">{a.asset_name}</h1>
               <p className="mt-0.5 text-sm text-muted-foreground">
-                {a.location?.functional_location_name ?? a.location?.functional_location ?? a.asset_code}
+                {a.location?.functional_location_name ??
+                  a.location?.functional_location ??
+                  a.asset_code}
                 {a.plant_name ? ` · ${a.plant_name}` : ""}
               </p>
             </div>
-            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <div className="ml-auto flex flex-col items-end gap-1.5">
+              <AssetImage
+                imageUrl={removeImage ? null : imageUrl}
+                file={pendingImageFile}
+                editable={editing && canUpdate}
+                busy={saving}
+                onFileChange={(file) => {
+                  const error = validateAssetImageFile(file)
+                  if (error) {
+                    toast.error(error)
+                    return
+                  }
+                  setPendingImageFile(file)
+                  setRemoveImage(false)
+                }}
+                onRemove={() => {
+                  setPendingImageFile(null)
+                  setRemoveImage(true)
+                }}
+              />
+            </div>
+          </header>
+
+          {!editing ? <SummaryStrip items={summaryItems} /> : null}
+
+          {editing ? (
+            <div className="app-grid app-grid-2 items-stretch">
+              {ASSET_VIEW_SECTIONS.map((sec) => renderAssetViewSection(sec.id))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-5">
+              {renderAssetViewSection("information")}
+              <div className="border-t-2 border-border/70" role="separator" />
+              <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-3">
+                {renderAssetViewSection("location")}
+                {renderAssetViewSection("financial")}
+                {renderAssetViewSection("inventory")}
+              </div>
+            </div>
+          )}
+          <div className="flex justify-end border-t border-border/60 pt-3">
+            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock className="size-3.5 shrink-0" aria-hidden />
               Updated {formatDateTime(a.updated_at)}
             </span>
-          </header>
-
-          <SummaryStrip items={summaryItems} />
-
-          <div className="app-grid app-grid-2 items-start">
-            {ASSET_VIEW_SECTIONS.map((sec) => renderAssetViewSection(sec.id))}
           </div>
         </section>
 
-        <section aria-label="Audit trail" className="border-t border-border/60 pt-6">
+        <section aria-label="Audit trail" className="border-t border-border/60 pt-4">
           <AssetAuditLog rows={auditRows} loading={auditLoading} />
         </section>
       </AdminPage>

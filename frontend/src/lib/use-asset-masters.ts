@@ -4,7 +4,7 @@ import { getJson } from "@/lib/api"
 import type {
   ActualLocationMaster,
   AssetConditionMaster,
-  AssetCustodianMaster,
+  AssetCustodianUser,
   CategoryMaster,
   CostCenterMaster,
   FunctionalLocationMaster,
@@ -26,11 +26,15 @@ export function useAssetMasterLookups(
   const [costCenters, setCostCenters] = React.useState<CostCenterMaster[]>([])
   const [profitCenters, setProfitCenters] = React.useState<ProfitCenterMaster[]>([])
   const [tagColors, setTagColors] = React.useState<TagColorMaster[]>([])
-  const [assetCustodians, setAssetCustodians] = React.useState<AssetCustodianMaster[]>([])
+  const [custodianUsers, setCustodianUsers] = React.useState<AssetCustodianUser[]>([])
   const [assetConditions, setAssetConditions] = React.useState<AssetConditionMaster[]>([])
 
   const canRead =
     hasPermission("asset.view") || hasPermission("masters.view")
+  const canReadCustodianUsers =
+    hasPermission("asset.view") ||
+    hasPermission("asset.create") ||
+    hasPermission("asset.update")
 
   React.useEffect(() => {
     if (!canRead) return
@@ -40,11 +44,11 @@ export function useAssetMasterLookups(
   }, [canRead])
 
   React.useEffect(() => {
-    if (!canRead) return
-    void getJson<AssetCustodianMaster[]>("/admin/asset-masters/asset-custodians?active_only=false")
-      .then(setAssetCustodians)
-      .catch(() => setAssetCustodians([]))
-  }, [canRead])
+    if (!canReadCustodianUsers) return
+    void getJson<AssetCustodianUser[]>("/admin/assets/custodian-users")
+      .then(setCustodianUsers)
+      .catch(() => setCustodianUsers([]))
+  }, [canReadCustodianUsers])
 
   React.useEffect(() => {
     if (!canRead) return
@@ -137,7 +141,7 @@ export function useAssetMasterLookups(
     costCenters,
     profitCenters,
     tagColors,
-    assetCustodians,
+    custodianUsers,
     assetConditions,
   }
 }
@@ -146,8 +150,8 @@ export function tagColorLabel(c: TagColorMaster) {
   return c.name
 }
 
-export function assetCustodianLabel(c: AssetCustodianMaster) {
-  return `${c.code} — ${c.name}`
+export function assetCustodianLabel(c: AssetCustodianUser) {
+  return `${c.full_name} (${c.username})`
 }
 
 export function assetConditionLabel(c: AssetConditionMaster) {

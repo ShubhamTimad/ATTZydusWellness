@@ -28,7 +28,7 @@ from modules.asset_masters.model import (
     ProfitCenterMaster,
     TagColorMaster,
 )
-from modules.assets.model import AssetCategory, AssetMaster  # noqa: F401
+from modules.assets.model import AssetCategory, AssetFieldConfig, AssetMaster  # noqa: F401
 from modules.orders.model import PhysicalOrder, PhysicalOrderAudit, PhysicalOrderItem
 
 __all__ = [
@@ -65,4 +65,5 @@ __all__ = [
     "TagColorMaster",
     "AssetMaster",
     "AssetCategory",
+    "AssetFieldConfig",
 ]

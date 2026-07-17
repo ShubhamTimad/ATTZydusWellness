@@ -436,6 +436,67 @@ DEMO_ASSET_SPECS: list[dict[str, object]] = [
         "actual_location": "LINE-A-BAY2",
         "cost_center": "CC-4100",
     },
+    {
+        "asset_code": "DEMO-AST-013",
+        "asset_name": "Blister Packer — Line C",
+        "category_code": "EQUIPMENT",
+        "rfid_code": "RFID-DEMO-013",
+        "serial_no": "BP-C-013",
+        "functional_location": "PROD/BLD-A/LINE-01",
+        "actual_location": "LINE-A-BAY2",
+        "building": "A",
+        "floor": "2",
+        "cost_center": "CC-4100",
+        "party_details": "PharmaPack Solutions",
+    },
+    {
+        "asset_code": "DEMO-AST-014",
+        "asset_name": "Spectrophotometer — QC",
+        "category_code": "EQUIPMENT",
+        "rfid_code": "RFID-DEMO-014",
+        "serial_no": "SPEC-014",
+        "functional_location": "QC/LAB-02",
+        "actual_location": "QC-BENCH-03",
+        "building": "B",
+        "floor": "1",
+        "cost_center": "CC-4200",
+    },
+    {
+        "asset_code": "DEMO-AST-015",
+        "asset_name": "Workstation — IT Ops",
+        "category_code": "IT",
+        "rfid_code": "RFID-DEMO-015",
+        "serial_no": "WS-015",
+        "functional_location": "IT/ENG",
+        "actual_location": "OFF-WING-C-305",
+        "building": "C",
+        "floor": "3",
+        "cost_center": "CC-5100",
+    },
+    {
+        "asset_code": "DEMO-AST-016",
+        "asset_name": "Electric Stacker — Warehouse",
+        "category_code": "VEHICLE",
+        "rfid_code": "RFID-DEMO-016",
+        "serial_no": "ES-016",
+        "functional_location": "WH/RECEIVING",
+        "actual_location": "WH-DOCK-01",
+        "building": "WH",
+        "floor": "G",
+        "cost_center": "CC-4300",
+    },
+    {
+        "asset_code": "DEMO-AST-017",
+        "asset_name": "Air Handling Unit — Block B",
+        "category_code": "FACILITY",
+        "rfid_code": "RFID-DEMO-017",
+        "serial_no": "AHU-B-017",
+        "functional_location": "FAC/CR-HVAC",
+        "actual_location": "CR-ROOF-PLANT",
+        "building": "B",
+        "floor": "R",
+        "cost_center": "CC-4400",
+    },
 ]
 
 
@@ -699,6 +760,7 @@ def _enrich_demo_asset_spec(spec: dict[str, object], *, today: date) -> dict[str
     meta = _CATEGORY_DEMO_META.get(cat, _CATEGORY_DEMO_META["EQUIPMENT"])
     cc = str(s["cost_center"])
 
+    s.setdefault("combined_asset_number", f"DEMO-CAN-{n:03d}")
     s.setdefault("asset_class", meta[0])
     s.setdefault("asset_type", meta[1])
     if not s.get("rfid_code"):
@@ -767,6 +829,7 @@ def _apply_demo_asset_spec(
     asset.asset_name = str(spec["asset_name"])
     asset.asset_class = str(spec["asset_class"])
     asset.asset_type = str(spec["asset_type"])
+    asset.combined_asset_number = str(spec.get("combined_asset_number") or code)
     asset.rfid_code = str(spec["rfid_code"])
     asset.serial_no = str(spec["serial_no"])
     asset.asset_category_id = int(cat_id) if cat_id else None
@@ -961,21 +1024,32 @@ def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
     for raw in DEMO_ASSET_SPECS:
         spec = _enrich_demo_asset_spec(raw, today=today)
         code = str(spec["asset_code"]).upper()
+        can = str(spec.get("combined_asset_number") or code)
         existing = db.scalar(
-            select(AssetMaster.id).where(
+            select(AssetMaster).where(
                 AssetMaster.asset_code == code,
                 AssetMaster.deleted_at.is_(None),
             )
         )
+        if existing is None:
+            # Soft-deleted row still holds unique CAN/RFID — revive it instead of inserting.
+            existing = db.scalar(select(AssetMaster).where(AssetMaster.asset_code == code))
+            if existing is None:
+                existing = db.scalar(
+                    select(AssetMaster).where(AssetMaster.combined_asset_number == can)
+                )
         if existing is not None:
-            _apply_demo_asset_spec(db, int(existing), spec, plant_id=plant_id)
+            if existing.deleted_at is not None:
+                existing.deleted_at = None
+                print(f"  restored: {code}")
+            _apply_demo_asset_spec(db, int(existing.id), spec, plant_id=plant_id)
             has_audit = db.scalar(
-                select(AssetAuditEvent.id).where(AssetAuditEvent.asset_id == existing).limit(1)
+                select(AssetAuditEvent.id).where(AssetAuditEvent.asset_id == existing.id).limit(1)
             )
             if has_audit is None:
                 log_asset_event(
                     db,
-                    asset_id=int(existing),
+                    asset_id=int(existing.id),
                     actor_user_id=None,
                     action="created",
                     new_value={"asset_code": code, "source": "seed"},
@@ -986,6 +1060,7 @@ def _seed_demo_assets(db: Session, *, plant_id: int) -> None:
 
         asset = AssetMaster(
             asset_code=code,
+            combined_asset_number=can,
             asset_name=str(spec["asset_name"]),
             source_type="manual",
             created_by=None,

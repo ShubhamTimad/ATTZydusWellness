@@ -327,6 +327,31 @@ export async function deleteJson(
   }
 }
 
+export async function getBlob(path: string): Promise<Blob> {
+  const res = await fetchWithAuth({ path, init: { method: "GET" } })
+  if (!res.ok) {
+    const text = await res.text()
+    const data = parseResponseBody(text)
+    maybeDispatchAuthLogout(res.status, data, path)
+    throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
+  }
+  return res.blob()
+}
+
+export async function putFormData<TResponse>(
+  path: string,
+  body: FormData,
+): Promise<TResponse> {
+  const res = await fetchWithAuth({ path, init: { method: "PUT", body } })
+  const text = await res.text()
+  const data = parseResponseBody(text)
+  if (!res.ok) {
+    maybeDispatchAuthLogout(res.status, data, path)
+    throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
+  }
+  return data as TResponse
+}
+
 function filenameFromContentDisposition(header: string | null): string | null {
   if (!header) return null
   const match = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(header)

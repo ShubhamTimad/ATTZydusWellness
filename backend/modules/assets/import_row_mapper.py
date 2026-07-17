@@ -79,6 +79,11 @@ def build_section_payloads(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "asset_name": n.get("asset_name"),
         "asset_code": str(n.get("asset_code", "")).upper() if n.get("asset_code") else None,
+        "combined_asset_number": (
+            str(n.get("combined_asset_number", "")).upper() if n.get("combined_asset_number") else None
+        ),
+        "remark": n.get("remark"),
+        "sub_no": n.get("sub_no"),
         "rfid_code": n.get("rfid_code"),
         "serial_no": n.get("serial_no"),
         "asset_class": n.get("asset_class"),

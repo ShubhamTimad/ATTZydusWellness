@@ -1,9 +1,10 @@
 import * as React from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import {
+  Columns3,
   Download,
+  ListFilter,
   Plus,
-  ScanLine,
   Search,
   SlidersHorizontal,
   Upload,
@@ -48,7 +49,7 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { AssetExportDialog } from "@/components/assets/asset-export-dialog"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
-import { ApiError, deleteJson, downloadFile, getJson, postJson } from "@/lib/api"
+import { ApiError, deleteJson, downloadFile, getJson, postJson, putJson } from "@/lib/api"
 import {
   buildAssetListActionItems,
   countRfidTaggedSelected,
@@ -56,29 +57,93 @@ import {
 } from "@/lib/asset-actions"
 import type {
   AssetListResponse,
+  AssetListItem,
   AssetRfidAttachResult,
   FinancialYearListResponse,
   FinancialYearOption,
 } from "@/lib/assets-types"
-import { categoryLabel, plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
+import type { CostCenterMaster, FunctionalLocationMaster } from "@/lib/masters-types"
+import {
+  categoryLabel,
+  costCenterLabel,
+  functionalLocationLabel,
+  plantLabel,
+  useAssetMasterLookups,
+} from "@/lib/use-asset-masters"
 import { assetStatusLabel, assetStatusPillTone } from "@/lib/asset-lifecycle"
 import { hasPermission } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
-import {
-  ASSET_PHYSICAL_ORDER_STATUS_FILTERS,
-  orderStatusLabel,
-  orderStatusPillTone,
-} from "@/lib/orders-types"
+import { orderStatusLabel } from "@/lib/orders-types"
 import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
 import { cn } from "@/lib/utils"
 
 export type AssetListTab = "all" | "fy"
 export type AssetFySubTab = "verified" | "pending"
 
+export type AssetListColumnKey =
+  | "asset_code"
+  | "combined_asset_number"
+  | "asset_name"
+  | "rfid_code"
+  | "category_name"
+  | "plant"
+  | "cost_center"
+  | "functional_location"
+  | "actual_location"
+  | "inventory_count"
+  | "physical_count"
+  | "last_verification_date"
+  | "lifecycle_status"
+  | "approval_status"
+  | "source_type"
+  | "created_at"
+  | "active_physical_order"
+
+type AssetListColumnDefinition = {
+  key: AssetListColumnKey
+  label: string
+  group: "Asset" | "Location & financial" | "Inventory & status"
+}
+
+const ASSET_LIST_COLUMNS: AssetListColumnDefinition[] = [
+  { key: "asset_code", label: "Asset Number", group: "Asset" },
+  { key: "combined_asset_number", label: "Combined Asset No", group: "Asset" },
+  { key: "asset_name", label: "Asset Name", group: "Asset" },
+  { key: "rfid_code", label: "RFID", group: "Asset" },
+  { key: "category_name", label: "Category", group: "Asset" },
+  { key: "plant", label: "Plant", group: "Location & financial" },
+  { key: "cost_center", label: "Cost Center", group: "Location & financial" },
+  { key: "functional_location", label: "Actual Location 1", group: "Location & financial" },
+  { key: "actual_location", label: "Actual Location 2", group: "Location & financial" },
+  { key: "inventory_count", label: "Inventory Count", group: "Inventory & status" },
+  { key: "physical_count", label: "Physical Count", group: "Inventory & status" },
+  { key: "last_verification_date", label: "Last Verification", group: "Inventory & status" },
+  { key: "lifecycle_status", label: "Status", group: "Inventory & status" },
+  { key: "approval_status", label: "Approval", group: "Inventory & status" },
+  { key: "source_type", label: "Source", group: "Inventory & status" },
+  { key: "created_at", label: "Created", group: "Inventory & status" },
+  { key: "active_physical_order", label: "Physical Order", group: "Inventory & status" },
+]
+
+const DEFAULT_ASSET_LIST_COLUMN_KEYS: AssetListColumnKey[] = [
+  "asset_code",
+  "combined_asset_number",
+  "asset_name",
+  "rfid_code",
+  "category_name",
+  "cost_center",
+  "functional_location",
+  "inventory_count",
+  "physical_count",
+  "lifecycle_status",
+]
+
+type AssetListColumnsPreference = { columns: AssetListColumnKey[] }
+
 export type AssetListFilters = {
   plant_id: string
   category_id: string
-  physical_order_status: string
+  lifecycle_status: string
   approval_status: string
   rfid_status: string
   fy_start_year: string
@@ -92,7 +157,7 @@ export type AssetListFilters = {
 const DEFAULT_FILTERS: AssetListFilters = {
   plant_id: "",
   category_id: "",
-  physical_order_status: "",
+  lifecycle_status: "",
   approval_status: "",
   rfid_status: "",
   fy_start_year: "",
@@ -109,7 +174,27 @@ const DEFAULT_FY_FILTERS: AssetListFilters = {
   sort_dir: "desc",
 }
 
+export type AssetColumnFilters = {
+  asset_code: string
+  combined_asset_number: string
+  asset_name: string
+  rfid_code: string
+  cost_center: string
+  functional_location: string
+}
+
+const DEFAULT_COLUMN_FILTERS: AssetColumnFilters = {
+  asset_code: "",
+  combined_asset_number: "",
+  asset_name: "",
+  rfid_code: "",
+  cost_center: "",
+  functional_location: "",
+}
+
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
+const columnFilterControlClass =
+  "h-7 w-full min-w-24 px-2 py-0 text-xs font-normal normal-case tracking-normal"
 
 function formatMasterLabel(_code: string | null | undefined, name: string | null | undefined): string {
   const n = name?.trim()
@@ -117,11 +202,67 @@ function formatMasterLabel(_code: string | null | undefined, name: string | null
   return _code?.trim() || "—"
 }
 
-function formatPlantLabel(row: { plant_code?: string | null; plant_name?: string | null }): string {
-  const code = row.plant_code?.trim()
-  const name = row.plant_name?.trim()
-  if (code && name) return `${code} — ${name}`
-  return name || code || "—"
+function formatListDate(value: string | null | undefined): string {
+  return value ? new Date(value).toLocaleDateString() : "—"
+}
+
+function assetListCell(row: AssetListItem, key: AssetListColumnKey): React.ReactNode {
+  switch (key) {
+    case "asset_code":
+      return <span className="font-mono text-xs font-medium text-foreground">{row.asset_code || "—"}</span>
+    case "combined_asset_number":
+      return (
+        <span className="font-mono text-xs font-medium text-foreground">
+          {row.combined_asset_number || "—"}
+        </span>
+      )
+    case "asset_name":
+      return (
+        <span className="block max-w-[14rem] truncate font-medium text-foreground" title={row.asset_name}>
+          {row.asset_name}
+        </span>
+      )
+    case "rfid_code":
+      return row.rfid_code?.trim() ? (
+        <span className="font-mono text-xs text-foreground" title={row.rfid_code}>
+          {row.rfid_code}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">Not tagged</span>
+      )
+    case "category_name":
+      return row.category_name ?? "—"
+    case "plant":
+      return formatMasterLabel(row.plant_code, row.plant_name)
+    case "cost_center":
+      return formatMasterLabel(row.cost_center, row.cost_center_description)
+    case "functional_location":
+      return formatMasterLabel(row.functional_location, row.functional_location_description)
+    case "actual_location":
+      return formatMasterLabel(row.actual_location, row.actual_location_description)
+    case "inventory_count":
+      return row.inventory_count ?? "—"
+    case "physical_count":
+      return row.physical_count ?? 0
+    case "last_verification_date":
+      return formatListDate(row.last_verification_date)
+    case "lifecycle_status":
+      return (
+        <AdminPillBadge tone={assetStatusPillTone(row.lifecycle_status, row.approval_status)}>
+          {assetStatusLabel(row.lifecycle_status, row.approval_status)}
+        </AdminPillBadge>
+      )
+    case "approval_status":
+      return row.approval_status.replaceAll("_", " ")
+    case "source_type":
+      return row.source_type.replaceAll("_", " ")
+    case "created_at":
+      return formatListDate(row.created_at)
+    case "active_physical_order":
+      return row.active_physical_order
+        ? `${row.active_physical_order.order_number} · ${orderStatusLabel(row.active_physical_order.order_status)}`
+        : "—"
+  }
 }
 
 function toDateInputValue(iso: string | null | undefined): string {
@@ -146,7 +287,7 @@ function countActiveFilters(
     if (f.fy_scan_from && f.fy_scan_from !== defaultScanFrom) n += 1
     if (f.fy_scan_to && f.fy_scan_to !== defaultScanTo) n += 1
   } else {
-    if (f.physical_order_status) n += 1
+    if (f.lifecycle_status) n += 1
     if (f.approval_status) n += 1
     if (f.rfid_status) n += 1
   }
@@ -161,12 +302,13 @@ function buildQueryParams(
   fySubTab: AssetFySubTab,
   scanFrom: string,
   scanTo: string,
+  columnFilters: AssetColumnFilters,
 ): URLSearchParams {
   const q = new URLSearchParams({ page: String(page), page_size: "25" })
   if (search.trim()) q.set("search", search.trim())
   if (filters.plant_id) q.set("plant_id", filters.plant_id)
   if (filters.category_id) q.set("category_id", filters.category_id)
-  if (filters.physical_order_status) q.set("physical_order_status", filters.physical_order_status)
+  if (filters.lifecycle_status) q.set("lifecycle_status", filters.lifecycle_status)
   if (filters.approval_status) q.set("approval_status", filters.approval_status)
   if (listTab === "all" && filters.rfid_status) q.set("rfid_status", filters.rfid_status)
   if (listTab === "fy") {
@@ -177,6 +319,9 @@ function buildQueryParams(
   }
   if (filters.sort_by) q.set("sort_by", filters.sort_by)
   if (filters.sort_dir) q.set("sort_dir", filters.sort_dir)
+  for (const [key, value] of Object.entries(columnFilters)) {
+    if (value.trim()) q.set(key, value.trim())
+  }
   return q
 }
 
@@ -204,6 +349,25 @@ export function AssetsListPage() {
     initialTab === "fy" ? DEFAULT_FY_FILTERS : initialAllFilters,
   )
   const [filtersOpen, setFiltersOpen] = React.useState(false)
+  const [columnFiltersOpen, setColumnFiltersOpen] = React.useState(false)
+  const [columnFilterInputs, setColumnFilterInputs] =
+    React.useState<AssetColumnFilters>(DEFAULT_COLUMN_FILTERS)
+  const [columnFilters, setColumnFilters] =
+    React.useState<AssetColumnFilters>(DEFAULT_COLUMN_FILTERS)
+  const [costCenterOptions, setCostCenterOptions] = React.useState<CostCenterMaster[]>([])
+  const [functionalLocationOptions, setFunctionalLocationOptions] =
+    React.useState<FunctionalLocationMaster[]>([])
+
+  React.useEffect(() => {
+    void getJson<CostCenterMaster[]>("/admin/asset-masters/cost-centers?active_only=false")
+      .then(setCostCenterOptions)
+      .catch(() => setCostCenterOptions([]))
+    void getJson<FunctionalLocationMaster[]>(
+      "/admin/asset-masters/functional-locations?active_only=false",
+    )
+      .then(setFunctionalLocationOptions)
+      .catch(() => setFunctionalLocationOptions([]))
+  }, [])
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
   const [loading, setLoading] = React.useState(false)
   const [bulkActionBusy, setBulkActionBusy] = React.useState(false)
@@ -229,6 +393,14 @@ export function AssetsListPage() {
   const [fyYearOptions, setFyYearOptions] = React.useState<FinancialYearOption[]>([])
   const [currentFyStartYear, setCurrentFyStartYear] = React.useState<number | null>(null)
   const [exportOpen, setExportOpen] = React.useState(false)
+  const [columnsOpen, setColumnsOpen] = React.useState(false)
+  const [visibleColumnKeys, setVisibleColumnKeys] = React.useState<AssetListColumnKey[]>(
+    DEFAULT_ASSET_LIST_COLUMN_KEYS,
+  )
+  const [draftColumnKeys, setDraftColumnKeys] = React.useState<Set<AssetListColumnKey>>(
+    new Set(DEFAULT_ASSET_LIST_COLUMN_KEYS),
+  )
+  const [columnsSaving, setColumnsSaving] = React.useState(false)
 
   const filterPlantId = draftFilters.plant_id ? Number(draftFilters.plant_id) : null
   const masters = useAssetMasterLookups(filterPlantId, null, null)
@@ -256,6 +428,15 @@ export function AssetsListPage() {
     defaultScanFrom,
     defaultScanTo,
   )
+  const activeColumnFilterCount =
+    Object.values(columnFilters).filter((value) => value.trim()).length +
+    (filters.category_id ? 1 : 0) +
+    (filters.lifecycle_status ? 1 : 0)
+
+  const visibleColumns = React.useMemo(() => {
+    const selected = new Set(visibleColumnKeys)
+    return ASSET_LIST_COLUMNS.filter((column) => selected.has(column.key))
+  }, [visibleColumnKeys])
 
   function scanRangeForOption(option: FinancialYearOption | undefined) {
     if (!option) return { from: "", to: "" }
@@ -263,6 +444,18 @@ export function AssetsListPage() {
     const to = toDateInputValue(option.is_current ? new Date().toISOString() : option.end)
     return { from, to }
   }
+
+  React.useEffect(() => {
+    void getJson<AssetListColumnsPreference>("/admin/assets/list-columns")
+      .then((preference) => {
+        const allowed = new Set(ASSET_LIST_COLUMNS.map((column) => column.key))
+        const columns = preference.columns.filter((key) => allowed.has(key))
+        if (columns.length > 0) setVisibleColumnKeys(columns)
+      })
+      .catch((e) =>
+        toast.error(e instanceof Error ? e.message : "Failed to load column preferences"),
+      )
+  }, [])
 
   React.useEffect(() => {
     if (!isFyTab) return
@@ -291,13 +484,14 @@ export function AssetsListPage() {
         fySubTab,
         effectiveScanFrom,
         effectiveScanTo,
+        columnFilters,
       )
       const res = await getJson<AssetListResponse>(`/admin/assets?${q}`)
       setData(res)
     } finally {
       setLoading(false)
     }
-  }, [page, search, filters, listTab, fySubTab, effectiveScanFrom, effectiveScanTo])
+  }, [page, search, filters, listTab, fySubTab, effectiveScanFrom, effectiveScanTo, columnFilters])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -306,6 +500,20 @@ export function AssetsListPage() {
     }, 300)
     return () => window.clearTimeout(t)
   }, [searchInput])
+
+  React.useEffect(() => {
+    const t = window.setTimeout(() => {
+      setColumnFilters((prev) => {
+        const changed = Object.entries(columnFilterInputs).some(
+          ([k, v]) => prev[k as keyof AssetColumnFilters] !== v,
+        )
+        if (!changed) return prev
+        setPage(1)
+        return { ...columnFilterInputs }
+      })
+    }, 300)
+    return () => window.clearTimeout(t)
+  }, [columnFilterInputs])
 
   React.useEffect(() => {
     void load().catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load assets"))
@@ -317,11 +525,144 @@ export function AssetsListPage() {
     setFiltersOpen(false)
   }
 
+  function setColumnPanelFilter(
+    field: "category_id" | "lifecycle_status",
+    value: string,
+  ) {
+    setFilters((f) => ({ ...f, [field]: value }))
+    setDraftFilters((f) => ({ ...f, [field]: value }))
+    setPage(1)
+  }
+
+  function columnFilterControl(key: AssetListColumnKey): React.ReactNode {
+    if (
+      key === "asset_code" ||
+      key === "combined_asset_number" ||
+      key === "asset_name" ||
+      key === "rfid_code"
+    ) {
+      return (
+        <Input
+          value={columnFilterInputs[key]}
+          onChange={(e) => setColumnFilterInputs((f) => ({ ...f, [key]: e.target.value }))}
+          aria-label={`Filter ${key.replaceAll("_", " ")}`}
+          className={columnFilterControlClass}
+        />
+      )
+    }
+    if (key === "category_name") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={filters.category_id}
+          aria-label="Filter category"
+          onChange={(e) => setColumnPanelFilter("category_id", e.target.value)}
+        >
+          <option value="">All</option>
+          {masters.categories.map((category) => (
+            <option key={category.id} value={String(category.id)}>
+              {categoryLabel(category)}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (key === "cost_center") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={columnFilterInputs.cost_center}
+          aria-label="Filter cost center"
+          onChange={(e) =>
+            setColumnFilterInputs((f) => ({ ...f, cost_center: e.target.value }))
+          }
+        >
+          <option value="">All</option>
+          {costCenterOptions.map((costCenter) => (
+            <option key={costCenter.id} value={costCenter.code}>
+              {costCenterLabel(costCenter)}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (key === "functional_location") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={columnFilterInputs.functional_location}
+          aria-label="Filter actual location 1"
+          onChange={(e) =>
+            setColumnFilterInputs((f) => ({ ...f, functional_location: e.target.value }))
+          }
+        >
+          <option value="">All</option>
+          {functionalLocationOptions.map((location) => (
+            <option key={location.id} value={location.code}>
+              {functionalLocationLabel(location)}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (key === "lifecycle_status") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={filters.lifecycle_status}
+          aria-label="Filter status"
+          onChange={(e) => setColumnPanelFilter("lifecycle_status", e.target.value)}
+        >
+          <option value="">All</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      )
+    }
+    return null
+  }
+
   function clearFilters() {
     const next = isFyTab ? { ...DEFAULT_FY_FILTERS } : { ...DEFAULT_FILTERS }
     setDraftFilters(next)
     setFilters(next)
+    setColumnFilterInputs({ ...DEFAULT_COLUMN_FILTERS })
+    setColumnFilters({ ...DEFAULT_COLUMN_FILTERS })
     setPage(1)
+  }
+
+  function openColumnsDialog() {
+    setDraftColumnKeys(new Set(visibleColumnKeys))
+    setColumnsOpen(true)
+  }
+
+  function toggleListColumn(key: AssetListColumnKey, checked: boolean) {
+    setDraftColumnKeys((current) => {
+      const next = new Set(current)
+      if (checked) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }
+
+  async function saveColumnPreferences() {
+    const columns = ASSET_LIST_COLUMNS.map((column) => column.key).filter((key) =>
+      draftColumnKeys.has(key),
+    )
+    if (columns.length === 0) return
+    setColumnsSaving(true)
+    try {
+      const saved = await putJson<AssetListColumnsPreference>("/admin/assets/list-columns", {
+        columns,
+      })
+      setVisibleColumnKeys(saved.columns)
+      setColumnsOpen(false)
+      toast.success("Asset-list columns saved")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save column preferences")
+    } finally {
+      setColumnsSaving(false)
+    }
   }
 
   function applyFyYear(value: string) {
@@ -352,7 +693,16 @@ export function AssetsListPage() {
   async function exportFyReport(format: "xlsx" | "pdf") {
     setFyExportBusy(format)
     try {
-      const q = buildQueryParams(1, search, filters, "fy", fySubTab, effectiveScanFrom, effectiveScanTo)
+      const q = buildQueryParams(
+        1,
+        search,
+        filters,
+        "fy",
+        fySubTab,
+        effectiveScanFrom,
+        effectiveScanTo,
+        columnFilters,
+      )
       q.set("format", format)
       await downloadFile(
         `/admin/assets/fy-verification/export?${q.toString()}`,
@@ -403,16 +753,6 @@ export function AssetsListPage() {
   )
 
   const attachRfidRow = selectedRows.length === 1 ? selectedRows[0] : null
-
-  function openAttachRfidToolbarDialog() {
-    setRfidDialogMode("by-code")
-    setRfidAttachAssetId(null)
-    setRfidAssetCode("")
-    setRfidValue("")
-    setRfidTagColorId("")
-    setRfidDialogIsUpdate(false)
-    setRfidDialogOpen(true)
-  }
 
   function openAttachRfidFromSelection() {
     const row = attachRfidRow
@@ -611,10 +951,20 @@ export function AssetsListPage() {
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const tableColSpan = isFyTab ? 17 : 15
+  const tableColSpan = visibleColumns.length + 1
 
   const actionButtons = (
     <>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={listToolbarBtnClass}
+        onClick={openColumnsDialog}
+      >
+        <Columns3 className="size-4" aria-hidden />
+        Columns
+      </Button>
       <Button
         type="button"
         variant="outline"
@@ -672,14 +1022,14 @@ export function AssetsListPage() {
                   ...DEFAULT_FILTERS,
                   plant_id: f.plant_id,
                   category_id: f.category_id,
-                  physical_order_status: f.physical_order_status,
+                  lifecycle_status: f.lifecycle_status,
                   rfid_status: f.rfid_status,
                 }))
                 setDraftFilters((f) => ({
                   ...DEFAULT_FILTERS,
                   plant_id: f.plant_id,
                   category_id: f.category_id,
-                  physical_order_status: f.physical_order_status,
+                  lifecycle_status: f.lifecycle_status,
                   rfid_status: f.rfid_status,
                 }))
               }
@@ -786,21 +1136,43 @@ export function AssetsListPage() {
             ) : null}
           </div>
 
+          {isFyTab ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={cn(listToolbarBtnClass, filtersOpen && "border-primary/40 bg-primary/5")}
+              onClick={() => {
+                setDraftFilters(filters)
+                setFiltersOpen((o) => !o)
+              }}
+            >
+              <SlidersHorizontal className="size-4" aria-hidden />
+              Filters
+              {activeFilterCount > 0 ? (
+                <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
+                  {activeFilterCount}
+                </Badge>
+              ) : null}
+            </Button>
+          ) : null}
+
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className={cn(listToolbarBtnClass, filtersOpen && "border-primary/40 bg-primary/5")}
-            onClick={() => {
-              setDraftFilters(filters)
-              setFiltersOpen((o) => !o)
-            }}
+            className={cn(
+              listToolbarBtnClass,
+              columnFiltersOpen && "border-primary/40 bg-primary/5",
+            )}
+            aria-expanded={columnFiltersOpen}
+            onClick={() => setColumnFiltersOpen((open) => !open)}
           >
-            <SlidersHorizontal className="size-4" aria-hidden />
-            Filters
-            {activeFilterCount > 0 ? (
+            <ListFilter className="size-4" aria-hidden />
+            Filter
+            {activeColumnFilterCount > 0 ? (
               <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
-                {activeFilterCount}
+                {activeColumnFilterCount}
               </Badge>
             ) : null}
           </Button>
@@ -846,19 +1218,6 @@ export function AssetsListPage() {
             </>
           ) : null}
 
-          {selected.size === 0 && showAttachRfid ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className={listToolbarBtnClass}
-              onClick={openAttachRfidToolbarDialog}
-            >
-              <ScanLine className="size-4" aria-hidden />
-              Attach RFID
-            </Button>
-          ) : null}
-
           {selected.size > 0 ? (
             <AssetActionsMenu
               actions={listActions}
@@ -869,7 +1228,7 @@ export function AssetsListPage() {
           ) : null}
         </div>
 
-        {filtersOpen ? (
+        {filtersOpen && isFyTab ? (
           <div className="app-panel max-h-[min(24rem,42vh)] shrink-0 overflow-y-auto rounded-[var(--app-radius-surface)] bg-muted/15 p-[var(--app-card-padding)] shadow-none">
             <div className="app-grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {isFyTab ? (
@@ -945,20 +1304,17 @@ export function AssetsListPage() {
               {!isFyTab ? (
                 <>
                   <div className="app-form-field">
-                    <Label className="app-form-label text-muted-foreground">Physical order status</Label>
+                    <Label className="app-form-label text-muted-foreground">Asset status</Label>
                     <select
                       className={adminSelectClass}
-                      value={draftFilters.physical_order_status}
+                      value={draftFilters.lifecycle_status}
                       onChange={(e) =>
-                        setDraftFilters((f) => ({ ...f, physical_order_status: e.target.value }))
+                        setDraftFilters((f) => ({ ...f, lifecycle_status: e.target.value }))
                       }
                     >
                       <option value="">All</option>
-                      {ASSET_PHYSICAL_ORDER_STATUS_FILTERS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
                     </select>
                   </div>
                   <div className="app-form-field">
@@ -1015,6 +1371,7 @@ export function AssetsListPage() {
                   {isFyTab ? <option value="last_verification_date">Last verification</option> : null}
                   <option value="created_at">Created date</option>
                   <option value="asset_name">Asset name</option>
+                  <option value="combined_asset_number">Combined Asset No</option>
                   <option value="asset_code">Asset code</option>
                   {!isFyTab ? <option value="last_verification_date">Last verification</option> : null}
                 </select>
@@ -1086,16 +1443,12 @@ export function AssetsListPage() {
                 }}
               />
             ) : null}
-            {!isFyTab && filters.physical_order_status ? (
+            {!isFyTab && filters.lifecycle_status ? (
               <FilterChip
-                label={`Order status: ${
-                  ASSET_PHYSICAL_ORDER_STATUS_FILTERS.find(
-                    (o) => o.value === filters.physical_order_status,
-                  )?.label ?? orderStatusLabel(filters.physical_order_status)
-                }`}
+                label={`Status: ${filters.lifecycle_status === "active" ? "Active" : "Inactive"}`}
                 onRemove={() => {
-                  setFilters((f) => ({ ...f, physical_order_status: "" }))
-                  setDraftFilters((f) => ({ ...f, physical_order_status: "" }))
+                  setFilters((f) => ({ ...f, lifecycle_status: "" }))
+                  setDraftFilters((f) => ({ ...f, lifecycle_status: "" }))
                   setPage(1)
                 }}
               />
@@ -1149,26 +1502,31 @@ export function AssetsListPage() {
                     aria-label="Select all"
                   />
                 </AdminTableHeadCell>
-                <AdminTableHeadCell>Asset name</AdminTableHeadCell>
-                <AdminTableHeadCell>RFID</AdminTableHeadCell>
-                <AdminTableHeadCell>Status</AdminTableHeadCell>
-                <AdminTableHeadCell>Category</AdminTableHeadCell>
-                <AdminTableHeadCell>Plant</AdminTableHeadCell>
-                <AdminTableHeadCell>Cost center</AdminTableHeadCell>
-                <AdminTableHeadCell>Functional location</AdminTableHeadCell>
-                <AdminTableHeadCell>Actual location</AdminTableHeadCell>
-                <AdminTableHeadCell className="text-right">Inv.</AdminTableHeadCell>
-                <AdminTableHeadCell className="text-right">Phys.</AdminTableHeadCell>
-                <AdminTableHeadCell>Verified</AdminTableHeadCell>
-                {isFyTab ? (
-                  <>
-                    <AdminTableHeadCell className="text-right">Scans</AdminTableHeadCell>
-                    <AdminTableHeadCell>FY status</AdminTableHeadCell>
-                  </>
-                ) : null}
-                <AdminTableHeadCell>Physical order ID</AdminTableHeadCell>
-                <AdminTableHeadCell>Order status</AdminTableHeadCell>
+                {visibleColumns.map((column) => (
+                  <AdminTableHeadCell
+                    key={column.key}
+                    className={
+                      column.key === "inventory_count" || column.key === "physical_count"
+                        ? "text-right"
+                        : undefined
+                    }
+                  >
+                    {column.label}
+                  </AdminTableHeadCell>
+                ))}
               </AdminTableHeaderRow>
+              {columnFiltersOpen ? (
+                <AdminTableHeaderRow>
+                  <AdminTableHeadCell className="w-10 px-3 py-1.5">
+                    <span className="sr-only">Column filters</span>
+                  </AdminTableHeadCell>
+                  {visibleColumns.map((column) => (
+                    <AdminTableHeadCell key={column.key} className="px-2 py-1.5">
+                      {columnFilterControl(column.key)}
+                    </AdminTableHeadCell>
+                  ))}
+                </AdminTableHeaderRow>
+              ) : null}
             </TableHeader>
             <TableBody>
               {loading && items.length === 0 ? (
@@ -1182,7 +1540,8 @@ export function AssetsListPage() {
                     : "No assets match your search or filters."}
                 </AdminTableEmptyRow>
               ) : (
-                items.map((row) => (
+                items.map((row) => {
+                  return (
                   <AdminTableBodyRow
                     key={row.id}
                     onClick={() => navigate(String(row.id))}
@@ -1197,112 +1556,107 @@ export function AssetsListPage() {
                         <Checkbox
                           checked={selected.has(row.id)}
                           onCheckedChange={(v) => toggleRow(row.id, Boolean(v))}
-                          aria-label={`Select ${row.asset_name}`}
+                          aria-label={`Select ${row.combined_asset_number || row.asset_code}`}
                         />
                       </div>
                     </AdminTableCell>
-                    <AdminTableCell>
-                      <span className="font-medium text-foreground">{row.asset_name}</span>
-                      <div className="font-mono text-[11px] text-muted-foreground">{row.asset_code}</div>
-                    </AdminTableCell>
-                    <AdminTableCell className="font-mono text-xs">
-                      {row.rfid_code?.trim() ? (
-                        <span className="text-foreground" title={row.rfid_code}>
-                          {row.rfid_code}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">Not tagged</span>
-                      )}
-                    </AdminTableCell>
-                    <AdminTableCell>
-                      <AdminPillBadge tone={assetStatusPillTone(row.lifecycle_status, row.approval_status)}>
-                        {assetStatusLabel(row.lifecycle_status, row.approval_status)}
-                      </AdminPillBadge>
-                    </AdminTableCell>
-                    <AdminTableCell className="text-muted-foreground">{row.category_name ?? "—"}</AdminTableCell>
-                    <AdminTableCell className="max-w-[11rem]">
-                      <span className="block truncate" title={formatPlantLabel(row)}>
-                        {formatPlantLabel(row)}
-                      </span>
-                    </AdminTableCell>
-                    <AdminTableCell className="max-w-[11rem]">
-                      <span
-                        className="block truncate"
-                        title={formatMasterLabel(row.cost_center, row.cost_center_description)}
-                      >
-                        {formatMasterLabel(row.cost_center, row.cost_center_description)}
-                      </span>
-                    </AdminTableCell>
-                    <AdminTableCell className="max-w-[11rem]">
-                      <span
-                        className="block truncate"
-                        title={formatMasterLabel(
-                          row.functional_location,
-                          row.functional_location_description,
+                    {visibleColumns.map((column) => (
+                      <AdminTableCell
+                        key={column.key}
+                        className={cn(
+                          "max-w-[16rem]",
+                          (column.key === "inventory_count" ||
+                            column.key === "physical_count") &&
+                            "text-right tabular-nums",
                         )}
                       >
-                        {formatMasterLabel(row.functional_location, row.functional_location_description)}
-                      </span>
-                    </AdminTableCell>
-                    <AdminTableCell className="max-w-[11rem]">
-                      <span
-                        className="block truncate"
-                        title={formatMasterLabel(row.actual_location, row.actual_location_description)}
-                      >
-                        {formatMasterLabel(row.actual_location, row.actual_location_description)}
-                      </span>
-                    </AdminTableCell>
-                    <AdminTableCell className="px-3 py-2 text-right tabular-nums">{row.inventory_count ?? "—"}</AdminTableCell>
-                    <AdminTableCell className="px-3 py-2 text-right tabular-nums">
-                      {row.physical_count ?? 0}
-                    </AdminTableCell>
-                    <AdminTableCell className="px-3 py-2 text-xs tabular-nums text-muted-foreground">
-                      {row.last_verification_date
-                        ? new Date(row.last_verification_date).toLocaleDateString()
-                        : "—"}
-                    </AdminTableCell>
-                    {isFyTab ? (
-                      <>
-                        <AdminTableCell className="px-3 py-2 text-right tabular-nums font-medium">
-                          {row.fy_verification_count ?? 0}
-                        </AdminTableCell>
-                        <AdminTableCell>
-                          <AdminPillBadge tone={row.fy_verified ? "success" : "warning"}>
-                            {row.fy_verified ? "Tagged" : "Pending"}
-                          </AdminPillBadge>
-                        </AdminTableCell>
-                      </>
-                    ) : null}
-                    <AdminTableCell className="font-mono text-xs">
-                      {row.active_physical_order ? (
-                        <Link
-                          to={`/dashboard/orders/${row.active_physical_order.order_id}`}
-                          className="text-primary hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {row.active_physical_order.order_number}
-                        </Link>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </AdminTableCell>
-                    <AdminTableCell>
-                      {row.active_physical_order ? (
-                        <AdminPillBadge tone={orderStatusPillTone(row.active_physical_order.order_status)}>
-                          {orderStatusLabel(row.active_physical_order.order_status)}
-                        </AdminPillBadge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </AdminTableCell>
+                        <span className="block truncate">
+                          {assetListCell(row, column.key)}
+                        </span>
+                      </AdminTableCell>
+                    ))}
                   </AdminTableBodyRow>
-                ))
+                  )
+                })
               )}
             </TableBody>
           </Table>
       </AdminDataTable>
         </div>
       </div>
+
+      <Dialog open={columnsOpen} onOpenChange={setColumnsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Choose asset-list columns</DialogTitle>
+            <DialogDescription>
+              Your selection is saved for your user account until you change it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="dialog-body max-h-[60vh] space-y-4 overflow-y-auto">
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setDraftColumnKeys(new Set(DEFAULT_ASSET_LIST_COLUMN_KEYS))}
+              >
+                Default fields
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setDraftColumnKeys(new Set(ASSET_LIST_COLUMNS.map((column) => column.key)))
+                }
+              >
+                Select all
+              </Button>
+            </div>
+            {(["Asset", "Location & financial", "Inventory & status"] as const).map((group) => (
+              <div key={group} className="rounded-md border border-border/60 bg-muted/15 p-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {group}
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {ASSET_LIST_COLUMNS.filter((column) => column.group === group).map((column) => (
+                    <label
+                      key={column.key}
+                      className="flex cursor-pointer items-center gap-2 text-sm"
+                    >
+                      <Checkbox
+                        checked={draftColumnKeys.has(column.key)}
+                        onCheckedChange={(checked) =>
+                          toggleListColumn(column.key, Boolean(checked))
+                        }
+                      />
+                      <span>{column.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="dialog-footer-actions">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={columnsSaving}
+              onClick={() => setColumnsOpen(false)}
+            >
+              Cancel
+            </Button>
+            <AdminPrimaryButton
+              type="button"
+              disabled={columnsSaving || draftColumnKeys.size === 0}
+              onClick={() => void saveColumnPreferences()}
+            >
+              {columnsSaving ? "Saving…" : "Save columns"}
+            </AdminPrimaryButton>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={activeConflictOpen} onOpenChange={setActiveConflictOpen}>
         <DialogContent className="max-w-lg">

@@ -64,12 +64,12 @@ from modules.assets.import_validation import (
 from modules.asset_masters.model import (
     ActualLocationMaster,
     AssetConditionMaster,
-    AssetCustodianMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
     TagColorMaster,
 )
+from modules.platform.users.model import User
 from modules.assets.model import (
     AssetCategory,
     AssetFinancialInformation,
@@ -87,6 +87,7 @@ from modules.assets.schema import (
     AssetDetailPublic,
     AssetFinancialPayload,
     AssetInformationPayload,
+    AssetImagePublic,
     AssetInventoryPayload,
     AssetListItem,
     AssetListResponse,
@@ -107,8 +108,12 @@ from modules.errors import ConflictError, NotFoundError
 from modules.platform.org_units.model import OrgUnit
 
 
-class DuplicateAssetCodeError(Exception):
+class DuplicateCombinedAssetNumberError(Exception):
     pass
+
+
+# Backward-compatible alias
+DuplicateAssetCodeError = DuplicateCombinedAssetNumberError
 
 
 class DuplicateRfidError(Exception):
@@ -147,6 +152,27 @@ class InvalidAssetMasterLookupError(Exception):
     def __init__(self, message: str) -> None:
         self.message = message
         super().__init__(message)
+
+
+class InvalidAssetImageError(Exception):
+    pass
+
+
+MAX_ASSET_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+def validate_asset_image(data: bytes) -> str:
+    if not data:
+        raise InvalidAssetImageError("Select an image to upload.")
+    if len(data) > MAX_ASSET_IMAGE_BYTES:
+        raise InvalidAssetImageError("Asset image must be 5 MB or smaller.")
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    raise InvalidAssetImageError("Only PNG, JPEG, and WebP images are supported.")
 
 
 def _normalize_rfid(raw: str) -> str:
@@ -212,6 +238,31 @@ INVENTORY_READONLY_FIELDS = frozenset(
     {"inventory_count", "physical_count", "last_verification_date"}
 )
 
+DEFAULT_ASSET_LIST_COLUMNS = (
+    "asset_code",
+    "combined_asset_number",
+    "asset_name",
+    "rfid_code",
+    "category_name",
+    "cost_center",
+    "functional_location",
+    "inventory_count",
+    "physical_count",
+    "lifecycle_status",
+)
+ASSET_LIST_COLUMN_KEYS = frozenset(
+    (
+        *DEFAULT_ASSET_LIST_COLUMNS,
+        "plant",
+        "actual_location",
+        "last_verification_date",
+        "approval_status",
+        "source_type",
+        "created_at",
+        "active_physical_order",
+    )
+)
+
 
 def _new_inventory_row(asset_id: int) -> AssetInventoryInformation:
     return AssetInventoryInformation(
@@ -254,6 +305,97 @@ class AssetMasterService:
             ).all()
         )
 
+    def list_custodian_users(self) -> list[User]:
+        return list(
+            self._db.scalars(
+                select(User).where(User.is_active.is_(True)).order_by(User.full_name, User.username)
+            ).all()
+        )
+
+    def get_asset_list_columns(self, user_id: int) -> list[str]:
+        user = self._db.get(User, user_id)
+        if user is None:
+            raise NotFoundError("User", user_id)
+        saved = user.asset_list_columns or []
+        valid = [key for key in saved if key in ASSET_LIST_COLUMN_KEYS]
+        return valid or list(DEFAULT_ASSET_LIST_COLUMNS)
+
+    def update_asset_list_columns(self, user_id: int, columns: list[str]) -> list[str]:
+        selected = list(dict.fromkeys(columns))
+        if not selected:
+            raise ValueError("Select at least one asset-list column.")
+        invalid = [key for key in selected if key not in ASSET_LIST_COLUMN_KEYS]
+        if invalid:
+            raise ValueError(f"Unknown asset-list columns: {', '.join(invalid)}")
+        user = self._db.get(User, user_id)
+        if user is None:
+            raise NotFoundError("User", user_id)
+        user.asset_list_columns = selected
+        self._db.commit()
+        return selected
+
+    def get_asset_image(self, asset_id: int) -> tuple[bytes, str, str]:
+        asset = self._load_asset(asset_id)
+        if not asset.image_data or not asset.image_content_type:
+            raise NotFoundError("Asset image", asset_id)
+        return (
+            bytes(asset.image_data),
+            asset.image_content_type,
+            asset.image_filename or "asset-image",
+        )
+
+    def set_asset_image(
+        self,
+        asset_id: int,
+        *,
+        data: bytes,
+        filename: str | None,
+        actor_user_id: int,
+    ) -> AssetImagePublic:
+        content_type = validate_asset_image(data)
+        asset = self._load_asset(asset_id)
+        safe_filename = (filename or "asset-image").replace("\\", "/").rsplit("/", 1)[-1][:255]
+        had_image = bool(asset.image_content_type)
+        asset.image_data = data
+        asset.image_content_type = content_type
+        asset.image_filename = safe_filename or "asset-image"
+        asset.updated_at = _now()
+        self._db.flush()
+        log_asset_event(
+            self._db,
+            asset_id=asset.id,
+            actor_user_id=actor_user_id,
+            action="asset_image_updated" if had_image else "asset_image_added",
+            old_value=None,
+            new_value={"image_filename": asset.image_filename},
+        )
+        self._db.commit()
+        return AssetImagePublic(
+            has_image=True,
+            image_filename=asset.image_filename,
+            image_content_type=content_type,
+        )
+
+    def delete_asset_image(self, asset_id: int, *, actor_user_id: int) -> None:
+        asset = self._load_asset(asset_id)
+        if not asset.image_content_type:
+            return
+        old_filename = asset.image_filename
+        asset.image_data = None
+        asset.image_content_type = None
+        asset.image_filename = None
+        asset.updated_at = _now()
+        self._db.flush()
+        log_asset_event(
+            self._db,
+            asset_id=asset.id,
+            actor_user_id=actor_user_id,
+            action="asset_image_removed",
+            old_value={"image_filename": old_filename},
+            new_value=None,
+        )
+        self._db.commit()
+
     def _resolve_category_id(self, *, category_id: int | None, category_code: str | None) -> int | None:
         if category_id is not None:
             if self._db.get(AssetCategory, category_id) is None:
@@ -290,19 +432,19 @@ class AssetMasterService:
         self, *, asset_custodian_id: int | None, asset_custodian_code: str | None
     ) -> int | None:
         if asset_custodian_id is not None:
-            row = self._db.get(AssetCustodianMaster, asset_custodian_id)
+            row = self._db.get(User, asset_custodian_id)
             if row is None or not row.is_active:
                 raise InvalidAssetMasterLookupError("Unknown or inactive asset custodian.")
             return int(row.id)
         if asset_custodian_code:
             row = self._db.scalar(
-                select(AssetCustodianMaster).where(
-                    func.lower(AssetCustodianMaster.code) == asset_custodian_code.strip().lower(),
-                    AssetCustodianMaster.is_active.is_(True),
+                select(User).where(
+                    func.lower(User.username) == asset_custodian_code.strip().lower(),
+                    User.is_active.is_(True),
                 )
             )
             if row is None:
-                raise InvalidAssetMasterLookupError("Unknown asset custodian code.")
+                raise InvalidAssetMasterLookupError("Unknown asset custodian username.")
             return int(row.id)
         return None
 
@@ -340,7 +482,7 @@ class AssetMasterService:
 
     def _set_asset_custodian(self, asset: AssetMaster, asset_custodian_id: int | None) -> None:
         if asset_custodian_id is not None:
-            row = self._db.get(AssetCustodianMaster, asset_custodian_id)
+            row = self._db.get(User, asset_custodian_id)
             if row is None or not row.is_active:
                 raise InvalidAssetMasterLookupError("Unknown or inactive asset custodian.")
             asset.asset_custodian_id = int(asset_custodian_id)
@@ -512,20 +654,28 @@ class AssetMasterService:
         fin = data.financial
         required_errors = required_manual_create_field_errors(
             asset_name=data.asset_name,
-            asset_code=data.asset_code,
+            asset_code=data.asset_code or "",
+            combined_asset_number=data.combined_asset_number,
             asset_category_id=data.asset_category_id,
             plant_id=loc.plant_id if loc else None,
             cost_center=fin.cost_center if fin else None,
             profit_center=fin.profit_center if fin else None,
             functional_location=loc.functional_location if loc else None,
             actual_location=loc.actual_location if loc else None,
+            db=self._db,
         )
         if required_errors:
             raise ConflictError(next(iter(required_errors.values())))
 
-        code = data.asset_code.strip().upper()
-        if self._db.scalar(select(AssetMaster.id).where(AssetMaster.asset_code == code, AssetMaster.deleted_at.is_(None))):
-            raise DuplicateAssetCodeError()
+        can = data.combined_asset_number.strip().upper()
+        if self._db.scalar(
+            select(AssetMaster.id).where(
+                AssetMaster.combined_asset_number == can,
+                AssetMaster.deleted_at.is_(None),
+            )
+        ):
+            raise DuplicateCombinedAssetNumberError()
+        code = (data.asset_code or "").strip().upper()
         if data.rfid_code:
             rfid = _normalize_rfid(data.rfid_code)
             if rfid:
@@ -534,6 +684,9 @@ class AssetMasterService:
         asset = AssetMaster(
             asset_name=data.asset_name.strip(),
             asset_code=code,
+            combined_asset_number=can,
+            remark=(data.remark.strip() if data.remark and data.remark.strip() else None),
+            sub_no=(data.sub_no.strip() if data.sub_no and data.sub_no.strip() else None),
             rfid_code=data.rfid_code.strip() if data.rfid_code else None,
             serial_no=data.serial_no.strip() if data.serial_no else None,
             asset_category_id=data.asset_category_id,
@@ -568,6 +721,7 @@ class AssetMasterService:
             action="created",
             new_value={
                 "source": "manual",
+                "combined_asset_number": can,
                 "asset_code": code,
                 "lifecycle_status": asset.lifecycle_status,
                 "approval_status": asset.approval_status,
@@ -577,9 +731,10 @@ class AssetMasterService:
             self._db.commit()
         except IntegrityError as exc:
             self._db.rollback()
-            if "rfid" in str(exc).lower():
+            msg = str(exc).lower()
+            if "rfid" in msg:
                 raise DuplicateRfidError() from exc
-            raise DuplicateAssetCodeError() from exc
+            raise DuplicateCombinedAssetNumberError() from exc
         return self.get_asset(asset.id)
 
     def _master_names_for_asset(
@@ -850,6 +1005,67 @@ class AssetMasterService:
             )
         return fy_mode, current_period, scan_window, fy_summary, verified_ids
 
+    def _apply_column_filters(self, base: Any, column_filters: dict[str, str] | None) -> Any:
+        """Per-column contains filters from the list header (all optional)."""
+        if not column_filters:
+            return base
+        f = {k: (v or "").strip() for k, v in column_filters.items()}
+
+        def _like(key: str) -> str:
+            return f"%{f[key]}%"
+
+        if f.get("asset_code"):
+            base = base.where(AssetMaster.asset_code.ilike(_like("asset_code")))
+        if f.get("combined_asset_number"):
+            base = base.where(
+                AssetMaster.combined_asset_number.ilike(_like("combined_asset_number"))
+            )
+        if f.get("asset_name"):
+            base = base.where(AssetMaster.asset_name.ilike(_like("asset_name")))
+        if f.get("rfid_code"):
+            base = base.where(AssetMaster.rfid_code.ilike(_like("rfid_code")))
+        if f.get("category"):
+            q = _like("category")
+            base = base.where(
+                AssetMaster.asset_category_id.in_(
+                    select(AssetCategory.id).where(
+                        or_(AssetCategory.name.ilike(q), AssetCategory.code.ilike(q))
+                    )
+                )
+            )
+        if f.get("cost_center"):
+            # Dropdown sends the exact code; name-contains kept for direct API use.
+            matching_cc = select(CostCenterMaster.code).where(
+                CostCenterMaster.name.ilike(_like("cost_center"))
+            )
+            base = base.where(
+                select(AssetFinancialInformation.id)
+                .where(
+                    AssetFinancialInformation.asset_id == AssetMaster.id,
+                    or_(
+                        AssetFinancialInformation.cost_center == f["cost_center"],
+                        AssetFinancialInformation.cost_center.in_(matching_cc),
+                    ),
+                )
+                .exists()
+            )
+        if f.get("functional_location"):
+            matching_fl = select(FunctionalLocationMaster.code).where(
+                FunctionalLocationMaster.name.ilike(_like("functional_location"))
+            )
+            base = base.where(
+                select(AssetLocationInformation.id)
+                .where(
+                    AssetLocationInformation.asset_id == AssetMaster.id,
+                    or_(
+                        AssetLocationInformation.functional_location == f["functional_location"],
+                        AssetLocationInformation.functional_location.in_(matching_fl),
+                    ),
+                )
+                .exists()
+            )
+        return base
+
     def _asset_list_base_query(
         self,
         *,
@@ -869,6 +1085,7 @@ class AssetMasterService:
         functional_location: str | None = None,
         actual_location: str | None = None,
         asset_ids: list[int] | None = None,
+        column_filters: dict[str, str] | None = None,
     ) -> tuple[Any, str, VerificationWindow | None, dict[str, int] | None, set[int] | None, int | None, int | None]:
         fy_mode, _current_period, scan_window, fy_summary, verified_ids = self._asset_list_context(
             search=search,
@@ -886,12 +1103,14 @@ class AssetMasterService:
                 or_(
                     AssetMaster.asset_name.ilike(q),
                     AssetMaster.asset_code.ilike(q),
+                    AssetMaster.combined_asset_number.ilike(q),
                     AssetMaster.serial_no.ilike(q),
                     AssetMaster.rfid_code.ilike(q),
                 )
             )
         if category_id is not None:
             base = base.where(AssetMaster.asset_category_id == category_id)
+        base = self._apply_column_filters(base, column_filters)
         if lifecycle_status:
             ls = lifecycle_status.strip().lower()
             if ls == LIFECYCLE_INACTIVE:
@@ -1006,6 +1225,7 @@ class AssetMasterService:
         fy_scan_to: date | None = None,
         sort_by: str = "created_at",
         sort_dir: str = "desc",
+        column_filters: dict[str, str] | None = None,
     ) -> AssetListResponse:
         page = max(1, page)
         page_size = min(max(1, page_size), 100)
@@ -1029,6 +1249,7 @@ class AssetMasterService:
             fy_start_year=fy_start_year,
             fy_scan_from=fy_scan_from,
             fy_scan_to=fy_scan_to,
+            column_filters=column_filters,
         )
         current_period = financial_year_period_for()
         fy_mode = (fy_verification or "").strip().lower()
@@ -1050,6 +1271,8 @@ class AssetMasterService:
         order_col = AssetMaster.created_at
         if sort_by == "asset_name":
             order_col = AssetMaster.asset_name
+        elif sort_by == "combined_asset_number":
+            order_col = AssetMaster.combined_asset_number
         elif sort_by == "asset_code":
             order_col = AssetMaster.asset_code
         elif sort_by == "last_verification_date":
@@ -1093,6 +1316,7 @@ class AssetMasterService:
                     id=a.id,
                     asset_name=a.asset_name,
                     asset_code=a.asset_code,
+                    combined_asset_number=a.combined_asset_number,
                     rfid_code=a.rfid_code,
                     category_name=a.category.name if a.category else None,
                     plant_id=pid,
@@ -1390,6 +1614,9 @@ class AssetMasterService:
             id=asset.id,
             asset_name=asset.asset_name,
             asset_code=asset.asset_code,
+            combined_asset_number=asset.combined_asset_number,
+            remark=asset.remark,
+            sub_no=asset.sub_no,
             rfid_code=asset.rfid_code,
             serial_no=asset.serial_no,
             asset_category_id=asset.asset_category_id,
@@ -1401,8 +1628,8 @@ class AssetMasterService:
             tag_color_name=asset.tag_color.name if asset.tag_color else None,
             tag_color_hex=asset.tag_color.color_hex if asset.tag_color else None,
             asset_custodian_id=asset.asset_custodian_id,
-            asset_custodian_code=asset.asset_custodian.code if asset.asset_custodian else None,
-            asset_custodian_name=asset.asset_custodian.name if asset.asset_custodian else None,
+            asset_custodian_code=asset.asset_custodian.username if asset.asset_custodian else None,
+            asset_custodian_name=asset.asset_custodian.full_name if asset.asset_custodian else None,
             asset_condition_id=asset.asset_condition_id,
             asset_condition_code=asset.asset_condition.code if asset.asset_condition else None,
             asset_condition_name=asset.asset_condition.name if asset.asset_condition else None,
@@ -1415,6 +1642,9 @@ class AssetMasterService:
             approved_by=asset.approved_by,
             created_at=asset.created_at,
             updated_at=asset.updated_at,
+            has_image=bool(asset.image_content_type),
+            image_filename=asset.image_filename,
+            image_content_type=asset.image_content_type,
             plant_name=loc.plant.name if loc and loc.plant else None,
             information=AssetInformationPayload.model_validate(info) if info else None,
             location=location_payload,
@@ -1526,17 +1756,23 @@ class AssetMasterService:
         before = snapshot_asset(asset)
         if data.asset_name is not None:
             asset.asset_name = data.asset_name.strip()
-        if data.asset_code is not None:
-            code = data.asset_code.strip().upper()
+        if data.combined_asset_number is not None:
+            can = data.combined_asset_number.strip().upper()
             if self._db.scalar(
                 select(AssetMaster.id).where(
-                    AssetMaster.asset_code == code,
+                    AssetMaster.combined_asset_number == can,
                     AssetMaster.id != asset.id,
                     AssetMaster.deleted_at.is_(None),
                 )
             ):
-                raise DuplicateAssetCodeError()
-            asset.asset_code = code
+                raise DuplicateCombinedAssetNumberError()
+            asset.combined_asset_number = can
+        if data.asset_code is not None:
+            asset.asset_code = data.asset_code.strip().upper()
+        if "remark" in data.model_dump(exclude_unset=True):
+            asset.remark = (data.remark.strip() if data.remark and data.remark.strip() else None)
+        if "sub_no" in data.model_dump(exclude_unset=True):
+            asset.sub_no = (data.sub_no.strip() if data.sub_no and data.sub_no.strip() else None)
         if data.rfid_code is not None:
             rfid = _normalize_rfid(data.rfid_code) or None
             if rfid:
@@ -1785,6 +2021,7 @@ class AssetMasterService:
             try:
                 mapped = build_section_payloads(raw.data)
                 code = mapped.get("asset_code") or ""
+                can = mapped.get("combined_asset_number") or ""
                 name = mapped.get("asset_name") or ""
                 rfid = mapped.get("rfid_code")
                 if rfid:
@@ -1798,11 +2035,11 @@ class AssetMasterService:
                         continue
                 if self._db.scalar(
                     select(AssetMaster.id).where(
-                        AssetMaster.asset_code == str(code).strip().upper(),
+                        AssetMaster.combined_asset_number == str(can).strip().upper(),
                         AssetMaster.deleted_at.is_(None),
                     )
                 ):
-                    errors.append(f"Row {raw.row_number}: duplicate asset code.")
+                    errors.append(f"Row {raw.row_number}: duplicate Combined Asset No.")
                     continue
                 cat_id = self._resolve_category_id(
                     category_id=None,
@@ -1838,6 +2075,9 @@ class AssetMasterService:
                 asset = AssetMaster(
                     asset_name=str(name).strip(),
                     asset_code=str(code).strip().upper(),
+                    combined_asset_number=str(can).strip().upper(),
+                    remark=(str(mapped.get("remark") or "").strip() or None),
+                    sub_no=(str(mapped.get("sub_no") or "").strip() or None),
                     rfid_code=mapped.get("rfid_code"),
                     serial_no=mapped.get("serial_no"),
                     asset_category_id=cat_id,

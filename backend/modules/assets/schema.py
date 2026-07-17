@@ -17,6 +17,15 @@ class AssetCategoryPublic(BaseModel):
     is_active: bool
 
 
+class AssetCustodianUserPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    full_name: str
+    email: str | None = None
+
+
 class AssetInformationPayload(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -80,7 +89,10 @@ class AssetInventoryPayload(BaseModel):
 
 class AssetCreateRequest(BaseModel):
     asset_name: str = Field(min_length=1, max_length=255)
-    asset_code: str = Field(min_length=1, max_length=128)
+    asset_code: str | None = Field(default=None, max_length=128)
+    combined_asset_number: str = Field(min_length=1, max_length=128)
+    remark: str | None = Field(default=None)
+    sub_no: str | None = Field(default=None, max_length=64)
     rfid_code: str | None = Field(default=None, max_length=128)
     serial_no: str | None = Field(default=None, max_length=128)
     asset_class: str | None = Field(default=None, max_length=128)
@@ -98,7 +110,10 @@ class AssetCreateRequest(BaseModel):
 
 class AssetUpdateRequest(BaseModel):
     asset_name: str | None = Field(default=None, min_length=1, max_length=255)
-    asset_code: str | None = Field(default=None, min_length=1, max_length=128)
+    asset_code: str | None = Field(default=None, max_length=128)
+    combined_asset_number: str | None = Field(default=None, min_length=1, max_length=128)
+    remark: str | None = None
+    sub_no: str | None = Field(default=None, max_length=64)
     rfid_code: str | None = None
     serial_no: str | None = None
     asset_class: str | None = Field(default=None, max_length=128)
@@ -117,6 +132,12 @@ class AssetUpdateRequest(BaseModel):
 class AssetRfidAttachRequest(BaseModel):
     rfid_code: str = Field(..., min_length=1, max_length=128)
     tag_color_id: int | None = None
+
+
+class AssetImagePublic(BaseModel):
+    has_image: bool
+    image_filename: str | None = None
+    image_content_type: str | None = None
 
 
 class AssetRfidAttachByCodeRequest(BaseModel):
@@ -162,6 +183,7 @@ class AssetListItem(BaseModel):
     id: int
     asset_name: str
     asset_code: str
+    combined_asset_number: str | None = None
     rfid_code: str | None = None
     category_name: str | None = None
     plant_id: int | None = None
@@ -205,6 +227,10 @@ class AssetListResponse(BaseModel):
     rfid_not_tagged_total: int | None = None
 
 
+class AssetListColumnsPreference(BaseModel):
+    columns: list[str]
+
+
 class FinancialYearOptionPublic(BaseModel):
     label: str
     start: date
@@ -224,6 +250,9 @@ class AssetDetailPublic(BaseModel):
     id: int
     asset_name: str
     asset_code: str
+    combined_asset_number: str
+    remark: str | None = None
+    sub_no: str | None = None
     rfid_code: str | None
     serial_no: str | None
     asset_category_id: int | None
@@ -249,6 +278,9 @@ class AssetDetailPublic(BaseModel):
     approved_by: int | None
     created_at: datetime
     updated_at: datetime
+    has_image: bool = False
+    image_filename: str | None = None
+    image_content_type: str | None = None
     information: AssetInformationPayload | None = None
     location: AssetLocationPayload | None = None
     financial: AssetFinancialPayload | None = None
@@ -284,6 +316,7 @@ class ImportPreviewRow(BaseModel):
     errors: list[str] = Field(default_factory=list)
     field_errors: dict[str, str] = Field(default_factory=dict)
     duplicate_asset_code: bool = False
+    duplicate_combined_asset_number: bool = False
     duplicate_rfid_code: bool = False
     data: dict[str, Any] = Field(default_factory=dict)
 
@@ -361,3 +394,14 @@ class AssetExportFieldPublic(BaseModel):
 
 class AssetExportFieldsResponse(BaseModel):
     fields: list[AssetExportFieldPublic]
+
+
+class AssetFieldConfigPublic(BaseModel):
+    field_key: str
+    display_label: str
+    is_visible: bool
+    is_required: bool
+
+
+class AssetFieldConfigListResponse(BaseModel):
+    fields: list[AssetFieldConfigPublic]

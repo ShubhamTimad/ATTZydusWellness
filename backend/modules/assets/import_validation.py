@@ -107,13 +107,13 @@ def _cell_str(value: Any) -> str:
 def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[ImportPreviewRow]:
     """Enrich rows with field_errors, duplicate flags, and valid status."""
     lookups = ImportMasterLookups(db)
-    codes_in_file: dict[str, list[int]] = {}
+    cans_in_file: dict[str, list[int]] = {}
     rfids_in_file: dict[str, list[int]] = {}
 
     for row in rows:
-        code = _cell_str(row.data.get("asset_code")).upper()
-        if code:
-            codes_in_file.setdefault(code, []).append(row.row_number)
+        can = _cell_str(row.data.get("combined_asset_number")).upper()
+        if can:
+            cans_in_file.setdefault(can, []).append(row.row_number)
         rfid = _cell_str(row.data.get("rfid_code"))
         if rfid:
             rfids_in_file.setdefault(rfid, []).append(row.row_number)
@@ -121,24 +121,26 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
     for row in rows:
         field_errors: dict[str, str] = {}
         errors: list[str] = []
-        duplicate_asset_code = False
+        duplicate_combined_asset_number = False
         duplicate_rfid_code = False
 
-        field_errors.update(required_import_field_errors(row.data))
+        field_errors.update(required_import_field_errors(row.data, db=db))
 
-        code = _cell_str(row.data.get("asset_code")).upper()
-        if code:
-            if len(codes_in_file.get(code, [])) > 1:
-                field_errors["asset_code"] = "Duplicate asset code in this file."
-                duplicate_asset_code = True
+        can = _cell_str(row.data.get("combined_asset_number")).upper()
+        if can:
+            if len(cans_in_file.get(can, [])) > 1:
+                field_errors["combined_asset_number"] = "Duplicate Combined Asset No in this file."
+                duplicate_combined_asset_number = True
             elif db.scalar(
                 select(AssetMaster.id).where(
-                    AssetMaster.asset_code == code,
+                    AssetMaster.combined_asset_number == can,
                     AssetMaster.deleted_at.is_(None),
                 )
             ):
-                field_errors["asset_code"] = "Asset code already exists in the system."
-                duplicate_asset_code = True
+                field_errors["combined_asset_number"] = "Combined Asset No already exists in the system."
+                duplicate_combined_asset_number = True
+
+        code = _cell_str(row.data.get("asset_code")).upper()
 
         rfid = _cell_str(row.data.get("rfid_code"))
         if rfid:
@@ -194,10 +196,13 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
 
         row.field_errors = field_errors
         row.errors = errors
-        row.duplicate_asset_code = duplicate_asset_code
+        row.duplicate_asset_code = False
+        row.duplicate_combined_asset_number = duplicate_combined_asset_number
         row.duplicate_rfid_code = duplicate_rfid_code
         row.valid = len(field_errors) == 0
 
+        if row.valid and can:
+            row.data["combined_asset_number"] = can
         if row.valid and code:
             row.data["asset_code"] = code
         if row.valid:

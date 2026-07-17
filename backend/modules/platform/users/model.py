@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, false, func, true
+from sqlalchemy import JSON, Boolean, DateTime, String, false, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import Base
@@ -39,6 +39,7 @@ class User(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    asset_list_columns: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
     roles = relationship(
         "Role",
