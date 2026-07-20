@@ -833,7 +833,7 @@ export function AssetDetailPage() {
           </div>
         </section>
 
-        <section aria-label="Audit trail" className="border-t border-border/60 pt-4">
+        <section aria-label="Audit Trail" className="border-t border-border/60 pt-4">
           <AssetAuditLog rows={auditRows} loading={auditLoading} />
         </section>
       </AdminPage>

@@ -299,7 +299,9 @@ export function UserEditPage() {
                 <div className="flex items-center justify-between gap-3 sm:col-span-2">
                   <div className="space-y-1">
                     <div className="text-sm font-medium">Active</div>
-                    <div className="text-xs text-muted-foreground">Inactive users cannot sign in.</div>
+                    <div className="text-xs text-muted-foreground">
+                      Inactive users cannot sign in and will not receive emails.
+                    </div>
                   </div>
                   <Switch
                     checked={form.watch("is_active")}

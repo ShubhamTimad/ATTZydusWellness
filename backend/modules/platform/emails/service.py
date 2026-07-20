@@ -12,6 +12,7 @@ from modules.platform.emails.constants import EVENT_CODES
 from modules.platform.emails.model import EmailLog, EmailTemplate, EmailTemplateMapping
 from modules.platform.emails.smtp_transport import send_via_smtp
 from modules.platform.settings.smtp_config import SmtpConfig, get_smtp_config, is_email_delivery_enabled
+from modules.platform.users.model import User
 
 
 _VAR_RE = re.compile(r"{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*}}")
@@ -125,6 +126,18 @@ class EmailNotificationService:
                 subject=rendered_subject,
                 body=rendered_body,
                 error_message="Missing recipient email (payload.email or payload.to_email)",
+            )
+
+        # Shared inactivity guard: never mail known deactivated accounts.
+        recipient = self._db.scalar(select(User).where(User.email == to_email.lower()))
+        if recipient is not None and not bool(recipient.is_active):
+            return self._log(
+                code,
+                payload,
+                status="skipped",
+                subject=rendered_subject,
+                body=rendered_body,
+                error_message="Recipient account is inactive",
             )
 
         try:

@@ -155,7 +155,7 @@ export function OrderAuditLog({ rows }: { rows: PhysicalOrderAudit[] }) {
 
   return (
     <AdminPanel
-      title="Audit trail"
+      title="Audit Trail"
       description={`${displayRows.length} ${displayRows.length === 1 ? "entry" : "entries"}`}
       contentClassName="p-0"
       className="shrink-0 overflow-hidden"

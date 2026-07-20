@@ -12,6 +12,7 @@ import {
   AdminPrimaryButton,
   AdminStatusBadge,
 } from "@/components/layout/admin-ui"
+import { UserAuditLog, type UserTimelineEvent } from "@/components/users/user-audit-log"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -33,16 +34,6 @@ type UserPublic = {
   updated_at: string
 }
 
-type TimelineEvent = {
-  type: string
-  user?: string | null
-  step?: number | null
-  action?: string | null
-  assigned_to?: string[]
-  timestamp?: string | null
-  details?: Record<string, unknown>
-}
-
 function formatDateTime(iso: string | undefined): string {
   if (!iso) return "—"
   const d = new Date(iso)
@@ -50,21 +41,12 @@ function formatDateTime(iso: string | undefined): string {
   return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
 }
 
-function eventTimeMs(ev: TimelineEvent): number {
-  if (ev.timestamp) {
-    const t = new Date(ev.timestamp).getTime()
-    if (!Number.isNaN(t)) return t
-  }
-  if (ev.action === "pending") return Number.POSITIVE_INFINITY
-  return Number.NEGATIVE_INFINITY
-}
-
 export function UserViewPage() {
   const { id } = useParams()
   const navigate = useNavigate()
 
   const [user, setUser] = React.useState<UserPublic | null>(null)
-  const [timeline, setTimeline] = React.useState<TimelineEvent[] | null>(null)
+  const [timeline, setTimeline] = React.useState<UserTimelineEvent[] | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [meId, setMeId] = React.useState<number | null>(null)
@@ -76,10 +58,6 @@ export function UserViewPage() {
   const canUpdate = hasPermission("users.update")
   const canViewAudit = hasPermission("users.view")
   const canResendMfa = hasPermission("mfa.manage")
-  const sortedTimeline = React.useMemo(() => {
-    const tl = timeline ?? []
-    return [...tl].sort((a, b) => eventTimeMs(b) - eventTimeMs(a))
-  }, [timeline])
 
   const canHardDelete = isSuperuser() && meId !== null && user !== null && user.id !== meId
 
@@ -173,7 +151,7 @@ export function UserViewPage() {
         }
         if (canViewAudit) {
           try {
-            const tl = await getJson<TimelineEvent[]>(`/audit/entity/user/${userId}`)
+            const tl = await getJson<UserTimelineEvent[]>(`/audit/entity/user/${userId}`)
             setTimeline(tl)
           } catch {
             setTimeline([])
@@ -294,119 +272,7 @@ export function UserViewPage() {
             </div>
           </AdminPanel>
 
-          <AdminPanel
-            title="Audit trail"
-            description={
-              canViewAudit
-                ? "Creation and change history for this user."
-                : "Requires users.view permission."
-            }
-            contentClassName="px-5 py-5"
-          >
-            {!canViewAudit ? (
-              <p className="text-sm text-muted-foreground">
-                Missing permission: <span className="font-mono text-foreground/80">users.view</span>
-              </p>
-            ) : sortedTimeline.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No audit events found.</p>
-            ) : (
-              <ul className="space-y-2">
-                {sortedTimeline.map((ev, i) => (
-                  <li
-                    key={i}
-                    className="rounded-lg border border-border/60 bg-muted/10 px-4 py-3 text-sm transition-colors hover:bg-muted/20"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-medium capitalize text-foreground">
-                        {ev.type.replace("_", " ")}
-                      </span>
-                      <span className="text-xs tabular-nums text-muted-foreground">
-                        {ev.timestamp ? formatDateTime(ev.timestamp) : ev.action === "pending" ? "Now" : "—"}
-                      </span>
-                    </div>
-                    {ev.type === "created" ? (
-                      <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                        <p>By {ev.user ?? "—"}</p>
-                        {ev.details && typeof ev.details === "object" ? (
-                          <>
-                            {(ev.details as { role_name?: string }).role_name ? (
-                              <p>Role: {String((ev.details as { role_name?: string }).role_name)}</p>
-                            ) : null}
-                            {(ev.details as { org_unit_name?: string }).org_unit_name ? (
-                              <p>Plant: {String((ev.details as { org_unit_name?: string }).org_unit_name)}</p>
-                            ) : null}
-                            {(ev.details as { approval_status?: string }).approval_status === "pending" &&
-                            (ev.details as { awaiting_role?: string }).awaiting_role ? (
-                              <p>
-                                Awaiting approval from{" "}
-                                {String((ev.details as { awaiting_role?: string }).awaiting_role)}
-                              </p>
-                            ) : null}
-                          </>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {ev.type === "activated" ? (
-                      <p className="mt-1 text-xs text-muted-foreground">Activated by {ev.user ?? "—"}</p>
-                    ) : null}
-                    {ev.type === "deactivated" ? (
-                      <p className="mt-1 text-xs text-muted-foreground">Deactivated by {ev.user ?? "—"}</p>
-                    ) : null}
-                    {ev.type === "approval_step" && ev.action && ev.action !== "pending" ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Step {ev.step ?? "—"} · {ev.action} by {ev.user ?? "—"}
-                      </p>
-                    ) : null}
-                    {ev.type === "approval_step" &&
-                    typeof ev.details?.comment === "string" &&
-                    String(ev.details.comment).trim() !== "" ? (
-                      <p className="mt-1 text-xs whitespace-pre-wrap text-muted-foreground">
-                        Note: {String(ev.details.comment)}
-                      </p>
-                    ) : null}
-                    {ev.type === "approval_step" && ev.action === "pending" ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Awaiting: {(ev.assigned_to ?? []).join(", ") || "—"}
-                        {ev.details?.role ? ` · Role: ${String(ev.details.role)}` : ""}
-                      </p>
-                    ) : null}
-                    {ev.type === "entity_updated" &&
-                    ev.details &&
-                    typeof (ev.details as { changes?: object }).changes === "object" ? (
-                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
-                        <p>By {ev.user ?? "—"}</p>
-                        {Object.entries(
-                          (ev.details as { changes: Record<string, { from?: unknown; to?: unknown }> }).changes,
-                        ).length === 0 ? (
-                          <p>No changes captured.</p>
-                        ) : (
-                          <ul className="space-y-0.5">
-                            {Object.entries(
-                              (ev.details as { changes: Record<string, { from?: unknown; to?: unknown }> })
-                                .changes,
-                            ).map(([k, v]) => (
-                              <li key={k}>
-                                <span className="font-medium text-foreground/80">
-                                  {k === "is_active"
-                                    ? "Status"
-                                    : k === "role_name"
-                                      ? "Role"
-                                      : k === "org_unit_name"
-                                        ? "Plant"
-                                        : k.replace(/_/g, " ")}
-                                </span>
-                                : {String(v?.from ?? "—")} → {String(v?.to ?? "—")}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </AdminPanel>
+          <UserAuditLog events={timeline} loading={loading && timeline === null} canView={canViewAudit} />
         </div>
       )}
     </AdminPage>

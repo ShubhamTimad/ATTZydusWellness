@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { AssetMasterDetailDialog } from "@/components/assets/asset-master-detail-dialog"
 import { ApprovalWorkflowTimeline, type TaskApprovalStepLine } from "@/components/approval-workflow-timeline"
+import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
@@ -278,6 +279,28 @@ export function MyTaskDetailPage() {
     const logs = task?.audit_logs ?? []
     return [...logs].sort((a, b) => timeMs(b.created_at) - timeMs(a.created_at))
   }, [task])
+
+  const auditTrailRows = React.useMemo((): AuditTrailRow[] => {
+    return sortedAudit.map((ev) => {
+      const comment =
+        ev.new_value && typeof (ev.new_value as { comment?: unknown }).comment === "string"
+          ? String((ev.new_value as { comment: string }).comment).trim()
+          : ""
+      return {
+        id: String(ev.id),
+        at: ev.created_at ?? "",
+        by: actorLine(ev),
+        activity: (
+          <div className="space-y-1">
+            <p className="font-medium">{taskAuditTitle(ev)}</p>
+            {comment ? (
+              <p className="whitespace-pre-wrap text-[11px] text-muted-foreground">{comment}</p>
+            ) : null}
+          </div>
+        ),
+      }
+    })
+  }, [sortedAudit])
 
   const sortedComments = React.useMemo(() => {
     const rows = task?.comments ?? []
@@ -805,38 +828,11 @@ export function MyTaskDetailPage() {
             />
           ) : null}
 
-          <Card>
-            <CardHeader className="space-y-1 pb-2">
-              <CardTitle className="text-base">History</CardTitle>
-              <CardDescription className="text-xs">Task activity · newest first</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                {sortedAudit.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No task-level events yet.</p>
-                ) : (
-                  <ul className="space-y-2 text-sm">
-                    {sortedAudit.map((ev) => (
-                      <li key={ev.id} className="rounded-md border bg-muted/30 px-2.5 py-1.5">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-medium">{taskAuditTitle(ev)}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {ev.created_at ? formatDateTime(ev.created_at) : "—"}
-                          </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground">{actorLine(ev)}</p>
-                        {ev.new_value && typeof (ev.new_value as { comment?: unknown }).comment === "string" ? (
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {String((ev.new_value as { comment: string }).comment)}
-                          </p>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+          <AuditTrailTable
+            rows={auditTrailRows}
+            emptyDescription="No task-level events yet."
+            descriptionFallback="Task activity · newest first"
+          />
 
           {(() => {
             const parsed = readFormSchema(task.form_schema)

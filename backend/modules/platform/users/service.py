@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import secrets
 import string
 
-from sqlalchemy import and_, delete, or_, select
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -12,6 +12,7 @@ from core.permissions import invalidate_permission_cache
 from core.security import hash_password
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, TaskAuditLog
 from modules.errors import NotFoundError, RbacSafetyError
+from modules.platform.auth.model import PasswordResetToken, UserSession
 from modules.platform.org_units.model import OrgUnit
 from modules.rbac_association import user_org_unit
 from modules.platform.rbac_audit.service import RbacAuditService
@@ -57,6 +58,20 @@ class UserService:
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+[]{}"
         return "".join(secrets.choice(alphabet) for _ in range(20))
 
+    def _revoke_user_access(self, user_id: int) -> None:
+        """Invalidate open sessions and unused password-reset tokens for a deactivated user."""
+        now = datetime.now(timezone.utc)
+        self._db.execute(
+            update(UserSession)
+            .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
+            .values(revoked_at=now)
+        )
+        self._db.execute(
+            update(PasswordResetToken)
+            .where(PasswordResetToken.user_id == user_id, PasswordResetToken.used_at.is_(None))
+            .values(used_at=now)
+        )
+
     def create_user(self, data: UserCreate, *, actor_user_id: int | None = None) -> User:
         phone = self._normalize_phone(data.phone)
         existing_phone = self._db.scalar(select(User.id).where(User.phone == phone))
@@ -95,7 +110,7 @@ class UserService:
             email=email_norm,
             hashed_password=hash_password(plain_password),
             password_changed_at=now,
-            is_active=True,
+            is_active=bool(data.is_active),
         )
         user.roles.append(role)
         self._db.add(user)
@@ -233,8 +248,13 @@ class UserService:
 
         # Password updates intentionally removed from admin UI flow.
 
+        becoming_inactive = False
         if "is_active" in updates and updates["is_active"] is not None:
-            user.is_active = bool(updates["is_active"])
+            next_active = bool(updates["is_active"])
+            becoming_inactive = bool(user.is_active) and not next_active
+            user.is_active = next_active
+            if becoming_inactive:
+                self._revoke_user_access(user.id)
 
         old_role = user.roles[0] if user.roles else None
         old_role_name = old_role.name if old_role is not None else None

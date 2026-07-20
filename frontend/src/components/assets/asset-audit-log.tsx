@@ -198,7 +198,7 @@ export function AssetAuditLog({ rows, loading }: { rows: AssetAuditLogRow[]; loa
 
   return (
     <AdminPanel
-      title="Audit trail"
+      title="Audit Trail"
       description={
         displayRows.length > 0
           ? `${displayRows.length} ${displayRows.length === 1 ? "entry" : "entries"}`

@@ -2,17 +2,26 @@ import * as React from "react"
 import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
-import { AdminPanel, AdminPrimaryButton, adminPanelClass } from "@/components/layout/admin-ui"
+import {
+  AdminPanel,
+  AdminPrimaryButton,
+  AdminRowAction,
+  AdminRowActions,
+  AdminTableCell,
+  AdminTableHeadCell,
+  AdminTableHeaderRow,
+  adminPanelClass,
+} from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { Trash2 } from "lucide-react"
+import { Pencil, Plus, Trash2 } from "lucide-react"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { canListOrgUnitsForAssignments, hasPermission, isSuperuser } from "@/lib/permissions"
 
@@ -131,6 +140,10 @@ export function RolesPage() {
   const [createDescription, setCreateDescription] = React.useState("")
   const [creating, setCreating] = React.useState(false)
   const [createOrgUnitIds, setCreateOrgUnitIds] = React.useState<Set<number>>(() => new Set())
+  const [editOpen, setEditOpen] = React.useState(false)
+  const [editName, setEditName] = React.useState("")
+  const [editDescription, setEditDescription] = React.useState("")
+  const [savingDetails, setSavingDetails] = React.useState(false)
   const [syncingCatalog, setSyncingCatalog] = React.useState(false)
   const [autoSyncAttempted, setAutoSyncAttempted] = React.useState(false)
 
@@ -234,10 +247,7 @@ export function RolesPage() {
         org_unit_ids: Array.from(createOrgUnitIds.values()),
       })
       toast.success("Role created", { id: "create-role" })
-      setCreateOpen(false)
-      setCreateName("")
-      setCreateDescription("")
-      setCreateOrgUnitIds(new Set())
+      closeCreate()
       await loadBase()
       setSelectedRoleId(created.id)
     } catch (e) {
@@ -246,6 +256,46 @@ export function RolesPage() {
       setError(message)
     } finally {
       setCreating(false)
+    }
+  }
+
+  function openEdit() {
+    if (!selectedRole) return
+    setEditName(selectedRole.name)
+    setEditDescription(selectedRole.description ?? "")
+    setEditOpen(true)
+  }
+
+  function closeEdit() {
+    setEditOpen(false)
+    setEditName("")
+    setEditDescription("")
+  }
+
+  async function saveRoleDetails() {
+    if (!selectedRoleId) return
+    const name = editName.trim()
+    if (!name) {
+      toast.error("Role name is required.")
+      return
+    }
+    setSavingDetails(true)
+    toast.loading("Saving role…", { id: "edit-role" })
+    try {
+      await patchJson<RoleDetail>(`/admin/roles/${selectedRoleId}`, {
+        name,
+        description: editDescription.trim() ? editDescription.trim() : null,
+      })
+      toast.success("Role updated", { id: "edit-role" })
+      closeEdit()
+      await loadBase()
+      await loadRole(selectedRoleId)
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to update role"
+      toast.error(message, { id: "edit-role" })
+      setError(message)
+    } finally {
+      setSavingDetails(false)
     }
   }
 
@@ -280,6 +330,7 @@ export function RolesPage() {
     try {
       await deleteJson(`/admin/roles/${selectedRole.id}`)
       toast.success("Role deleted", { id: "delete-role" })
+      closeEdit()
       setSelectedRole(null)
       setSelectedRoleId(null)
       setSelectedPermissionIds(new Set())
@@ -320,17 +371,37 @@ export function RolesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canSaveRole, hasMissingCatalogPermissions, syncingCatalog, autoSyncAttempted])
 
+  function closeCreate() {
+    setCreateOpen(false)
+    setCreateName("")
+    setCreateDescription("")
+    setCreateOrgUnitIds(new Set())
+  }
+
   return (
     <AdminPage
       description="Link roles to plants and assign permissions by module. No plants selected = global role."
       actions={
-        <AdminPrimaryButton
-          type="button"
-          onClick={() => void save()}
-          disabled={!selectedRoleId || !hasDirty || !canSaveRole}
-        >
-          {hasDirty ? "Save changes" : "Save"}
-        </AdminPrimaryButton>
+        canCreateRole || canSaveRole ? (
+          <>
+            {canCreateRole ? (
+              <AdminPrimaryButton type="button" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" aria-hidden />
+                Create role
+              </AdminPrimaryButton>
+            ) : null}
+            {canSaveRole ? (
+              <AdminPrimaryButton
+                type="button"
+                onClick={() => void save()}
+                disabled={!selectedRoleId || !hasDirty}
+                variant={hasDirty ? "default" : "outline"}
+              >
+                {hasDirty ? "Save changes" : "Save"}
+              </AdminPrimaryButton>
+            ) : null}
+          </>
+        ) : undefined
       }
     >
       {error ? (
@@ -340,124 +411,38 @@ export function RolesPage() {
         </Alert>
       ) : null}
 
-      <div className="grid min-h-0 gap-4 lg:grid-cols-[300px_1fr] lg:items-start">
-        <AdminPanel
-          title="Roles"
-          description="Select a role to edit permissions"
-          contentClassName="p-0"
-        >
-          <div className="flex items-center justify-end gap-2 border-b border-border/60 px-4 py-2">
-            {canCreateRole ? (
-              <Dialog
-                open={createOpen}
-                onOpenChange={(open) => {
-                  setCreateOpen(open)
-                  if (!open) setCreateOrgUnitIds(new Set())
-                }}
-              >
-                <DialogTrigger asChild>
-                  <Button type="button" variant="outline" size="sm" className="h-8 shadow-sm">
-                    Create role
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Create role</DialogTitle>
-                    <DialogDescription>
-                      Add a new role, optionally restrict it to specific plants, then assign
-                      permissions on the right.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="dialog-body">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="role-name">Name</Label>
-                      <Input
-                        id="role-name"
-                        value={createName}
-                        onChange={(e) => setCreateName(e.target.value)}
-                        placeholder="e.g. Plant operator"
-                        autoComplete="off"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="role-desc">Description (optional)</Label>
-                      <Input
-                        id="role-desc"
-                        value={createDescription}
-                        onChange={(e) => setCreateDescription(e.target.value)}
-                        placeholder="What this role is for"
-                      />
-                    </div>
-                    {canLoadPlantList ? (
-                      <div className="space-y-2">
-                        <Label>Plants (optional)</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Leave none selected so this role applies at every plant. Otherwise pick one or
-                          more plants.
-                        </p>
-                        <ScrollArea className="h-[160px] rounded-md border p-2">
-                          {plants === null || plants.length === 0 ? (
-                            <p className="text-xs text-muted-foreground">No plants yet. Create plants under Plants.</p>
-                          ) : (
-                            <div className="space-y-2">
-                              {plants.map((pl) => {
-                                const checked = createOrgUnitIds.has(pl.id)
-                                return (
-                                  <label
-                                    key={pl.id}
-                                    className="flex cursor-pointer items-center gap-2 text-sm"
-                                  >
-                                    <Checkbox
-                                      checked={checked}
-                                      onCheckedChange={(v) => {
-                                        const next = new Set(createOrgUnitIds)
-                                        if (v) next.add(pl.id)
-                                        else next.delete(pl.id)
-                                        setCreateOrgUnitIds(next)
-                                      }}
-                                    />
-                                    <span>
-                                      {pl.code} — {pl.name}
-                                    </span>
-                                  </label>
-                                )
-                              })}
-                            </div>
-                          )}
-                        </ScrollArea>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        Plant checkboxes need{" "}
-                        <span className="font-medium">Plants (org units) View</span>, or{" "}
-                        <span className="font-medium">Roles Create/Edit</span> (same as listing plants for user
-                        assignment).
-                      </p>
-                    )}
-                    <div className="flex justify-end gap-2 pt-1">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setCreateOpen(false)}>
-                        Cancel
-                      </Button>
-                      <Button type="button" size="sm" disabled={creating} onClick={() => void createRole()}>
-                        {creating ? "Creating…" : "Create"}
-                      </Button>
-                    </div>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            ) : null}
-          </div>
+      {hasMissingCatalogPermissions && canSaveRole ? (
+        <Alert>
+          <AlertTitle>Missing permission rows</AlertTitle>
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            <span>Some permissions exist in config but not in the database yet.</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2"
+              disabled={syncingCatalog}
+              onClick={() => void syncCatalog()}
+            >
+              {syncingCatalog ? "Syncing…" : "Sync missing permissions"}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <div className="grid min-h-0 gap-4 lg:grid-cols-[340px_1fr] lg:items-start">
+        <AdminPanel title="Roles" description="Select a role to configure" contentClassName="p-0">
           <Table>
             <TableBody>
               {roles === null ? (
                 <TableRow>
-                  <TableCell className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <TableCell className="px-5 py-10 text-center text-sm text-muted-foreground">
                     Loading…
                   </TableCell>
                 </TableRow>
               ) : roles.length === 0 ? (
                 <TableRow>
-                  <TableCell className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  <TableCell className="px-5 py-10 text-center text-sm text-muted-foreground">
                     No roles found.
                   </TableCell>
                 </TableRow>
@@ -474,10 +459,12 @@ export function RolesPage() {
                       onClick={() => setSelectedRoleId(r.id)}
                       role="button"
                     >
-                      <TableCell className="px-4 py-3">
-                        <div className="text-sm font-semibold text-foreground">{r.name}</div>
+                      <TableCell className="px-5 py-3.5">
+                        <div className="text-sm font-semibold leading-snug text-foreground">{r.name}</div>
                         {r.description ? (
-                          <div className="line-clamp-1 text-xs text-muted-foreground">{r.description}</div>
+                          <div className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
+                            {r.description}
+                          </div>
                         ) : null}
                       </TableCell>
                     </TableRow>
@@ -493,24 +480,29 @@ export function RolesPage() {
           description={
             hasDirty
               ? "Unsaved changes — click Save changes"
-              : canSaveRole
-                ? "Adjust plants and permissions"
-                : "You need roles.update to save"
+              : selectedRole?.description
+                ? selectedRole.description
+                : canSaveRole
+                  ? "Assign plants and permissions for this role"
+                  : "You need roles.update to save"
           }
           className="flex max-h-[calc(100dvh-11rem)] min-h-0 flex-col"
           contentClassName="min-h-0 flex-1 overflow-y-auto px-5 py-4"
           headerActions={
-            selectedRole && canDeleteRole ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 text-destructive hover:text-destructive"
-                onClick={() => void deleteRole()}
-              >
-                <Trash2 className="size-3.5" aria-hidden />
-                Delete role
-              </Button>
+            selectedRole && (canSaveRole || canDeleteRole) ? (
+              <AdminRowActions>
+                {canSaveRole ? (
+                  <AdminRowAction icon={Pencil} label="Edit" onClick={openEdit} />
+                ) : null}
+                {canDeleteRole ? (
+                  <AdminRowAction
+                    icon={Trash2}
+                    label="Delete"
+                    onClick={() => void deleteRole()}
+                    className="text-destructive hover:text-destructive"
+                  />
+                ) : null}
+              </AdminRowActions>
             ) : undefined
           }
         >
@@ -525,42 +517,18 @@ export function RolesPage() {
               </div>
             ) : (
               <div className="space-y-6">
-                <div className="space-y-1">
-                  <div className="text-sm font-semibold">Assignment model</div>
+                {!canSaveRole ? (
                   <p className="text-xs text-muted-foreground">
-                    Permissions are assigned to roles, and users inherit permissions from their assigned role.
+                    Read-only — you need <span className="font-medium">roles.update</span> to change this
+                    role.
                   </p>
-                  {hasMissingCatalogPermissions ? (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>Some permission rows are missing from the database, so those cells stay disabled.</span>
-                      {canSaveRole ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 shadow-sm"
-                          disabled={syncingCatalog}
-                          onClick={() => void syncCatalog()}
-                        >
-                          {syncingCatalog ? "Syncing…" : "Sync missing permissions"}
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {!canSaveRole ? (
-                    <p className="text-xs text-muted-foreground">
-                      This screen is read-only for your account. You need <span className="font-medium">roles.update</span>{" "}
-                      or superuser access to change role permissions.
-                    </p>
-                  ) : null}
-                </div>
+                ) : null}
                 <div className="space-y-2">
-                  <div className="text-sm font-semibold">Plants for this role</div>
+                  <div className="text-sm font-semibold">Plants</div>
                   {canLoadPlantList ? (
                     <>
                       <p className="text-xs text-muted-foreground">
-                        No selection = role is available at every plant. Otherwise limit to selected
-                        plants (used when assigning users).
+                        None selected = available at every plant. Otherwise limit to the plants below.
                       </p>
                       <div className={cn(adminPanelClass, "p-3 shadow-none")}>
                         {plants === null || plants.length === 0 ? (
@@ -574,7 +542,7 @@ export function RolesPage() {
                                   key={pl.id}
                                   className={cn(
                                     "flex items-center gap-2 text-sm",
-                                    canSaveRole ? "cursor-pointer" : "cursor-not-allowed opacity-70"
+                                    canSaveRole ? "cursor-pointer" : "cursor-not-allowed opacity-70",
                                   )}
                                 >
                                   <Checkbox
@@ -605,91 +573,220 @@ export function RolesPage() {
                     </p>
                   )}
                 </div>
-                {catalog.modules.map((mod) => (
-                  <div key={mod.key} className="space-y-2">
-                    <div className="text-sm font-semibold">{mod.title}</div>
-                    <div className={cn(adminPanelClass, "overflow-x-auto p-0 shadow-none")}>
-                      {(() => {
-                        const moduleActions = orderedActionColumns(
-                          mod.tabs.flatMap((t) => (Array.isArray(t.actions) ? t.actions : []))
-                        )
-                        return (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="w-[140px]">Tab</TableHead>
-                            {moduleActions.map((act) => (
-                              <TableHead key={act} className="min-w-[130px] text-center">
-                                {ACTION_LABEL[act] ?? act}
-                              </TableHead>
-                            ))}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {mod.tabs.map((tab) => (
-                            <TableRow key={`${mod.key}.${tab.key}`}>
-                              <TableCell className="text-sm text-muted-foreground">{tab.title}</TableCell>
-                              {moduleActions.map((act) => {
-                                const cell = tab.permissions.find((p) => p.action === act)
-                                if (!cell) {
+                {catalog.modules.map((mod) => {
+                  const moduleActions = orderedActionColumns(
+                    mod.tabs.flatMap((t) => (Array.isArray(t.actions) ? t.actions : [])),
+                  )
+                  return (
+                    <div key={mod.key} className="space-y-2">
+                      <div className="text-sm font-semibold">{mod.title}</div>
+                      <div className="overflow-x-auto rounded-lg border border-border/60">
+                        <Table className="w-auto min-w-0">
+                          <TableHeader>
+                            <AdminTableHeaderRow>
+                              <AdminTableHeadCell className="min-w-[10rem] px-4">Tab</AdminTableHeadCell>
+                              {moduleActions.map((act) => (
+                                <AdminTableHeadCell
+                                  key={act}
+                                  className="w-[4.75rem] min-w-[4.75rem] px-2 text-center"
+                                >
+                                  {ACTION_LABEL[act] ?? act}
+                                </AdminTableHeadCell>
+                              ))}
+                            </AdminTableHeaderRow>
+                          </TableHeader>
+                          <TableBody>
+                            {mod.tabs.map((tab) => (
+                              <TableRow
+                                key={`${mod.key}.${tab.key}`}
+                                className="border-b border-border/40"
+                              >
+                                <AdminTableCell className="px-4 font-medium text-muted-foreground">
+                                  {tab.title}
+                                </AdminTableCell>
+                                {moduleActions.map((act) => {
+                                  const cell = tab.permissions.find((p) => p.action === act)
+                                  if (!cell) {
+                                    return (
+                                      <TableCell
+                                        key={act}
+                                        className="w-[4.75rem] min-w-[4.75rem] px-2 text-center"
+                                      >
+                                        <span className="text-xs text-muted-foreground">—</span>
+                                      </TableCell>
+                                    )
+                                  }
+                                  const id = cell.id
+                                  const checked = id != null && selectedPermissionIds.has(id)
+                                  const disabled = id == null || !canSaveRole
                                   return (
-                                    <TableCell key={act} className="text-center">
-                                      <span className="text-xs text-muted-foreground">—</span>
+                                    <TableCell
+                                      key={act}
+                                      className="w-[4.75rem] min-w-[4.75rem] px-2 text-center"
+                                    >
+                                      <div className="flex justify-center">
+                                        <Checkbox
+                                          checked={checked}
+                                          disabled={disabled}
+                                          title={
+                                            id == null
+                                              ? "Sync missing permissions to enable this cell"
+                                              : `${cell.code}${cell.description ? ` — ${cell.description}` : ""}`
+                                          }
+                                          aria-label={cell.code}
+                                          onCheckedChange={(v) => {
+                                            if (id == null) return
+                                            const next = new Set(selectedPermissionIds)
+                                            if (v) next.add(id)
+                                            else next.delete(id)
+                                            setSelectedPermissionIds(next)
+                                          }}
+                                        />
+                                      </div>
                                     </TableCell>
                                   )
-                                }
-                                const id = cell.id
-                                const checked = id != null && selectedPermissionIds.has(id)
-                                const disabled = id == null || !canSaveRole
-                                return (
-                                  <TableCell key={act} className="px-2 py-2 align-top">
-                                    <div className="flex flex-col items-center gap-1 text-center">
-                                      <Checkbox
-                                        checked={checked}
-                                        disabled={disabled}
-                                        title={
-                                          id == null
-                                            ? "Sync missing permissions to enable this cell"
-                                            : cell.code
-                                        }
-                                        onCheckedChange={(v) => {
-                                          if (id == null) return
-                                          const next = new Set(selectedPermissionIds)
-                                          if (v) next.add(id)
-                                          else next.delete(id)
-                                          setSelectedPermissionIds(next)
-                                        }}
-                                      />
-                                      <code className="block max-w-[160px] whitespace-normal break-all font-mono text-[10px] leading-snug text-foreground">
-                                        {cell.code}
-                                      </code>
-                                      {cell.description ? (
-                                        <span className="block max-w-[160px] whitespace-normal text-[10px] leading-snug text-muted-foreground">
-                                          {cell.description}
-                                        </span>
-                                      ) : id == null ? (
-                                        <span className="text-[10px] text-amber-700 dark:text-amber-400">
-                                          Not synced
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                  </TableCell>
-                                )
-                              })}
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                        )
-                      })()}
+                                })}
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </>
         </AdminPanel>
       </div>
+
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          if (open) setCreateOpen(true)
+          else closeCreate()
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create role</DialogTitle>
+            <DialogDescription>
+              Add a new role, optionally restrict it to specific plants, then assign permissions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="dialog-body">
+            <div className="space-y-1.5">
+              <Label htmlFor="role-name">Name *</Label>
+              <Input
+                id="role-name"
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="e.g. Plant operator"
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="role-desc">Description (optional)</Label>
+              <Input
+                id="role-desc"
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+                placeholder="What this role is for"
+              />
+            </div>
+            {canLoadPlantList ? (
+              <div className="space-y-2">
+                <Label>Plants (optional)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Leave none selected so this role applies at every plant.
+                </p>
+                <ScrollArea className="h-[160px] rounded-md border p-2">
+                  {plants === null || plants.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">No plants yet. Create plants under Plants.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {plants.map((pl) => {
+                        const checked = createOrgUnitIds.has(pl.id)
+                        return (
+                          <label key={pl.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(v) => {
+                                const next = new Set(createOrgUnitIds)
+                                if (v) next.add(pl.id)
+                                else next.delete(pl.id)
+                                setCreateOrgUnitIds(next)
+                              }}
+                            />
+                            <span>
+                              {pl.code} — {pl.name}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                </ScrollArea>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Plant checkboxes need <span className="font-medium">Plants View</span> or{" "}
+                <span className="font-medium">Roles Create/Edit</span>.
+              </p>
+            )}
+            <div className="flex justify-end gap-2 border-t border-border/60 pt-3">
+              <Button type="button" variant="outline" size="sm" className="h-9" onClick={closeCreate}>
+                Cancel
+              </Button>
+              <AdminPrimaryButton type="button" disabled={creating} onClick={() => void createRole()}>
+                {creating ? "Creating…" : "Create role"}
+              </AdminPrimaryButton>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editOpen} onOpenChange={(open) => !open && closeEdit()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit role</DialogTitle>
+            <DialogDescription>Update the role name and description.</DialogDescription>
+          </DialogHeader>
+          <div className="dialog-body">
+            <div className="space-y-1.5">
+              <Label htmlFor="role-name-edit">Name *</Label>
+              <Input
+                id="role-name-edit"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="e.g. Plant operator"
+                autoComplete="off"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="role-desc-edit">Description (optional)</Label>
+              <Input
+                id="role-desc-edit"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                placeholder="What this role is for"
+              />
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border/60 pt-3">
+              <Button type="button" variant="outline" size="sm" className="h-9" onClick={closeEdit}>
+                Cancel
+              </Button>
+              <AdminPrimaryButton
+                type="button"
+                disabled={savingDetails}
+                onClick={() => void saveRoleDetails()}
+              >
+                {savingDetails ? "Saving…" : "Save changes"}
+              </AdminPrimaryButton>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AdminPage>
   )
 }

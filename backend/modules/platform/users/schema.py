@@ -27,6 +27,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     role_id: int = Field(ge=1)
     org_unit_id: int = Field(ge=1)
+    is_active: bool = True
 
     @field_validator("phone")
     @classmethod

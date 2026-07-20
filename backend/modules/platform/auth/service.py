@@ -181,6 +181,13 @@ class AuthService:
             assert_refresh_session_active(self._db, row)
         except SessionIdleExpiredError as exc:
             raise InvalidRefreshTokenError from exc
+
+        user = self._db.get(User, user_id)
+        if user is None or not bool(user.is_active):
+            row.revoked_at = now
+            self._db.commit()
+            raise InvalidRefreshTokenError
+
         row.revoked_at = now
         new_jti = str(uuid.uuid4())
         delta = timedelta(days=settings.refresh_token_expire_days)
@@ -298,6 +305,10 @@ class AuthService:
         user = self._db.get(User, int(row.user_id))
         if user is None:
             raise ValueError("Invalid token")
+        if not bool(user.is_active):
+            row.used_at = now
+            self._db.commit()
+            raise ValueError("Invalid or expired token")
 
         user.hashed_password = hash_password(new_password)
         user.password_changed_at = now

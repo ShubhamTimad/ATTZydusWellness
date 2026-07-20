@@ -51,7 +51,9 @@ export function AdminPanel({
               <p className={cn("app-panel-description", title && "mt-1")}>{description}</p>
             ) : null}
           </div>
-          {headerActions ? <div className="flex shrink-0 items-center gap-2">{headerActions}</div> : null}
+          {headerActions ? (
+            <div className="flex shrink-0 items-center gap-2 self-start pt-0.5">{headerActions}</div>
+          ) : null}
         </div>
       ) : null}
       <div className={cn(contentClassName)}>{children}</div>
