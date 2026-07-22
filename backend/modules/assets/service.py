@@ -1606,6 +1606,11 @@ class AssetMasterService:
         )
         master_names = self._master_names_for_asset(loc, fin)
         active_order = self._active_physical_orders_for_assets([int(asset.id)]).get(int(asset.id))
+        from modules.capex.model import CapitalizationForm
+
+        linked_capex = self._db.scalar(
+            select(CapitalizationForm).where(CapitalizationForm.asset_id == int(asset.id))
+        )
         location_payload: AssetLocationPayload | None = None
         if loc is not None:
             location_payload = AssetLocationPayload.model_validate(loc).model_copy(
@@ -1666,6 +1671,9 @@ class AssetMasterService:
             financial_year_label=period.label if rfid else None,
             active_physical_order=active_order,
             fy_verification_count=fy_count,
+            capitalization_form_id=int(linked_capex.id) if linked_capex is not None else None,
+            capitalization_form_number=linked_capex.form_number if linked_capex is not None else None,
+            capitalization_form_asset_name=linked_capex.asset_name if linked_capex is not None else None,
         )
 
     def attach_rfid(
@@ -1839,6 +1847,20 @@ class AssetMasterService:
             else:
                 _merge_inventory_update(asset.inventory, data.inventory)
 
+        if "capitalization_form_id" in data.model_fields_set:
+            from modules.capex.service import CapexFormService
+
+            capex_svc = CapexFormService(self._db)
+            if data.capitalization_form_id is None:
+                capex_svc.unlink_from_asset(asset_id=int(asset.id), actor_user_id=actor_user_id)
+            else:
+                capex_svc.link_to_asset(
+                    int(data.capitalization_form_id),
+                    asset_id=int(asset.id),
+                    actor_user_id=actor_user_id,
+                    asset_code=asset.asset_code,
+                )
+
         asset.updated_at = _now()
         self._db.flush()
         changes = diff_snapshots(before, snapshot_asset(asset))
@@ -1850,6 +1872,16 @@ class AssetMasterService:
                 action="updated",
                 old_value=before,
                 new_value={"changes": changes},
+            )
+        # CapEx link changes are audited on the form; also note on asset when only the link changed.
+        if "capitalization_form_id" in data.model_fields_set and not changes:
+            log_asset_event(
+                self._db,
+                asset_id=asset.id,
+                actor_user_id=actor_user_id,
+                action="updated",
+                old_value=before,
+                new_value={"capitalization_form_id": data.capitalization_form_id},
             )
         try:
             self._db.commit()

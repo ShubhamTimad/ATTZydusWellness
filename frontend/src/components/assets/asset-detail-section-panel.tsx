@@ -33,6 +33,7 @@ export function AssetDetailSectionPanel({
   onSection,
   extra,
   extraAfterFirst,
+  extraEnd,
   plantCode,
   plantName,
   selectOptions = {},
@@ -52,6 +53,8 @@ export function AssetDetailSectionPanel({
   onSection: (field: string, value: string | number | null) => void
   extra?: React.ReactNode
   extraAfterFirst?: React.ReactNode
+  /** Rendered after all section fields (e.g. CapEx form). */
+  extraEnd?: React.ReactNode
   plantCode?: string | null
   plantName?: string | null
   selectOptions?: Record<string, { value: string; label: string }[]>
@@ -192,7 +195,9 @@ export function AssetDetailSectionPanel({
                     ? String(asset.asset_custodian_id ?? "")
                     : k === "asset_condition_id"
                       ? String(asset.asset_condition_id ?? "")
-                      : String(rawVal ?? "")
+                      : k === "cost_center_name" && hasSelect
+                        ? String(asset.financial?.cost_center ?? "")
+                        : String(rawVal ?? "")
             const mono = k === "asset_code" || k === "combined_asset_number" || k === "rfid_code"
             return (
               <React.Fragment key={k}>
@@ -257,6 +262,7 @@ export function AssetDetailSectionPanel({
               </React.Fragment>
             )
           })}
+          {extraEnd}
         </div>
       ) : (
         <div
@@ -265,6 +271,7 @@ export function AssetDetailSectionPanel({
             config.id === "information" && "lg:grid-cols-3",
           )}
         >
+          {extra}
           {config.showPlant && plantCode && isVisible("plant_code") ? (
             <div className="min-w-0 border-b border-border/60 py-3">
               <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
@@ -312,6 +319,7 @@ export function AssetDetailSectionPanel({
               </React.Fragment>
             )
           })}
+          {extraEnd}
         </div>
       )}
     </AdminPanel>

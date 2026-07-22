@@ -93,7 +93,7 @@ ASSET_FIELD_LABELS: dict[str, str] = {
     "asset_condition_code": "Asset Physical Condition",
     "sub_location": "Sub location",
     "plant_id": "Plant name",
-    "cost_center": "Cost Center",
+    "cost_center": "Cost Center Code",
     "cost_center_name": "Cost Center Name",
     "party_details": "Party Details",
     "invoice_no": "Invoice no.",

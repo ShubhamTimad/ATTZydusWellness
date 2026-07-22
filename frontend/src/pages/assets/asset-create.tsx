@@ -1,10 +1,11 @@
 import * as React from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { ClipboardList, DollarSign, FileText, MapPin, Package } from "lucide-react"
 import { toast } from "sonner"
 
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AssetImage, validateAssetImageFile } from "@/components/assets/asset-image"
+import { CapexFormSearchSelect } from "@/components/assets/capex-form-search-select"
 import { TagColorSelect } from "@/components/assets/tag-color-select"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
@@ -17,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, getJson, postJson, putFormData } from "@/lib/api"
-import type { CapexFormDetail, CapexFormListResponse } from "@/lib/capex-types"
+import type { CapexFormDetail } from "@/lib/capex-types"
 import type { AssetDetail } from "@/lib/assets-types"
 import { useAssetFieldConfig } from "@/lib/use-asset-field-config"
 import { hasPermission } from "@/lib/permissions"
@@ -25,7 +26,6 @@ import {
   assetConditionLabel,
   assetCustodianLabel,
   categoryLabel,
-  costCenterLabel,
   profitCenterLabel,
   actualLocationLabel,
   functionalLocationLabel,
@@ -249,9 +249,6 @@ export function AssetCreatePage() {
   const [form, setForm] = React.useState<CreateForm>(EMPTY_FORM)
   const [creating, setCreating] = React.useState(false)
   const [imageFile, setImageFile] = React.useState<File | null>(null)
-  const [capexOptions, setCapexOptions] = React.useState<
-    { id: number; form_number: string; asset_name: string }[]
-  >([])
   const [selectedCapex, setSelectedCapex] = React.useState<CapexFormDetail | null>(null)
   const fc = useAssetFieldConfig()
   const canViewCapex = hasPermission("capitalization.view")
@@ -264,8 +261,6 @@ export function AssetCreatePage() {
   )
 
   const selectedPlant = masters.plants.find((p) => String(p.id) === form.plant_id)
-  const costCenterDesc =
-    masters.costCenters.find((c) => c.code === form.cost_center)?.name ?? "—"
 
   const patch = (patch: Partial<CreateForm>) => setForm((f) => ({ ...f, ...patch }))
 
@@ -276,23 +271,6 @@ export function AssetCreatePage() {
       navigate("/dashboard/assets", { replace: true })
     }
   }, [navigate])
-
-  React.useEffect(() => {
-    if (!canViewCapex) return
-    void getJson<CapexFormListResponse>(
-      "/admin/capitalization-forms?available_for_asset=true&page_size=100",
-    )
-      .then((res) =>
-        setCapexOptions(
-          res.items.map((i) => ({
-            id: i.id,
-            form_number: i.form_number,
-            asset_name: i.asset_name,
-          })),
-        ),
-      )
-      .catch(() => setCapexOptions([]))
-  }, [canViewCapex])
 
   async function onCapexSelect(formId: string) {
     patch({ capitalization_form_id: formId })
@@ -357,7 +335,10 @@ export function AssetCreatePage() {
 
   return (
     <AdminPage
+      fullWidth
+      dense
       description="Enter all asset master fields. Inventory count defaults to 1; physical count stays 0 until a physical verification order is completed."
+      className="w-full pb-6"
       actions={<AdminBackLink to="/dashboard/assets">Assets</AdminBackLink>}
     >
       <form
@@ -367,44 +348,6 @@ export function AssetCreatePage() {
           void createAsset()
         }}
       >
-        {canViewCapex ? (
-          <AdminPanel
-            title="Capitalization form"
-            description="Optional link to an approved CapEx form (one form per asset)."
-            contentClassName="px-5 py-5"
-          >
-            <FormField id="capitalization_form_id" labelText="Approved CapEx form">
-              <select
-                id="capitalization_form_id"
-                className={adminSelectClass}
-                value={form.capitalization_form_id}
-                onChange={(e) => void onCapexSelect(e.target.value)}
-              >
-                <option value="">— None —</option>
-                {capexOptions.map((o) => (
-                  <option key={o.id} value={String(o.id)}>
-                    {o.form_number} — {o.asset_name}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            {selectedCapex ? (
-              <p className="mt-3 text-sm text-muted-foreground">
-                Viewing{" "}
-                <Link
-                  className="text-primary hover:underline"
-                  to={`/dashboard/capitalization/${selectedCapex.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {selectedCapex.form_number}
-                </Link>
-                {selectedCapex.auc_code ? ` · AUC ${selectedCapex.auc_code}` : null}
-              </p>
-            ) : null}
-          </AdminPanel>
-        ) : null}
-
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
             title="Asset information"
@@ -595,6 +538,18 @@ export function AssetCreatePage() {
                   </select>
                 </FormField>,
               )}
+              {canViewCapex ? (
+                <FormField id="capitalization_form_id" labelText="CapEx form number">
+                  <CapexFormSearchSelect
+                    id="capitalization_form_id"
+                    value={form.capitalization_form_id}
+                    onChange={(formId) => void onCapexSelect(formId)}
+                  />
+                  {selectedCapex?.auc_code ? (
+                    <p className="mt-1 text-xs text-muted-foreground">AUC {selectedCapex.auc_code}</p>
+                  ) : null}
+                </FormField>
+              ) : null}
               {form.rfid_code.trim() && fc.isVisible("tag_color_id") ? (
                 <TagColorSelect
                   id="tag_color_id"
@@ -747,7 +702,7 @@ export function AssetCreatePage() {
                 "cost_center",
                 <FormField
                   id="cost_center"
-                  labelText={fc.getLabel("cost_center", "Cost Center")}
+                  labelText={fc.getLabel("cost_center", "Cost Center Code")}
                   required={fc.isRequired("cost_center")}
                 >
                   <select
@@ -759,7 +714,7 @@ export function AssetCreatePage() {
                     <option value="">—</option>
                     {masters.costCenters.map((m) => (
                       <option key={m.id} value={m.code}>
-                        {costCenterLabel(m)}
+                        {m.code}
                       </option>
                     ))}
                   </select>
@@ -778,8 +733,23 @@ export function AssetCreatePage() {
               )}
               {field(
                 "cost_center_name",
-                <FormField labelText={fc.getLabel("cost_center_name", "Cost Center Name")}>
-                  <Input readOnly disabled className="bg-muted/40" value={costCenterDesc} />
+                <FormField
+                  id="cost_center_name"
+                  labelText={fc.getLabel("cost_center_name", "Cost Center Name")}
+                >
+                  <select
+                    id="cost_center_name"
+                    className={adminSelectClass}
+                    value={form.cost_center}
+                    onChange={(e) => patch({ cost_center: e.target.value, profit_center: "" })}
+                  >
+                    <option value="">—</option>
+                    {masters.costCenters.map((m) => (
+                      <option key={m.id} value={m.code}>
+                        {m.name?.trim() || m.code}
+                      </option>
+                    ))}
+                  </select>
                 </FormField>,
               )}
               {field(

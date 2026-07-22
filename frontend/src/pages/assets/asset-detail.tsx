@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { AssetImage, validateAssetImageFile } from "@/components/assets/asset-image"
 import { AssetAuditLog, type AssetAuditLogRow } from "@/components/assets/asset-audit-log"
+import { CapexFormSearchSelect } from "@/components/assets/capex-form-search-select"
 import { renderPhysicalOrderInventoryField } from "@/lib/asset-physical-order-display"
 import { AssetDetailSectionPanel } from "@/components/assets/asset-detail-section-panel"
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
@@ -42,7 +43,6 @@ import {
   categoryLabel,
   actualLocationLabel,
   functionalLocationLabel,
-  costCenterLabel,
   profitCenterLabel,
   plantLabel,
   useAssetMasterLookups,
@@ -131,6 +131,7 @@ export function AssetDetailPage() {
   const [rfidSaving, setRfidSaving] = React.useState(false)
 
   const canUpdate = hasPermission("asset.update") || hasPermission("asset.manage")
+  const canViewCapex = hasPermission("capitalization.view")
   const fieldConfig = useAssetFieldConfig()
 
   const load = React.useCallback(async () => {
@@ -227,6 +228,7 @@ export function AssetDetailPage() {
         asset_type: asset.asset_type,
         asset_category_id: asset.asset_category_id,
         ownership_type: asset.ownership_type,
+        capitalization_form_id: asset.capitalization_form_id ?? null,
         information: asset.information ?? {},
         location: asset.location ?? {},
         financial: asset.financial ?? {},
@@ -347,14 +349,19 @@ export function AssetDetailPage() {
   }
 
   const onFinancialSection = (field: string, value: string | number | null) => {
-    if (field === "cost_center") {
+    if (field === "cost_center" || field === "cost_center_name") {
+      const code = ((value as string) || "").trim() || null
+      const name = code
+        ? masters.costCenters.find((m) => m.code === code)?.name?.trim() || null
+        : null
       setAsset((a) => {
         if (!a) return a
         return {
           ...a,
           financial: {
             ...(a.financial ?? {}),
-            cost_center: value as string | null,
+            cost_center: code,
+            cost_center_name: name,
             profit_center: null,
           },
         }
@@ -633,6 +640,61 @@ export function AssetDetailPage() {
           asset={a}
           onSection={onInformationSection}
           {...panelCommon}
+          extraEnd={
+            canViewCapex ? (
+              editing && canUpdate ? (
+                <div className="app-form-field">
+                  <Label htmlFor="asset_capex_form" className="app-form-label">
+                    CapEx form number
+                  </Label>
+                  <CapexFormSearchSelect
+                    id="asset_capex_form"
+                    value={a.capitalization_form_id ? String(a.capitalization_form_id) : ""}
+                    forAssetId={a.id}
+                    disabled={saving}
+                    onChange={(formId, option) =>
+                      setAsset((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              capitalization_form_id: formId ? Number(formId) : null,
+                              capitalization_form_number: option?.form_number ?? null,
+                              capitalization_form_asset_name: option?.asset_name ?? null,
+                            }
+                          : prev,
+                      )
+                    }
+                  />
+                </div>
+              ) : (
+                <div className="min-w-0 border-b border-border/60 py-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
+                    CapEx form number
+                  </p>
+                  <p className="mt-1 text-sm font-normal leading-snug break-words text-foreground">
+                    {a.capitalization_form_id && a.capitalization_form_number ? (
+                      <>
+                        <Link
+                          className="font-medium text-primary hover:underline"
+                          to={`/dashboard/capitalization/${a.capitalization_form_id}`}
+                        >
+                          {a.capitalization_form_number}
+                        </Link>
+                        {a.capitalization_form_asset_name ? (
+                          <span className="text-muted-foreground">
+                            {" "}
+                            — {a.capitalization_form_asset_name}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </p>
+                </div>
+              )
+            ) : null
+          }
           selectOptions={{
             asset_category_id: masters.categories.map((c) => ({
               value: String(c.id),
@@ -736,7 +798,11 @@ export function AssetDetailPage() {
           selectOptions={{
             cost_center: masters.costCenters.map((m) => ({
               value: m.code,
-              label: costCenterLabel(m),
+              label: m.code,
+            })),
+            cost_center_name: masters.costCenters.map((m) => ({
+              value: m.code,
+              label: m.name?.trim() || m.code,
             })),
             profit_center: masters.profitCenters.map((m) => ({
               value: m.code,
@@ -745,6 +811,7 @@ export function AssetDetailPage() {
           }}
           selectPlaceholders={{
             cost_center: plantId ? "—" : "Select plant first",
+            cost_center_name: plantId ? "—" : "Select plant first",
             profit_center: a.financial?.cost_center ? "—" : "Select cost center first",
           }}
           selectDisabled={{

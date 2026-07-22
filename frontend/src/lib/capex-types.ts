@@ -164,3 +164,156 @@ export function capexStatusPillTone(
 export function isCapexEditable(status: string): boolean {
   return status === "draft" || status === "rejected" || status === "in_rework"
 }
+
+export type CapexProgressStep = {
+  key: string
+  label: string
+  status: string
+  detail?: string | null
+  approver_slots: []
+}
+
+/**
+ * Full form-progress path (current attempt only):
+ * Draft → Pending for approval → role levels (future included) → Rejected (if stopped).
+ * Completed levels use "Approved by {Role}"; waiting/future use the role name.
+ * Resubmit after rework starts a new attempt, so the flow resets.
+ */
+export function buildCapexProgress(detail: CapexFormDetail): {
+  steps: CapexProgressStep[]
+  currentStepKey: string
+} {
+  const status = detail.status
+  const isRejected = status === "rejected" || status === "in_rework"
+  const workflowSteps = currentCapexWorkflowSteps(detail)
+  const completedApprovals = workflowSteps.filter((s) => s.phase === "completed")
+  const currentApproval = workflowSteps.find((s) => s.phase === "current")
+  const rejectAtOrder = workflowSteps.find((s) => s.phase === "rejected")?.step_order
+
+  const steps: CapexProgressStep[] = [
+    {
+      key: "draft",
+      label: "Draft",
+      status: status === "draft" ? "active" : "completed",
+      approver_slots: [],
+    },
+    {
+      key: "pending_approval",
+      label: "Pending for approval",
+      status:
+        status === "pending_approval" && completedApprovals.length === 0
+          ? "active"
+          : status === "draft"
+            ? "upcoming"
+            : "completed",
+      approver_slots: [],
+    },
+  ]
+
+  let insertedRejected = false
+  for (const s of workflowSteps) {
+    const role = shortCapexRoleLabel(s.approver_role_name)
+    const key = `approved_by_${s.step_order}`
+
+    if (s.phase === "completed") {
+      steps.push({
+        key,
+        label: `Approved by ${role}`,
+        status: "completed",
+        detail: s.assigned_user_name ?? null,
+        approver_slots: [],
+      })
+      continue
+    }
+
+    if (isRejected) {
+      // Rejected sits where the process stopped; later levels stay visible as unreached.
+      if (!insertedRejected && (rejectAtOrder == null || s.step_order === rejectAtOrder)) {
+        steps.push({
+          key: "rejected",
+          label: "Rejected",
+          status: "rejected",
+          approver_slots: [],
+        })
+        insertedRejected = true
+      }
+      if (rejectAtOrder != null && s.step_order <= rejectAtOrder) continue
+      steps.push({
+        key,
+        label: role,
+        status: "upcoming",
+        detail: s.assigned_user_name ?? null,
+        approver_slots: [],
+      })
+      continue
+    }
+
+    steps.push({
+      key,
+      label: role,
+      status: s.phase === "current" ? "active" : "upcoming",
+      detail: s.assigned_user_name ?? null,
+      approver_slots: [],
+    })
+  }
+
+  if (isRejected) {
+    if (!insertedRejected) {
+      steps.push({
+        key: "rejected",
+        label: "Rejected",
+        status: "rejected",
+        approver_slots: [],
+      })
+    }
+    return { steps, currentStepKey: "rejected" }
+  }
+
+  let currentStepKey = "draft"
+  if (status === "draft") {
+    currentStepKey = "draft"
+  } else if (status === "approved") {
+    const lastApproved = [...steps].reverse().find((s) => s.key.startsWith("approved_by_"))
+    currentStepKey = lastApproved?.key ?? "pending_approval"
+  } else if (currentApproval) {
+    currentStepKey = `approved_by_${currentApproval.step_order}`
+  } else if (status === "pending_approval") {
+    currentStepKey = "pending_approval"
+  }
+
+  return { steps, currentStepKey }
+}
+
+function currentCapexWorkflowSteps(detail: CapexFormDetail): CapexApprovalStepLine[] {
+  const panel = detail.approval_panel
+  const currentRun =
+    panel?.workflow_runs?.find((r) => r.is_current) ??
+    (panel?.workflow_runs?.length ? panel.workflow_runs[panel.workflow_runs.length - 1] : null)
+  if (currentRun?.workflow_steps?.length) return currentRun.workflow_steps
+  if (panel?.workflow_steps?.length) return panel.workflow_steps
+  return defaultCapexApprovalSteps(detail.requires_engineering)
+}
+
+function defaultCapexApprovalSteps(requiresEngineering: boolean): CapexApprovalStepLine[] {
+  const roles = requiresEngineering
+    ? ["Department HOD", "Engineering", "Central Finance"]
+    : ["Department HOD", "Central Finance"]
+  return roles.map((approver_role_name, i) => ({
+    step_order: i + 1,
+    approver_role_name,
+    required_approvals: 1,
+    total_steps: roles.length,
+    phase: "upcoming" as const,
+    approved_count: 0,
+    actions: [],
+    status_label: "",
+  }))
+}
+
+function shortCapexRoleLabel(roleName: string): string {
+  const n = roleName.trim().toLowerCase()
+  if (n.includes("hod")) return "HOD"
+  if (n.includes("engineering")) return "Engineering"
+  if (n.includes("finance")) return "Central Finance"
+  return roleName
+}

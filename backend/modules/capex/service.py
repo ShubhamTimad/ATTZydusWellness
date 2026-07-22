@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from modules.capex.constants import (
@@ -448,22 +448,61 @@ class CapexFormService:
         page: int = 1,
         page_size: int = 25,
         available_for_asset: bool = False,
+        for_asset_id: int | None = None,
+        search: str | None = None,
+        form_number: str | None = None,
+        asset_name: str | None = None,
+        department: str | None = None,
+        created_by: str | None = None,
     ) -> CapexFormListResponse:
         stmt = select(CapitalizationForm).options(selectinload(CapitalizationForm.creator))
         count_stmt = select(func.count()).select_from(CapitalizationForm)
 
         if available_for_asset:
-            stmt = stmt.where(
-                CapitalizationForm.status == STATUS_APPROVED,
-                CapitalizationForm.asset_id.is_(None),
-            )
-            count_stmt = count_stmt.where(
-                CapitalizationForm.status == STATUS_APPROVED,
-                CapitalizationForm.asset_id.is_(None),
-            )
+            unused = CapitalizationForm.asset_id.is_(None)
+            if for_asset_id is not None:
+                unused = or_(unused, CapitalizationForm.asset_id == int(for_asset_id))
+            stmt = stmt.where(CapitalizationForm.status == STATUS_APPROVED, unused)
+            count_stmt = count_stmt.where(CapitalizationForm.status == STATUS_APPROVED, unused)
         elif tab and tab != "all":
-            stmt = stmt.where(CapitalizationForm.status == tab)
-            count_stmt = count_stmt.where(CapitalizationForm.status == tab)
+            if tab == STATUS_IN_REWORK:
+                rejected_statuses = (STATUS_IN_REWORK, STATUS_REJECTED)
+                stmt = stmt.where(CapitalizationForm.status.in_(rejected_statuses))
+                count_stmt = count_stmt.where(CapitalizationForm.status.in_(rejected_statuses))
+            else:
+                stmt = stmt.where(CapitalizationForm.status == tab)
+                count_stmt = count_stmt.where(CapitalizationForm.status == tab)
+
+        def _like(value: str) -> str:
+            return f"%{value.strip()}%"
+
+        if search and search.strip():
+            q = _like(search)
+            search_clause = or_(
+                CapitalizationForm.form_number.ilike(q),
+                CapitalizationForm.asset_name.ilike(q),
+                CapitalizationForm.department.ilike(q),
+                CapitalizationForm.creator.has(User.full_name.ilike(q)),
+            )
+            stmt = stmt.where(search_clause)
+            count_stmt = count_stmt.where(search_clause)
+
+        if form_number and form_number.strip():
+            clause = CapitalizationForm.form_number.ilike(_like(form_number))
+            stmt = stmt.where(clause)
+            count_stmt = count_stmt.where(clause)
+        if asset_name and asset_name.strip():
+            clause = CapitalizationForm.asset_name.ilike(_like(asset_name))
+            stmt = stmt.where(clause)
+            count_stmt = count_stmt.where(clause)
+        if department and department.strip():
+            clause = CapitalizationForm.department.ilike(_like(department))
+            stmt = stmt.where(clause)
+            count_stmt = count_stmt.where(clause)
+        if created_by and created_by.strip():
+            clause = CapitalizationForm.creator.has(User.full_name.ilike(_like(created_by)))
+            stmt = stmt.where(clause)
+            count_stmt = count_stmt.where(clause)
 
         total = int(self._db.scalar(count_stmt) or 0)
         rows = list(
@@ -823,16 +862,27 @@ class CapexFormService:
             raise NotFoundError("CapitalizationForm", form_id)
         if form.status != STATUS_APPROVED:
             raise ConflictError("Only an approved capitalization form can be linked to an asset.")
-        if form.asset_id is not None:
+        if form.asset_id is not None and int(form.asset_id) != int(asset_id):
             raise ConflictError("This capitalization form is already linked to an asset.")
+        if form.asset_id is not None and int(form.asset_id) == int(asset_id):
+            return form
+
         existing = self._db.scalar(
-            select(CapitalizationForm.id).where(
+            select(CapitalizationForm).where(
                 CapitalizationForm.asset_id == asset_id,
                 CapitalizationForm.id != form_id,
             )
         )
         if existing is not None:
-            raise ConflictError("This asset is already linked to a capitalization form.")
+            existing.asset_id = None
+            log_capex_event(
+                self._db,
+                form_id=int(existing.id),
+                action="unlinked_from_asset",
+                actor_user_id=actor_user_id,
+                new_value={"asset_id": None, "replaced_by_form_id": int(form_id)},
+            )
+
         form.asset_id = asset_id
         log_capex_event(
             self._db,
@@ -840,6 +890,25 @@ class CapexFormService:
             action="linked_to_asset",
             actor_user_id=actor_user_id,
             new_value={"asset_id": asset_id, "asset_code": asset_code},
+        )
+        return form
+
+    def unlink_from_asset(
+        self, *, asset_id: int, actor_user_id: int | None = None
+    ) -> CapitalizationForm | None:
+        """Clear CapEx link for an asset. Caller owns commit."""
+        form = self._db.scalar(
+            select(CapitalizationForm).where(CapitalizationForm.asset_id == int(asset_id))
+        )
+        if form is None:
+            return None
+        form.asset_id = None
+        log_capex_event(
+            self._db,
+            form_id=int(form.id),
+            action="unlinked_from_asset",
+            actor_user_id=actor_user_id,
+            new_value={"asset_id": None},
         )
         return form
 

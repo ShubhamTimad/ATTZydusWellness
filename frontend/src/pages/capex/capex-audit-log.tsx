@@ -15,10 +15,10 @@ function activityForEvent(ev: CapexAuditEvent): React.ReactNode {
           {ev.changes.map((c) => (
             <div
               key={c.field}
-              className="grid grid-cols-[minmax(6.5rem,8rem)_1fr] items-baseline gap-x-2 text-[11px] leading-relaxed"
+              className="grid grid-cols-1 gap-0.5 text-[11px] leading-relaxed sm:grid-cols-[minmax(0,12.5rem)_minmax(0,1fr)] sm:items-baseline sm:gap-x-3"
             >
-              <dt className="text-muted-foreground">{c.field}</dt>
-              <dd className="tabular-nums text-foreground">
+              <dt className="break-words text-muted-foreground">{c.field}</dt>
+              <dd className="min-w-0 break-words tabular-nums text-foreground">
                 <span>{c.from_value ?? "—"}</span>
                 <span className="mx-1 text-muted-foreground" aria-hidden>
                   →

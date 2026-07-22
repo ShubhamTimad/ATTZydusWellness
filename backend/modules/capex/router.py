@@ -36,12 +36,24 @@ def list_forms(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     available_for_asset: bool = Query(False),
+    for_asset_id: int | None = Query(None, ge=1),
+    search: str | None = Query(None),
+    form_number: str | None = Query(None),
+    asset_name: str | None = Query(None),
+    department: str | None = Query(None),
+    created_by: str | None = Query(None),
 ) -> CapexFormListResponse:
     return svc.list_forms(
         tab=tab,
         page=page,
         page_size=page_size,
         available_for_asset=available_for_asset,
+        for_asset_id=for_asset_id,
+        search=search,
+        form_number=form_number,
+        asset_name=asset_name,
+        department=department,
+        created_by=created_by,
     )
 
 

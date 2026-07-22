@@ -125,6 +125,7 @@ class AssetUpdateRequest(BaseModel):
     asset_condition_id: int | None = None
     ownership_type: str | None = None
     lifecycle_status: str | None = None
+    capitalization_form_id: int | None = None
     information: AssetInformationPayload | None = None
     location: AssetLocationPayload | None = None
     financial: AssetFinancialPayload | None = None
@@ -291,6 +292,9 @@ class AssetDetailPublic(BaseModel):
     financial_year_label: str | None = None
     fy_verification_count: int | None = None
     active_physical_order: AssetActivePhysicalOrderPublic | None = None
+    capitalization_form_id: int | None = None
+    capitalization_form_number: str | None = None
+    capitalization_form_asset_name: str | None = None
 
 
 class AssetAuditChangeLine(BaseModel):

@@ -77,7 +77,7 @@ ASSET_FIELD_CONFIG_SEED: list[FieldConfigSeed] = [
     _row("floor", "Floor", is_visible=False),
     _row("room", "Room"),
     _row("zone", "Zone"),
-    _row("cost_center", "Cost Center"),
+    _row("cost_center", "Cost Center Code"),
     _row("cost_center_name", "Cost Center Name"),
     _row("profit_center", "Profit center", is_visible=False),
     _row("laboratory", "Laboratory", is_visible=False),

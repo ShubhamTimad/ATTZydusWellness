@@ -180,6 +180,9 @@ export type AssetDetail = {
   financial_year_label?: string | null
   fy_verification_count?: number | null
   active_physical_order?: AssetActivePhysicalOrder | null
+  capitalization_form_id?: number | null
+  capitalization_form_number?: string | null
+  capitalization_form_asset_name?: string | null
 }
 
 export type AssetAuditChangeLine = {

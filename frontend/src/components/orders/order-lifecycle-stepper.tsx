@@ -88,7 +88,9 @@ function displayLabel(step: OrderLifecycleStep, orderStatus?: string, isCurrent?
 }
 
 export function OrderLifecycleStepper({ steps, currentStepKey, orderStatus, compact = false }: Props) {
-  const displaySteps = steps.filter((s) => s.key !== "rejected" || orderStatus === "rejected")
+  const displaySteps = steps.filter(
+    (s) => s.key !== "rejected" || orderStatus === "rejected" || orderStatus === "in_rework",
+  )
   const activeKey = resolveActiveKey(orderStatus, currentStepKey)
   const notch = compact ? 10 : 16
 

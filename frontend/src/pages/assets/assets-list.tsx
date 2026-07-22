@@ -112,7 +112,7 @@ const ASSET_LIST_COLUMNS: AssetListColumnDefinition[] = [
   { key: "rfid_code", label: "RFID", group: "Asset" },
   { key: "category_name", label: "Category", group: "Asset" },
   { key: "plant", label: "Plant", group: "Location & financial" },
-  { key: "cost_center", label: "Cost Center", group: "Location & financial" },
+  { key: "cost_center", label: "Cost Center Code", group: "Location & financial" },
   { key: "functional_location", label: "Actual Location 1", group: "Location & financial" },
   { key: "actual_location", label: "Actual Location 2", group: "Location & financial" },
   { key: "inventory_count", label: "Inventory Count", group: "Inventory & status" },

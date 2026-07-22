@@ -31,7 +31,7 @@ AUDIT_FIELD_LABELS: dict[str, str] = {
     "floor": "Floor",
     "room": "Room",
     "zone": "Zone",
-    "cost_center": "Cost center",
+    "cost_center": "Cost Center Code",
     "laboratory": "Laboratory",
     "profit_center": "Profit center",
     "po_number": "PO no.",

@@ -151,7 +151,10 @@ export function CapexCreatePage() {
 
   return (
     <AdminPage
+      fullWidth
+      dense
       description="Fill asset details and submit to Department HOD for approval."
+      className="w-full pb-6"
       actions={<AdminBackLink to="/dashboard/capitalization">Capitalization forms</AdminBackLink>}
     >
       <form

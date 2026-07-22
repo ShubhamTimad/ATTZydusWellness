@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
 import {
+  buildCapexProgress,
   capexStatusLabel,
   capexStatusPillTone,
   isCapexEditable,
@@ -34,6 +35,7 @@ import { CapexAssigneePickerDialog } from "./capex-assignee-picker-dialog"
 import { CapexAuditLog } from "./capex-audit-log"
 import { CapexDecisionDialog } from "./capex-decision-dialog"
 import { CapexPrintPreviewDialog } from "./capex-print-form"
+import { CapexProcessFlow } from "./capex-process-flow"
 
 function FormField({
   id,
@@ -289,6 +291,8 @@ export function CapexDetailPage() {
   if (loading || !detail || !form) {
     return (
       <AdminPage
+        fullWidth
+        dense
         description="Loading capitalization form…"
         actions={<AdminBackLink to="/dashboard/capitalization">Capitalization</AdminBackLink>}
       >
@@ -299,13 +303,20 @@ export function CapexDetailPage() {
 
   const readOnly = !editable
   const panel = detail.approval_panel
+  const progress = buildCapexProgress(detail)
 
   return (
     <AdminPage
+      fullWidth
+      dense
       description={detail.form_number}
+      className="w-full pb-6"
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <AdminPillBadge tone={capexStatusPillTone(detail.status)}>
+          <AdminPillBadge
+            tone={capexStatusPillTone(detail.status)}
+            className="h-9 px-3.5 text-sm font-semibold"
+          >
             {capexStatusLabel(detail.status)}
           </AdminPillBadge>
           <Button
@@ -370,6 +381,15 @@ export function CapexDetailPage() {
       }
     >
       <div className="space-y-[var(--app-grid-gap)]">
+        <AdminPanel className="shrink-0 overflow-hidden p-0">
+          <div className="border-b border-border/60 bg-muted/15 px-4 py-3 sm:px-5">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              Progress
+            </p>
+            <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />
+          </div>
+        </AdminPanel>
+
         <AdminPanel
           title="Asset capitalization details"
           description="Request creation and capitalization of a new asset."
