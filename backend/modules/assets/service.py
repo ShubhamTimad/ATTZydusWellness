@@ -714,6 +714,17 @@ class AssetMasterService:
         if data.asset_condition_id is not None:
             self._set_asset_condition(asset, data.asset_condition_id)
 
+        capex_form_id = data.capitalization_form_id
+        if capex_form_id is not None:
+            from modules.capex.service import CapexFormService
+
+            CapexFormService(self._db).link_to_asset(
+                int(capex_form_id),
+                asset_id=int(asset.id),
+                actor_user_id=actor_user_id,
+                asset_code=code,
+            )
+
         log_asset_event(
             self._db,
             asset_id=asset.id,
@@ -725,6 +736,7 @@ class AssetMasterService:
                 "asset_code": code,
                 "lifecycle_status": asset.lifecycle_status,
                 "approval_status": asset.approval_status,
+                "capitalization_form_id": capex_form_id,
             },
         )
         try:

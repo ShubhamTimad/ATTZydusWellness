@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { ClipboardList, DollarSign, FileText, MapPin, Package } from "lucide-react"
 import { toast } from "sonner"
 
@@ -16,7 +16,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ApiError, postJson, putFormData } from "@/lib/api"
+import { ApiError, getJson, postJson, putFormData } from "@/lib/api"
+import type { CapexFormDetail, CapexFormListResponse } from "@/lib/capex-types"
 import type { AssetDetail } from "@/lib/assets-types"
 import { useAssetFieldConfig } from "@/lib/use-asset-field-config"
 import { hasPermission } from "@/lib/permissions"
@@ -79,6 +80,7 @@ type CreateForm = {
   vendor_name: string
   po_number: string
   currency: string
+  capitalization_form_id: string
 }
 
 const EMPTY_FORM: CreateForm = {
@@ -128,6 +130,7 @@ const EMPTY_FORM: CreateForm = {
   vendor_name: "",
   po_number: "",
   currency: "",
+  capitalization_form_id: "",
 }
 
 function validateCreateForm(
@@ -161,6 +164,9 @@ function buildCreatePayload(form: CreateForm) {
     asset_name: assetName,
     asset_code: form.asset_code.trim() || null,
     combined_asset_number: can,
+    capitalization_form_id: form.capitalization_form_id
+      ? Number(form.capitalization_form_id)
+      : null,
     remark: form.remark.trim() || null,
     sub_no: form.sub_no.trim() || null,
     asset_class: strOrNull(form.asset_class),
@@ -243,7 +249,12 @@ export function AssetCreatePage() {
   const [form, setForm] = React.useState<CreateForm>(EMPTY_FORM)
   const [creating, setCreating] = React.useState(false)
   const [imageFile, setImageFile] = React.useState<File | null>(null)
+  const [capexOptions, setCapexOptions] = React.useState<
+    { id: number; form_number: string; asset_name: string }[]
+  >([])
+  const [selectedCapex, setSelectedCapex] = React.useState<CapexFormDetail | null>(null)
   const fc = useAssetFieldConfig()
+  const canViewCapex = hasPermission("capitalization.view")
 
   const plantIdForLookups = form.plant_id ? Number(form.plant_id) : null
   const masters = useAssetMasterLookups(
@@ -265,6 +276,47 @@ export function AssetCreatePage() {
       navigate("/dashboard/assets", { replace: true })
     }
   }, [navigate])
+
+  React.useEffect(() => {
+    if (!canViewCapex) return
+    void getJson<CapexFormListResponse>(
+      "/admin/capitalization-forms?available_for_asset=true&page_size=100",
+    )
+      .then((res) =>
+        setCapexOptions(
+          res.items.map((i) => ({
+            id: i.id,
+            form_number: i.form_number,
+            asset_name: i.asset_name,
+          })),
+        ),
+      )
+      .catch(() => setCapexOptions([]))
+  }, [canViewCapex])
+
+  async function onCapexSelect(formId: string) {
+    patch({ capitalization_form_id: formId })
+    if (!formId) {
+      setSelectedCapex(null)
+      return
+    }
+    try {
+      const d = await getJson<CapexFormDetail>(`/admin/capitalization-forms/${formId}`)
+      setSelectedCapex(d)
+      patch({
+        capitalization_form_id: formId,
+        asset_name: d.asset_name || form.asset_name,
+        party_details: d.party_name || form.party_details,
+        vendor_name: d.party_name || form.vendor_name,
+        life_span: d.useful_life?.replace(/\D/g, "") || form.life_span,
+        asset_description: d.asset_specifications || form.asset_description,
+        remark: d.functioning_comment || form.remark,
+      })
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to load capitalization form")
+      setSelectedCapex(null)
+    }
+  }
 
   React.useEffect(() => {
     if (masters.plants.length >= 1 && !form.plant_id) {
@@ -315,6 +367,44 @@ export function AssetCreatePage() {
           void createAsset()
         }}
       >
+        {canViewCapex ? (
+          <AdminPanel
+            title="Capitalization form"
+            description="Optional link to an approved CapEx form (one form per asset)."
+            contentClassName="px-5 py-5"
+          >
+            <FormField id="capitalization_form_id" labelText="Approved CapEx form">
+              <select
+                id="capitalization_form_id"
+                className={adminSelectClass}
+                value={form.capitalization_form_id}
+                onChange={(e) => void onCapexSelect(e.target.value)}
+              >
+                <option value="">— None —</option>
+                {capexOptions.map((o) => (
+                  <option key={o.id} value={String(o.id)}>
+                    {o.form_number} — {o.asset_name}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            {selectedCapex ? (
+              <p className="mt-3 text-sm text-muted-foreground">
+                Viewing{" "}
+                <Link
+                  className="text-primary hover:underline"
+                  to={`/dashboard/capitalization/${selectedCapex.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {selectedCapex.form_number}
+                </Link>
+                {selectedCapex.auc_code ? ` · AUC ${selectedCapex.auc_code}` : null}
+              </p>
+            ) : null}
+          </AdminPanel>
+        ) : null}
+
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
             title="Asset information"

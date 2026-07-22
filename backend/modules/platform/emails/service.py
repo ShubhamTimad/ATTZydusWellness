@@ -165,16 +165,25 @@ class EmailNotificationService:
         missing_variables: list[str] | None = None,
     ) -> TriggerResult:
         to_email = str(payload.get("email") or payload.get("to_email") or "").strip() or "—"
-        self._db.add(
-            EmailLog(
-                event_code=event_code,
-                to_email=to_email,
-                subject=subject or "",
-                body=body or "",
-                status=status,
-                error_message=error_message,
+        # Write email logs on a separate session so we never commit the caller's unit of work.
+        from db.session import SessionLocal
+
+        log_db = SessionLocal()
+        try:
+            log_db.add(
+                EmailLog(
+                    event_code=event_code,
+                    to_email=to_email,
+                    subject=subject or "",
+                    body=body or "",
+                    status=status,
+                    error_message=error_message,
+                )
             )
-        )
-        self._db.commit()
+            log_db.commit()
+        except Exception:
+            log_db.rollback()
+        finally:
+            log_db.close()
         return TriggerResult(status=status, missing_variables=missing_variables or [], error=error_message)
 

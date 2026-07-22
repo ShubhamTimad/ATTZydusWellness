@@ -14,6 +14,7 @@ from modules.platform.org_units.model import *
 from modules.assets.model import *
 from modules.asset_masters.model import *
 from modules.orders.model import *
+from modules.capex.model import *
 
 from modules.platform.auth.model import *
 

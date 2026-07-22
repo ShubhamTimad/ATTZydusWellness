@@ -95,6 +95,8 @@ class ApprovalTaskPublic(BaseModel):
 class ApprovalTaskActionRequest(BaseModel):
     action: ApprovalActionType
     comment: str | None = Field(default=None, max_length=10_000)
+    # CapEx user-handoff: required when approving a non-final CapEx step.
+    next_assigned_user_id: int | None = Field(default=None, ge=1)
 
 
 class WorkflowMappingCreate(BaseModel):

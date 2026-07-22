@@ -146,6 +146,15 @@ def approval_task_title(entity_type: str, payload: dict[str, Any] | None) -> str
         if isinstance(onum, str) and onum.strip():
             return f"Approve order closure: {onum.strip()}"
         return "Approve order closure"
+    if entity_type in ("capitalization_request", "capitalization_request_engineering"):
+        fnum = p.get("form_number")
+        aname = p.get("asset_name")
+        if isinstance(fnum, str) and fnum.strip():
+            label = fnum.strip()
+            if isinstance(aname, str) and aname.strip():
+                label = f"{label}: {aname.strip()}"
+            return f"Approve capitalization form: {label}"
+        return "Approve capitalization form"
     return f"Approval: {entity_type.replace('_', ' ')}"
 
 
@@ -168,6 +177,13 @@ def entity_display_name(entity_type: str, payload: dict[str, Any] | None, entity
         onum = p.get("order_number")
         if isinstance(onum, str) and onum.strip():
             return onum.strip()
+    if entity_type in ("capitalization_request", "capitalization_request_engineering"):
+        fnum = p.get("form_number")
+        if isinstance(fnum, str) and fnum.strip():
+            return fnum.strip()
+        aname = p.get("asset_name")
+        if isinstance(aname, str) and aname.strip():
+            return aname.strip()
     return f"{entity_type}:{entity_id}"
 
 

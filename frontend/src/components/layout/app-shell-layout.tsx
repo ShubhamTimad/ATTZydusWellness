@@ -1,7 +1,6 @@
 import * as React from "react"
 import {
   ChevronDown,
-  ClipboardList,
   Database,
   Factory,
   KeyRound,
@@ -9,6 +8,7 @@ import {
   LogOut,
   Package,
   FileBarChart,
+  FileText,
   ShoppingCart,
   Menu,
   PanelLeft,
@@ -36,10 +36,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
 import {
-  canAccessTasks,
   hasAnyNonUsersRbacPermission,
   hasPermission,
-  TASK_ACCESS_PERMISSIONS,
 } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
@@ -69,7 +67,7 @@ const shellNavGroups: ShellNavGroup[] = [
     label: "Overview",
     items: [
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, to: "/dashboard", permission: null },
-      { id: "reports", label: "Reports", icon: FileBarChart, to: "/dashboard/reports", permission: null },
+      { id: "reports", label: "Report", icon: FileBarChart, to: "/dashboard/reports", permission: null },
     ],
   },
   {
@@ -77,7 +75,7 @@ const shellNavGroups: ShellNavGroup[] = [
     items: [
       {
         id: "orders",
-        label: "Orders",
+        label: "Order",
         icon: ShoppingCart,
         to: "/dashboard/orders",
         permission: "order.view",
@@ -90,11 +88,11 @@ const shellNavGroups: ShellNavGroup[] = [
         permission: "asset.view",
       },
       {
-        id: "tasks",
-        label: "My tasks",
-        icon: ClipboardList,
-        to: "/dashboard/tasks",
-        permission: [...TASK_ACCESS_PERMISSIONS],
+        id: "capitalization",
+        label: "Capitalization",
+        icon: FileText,
+        to: "/dashboard/capitalization",
+        permission: "capitalization.view",
       },
     ],
   },
@@ -103,7 +101,7 @@ const shellNavGroups: ShellNavGroup[] = [
     items: [
       {
         id: "masters",
-        label: "Masters",
+        label: "Master",
         icon: Database,
         to: "/dashboard/masters",
         permission: "masters.view",
@@ -116,28 +114,28 @@ const shellNavGroups: ShellNavGroup[] = [
       { id: "users", label: "Users", icon: Users, to: "/dashboard/users", permission: "users.view" },
       {
         id: "plants",
-        label: "Plants",
+        label: "Plant",
         icon: Factory,
         to: "/dashboard/plants",
         permission: ["org_units.view", "org_units.create", "org_units.update", "org_units.delete"],
       },
       {
         id: "roles",
-        label: "Roles",
+        label: "Role",
         icon: Shield,
         to: "/dashboard/roles",
         permission: ["roles.view", "roles.update", "roles.create"],
       },
       {
         id: "permissions",
-        label: "Permissions",
+        label: "Permission",
         icon: KeyRound,
         to: "/dashboard/permissions",
         permission: ["permissions.view", "permissions.create"],
       },
       {
         id: "admin-settings",
-        label: "System settings",
+        label: "Settings",
         icon: Settings,
         to: "/dashboard/system-settings",
         permission: "settings.update",
@@ -148,7 +146,6 @@ const shellNavGroups: ShellNavGroup[] = [
 
 function navItemVisible(item: ShellNavItem): boolean {
   if (item.hideWhenOnlyUsersModule && !hasAnyNonUsersRbacPermission()) return false
-  if (item.id === "tasks") return canAccessTasks()
   const p = item.permission
   if (p === null) return true
   if (Array.isArray(p)) return p.some((c) => hasPermission(c))

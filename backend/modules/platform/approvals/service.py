@@ -232,21 +232,24 @@ class ApprovalEngineService:
         entity_id: int,
         payload: dict,
         created_by: int | None,
+        assigned_user_id: int | None = None,
     ) -> ApprovalRequest:
         if not workflow.steps:
             raise ConflictError("Active workflow has no steps configured.")
+        steps_sorted = sorted(workflow.steps, key=lambda s: int(s.step_order))
+        first = steps_sorted[0]
         req = ApprovalRequest(
             workflow_id=workflow.id,
             entity_type=entity_type,
             entity_id=entity_id,
             status="pending",
-            current_step=workflow.steps[0].step_order,
+            current_step=first.step_order,
             payload=payload,
             created_by=created_by,
         )
         self._db.add(req)
         self._db.flush()
-        self._create_tasks_for_step(req, workflow.steps[0])
+        self._create_tasks_for_step(req, first, assigned_user_id=assigned_user_id)
         return req
 
     def _users_for_role(self, role_id: int) -> list[User]:
@@ -263,22 +266,40 @@ class ApprovalEngineService:
         stmt = select(user_role.c.role_id).where(user_role.c.user_id == user_id)
         return {int(rid) for rid in self._db.execute(stmt).scalars().all()}
 
-    def _create_tasks_for_step(self, req: ApprovalRequest, step: ApprovalStep) -> None:
-        # Create a single group/role-assigned task. Any user in that role can act on it.
+    def _create_tasks_for_step(
+        self,
+        req: ApprovalRequest,
+        step: ApprovalStep,
+        *,
+        assigned_user_id: int | None = None,
+    ) -> None:
+        # Role task (default) or explicit user handoff when assigned_user_id is set.
         role = self._db.get(Role, step.approver_role_id)
         if role is None:
             raise NotFoundError("Role", step.approver_role_id)
-        # Keep a guardrail: if there are zero active users in the role, fail fast (same as legacy).
-        if not self._users_for_role(step.approver_role_id):
+        role_users = self._users_for_role(step.approver_role_id)
+        if not role_users:
             raise ConflictError("No active approvers found for the configured approver role.")
+
+        assignee_user_id: int | None = None
+        assignee_role_id: int | None = int(step.approver_role_id)
+        if assigned_user_id is not None:
+            uid = int(assigned_user_id)
+            if not any(int(u.id) == uid for u in role_users):
+                raise ConflictError(
+                    f"Selected user is not an active member of role {role.name!r}."
+                )
+            assignee_user_id = uid
+            assignee_role_id = None
+
         from modules.assets.lifecycle import approval_task_title
 
         payload = dict(req.payload) if isinstance(req.payload, dict) else {}
         task = ApprovalTask(
             request_id=req.id,
             step_id=step.id,
-            assigned_user_id=None,
-            assigned_role_id=step.approver_role_id,
+            assigned_user_id=assignee_user_id,
+            assigned_role_id=assignee_role_id,
             task_type="approval",
             title=approval_task_title(str(req.entity_type), payload),
             priority="medium",
@@ -291,7 +312,6 @@ class ApprovalEngineService:
         )
         self._db.add(task)
         self._db.flush()
-        # Unified task inbox audit + /tasks detail timeline.
         self._db.add(
             TaskAuditLog(
                 task_id=int(task.id),
@@ -301,16 +321,22 @@ class ApprovalEngineService:
                     "request_id": req.id,
                     "entity_type": req.entity_type,
                     "entity_id": req.entity_id,
+                    "assigned_user_id": assignee_user_id,
                 },
             )
         )
         self._notify_approvers_for_task(task=task, req=req)
 
     def _notify_approvers_for_task(self, *, task: ApprovalTask, req: ApprovalRequest) -> None:
-        if task.assigned_role_id is None:
-            return
         entity_name = self._entity_name_for_request(req)
-        for user in self._users_for_role(int(task.assigned_role_id)):
+        recipients: list[User] = []
+        if task.assigned_user_id is not None:
+            u = self._db.get(User, int(task.assigned_user_id))
+            if u is not None and u.is_active:
+                recipients = [u]
+        elif task.assigned_role_id is not None:
+            recipients = self._users_for_role(int(task.assigned_role_id))
+        for user in recipients:
             if not user.email:
                 continue
             try:
@@ -357,7 +383,13 @@ class ApprovalEngineService:
             raise NotFoundError("ApprovalTask", task_id)
         return task
 
-    def resubmit_rejected_request(self, *, request_id: int, actor_user_id: int) -> tuple[ApprovalRequest, int]:
+    def resubmit_rejected_request(
+        self,
+        *,
+        request_id: int,
+        actor_user_id: int,
+        assigned_user_id: int | None = None,
+    ) -> tuple[ApprovalRequest, int]:
         """
         After a reject, the submitter may edit the underlying entity and send the same approval
         request back through the workflow. Old tasks for this request are removed; step 1 restarts
@@ -437,9 +469,29 @@ class ApprovalEngineService:
                 order.status = ORDER_STATUS_PENDING_APPROVAL
             else:
                 order.status = ORDER_STATUS_COMPLETED
+        elif entity_type in ("capitalization_request", "capitalization_request_engineering"):
+            from modules.capex.constants import STATUS_PENDING_APPROVAL
+            from modules.capex.model import CapitalizationForm
+            from modules.capex.service import CapexFormService, action_and_entity_for_form, CAPEX_PRIOR_RUNS_KEY
+
+            form = self._db.get(CapitalizationForm, int(req.entity_id))
+            if form is None:
+                raise NotFoundError("CapitalizationForm", int(req.entity_id))
+            svc = CapexFormService(self._db)
+            action_code, _ = action_and_entity_for_form(
+                requires_engineering=bool(form.requires_engineering)
+            )
+            prior = None
+            if isinstance(req.payload, dict):
+                prior = req.payload.get(CAPEX_PRIOR_RUNS_KEY)
+            req.payload = svc._form_payload(form, action_code=action_code)
+            if prior:
+                req.payload[CAPEX_PRIOR_RUNS_KEY] = prior
+            form.status = STATUS_PENDING_APPROVAL
+            form.rejection_comment = None
         else:
             raise ApprovalError(
-                "Resubmit is only implemented for user creation, asset, and physical order requests."
+                "Resubmit is only implemented for user creation, asset, physical order, and capitalization requests."
             )
 
         now = _now_utc()
@@ -485,7 +537,7 @@ class ApprovalEngineService:
         req.status = "pending"
         req.current_step = int(first.step_order)
         req.last_resubmitted_at = now
-        self._create_tasks_for_step(req, first)
+        self._create_tasks_for_step(req, first, assigned_user_id=assigned_user_id)
         self._db.flush()
         new_task = self._db.scalar(
             select(ApprovalTask)
@@ -592,6 +644,7 @@ class ApprovalEngineService:
         actor_user_id: int,
         action: str,
         comment: str | None,
+        next_assigned_user_id: int | None = None,
     ) -> ApprovalRequest:
         task = self.get_task(task_id)
         role_ids = self._role_ids_for_user(actor_user_id)
@@ -680,6 +733,20 @@ class ApprovalEngineService:
                     approver_user_id=actor_user_id,
                     comment=comment,
                 )
+            elif str(req.entity_type) in ("capitalization_request", "capitalization_request_engineering"):
+                from modules.capex.service import reject_capex_approval
+
+                step_role = None
+                if task.step is not None:
+                    role = self._db.get(Role, int(task.step.approver_role_id))
+                    step_role = role.name if role is not None else None
+                reject_capex_approval(
+                    self._db,
+                    form_id=int(req.entity_id),
+                    approver_user_id=actor_user_id,
+                    comment=comment,
+                    step_role_name=step_role,
+                )
 
             # Move request into rework state (do not keep it "pending").
             req.status = "in_rework"
@@ -711,7 +778,14 @@ class ApprovalEngineService:
                 rework_title = (
                     f"Rework: {approval_task_title(str(req.entity_type), payload)}"
                     if str(req.entity_type)
-                    in ("asset_creation", "asset_import", "physical_order_creation", "physical_order_closure")
+                    in (
+                        "asset_creation",
+                        "asset_import",
+                        "physical_order_creation",
+                        "physical_order_closure",
+                        "capitalization_request",
+                        "capitalization_request_engineering",
+                    )
                     else "Rework required"
                 )
                 rework_task = ApprovalTask(
@@ -775,6 +849,8 @@ class ApprovalEngineService:
         if is_user_task:
             task.status = "approved"
             task.acted_at = _now_utc()
+            # Session may have autoflush=False; count must see this status update.
+            self._db.flush()
             approved_count = int(
                 self._db.scalar(
                     select(func.count())
@@ -789,6 +865,7 @@ class ApprovalEngineService:
             )
         else:
             # Role/group task: approvals are counted by distinct approval_actions on this task.
+            self._db.flush()
             approved_count = int(
                 self._db.scalar(
                     select(func.count(func.distinct(ApprovalAction.user_id)))
@@ -823,14 +900,40 @@ class ApprovalEngineService:
         if idx == len(steps_sorted) - 1:
             # Final approval
             req.status = "approved"
-            self._finalize_request(req)
+            self._finalize_request(req, comment=comment, step=step)
             self._db.commit()
             return self.get_request(req.id)
 
         # Move to next step.
         next_step = steps_sorted[idx + 1]
         req.current_step = next_step.step_order
-        self._create_tasks_for_step(req, next_step)
+        capex_handoff = str(req.entity_type) in (
+            "capitalization_request",
+            "capitalization_request_engineering",
+        )
+        if capex_handoff:
+            if next_assigned_user_id is None:
+                raise ApprovalError(
+                    "Select the next approver before approving this step."
+                )
+            self._create_tasks_for_step(
+                req, next_step, assigned_user_id=int(next_assigned_user_id)
+            )
+            from modules.capex.service import log_capex_step_approved
+
+            cur_role = self._db.get(Role, int(step.approver_role_id))
+            nxt_role = self._db.get(Role, int(next_step.approver_role_id))
+            log_capex_step_approved(
+                self._db,
+                form_id=int(req.entity_id),
+                actor_user_id=actor_user_id,
+                step_role_name=cur_role.name if cur_role is not None else None,
+                next_assignee_user_id=int(next_assigned_user_id),
+                next_role_name=nxt_role.name if nxt_role is not None else None,
+                comment=comment,
+            )
+        else:
+            self._create_tasks_for_step(req, next_step)
         self._db.commit()
         return self.get_request(req.id)
 
@@ -847,7 +950,13 @@ class ApprovalEngineService:
         ).first()
         return int(row[0]) if row else None
 
-    def _finalize_request(self, req: ApprovalRequest) -> None:
+    def _finalize_request(
+        self,
+        req: ApprovalRequest,
+        *,
+        comment: str | None = None,
+        step: ApprovalStep | None = None,
+    ) -> None:
         if req.entity_type in ("asset_creation", "asset_import"):
             from modules.assets.service import activate_asset_after_approval
 
@@ -877,6 +986,22 @@ class ApprovalEngineService:
                 self._db,
                 order_id=int(req.entity_id),
                 approver_user_id=approver_id,
+            )
+            return
+        if req.entity_type in ("capitalization_request", "capitalization_request_engineering"):
+            from modules.capex.service import finalize_capex_approval
+
+            approver_id = self._last_approve_user_id(req)
+            step_role = None
+            if step is not None:
+                role = self._db.get(Role, int(step.approver_role_id))
+                step_role = role.name if role is not None else None
+            finalize_capex_approval(
+                self._db,
+                form_id=int(req.entity_id),
+                approver_user_id=approver_id,
+                step_role_name=step_role,
+                comment=comment,
             )
             return
         if req.entity_type == "user_creation":

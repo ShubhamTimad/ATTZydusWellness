@@ -306,7 +306,35 @@ def _role_pool_summary(db: Session, role_id: int) -> tuple[int, list[str]]:
     return count, names
 
 
-def _build_workflow_steps_for_request(db: Session, req: ApprovalRequest) -> list[TaskApprovalStepLinePublic]:
+def _split_approval_task_runs(tasks: list[ApprovalTask] | None) -> list[list[ApprovalTask]]:
+    """
+    Split approval tasks into attempts. A run ends when a task is rejected; the next
+    task (after resubmit) starts a new run. Keeps prior progress visible after reject.
+    """
+    approval = [
+        t
+        for t in sorted(tasks or [], key=lambda x: int(x.id))
+        if str(getattr(t, "task_type", "approval") or "approval").lower() == "approval"
+    ]
+    runs: list[list[ApprovalTask]] = []
+    current: list[ApprovalTask] = []
+    for t in approval:
+        current.append(t)
+        if str(t.status).lower() == "rejected":
+            runs.append(current)
+            current = []
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _build_workflow_steps_for_request(
+    db: Session,
+    req: ApprovalRequest,
+    *,
+    tasks: list[ApprovalTask] | None = None,
+    status_override: str | None = None,
+) -> list[TaskApprovalStepLinePublic]:
     """Map workflow steps + request tasks/actions into a fixed list for the UI timeline."""
     wf = req.workflow
     if wf is None or not wf.steps:
@@ -314,15 +342,21 @@ def _build_workflow_steps_for_request(db: Session, req: ApprovalRequest) -> list
 
     steps_sorted = sorted(wf.steps, key=lambda s: int(s.step_order))
     total_steps = len(steps_sorted)
-    req_status = str(req.status).lower()
+    req_status = (status_override or str(req.status)).lower()
     current = int(req.current_step)
+    task_list = list(tasks) if tasks is not None else list(req.tasks or [])
 
     reject_step_order: int | None = None
     if req_status in ("rejected", "in_rework"):
-        for t in req.tasks or []:
-            if t.step is not None and str(t.status).lower() == "rejected":
-                reject_step_order = int(t.step.step_order)
-                break
+        rejected = [
+            t
+            for t in task_list
+            if t.step is not None and str(t.status).lower() == "rejected"
+        ]
+        if rejected:
+            # Latest reject wins when older rejected tasks still exist on the request.
+            latest = max(rejected, key=lambda t: int(t.id))
+            reject_step_order = int(latest.step.step_order)
 
     out: list[TaskApprovalStepLinePublic] = []
     for step in steps_sorted:
@@ -332,12 +366,21 @@ def _build_workflow_steps_for_request(db: Session, req: ApprovalRequest) -> list
         required = int(step.required_approvals)
         pool_size, pool_member_names = _role_pool_summary(db, int(step.approver_role_id))
 
-        step_tasks = [x for x in (req.tasks or []) if x.step_id is not None and int(x.step_id) == int(step.id)]
+        step_tasks = [x for x in task_list if x.step_id is not None and int(x.step_id) == int(step.id)]
         all_actions: list[ApprovalAction] = []
         for st in step_tasks:
             for a in st.actions or []:
                 all_actions.append(a)
         all_actions.sort(key=_action_sort_ts)
+
+        assigned_user_id: int | None = None
+        assigned_user_name: str | None = None
+        # Prefer the latest approval task that was handed to a specific user.
+        for st in sorted(step_tasks, key=lambda t: int(t.id), reverse=True):
+            if st.assigned_user_id is not None:
+                assigned_user_id = int(st.assigned_user_id)
+                assigned_user_name = _user_display_name(db, assigned_user_id) or f"User #{assigned_user_id}"
+                break
 
         approve_user_ids: set[int] = set()
         for a in all_actions:
@@ -401,6 +444,8 @@ def _build_workflow_steps_for_request(db: Session, req: ApprovalRequest) -> list
                 status_label=status_label,
                 pool_size=pool_size,
                 pool_member_names=pool_member_names,
+                assigned_user_id=assigned_user_id,
+                assigned_user_name=assigned_user_name,
             )
         )
     return out

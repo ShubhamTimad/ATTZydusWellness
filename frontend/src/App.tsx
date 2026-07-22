@@ -24,6 +24,7 @@ import { MfaSetupPage } from "@/pages/mfa-setup"
 import { AssetCreatePage, AssetDetailPage, AssetImportPage, AssetsListPage } from "@/pages/assets"
 import { MastersPage } from "@/pages/masters/masters-page"
 import { OrderDetailPage, OrdersListPage } from "@/pages/orders"
+import { CapexCreatePage, CapexDetailPage, CapexListPage } from "@/pages/capex"
 import { ReportsPage } from "@/pages/reports"
 import * as React from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
@@ -123,6 +124,26 @@ function App() {
           >
             <Route index element={<OrdersListPage />} />
             <Route path=":id" element={<OrderDetailPage />} />
+          </Route>
+
+          <Route
+            path="capitalization"
+            element={
+              <RequirePermission code="capitalization.view">
+                <Outlet />
+              </RequirePermission>
+            }
+          >
+            <Route index element={<CapexListPage />} />
+            <Route
+              path="new"
+              element={
+                <RequirePermission code="capitalization.create">
+                  <CapexCreatePage />
+                </RequirePermission>
+              }
+            />
+            <Route path=":id" element={<CapexDetailPage />} />
           </Route>
 
           <Route

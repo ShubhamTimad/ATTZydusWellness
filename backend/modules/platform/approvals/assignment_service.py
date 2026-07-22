@@ -83,6 +83,12 @@ def get_workflow_for_action(db: Session, action_code: str) -> ApprovalWorkflow |
         return wf_svc.get_active_workflow_for_entity("physical_order_creation")
     if (canonical is not None and canonical in order_complete_variants) or raw in order_complete_variants:
         return wf_svc.get_active_workflow_for_entity("physical_order_closure")
+    capex_submit_variants = _permission_code_variants("capitalization.submit")
+    capex_eng_variants = _permission_code_variants("capitalization.submit_with_engineering")
+    if (canonical is not None and canonical in capex_submit_variants) or raw in capex_submit_variants:
+        return wf_svc.get_active_workflow_for_entity("capitalization_request")
+    if (canonical is not None and canonical in capex_eng_variants) or raw in capex_eng_variants:
+        return wf_svc.get_active_workflow_for_entity("capitalization_request_engineering")
 
     return None
 

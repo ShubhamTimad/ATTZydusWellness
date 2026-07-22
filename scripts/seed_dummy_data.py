@@ -160,6 +160,61 @@ ROLE_SPECS: list[dict[str, object]] = [
         "description": "Approve physical verification orders and closures.",
         "permissions": ["order.approve", "order.view", "order.reassign", "approval.view", "approval.act"],
     },
+    {
+        "name": "Cost Center User",
+        "description": "Create and submit asset capitalization forms.",
+        "permissions": [
+            "capitalization.view",
+            "capitalization.create",
+            "capitalization.update",
+            "capitalization.submit",
+            "capitalization.submit_with_engineering",
+            "capitalization.reassign",
+            "asset.view",
+            "task.view",
+            "task.act",
+            "approval.view",
+        ],
+    },
+    {
+        "name": "Department HOD",
+        "description": "Approve or reject capitalization forms at department level.",
+        "permissions": [
+            "capitalization.view",
+            "approval.view",
+            "approval.act",
+            "task.view",
+            "task.act",
+            "asset.view",
+        ],
+    },
+    {
+        "name": "Engineering",
+        "description": "Engineering review for capitalization forms when required.",
+        "permissions": [
+            "capitalization.view",
+            "approval.view",
+            "approval.act",
+            "task.view",
+            "task.act",
+            "asset.view",
+        ],
+    },
+    {
+        "name": "Central Finance",
+        "description": "Final capitalization approval; may create assets from approved forms.",
+        "permissions": [
+            "capitalization.view",
+            "capitalization.reassign",
+            "approval.view",
+            "approval.act",
+            "task.view",
+            "task.act",
+            "asset.view",
+            "asset.create",
+            "asset.update",
+        ],
+    },
 ]
 
 TAKEDA_PLANT = {"code": "TAKEDA", "name": "Takeda", "type": "PLANT"}
@@ -288,6 +343,27 @@ WORKFLOW_SPECS: list[dict[str, object]] = [
         "steps": [
             (1, "Operator", 1),
             (2, "Operator", 1),
+        ],
+    },
+    {
+        "name": "Capitalization — HOD then Central Finance",
+        "entity_type": "capitalization_request",
+        "activate": True,
+        "map_action": "capitalization.submit",
+        "steps": [
+            (1, "Department HOD", 1),
+            (2, "Central Finance", 1),
+        ],
+    },
+    {
+        "name": "Capitalization — HOD, Engineering, Central Finance",
+        "entity_type": "capitalization_request_engineering",
+        "activate": True,
+        "map_action": "capitalization.submit_with_engineering",
+        "steps": [
+            (1, "Department HOD", 1),
+            (2, "Engineering", 1),
+            (3, "Central Finance", 1),
         ],
     },
 ]

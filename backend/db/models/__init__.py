@@ -30,6 +30,7 @@ from modules.asset_masters.model import (
 )
 from modules.assets.model import AssetCategory, AssetFieldConfig, AssetMaster  # noqa: F401
 from modules.orders.model import PhysicalOrder, PhysicalOrderAudit, PhysicalOrderItem
+from modules.capex.model import CapitalizationForm, CapitalizationFormAudit
 
 __all__ = [
     "AuditLog",
@@ -58,6 +59,8 @@ __all__ = [
     "PhysicalOrder",
     "PhysicalOrderItem",
     "PhysicalOrderAudit",
+    "CapitalizationForm",
+    "CapitalizationFormAudit",
     "CostCenterMaster",
     "FunctionalLocationMaster",
     "ActualLocationMaster",

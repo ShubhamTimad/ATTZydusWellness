@@ -99,6 +99,9 @@ class TaskApprovalStepLinePublic(BaseModel):
     pool_size: int = 0
     # First N names from that pool (when pool_size > len, UI may show "+ more").
     pool_member_names: list[str] = Field(default_factory=list)
+    # Explicit user handoff (CapEx): the one person assigned to this step, if any.
+    assigned_user_id: int | None = None
+    assigned_user_name: str | None = None
 
 
 class TaskApprovalContextPublic(BaseModel):

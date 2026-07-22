@@ -33,7 +33,7 @@ export function SessionIdleNavbarBadge() {
       aria-label={`Session expires in ${formatIdleCountdown(remainingSeconds)}`}
     >
       <Timer className="size-3.5 shrink-0 opacity-80" aria-hidden />
-      <span className="hidden sm:inline">{isTabHidden ? "Background" : "Session"}</span>
+      <span className="hidden sm:inline">{isTabHidden ? "Background" : ""}</span>
       <span>{formatIdleCountdown(remainingSeconds)}</span>
     </div>
   )

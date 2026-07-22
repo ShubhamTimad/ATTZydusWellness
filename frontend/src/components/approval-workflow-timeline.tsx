@@ -26,12 +26,26 @@ export type TaskApprovalStepLine = {
   pool_size?: number
   /** Sample of names in that pool (capped on server; may be shorter than pool_size). */
   pool_member_names?: string[]
+  /** Explicit handoff assignee for this step (CapEx). */
+  assigned_user_id?: number | null
+  assigned_user_name?: string | null
+}
+
+type CompactRun = {
+  label?: string
+  steps: TaskApprovalStepLine[]
 }
 
 type Props = {
   steps: TaskApprovalStepLine[]
   viewerUserId: number | null
   formatWhen: (iso: string | null | undefined) => string
+  /** CapEx-style: role + status + assigned person only. */
+  compact?: boolean
+  /** Override the card title (e.g. "Attempt 1 · Rejected"). */
+  title?: string
+  /** Multiple attempts in one card (CapEx resubmits). */
+  compactRuns?: CompactRun[]
 }
 
 function phaseIcon(phase: WorkflowStepPhase) {
@@ -111,7 +125,10 @@ function phaseStateBadge(phase: WorkflowStepPhase) {
       )
     case "rejected":
       return (
-        <Badge variant="outline" className="h-5 border-red-200 bg-red-50 font-semibold text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200">
+        <Badge
+          variant="outline"
+          className="h-5 border-red-200 bg-red-50 font-semibold text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200"
+        >
           Rejected
         </Badge>
       )
@@ -148,7 +165,120 @@ function poolText(step: TaskApprovalStepLine): string {
   return `${n} people can approve in this step${more}: ${names.join(", ")}`
 }
 
-export function ApprovalWorkflowTimeline({ steps, viewerUserId, formatWhen }: Props) {
+function personForStep(step: TaskApprovalStepLine): string | null {
+  if (step.assigned_user_name?.trim()) return step.assigned_user_name.trim()
+  const acted = step.actions.find((a) => {
+    const x = a.action.toLowerCase()
+    return x === "approve" || x === "approved" || x === "reject" || x === "rejected"
+  })
+  return acted?.actor_display_name?.trim() || null
+}
+
+function CompactStepList({ steps }: { steps: TaskApprovalStepLine[] }) {
+  return (
+    <ol className="relative">
+      {steps.map((step, i) => {
+        const st = phaseStyles(step.phase)
+        const isLast = i === steps.length - 1
+        const person = personForStep(step)
+        return (
+          <li key={`${step.step_order}-${step.approver_role_name}`} className="relative flex gap-3 pb-5 last:pb-0">
+            {!isLast ? (
+              <div
+                className={cn(
+                  "absolute left-[15px] top-8 h-[calc(100%-0.25rem)] w-px",
+                  segmentClassForPhase(step.phase),
+                )}
+                aria-hidden
+              />
+            ) : null}
+            <div
+              className={cn(
+                "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 bg-background",
+                st.ring,
+              )}
+            >
+              {phaseIcon(step.phase)}
+            </div>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {phaseStateBadge(step.phase)}
+                <p className={cn("text-sm font-semibold leading-tight", rowTextStyles(step.phase))}>
+                  {step.approver_role_name}
+                </p>
+              </div>
+              {person ? (
+                <p
+                  className={cn(
+                    "mt-1 inline-flex items-center gap-1.5 text-sm",
+                    step.phase === "upcoming" ? "text-muted-foreground/60" : "text-foreground",
+                  )}
+                >
+                  <User className="size-3.5 shrink-0 opacity-60" aria-hidden />
+                  <span className="font-medium">{person}</span>
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">Not assigned yet</p>
+              )}
+            </div>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+function CompactTimeline({
+  steps,
+  title,
+  runs,
+}: {
+  steps: TaskApprovalStepLine[]
+  title?: string
+  runs?: CompactRun[]
+}) {
+  const sections =
+    runs && runs.length > 0
+      ? runs
+      : [{ label: undefined as string | undefined, steps }]
+
+  return (
+    <div className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
+      <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5">
+        <h3 className="text-sm font-semibold">{title ?? "Approval progress"}</h3>
+      </div>
+      <div className="px-4 py-3">
+        {sections.map((section, idx) => (
+          <div
+            key={`attempt-${idx}-${section.label ?? "current"}`}
+            className={cn(idx > 0 && "mt-4 border-t border-border/60 pt-4")}
+          >
+            {section.label ? (
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {section.label}
+              </p>
+            ) : null}
+            <CompactStepList steps={section.steps} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export function ApprovalWorkflowTimeline({
+  steps,
+  viewerUserId,
+  formatWhen,
+  compact = false,
+  title,
+  compactRuns,
+}: Props) {
+  if (compact) {
+    const hasRuns = Boolean(compactRuns && compactRuns.length > 0)
+    if (!hasRuns && steps.length === 0) return null
+    return <CompactTimeline steps={steps} title={title} runs={compactRuns} />
+  }
   if (steps.length === 0) return null
 
   const nCompleted = steps.filter((s) => s.phase === "completed").length
@@ -159,7 +289,7 @@ export function ApprovalWorkflowTimeline({ steps, viewerUserId, formatWhen }: Pr
   return (
     <div className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
       <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5">
-        <h3 className="text-sm font-semibold">Approval progress</h3>
+        <h3 className="text-sm font-semibold">{title ?? "Approval progress"}</h3>
         <p className="text-xs text-muted-foreground">
           {steps[0].total_steps} {steps[0].total_steps === 1 ? "level" : "levels"} in this workflow
         </p>
@@ -221,8 +351,8 @@ export function ApprovalWorkflowTimeline({ steps, viewerUserId, formatWhen }: Pr
                 </div>
                 {step.phase === "completed" ? (
                   <p className="text-xs text-primary-800/90 dark:text-primary-200/90">
-                    This step is <strong>finished</strong>. {step.approved_count} of {step.required_approvals} required
-                    approval(s) were recorded before the request moved on.
+                    This step is <strong>finished</strong>. {step.approved_count} of {step.required_approvals}{" "}
+                    required approval(s) were recorded before the request moved on.
                   </p>
                 ) : null}
                 {step.phase === "current" ? (
@@ -270,7 +400,12 @@ export function ApprovalWorkflowTimeline({ steps, viewerUserId, formatWhen }: Pr
                     <span className="min-w-0 leading-snug">{poolText(step)}</span>
                   </div>
                 ) : null}
-                <p className={cn("text-xs", step.phase === "upcoming" ? "text-muted-foreground/50" : "text-muted-foreground")}>
+                <p
+                  className={cn(
+                    "text-xs",
+                    step.phase === "upcoming" ? "text-muted-foreground/50" : "text-muted-foreground",
+                  )}
+                >
                   {step.status_label}
                 </p>
 

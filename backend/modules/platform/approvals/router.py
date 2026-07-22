@@ -116,6 +116,7 @@ def act_on_task(
             actor_user_id=int(current.subject),
             action=payload.action,
             comment=payload.comment,
+            next_assigned_user_id=payload.next_assigned_user_id,
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

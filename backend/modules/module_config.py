@@ -165,6 +165,24 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
         ],
     },
     {
+        "key": "capitalization",
+        "title": "Asset capitalization forms",
+        "tabs": [
+            {
+                "key": "capitalization",
+                "title": "Capitalization forms",
+                "actions": [
+                    "view",
+                    "create",
+                    "update",
+                    "submit",
+                    "submit_with_engineering",
+                    "reassign",
+                ],
+            },
+        ],
+    },
+    {
         "key": "report",
         "title": "Reports",
         "tabs": [

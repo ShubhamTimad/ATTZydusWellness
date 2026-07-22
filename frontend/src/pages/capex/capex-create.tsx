@@ -1,0 +1,299 @@
+import * as React from "react"
+import { FileText } from "lucide-react"
+import { useNavigate } from "react-router-dom"
+import { toast } from "sonner"
+
+import { RequiredFieldMark } from "@/components/assets/required-field-mark"
+import { AdminPage } from "@/components/layout/admin-page"
+import {
+  AdminBackLink,
+  AdminPanel,
+  AdminPrimaryButton,
+  adminTextareaClass,
+} from "@/components/layout/admin-ui"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { ApiError, postJson } from "@/lib/api"
+import type { CapexFormDetail, CapexFormWritePayload } from "@/lib/capex-types"
+import { hasPermission } from "@/lib/permissions"
+import { cn } from "@/lib/utils"
+
+import { CapexAssigneePickerDialog } from "./capex-assignee-picker-dialog"
+
+const EMPTY: CapexFormWritePayload = {
+  asset_name: "",
+  equipment_tag_no: "",
+  asset_specifications: "",
+  party_name: "",
+  department: "",
+  installation_location: "",
+  department_head: "",
+  functioning_comment: "",
+  installation_date: "",
+  auc_code: "",
+  useful_life: "",
+  requires_engineering: false,
+}
+
+function FormField({
+  id,
+  labelText,
+  required,
+  className,
+  children,
+}: {
+  id?: string
+  labelText: string
+  required?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className={cn("app-form-field", className)}>
+      <Label htmlFor={id} className="app-form-label">
+        {labelText}
+        {required ? <RequiredFieldMark /> : null}
+      </Label>
+      {children}
+    </div>
+  )
+}
+
+function toPayload(form: CapexFormWritePayload): CapexFormWritePayload {
+  const clean = (v: string | null | undefined) => {
+    const s = (v ?? "").trim()
+    return s || null
+  }
+  return {
+    asset_name: form.asset_name.trim(),
+    equipment_tag_no: clean(form.equipment_tag_no),
+    asset_specifications: clean(form.asset_specifications),
+    party_name: clean(form.party_name),
+    department: clean(form.department),
+    installation_location: clean(form.installation_location),
+    department_head: clean(form.department_head),
+    functioning_comment: clean(form.functioning_comment),
+    installation_date: clean(form.installation_date),
+    auc_code: clean(form.auc_code),
+    useful_life: clean(form.useful_life),
+    requires_engineering: Boolean(form.requires_engineering),
+  }
+}
+
+export function CapexCreatePage() {
+  const navigate = useNavigate()
+  const [form, setForm] = React.useState<CapexFormWritePayload>(EMPTY)
+  const [saving, setSaving] = React.useState(false)
+  const [assignOpen, setAssignOpen] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!hasPermission("capitalization.create")) {
+      navigate("/dashboard/capitalization", { replace: true })
+    }
+  }, [navigate])
+
+  const patch = (p: Partial<CapexFormWritePayload>) => setForm((f) => ({ ...f, ...p }))
+
+  async function saveDraft() {
+    if (!form.asset_name.trim()) {
+      toast.error("Asset name is required.")
+      return
+    }
+    setSaving(true)
+    try {
+      const created = await postJson<CapexFormDetail>("/admin/capitalization-forms", {
+        ...toPayload(form),
+        submit: false,
+      })
+      toast.success("Draft saved.")
+      navigate(`/dashboard/capitalization/${created.id}`, { replace: true })
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Save failed.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function requestSubmit() {
+    if (!form.asset_name.trim()) {
+      toast.error("Asset name is required.")
+      return
+    }
+    if (!hasPermission("capitalization.submit")) {
+      toast.error("You do not have permission to submit.")
+      return
+    }
+    setAssignOpen(true)
+  }
+
+  async function submitWithAssignee(userId: number) {
+    setSaving(true)
+    try {
+      const created = await postJson<CapexFormDetail>("/admin/capitalization-forms", {
+        ...toPayload(form),
+        submit: true,
+        assignee_user_id: userId,
+      })
+      setAssignOpen(false)
+      toast.success("Form submitted for approval.")
+      navigate(`/dashboard/capitalization/${created.id}`, { replace: true })
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Submit failed.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!hasPermission("capitalization.create")) {
+    return null
+  }
+
+  return (
+    <AdminPage
+      description="Fill asset details and submit to Department HOD for approval."
+      actions={<AdminBackLink to="/dashboard/capitalization">Capitalization forms</AdminBackLink>}
+    >
+      <form
+        className="space-y-[var(--app-grid-gap)]"
+        onSubmit={(e) => {
+          e.preventDefault()
+          requestSubmit()
+        }}
+      >
+        <AdminPanel
+          title="Asset capitalization details"
+          description="Request creation and capitalization of a new asset."
+          headerActions={<FileText className="size-4 text-muted-foreground" aria-hidden />}
+          contentClassName="px-5 py-5"
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField id="asset_name" labelText="Name of the Asset" required>
+              <Input
+                id="asset_name"
+                value={form.asset_name}
+                onChange={(e) => patch({ asset_name: e.target.value })}
+                autoFocus
+              />
+            </FormField>
+            <FormField id="equipment_tag_no" labelText="User Equipment Tag No.">
+              <Input
+                id="equipment_tag_no"
+                value={form.equipment_tag_no ?? ""}
+                onChange={(e) => patch({ equipment_tag_no: e.target.value })}
+              />
+            </FormField>
+            <FormField id="asset_specifications" labelText="Asset Specifications">
+              <Input
+                id="asset_specifications"
+                value={form.asset_specifications ?? ""}
+                onChange={(e) => patch({ asset_specifications: e.target.value })}
+              />
+            </FormField>
+            <FormField id="party_name" labelText="Name of the party">
+              <Input
+                id="party_name"
+                value={form.party_name ?? ""}
+                onChange={(e) => patch({ party_name: e.target.value })}
+              />
+            </FormField>
+            <FormField id="department" labelText="Department">
+              <Input
+                id="department"
+                value={form.department ?? ""}
+                onChange={(e) => patch({ department: e.target.value })}
+              />
+            </FormField>
+            <FormField id="installation_location" labelText="Location of Installation">
+              <Input
+                id="installation_location"
+                value={form.installation_location ?? ""}
+                onChange={(e) => patch({ installation_location: e.target.value })}
+              />
+            </FormField>
+            <FormField id="department_head" labelText="Name of the Department Head">
+              <Input
+                id="department_head"
+                value={form.department_head ?? ""}
+                onChange={(e) => patch({ department_head: e.target.value })}
+              />
+            </FormField>
+            <FormField id="installation_date" labelText="Date of Installation">
+              <Input
+                id="installation_date"
+                type="date"
+                value={form.installation_date ?? ""}
+                onChange={(e) => patch({ installation_date: e.target.value })}
+              />
+            </FormField>
+            <FormField id="auc_code" labelText="AUC code">
+              <Input
+                id="auc_code"
+                value={form.auc_code ?? ""}
+                onChange={(e) => patch({ auc_code: e.target.value })}
+                className="font-mono"
+              />
+            </FormField>
+            <FormField id="useful_life" labelText="Useful life of assets">
+              <Input
+                id="useful_life"
+                value={form.useful_life ?? ""}
+                onChange={(e) => patch({ useful_life: e.target.value })}
+                placeholder="e.g. 5 Years"
+              />
+            </FormField>
+            <FormField
+              id="functioning_comment"
+              labelText="Comment on the functioning of the Asset"
+              className="sm:col-span-2"
+            >
+              <textarea
+                id="functioning_comment"
+                className={cn(adminTextareaClass, "min-h-[80px]")}
+                value={form.functioning_comment ?? ""}
+                onChange={(e) => patch({ functioning_comment: e.target.value })}
+                rows={3}
+              />
+            </FormField>
+          </div>
+        </AdminPanel>
+
+        <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shadow-sm"
+            disabled={saving}
+            onClick={() => navigate("/dashboard/capitalization")}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shadow-sm"
+            disabled={saving}
+            onClick={() => void saveDraft()}
+          >
+            {saving ? "Saving…" : "Save draft"}
+          </Button>
+          {hasPermission("capitalization.submit") ? (
+            <AdminPrimaryButton type="submit" disabled={saving}>
+              Submit for approval
+            </AdminPrimaryButton>
+          ) : null}
+        </div>
+      </form>
+
+      <CapexAssigneePickerDialog
+        open={assignOpen}
+        onOpenChange={setAssignOpen}
+        level="hod"
+        roleLabel="Department HOD"
+        confirmLabel="Submit"
+        busy={saving}
+        onConfirm={submitWithAssignee}
+      />
+    </AdminPage>
+  )
+}

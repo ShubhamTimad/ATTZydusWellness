@@ -102,6 +102,7 @@ class AssetCreateRequest(BaseModel):
     asset_custodian_id: int | None = None
     asset_condition_id: int | None = None
     ownership_type: str | None = Field(default=None, max_length=64)
+    capitalization_form_id: int | None = None
     information: AssetInformationPayload | None = None
     location: AssetLocationPayload | None = None
     financial: AssetFinancialPayload | None = None
