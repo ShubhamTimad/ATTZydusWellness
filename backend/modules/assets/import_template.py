@@ -23,7 +23,7 @@ from modules.asset_masters.model import (
     TagColorMaster,
 )
 from modules.assets.field_definitions import ASSET_IMPORT_TEMPLATE_FIELDS, import_field_header_label
-from modules.assets.import_master_resolve import master_import_label, plant_import_label
+from modules.assets.import_master_resolve import master_import_label
 from modules.assets.model import AssetCategory
 from modules.platform.org_units.model import OrgUnit
 from modules.platform.users.model import User
@@ -98,6 +98,52 @@ def _add_list_validation(
     ws.add_data_validation(dv)
 
 
+def _fill_pair_lookup_formulas(
+    ws,
+    *,
+    source_col: int,
+    target_col: int,
+    source_range: str,
+    target_range: str,
+) -> None:
+    """Fill target from source via INDEX/MATCH for data rows (e.g. code → name)."""
+    source_letter = get_column_letter(source_col)
+    for row in range(DATA_ROW_START, DATA_ROW_END + 1):
+        src = f"{source_letter}{row}"
+        ws.cell(
+            row=row,
+            column=target_col,
+            value=(
+                f'=IF({src}="","",IFERROR(INDEX({target_range},MATCH({src},{source_range},0)),""))'
+            ),
+        )
+
+
+def _fill_plant_scoped_cc_name_formulas(
+    ws,
+    *,
+    plant_col: int,
+    cc_code_col: int,
+    cc_name_col: int,
+) -> None:
+    """Cost Center Name = INDEX(CCN_<plant>, MATCH(code, CC_<plant>))."""
+    plant_letter = get_column_letter(plant_col)
+    code_letter = get_column_letter(cc_code_col)
+    for row in range(DATA_ROW_START, DATA_ROW_END + 1):
+        plant_ref = f"{plant_letter}{row}"
+        code_ref = f"{code_letter}{row}"
+        safe_plant = _excel_sanitize_expr(plant_ref)
+        ws.cell(
+            row=row,
+            column=cc_name_col,
+            value=(
+                f'=IF(OR({plant_ref}="",{code_ref}=""),"",'
+                f'IFERROR(INDEX(INDIRECT("CCN_"&{safe_plant}),'
+                f'MATCH({code_ref},INDIRECT("CC_"&{safe_plant}),0)),""))'
+            ),
+        )
+
+
 def build_import_template_xlsx(db: Session) -> bytes:
     wb = Workbook()
     ws_import = wb.active
@@ -125,10 +171,16 @@ def build_import_template_xlsx(db: Session) -> bytes:
     list_col = 1
 
     plants = list(db.scalars(select(OrgUnit).where(OrgUnit.type == "PLANT").order_by(OrgUnit.code)).all())
-    plant_labels = [plant_import_label(p) for p in plants]
-    row_start, row_end = _write_vertical_list(ws_lists, list_col, plant_labels)
-    if plant_labels:
-        _define_list_range(wb, "Plants", LISTS_SHEET, list_col, row_start, row_end)
+    # Keep code/name lists aligned for INDEX/MATCH autofill formulas.
+    plant_codes = [str(p.code) for p in plants]
+    plant_names = [(str(p.name).strip() or str(p.code)) for p in plants]
+    row_start, row_end = _write_vertical_list(ws_lists, list_col, plant_codes)
+    if plant_codes:
+        _define_list_range(wb, "PlantCodes", LISTS_SHEET, list_col, row_start, row_end)
+    list_col += 1
+    row_start, row_end = _write_vertical_list(ws_lists, list_col, plant_names)
+    if plant_names:
+        _define_list_range(wb, "PlantNames", LISTS_SHEET, list_col, row_start, row_end)
     list_col += 1
 
     categories = list(
@@ -203,6 +255,20 @@ def build_import_template_xlsx(db: Session) -> bytes:
         cc_by_plant[int(cc.plant_id)].append(cc)
 
     plant_by_id = {int(p.id): p for p in plants}
+    # Cost Center Code dropdowns (codes); Profit Center lists key off the selected code.
+    for plant in plants:
+        labels = [str(cc.code) for cc in cc_by_plant.get(int(plant.id), [])]
+        col = list_col
+        row_start, row_end = _write_vertical_list(ws_lists, col, labels)
+        if labels:
+            range_name = _unique_range_name(
+                f"CC_{_safe_code(str(plant.code))}",
+                used_names,
+            )
+            _define_list_range(wb, range_name, LISTS_SHEET, col, row_start, row_end)
+        list_col += 1
+
+    # Cost Center Name dropdowns (display names; import resolves name → stored code).
     for plant in plants:
         labels = [
             master_import_label(name=str(cc.name), code=str(cc.code))
@@ -212,7 +278,7 @@ def build_import_template_xlsx(db: Session) -> bytes:
         row_start, row_end = _write_vertical_list(ws_lists, col, labels)
         if labels:
             range_name = _unique_range_name(
-                f"CC_{_safe_code(plant_import_label(plant))}",
+                f"CCN_{_safe_code(str(plant.code))}",
                 used_names,
             )
             _define_list_range(wb, range_name, LISTS_SHEET, col, row_start, row_end)
@@ -229,7 +295,6 @@ def build_import_template_xlsx(db: Session) -> bytes:
     for pc in profit_centers:
         pc_by_cc[int(pc.cost_center_id)].append(pc)
 
-    cc_by_id = {int(cc.id): cc for cc in cost_centers}
     for cc in cost_centers:
         plant = plant_by_id.get(int(cc.plant_id))
         if plant is None:
@@ -242,7 +307,7 @@ def build_import_template_xlsx(db: Session) -> bytes:
         row_start, row_end = _write_vertical_list(ws_lists, col, labels)
         if labels:
             range_name = _unique_range_name(
-                f"PC_{_safe_code(plant_import_label(plant))}__{_safe_code(master_import_label(name=str(cc.name), code=str(cc.code)))}",
+                f"PC_{_safe_code(str(plant.code))}__{_safe_code(str(cc.code))}",
                 used_names,
             )
             _define_list_range(wb, range_name, LISTS_SHEET, col, row_start, row_end)
@@ -268,7 +333,7 @@ def build_import_template_xlsx(db: Session) -> bytes:
         row_start, row_end = _write_vertical_list(ws_lists, col, labels)
         if labels:
             range_name = _unique_range_name(
-                f"FL_{_safe_code(plant_import_label(plant))}",
+                f"FL_{_safe_code(str(plant.code))}",
                 used_names,
             )
             _define_list_range(wb, range_name, LISTS_SHEET, col, row_start, row_end)
@@ -298,7 +363,7 @@ def build_import_template_xlsx(db: Session) -> bytes:
         row_start, row_end = _write_vertical_list(ws_lists, col, labels)
         if labels:
             range_name = _unique_range_name(
-                f"AL_{_safe_code(plant_import_label(plant))}__{_safe_code(master_import_label(name=str(fl.name), code=str(fl.code)))}",
+                f"AL_{_safe_code(str(plant.code))}__{_safe_code(master_import_label(name=str(fl.name), code=str(fl.code)))}",
                 used_names,
             )
             _define_list_range(wb, range_name, LISTS_SHEET, col, row_start, row_end)
@@ -306,8 +371,25 @@ def build_import_template_xlsx(db: Session) -> bytes:
 
     ws_lists.sheet_state = "hidden"
 
-    if "plant_code" in col_map and plant_labels:
-        _add_list_validation(ws_import, col=col_map["plant_code"], formula="=Plants")
+    if "plant_code" in col_map and plant_codes:
+        _add_list_validation(ws_import, col=col_map["plant_code"], formula="=PlantCodes")
+
+    if "plant_name" in col_map and plant_names:
+        _add_list_validation(ws_import, col=col_map["plant_name"], formula="=PlantNames")
+
+    if (
+        "plant_code" in col_map
+        and "plant_name" in col_map
+        and plant_codes
+        and plant_names
+    ):
+        _fill_pair_lookup_formulas(
+            ws_import,
+            source_col=col_map["plant_code"],
+            target_col=col_map["plant_name"],
+            source_range="PlantCodes",
+            target_range="PlantNames",
+        )
 
     if "category_code" in col_map and category_labels:
         _add_list_validation(ws_import, col=col_map["category_code"], formula="=Categories")
@@ -321,12 +403,27 @@ def build_import_template_xlsx(db: Session) -> bytes:
     if "asset_condition_code" in col_map and condition_labels:
         _add_list_validation(ws_import, col=col_map["asset_condition_code"], formula="=AssetConditions")
 
-    if "plant_code" in col_map and "cost_center" in col_map and plant_labels:
+    if "plant_code" in col_map and "cost_center" in col_map and plant_codes:
         plant_ref = f"{get_column_letter(col_map['plant_code'])}2"
         formula = (
             f'=IF({plant_ref}="","",INDIRECT("CC_"&{_excel_sanitize_expr(plant_ref)}))'
         )
         _add_list_validation(ws_import, col=col_map["cost_center"], formula=formula)
+
+    if "plant_code" in col_map and "cost_center_name" in col_map and plant_codes:
+        plant_ref = f"{get_column_letter(col_map['plant_code'])}2"
+        formula = (
+            f'=IF({plant_ref}="","",INDIRECT("CCN_"&{_excel_sanitize_expr(plant_ref)}))'
+        )
+        _add_list_validation(ws_import, col=col_map["cost_center_name"], formula=formula)
+
+    if all(k in col_map for k in ("plant_code", "cost_center", "cost_center_name")) and plant_codes:
+        _fill_plant_scoped_cc_name_formulas(
+            ws_import,
+            plant_col=col_map["plant_code"],
+            cc_code_col=col_map["cost_center"],
+            cc_name_col=col_map["cost_center_name"],
+        )
 
     if all(k in col_map for k in ("plant_code", "cost_center", "profit_center")):
         plant_ref = f"{get_column_letter(col_map['plant_code'])}2"
@@ -337,7 +434,7 @@ def build_import_template_xlsx(db: Session) -> bytes:
         )
         _add_list_validation(ws_import, col=col_map["profit_center"], formula=formula)
 
-    if "plant_code" in col_map and "functional_location" in col_map and plant_labels:
+    if "plant_code" in col_map and "functional_location" in col_map and plant_codes:
         plant_ref = f"{get_column_letter(col_map['plant_code'])}2"
         formula = (
             f'=IF({plant_ref}="","",INDIRECT("FL_"&{_excel_sanitize_expr(plant_ref)}))'
@@ -362,16 +459,31 @@ def build_import_template_xlsx(db: Session) -> bytes:
         ("1.", "Fill one row per asset on the Import sheet. Do not change header row names."),
         (
             "2.",
-            "Required (*): Asset name, Asset code, Asset category, Plant, Cost center, Profit center, "
-            "Functional location, and Actual location. RFID is optional but must be unique when set.",
+            "Required (*): Asset name, Combined Asset No, Asset category, Plant Code (or Plant Name), "
+            "and Cost Center Code (or Cost Center Name). Actual Location 1 / 2 are optional. "
+            "RFID is optional but must be unique when set.",
         ),
-        ("3.", "Select Plant name first — Cost center, Profit center, and Functional location lists depend on it."),
-        ("4.", "Select Cost center before Profit center. Select Functional location before Actual location."),
-        ("5.", "Use display names from the dropdowns (codes are also accepted). Tag color is only valid when RFID is provided."),
+        (
+            "3.",
+            "Plant Code ↔ Plant Name: select Plant Code and Plant Name fills automatically. "
+            "Or select Plant Name alone (code is resolved on upload). "
+            "Select Plant Code first so Cost center / Profit center / Actual Location 1 lists filter correctly.",
+        ),
+        (
+            "4.",
+            "Cost Center Code ↔ Cost Center Name: select Cost Center Code and Name fills automatically. "
+            "Or select Name alone (code is resolved on upload). "
+            "Select Cost Center Code before Profit center. Select Actual Location 1 before Actual location 2.",
+        ),
+        (
+            "5.",
+            "CapEx form number is optional; use an approved, unused form (e.g. CAP-2026-0001). "
+            "Tag color is only valid when RFID is provided.",
+        ),
         ("6.", "Dates: use YYYY-MM-DD (e.g. 2024-06-15). Leave Inventory count blank to default to 1."),
         ("7.", "Save as .xlsx and upload via Assets → Import."),
         ("", ""),
-        ("Master data in this file", f"{len(plant_labels)} plants · {len(category_labels)} categories · "
+        ("Master data in this file", f"{len(plant_codes)} plants · {len(category_labels)} categories · "
          f"{len(cost_centers)} cost centers · {len(profit_centers)} profit centers · "
          f"{len(functional_locations)} functional locations · {len(actual_locations)} actual locations"),
     ]

@@ -11,13 +11,16 @@ import { CapexFormSearchSelect } from "@/components/assets/capex-form-search-sel
 import { renderPhysicalOrderInventoryField } from "@/lib/asset-physical-order-display"
 import { AssetDetailSectionPanel } from "@/components/assets/asset-detail-section-panel"
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
+import { ApprovalWorkflowTimeline } from "@/components/approval-workflow-timeline"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
   AdminBackLink,
+  AdminPillBadge,
   AdminPrimaryButton,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -30,7 +33,12 @@ import {
   postJson,
   putFormData,
 } from "@/lib/api"
-import type { AssetAuditEvent, AssetDetail, AssetRfidAttachResult } from "@/lib/assets-types"
+import type {
+  AssetAuditEvent,
+  AssetDetail,
+  AssetRfidAttachResult,
+  SubmitForApprovalResult,
+} from "@/lib/assets-types"
 import {
   ASSET_VIEW_SECTIONS,
   type AssetViewSectionConfig,
@@ -48,10 +56,18 @@ import {
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { buildAssetDetailActionItems } from "@/lib/asset-actions"
-import { assetStatusLabel } from "@/lib/asset-lifecycle"
-import { hasPermission } from "@/lib/permissions"
+import {
+  assetStatusLabel,
+  assetStatusPillTone,
+  buildAssetProgress,
+  canSubmitForApproval,
+} from "@/lib/asset-lifecycle"
+import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
+import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
+import { CapexDecisionDialog } from "@/pages/capex/capex-decision-dialog"
+import { CapexProcessFlow } from "@/pages/capex/capex-process-flow"
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
   information: Package,
@@ -129,15 +145,32 @@ export function AssetDetailPage() {
   const [rfidValue, setRfidValue] = React.useState("")
   const [rfidTagColorId, setRfidTagColorId] = React.useState("")
   const [rfidSaving, setRfidSaving] = React.useState(false)
+  const [acting, setActing] = React.useState(false)
+  const [decisionOpen, setDecisionOpen] = React.useState(false)
+  const [decisionMode, setDecisionMode] = React.useState<"approve" | "reject">("approve")
+  const [viewerUserId, setViewerUserId] = React.useState<number | null>(null)
+  const [submitAssignOpen, setSubmitAssignOpen] = React.useState(false)
+  const [reassignOpen, setReassignOpen] = React.useState(false)
+  const [reassigning, setReassigning] = React.useState(false)
 
   const canUpdate = hasPermission("asset.update") || hasPermission("asset.manage")
+  const canCreate = hasPermission("asset.create") || hasPermission("asset.manage")
   const canViewCapex = hasPermission("capitalization.view")
+  const canApprovalAct = hasPermission("approval.act")
+  const canReassignPerm = hasPermission("asset.reassign") || hasPermission("asset.manage")
   const fieldConfig = useAssetFieldConfig()
 
   const load = React.useCallback(async () => {
     if (!id) return
     setLoading(true)
     try {
+      try {
+        const me = await getJson<{ id: number; is_superuser?: boolean; permissions?: string[] }>("/me")
+        persistAuthFromMe(me)
+        setViewerUserId(typeof me.id === "number" ? me.id : null)
+      } catch {
+        // ignore
+      }
       const a = await getJson<AssetDetail>(`/admin/assets/${id}`)
       setAsset(a)
     } finally {
@@ -475,6 +508,99 @@ export function AssetDetailPage() {
   }
 
   const canEdit = Boolean(asset && asset.approval_status !== "pending")
+  const canSubmit = Boolean(
+    asset &&
+      canSubmitForApproval(asset.lifecycle_status, asset.approval_status) &&
+      canCreate,
+  )
+  const pendingTaskId = asset?.approval_panel?.my_pending_task_id ?? null
+  const canActOnAsset = Boolean(pendingTaskId && canApprovalAct)
+  const canReassign = Boolean(
+    asset &&
+      asset.approval_status === "pending" &&
+      asset.approval_panel?.pending_task_id &&
+      canReassignPerm,
+  )
+  const reassignRoleName = asset?.approval_panel?.current_step_role_name ?? "Approver"
+  const progress = asset ? buildAssetProgress(asset) : null
+  const panel = asset?.approval_panel
+
+  async function submitWithAssignee(userId: number) {
+    if (!asset) return
+    setSaving(true)
+    try {
+      const res = await postJson<SubmitForApprovalResult>(
+        `/admin/assets/${asset.id}/submit-for-approval`,
+        { assignee_user_id: userId },
+      )
+      if (res.errors?.length) {
+        toast.error(res.errors[0] ?? "Submit failed.")
+        return
+      }
+      setSubmitAssignOpen(false)
+      if (res.activated_count > 0) {
+        toast.success("Asset activated (no approval workflow mapped).")
+      } else {
+        toast.success("Submitted for approval.")
+      }
+      await load()
+      if (asset.id) void loadAudit(asset.id)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Submit failed.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function reassignApprover(userId: number) {
+    if (!asset) return
+    setReassigning(true)
+    try {
+      const updated = await postJson<AssetDetail>(`/admin/assets/${asset.id}/reassign`, {
+        assignee_user_id: userId,
+      })
+      setAsset(updated)
+      setReassignOpen(false)
+      toast.success("Approver reassigned.")
+      void loadAudit(asset.id)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Reassign failed.")
+    } finally {
+      setReassigning(false)
+    }
+  }
+
+  async function confirmDecision(payload: {
+    comment: string | null
+    nextAssignedUserId: number | null
+  }) {
+    if (!pendingTaskId) return
+    if (decisionMode === "reject" && !(payload.comment || "").trim()) {
+      toast.error("Reason is required when rejecting.")
+      return
+    }
+    setActing(true)
+    try {
+      await postJson(`/approvals/tasks/${pendingTaskId}/action`, {
+        action: decisionMode,
+        comment: payload.comment,
+      })
+      setDecisionOpen(false)
+      toast.success(decisionMode === "approve" ? "Approved." : "Rejected.")
+      await load()
+      if (asset?.id) void loadAudit(asset.id)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Action failed.")
+    } finally {
+      setActing(false)
+    }
+  }
+
+  function openDecision(mode: "approve" | "reject") {
+    setDecisionMode(mode)
+    setDecisionOpen(true)
+  }
+
   const detailActions = React.useMemo(
     () =>
       buildAssetDetailActionItems({
@@ -505,20 +631,68 @@ export function AssetDetailPage() {
     }
   }
   const toolbar = (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <AdminBackLink to="/dashboard/assets">Assets</AdminBackLink>
-      {asset && detailActions.length > 0 ? (
-        <AssetActionsMenu
-          actions={detailActions}
-          busy={saving}
-          onAction={handleDetailAction}
-        />
+    <div className="flex flex-wrap items-center justify-end gap-1.5">
+      {asset ? (
+        <AdminPillBadge
+          tone={assetStatusPillTone(asset.lifecycle_status, asset.approval_status)}
+          className="h-9 px-3.5 text-sm font-semibold"
+        >
+          {assetStatusLabel(asset.lifecycle_status, asset.approval_status)}
+        </AdminPillBadge>
       ) : null}
       {editing ? (
-        <AdminPrimaryButton type="button" disabled={saving} onClick={() => void save()}>
+        <AdminPrimaryButton type="button" disabled={saving || acting} onClick={() => void save()}>
           {saving ? "Saving…" : "Save changes"}
         </AdminPrimaryButton>
       ) : null}
+      {canSubmit && !editing ? (
+        <AdminPrimaryButton
+          type="button"
+          disabled={saving || acting || reassigning}
+          onClick={() => setSubmitAssignOpen(true)}
+        >
+          Submit for approval
+        </AdminPrimaryButton>
+      ) : null}
+      {canReassign && !editing ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9 shadow-sm"
+          disabled={reassigning || acting || saving}
+          onClick={() => setReassignOpen(true)}
+        >
+          {reassigning ? "Reassigning…" : "Reassign"}
+        </Button>
+      ) : null}
+      {canActOnAsset && !editing ? (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shadow-sm"
+            disabled={acting || saving || reassigning}
+            onClick={() => openDecision("reject")}
+          >
+            Reject
+          </Button>
+          <AdminPrimaryButton
+            type="button"
+            disabled={acting || saving || reassigning}
+            onClick={() => openDecision("approve")}
+          >
+            Approve
+          </AdminPrimaryButton>
+        </>
+      ) : null}
+      {asset && detailActions.length > 0 ? (
+        <AssetActionsMenu
+          actions={detailActions}
+          busy={saving || acting || reassigning}
+          onAction={handleDetailAction}
+        />
+      ) : null}
+      <AdminBackLink to="/dashboard/assets">Assets</AdminBackLink>
     </div>
   )
 
@@ -875,6 +1049,15 @@ export function AssetDetailPage() {
             </div>
           </header>
 
+          {progress ? (
+            <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-4 sm:px-4">
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                Progress
+              </p>
+              <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />
+            </div>
+          ) : null}
+
           {!editing ? <SummaryStrip items={summaryItems} /> : null}
 
           {editing ? (
@@ -900,12 +1083,76 @@ export function AssetDetailPage() {
           </div>
         </section>
 
+        {panel && ((panel.workflow_runs?.length ?? 0) > 0 || panel.workflow_steps.length > 0) ? (
+          <section aria-label="Approval process" className="border-t border-border/60 pt-4">
+            {panel.workflow_runs && panel.workflow_runs.length > 0 ? (
+              <ApprovalWorkflowTimeline
+                steps={panel.workflow_steps}
+                viewerUserId={viewerUserId}
+                formatWhen={formatDateTime}
+                compact
+                compactRuns={panel.workflow_runs.map((run) => {
+                  const statusLabel =
+                    run.request_status === "rejected" || run.request_status === "in_rework"
+                      ? "Rejected"
+                      : run.request_status === "pending"
+                        ? "In progress"
+                        : run.request_status === "approved"
+                          ? "Approved"
+                          : run.request_status
+                  const label =
+                    panel.workflow_runs!.length > 1
+                      ? `Attempt ${run.attempt}${run.is_current ? " (current)" : ""} · ${statusLabel}`
+                      : undefined
+                  return { label, steps: run.workflow_steps }
+                })}
+              />
+            ) : (
+              <ApprovalWorkflowTimeline
+                steps={panel.workflow_steps}
+                viewerUserId={viewerUserId}
+                formatWhen={formatDateTime}
+                compact
+              />
+            )}
+          </section>
+        ) : null}
+
         <section aria-label="Audit Trail" className="border-t border-border/60 pt-4">
           <AssetAuditLog rows={auditRows} loading={auditLoading} />
         </section>
       </AdminPage>
 
       <AssetRfidDialog {...rfidDialogProps} />
+
+      <CapexAssigneePickerDialog
+        open={submitAssignOpen}
+        onOpenChange={setSubmitAssignOpen}
+        assigneesUrl={asset ? `/admin/assets/${asset.id}/assignees` : undefined}
+        roleLabel="Approver"
+        confirmLabel="Submit"
+        busy={saving}
+        onConfirm={submitWithAssignee}
+      />
+
+      <CapexAssigneePickerDialog
+        open={reassignOpen}
+        onOpenChange={setReassignOpen}
+        assigneesUrl={asset ? `/admin/assets/${asset.id}/assignees` : undefined}
+        roleLabel={reassignRoleName}
+        confirmLabel="Reassign"
+        busy={reassigning}
+        onConfirm={reassignApprover}
+      />
+
+      <CapexDecisionDialog
+        open={decisionOpen}
+        onOpenChange={setDecisionOpen}
+        mode={decisionMode}
+        busy={acting}
+        needsNextAssignee={false}
+        onConfirm={confirmDecision}
+      />
     </>
   )
 }

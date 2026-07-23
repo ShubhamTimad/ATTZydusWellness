@@ -79,8 +79,6 @@ export const ASSET_REQUIRED_IMPORT_FIELDS = new Set([
   "category_code",
   "plant_code",
   "cost_center",
-  "functional_location",
-  "actual_location",
 ])
 
 export function isAssetManualFieldRequired(key: string): boolean {
@@ -102,11 +100,14 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "asset_custodian_code", label: "Asset Custodian", kind: "select" },
   { key: "asset_condition_code", label: "Asset Physical Condition", kind: "select" },
   { key: "sub_location", label: "Sub location" },
-  { key: "plant_code", label: "Plant name", required: true },
-  { key: "cost_center", label: "Cost Center Code", required: true },
+  { key: "plant_code", label: "Plant Code", required: true, kind: "select" },
+  { key: "plant_name", label: "Plant Name", kind: "select" },
+  { key: "cost_center", label: "Cost Center Code", required: true, kind: "select" },
+  { key: "cost_center_name", label: "Cost Center Name", kind: "select" },
   { key: "profit_center", label: "Profit center" },
-  { key: "functional_location", label: "Actual Location 1", required: true },
-  { key: "actual_location", label: "Actual location 2", required: true },
+  { key: "functional_location", label: "Actual Location 1" },
+  { key: "actual_location", label: "Actual location 2" },
+  { key: "capitalization_form_number", label: "CapEx form number" },
   { key: "party_details", label: "Party Details" },
   { key: "invoice_no", label: "Invoice no." },
   { key: "invoice_date", label: "Invoice date", kind: "date" },
@@ -120,7 +121,6 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "gross_block", label: "APC-IGAAP" },
   { key: "life_span", label: "Life-Span (Years)" },
   { key: "cap_date", label: "Capitalization Date", kind: "date" },
-  { key: "serial_no", label: "Serial no." },
 ]
 
 /** Default export columns (import-compatible). */
@@ -149,7 +149,7 @@ export const ASSET_EXPORT_FIELD_LABELS: Record<string, string> = {
   functional_location: "Actual Location 1",
   actual_location: "Actual location 2",
   profit_center: "Profit center",
-  plant_name: "Plant description",
+  plant_name: "Plant Name",
   category_name: "Category description",
   physical_count: "Physical count",
   last_verification_date: "Last verification date",

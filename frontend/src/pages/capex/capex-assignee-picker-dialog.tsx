@@ -10,8 +10,10 @@ import { toast } from "sonner"
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Assignee pool level: hod | engineering | central_finance */
-  level: string
+  /** Assignee pool level: hod | engineering | central_finance (CapEx). Ignored when assigneesUrl is set. */
+  level?: string
+  /** Full assignees API path (e.g. /admin/assets/12/assignees). */
+  assigneesUrl?: string
   roleLabel: string
   confirmLabel?: string
   busy?: boolean
@@ -21,7 +23,8 @@ type Props = {
 export function CapexAssigneePickerDialog({
   open,
   onOpenChange,
-  level,
+  level = "hod",
+  assigneesUrl,
   roleLabel,
   confirmLabel = "Continue",
   busy = false,
@@ -30,18 +33,25 @@ export function CapexAssigneePickerDialog({
   const [items, setItems] = React.useState<CapexAssigneeOption[]>([])
   const [loading, setLoading] = React.useState(false)
   const [selectedId, setSelectedId] = React.useState("")
+  const [resolvedRole, setResolvedRole] = React.useState(roleLabel)
+
+  const fetchUrl =
+    assigneesUrl ??
+    `/admin/capitalization-forms/assignees?level=${encodeURIComponent(level)}`
 
   React.useEffect(() => {
     if (!open) return
     setSelectedId("")
+    setResolvedRole(roleLabel)
     let cancelled = false
     setLoading(true)
     void (async () => {
       try {
-        const res = await getJson<CapexAssigneeListResponse>(
-          `/admin/capitalization-forms/assignees?level=${encodeURIComponent(level)}`,
-        )
-        if (!cancelled) setItems(res.items)
+        const res = await getJson<CapexAssigneeListResponse>(fetchUrl)
+        if (!cancelled) {
+          setItems(res.items)
+          if (res.role_name) setResolvedRole(res.role_name)
+        }
       } catch (e) {
         if (!cancelled) {
           setItems([])
@@ -54,7 +64,7 @@ export function CapexAssigneePickerDialog({
     return () => {
       cancelled = true
     }
-  }, [open, level])
+  }, [open, fetchUrl, roleLabel])
 
   async function confirm() {
     if (!selectedId) {
@@ -68,7 +78,7 @@ export function CapexAssigneePickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 p-0 sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{roleLabel}</DialogTitle>
+          <DialogTitle>{resolvedRole || roleLabel}</DialogTitle>
         </DialogHeader>
         <div className="dialog-body">
           <select

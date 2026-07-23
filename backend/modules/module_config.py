@@ -127,6 +127,7 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
                     "delete",
                     "import",
                     "approve",
+                    "reassign",
                     "manage",
                 ],
             },

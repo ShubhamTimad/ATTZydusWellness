@@ -14,7 +14,8 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { API_BASE_URL, downloadFile, postJson } from "@/lib/api"
+import { API_BASE_URL, downloadFile, getJson, postJson } from "@/lib/api"
+import type { CostCenterMaster } from "@/lib/masters-types"
 import {
   assetConditionLabel,
   assetCustodianLabel,
@@ -79,6 +80,13 @@ function chunkRows<T>(items: T[], size: number): T[][] {
 export function AssetImportPage() {
   const navigate = useNavigate()
   const masters = useAssetMasterLookups()
+  // Import has no single plant context — load all CCs for code↔name sync / selects.
+  const [allCostCenters, setAllCostCenters] = React.useState<CostCenterMaster[]>([])
+  React.useEffect(() => {
+    void getJson<CostCenterMaster[]>("/admin/asset-masters/cost-centers?active_only=false")
+      .then(setAllCostCenters)
+      .catch(() => setAllCostCenters([]))
+  }, [])
   const columnSelectOptions = React.useMemo(
     () => ({
       tag_color_code: masters.tagColors.map((c) => ({ value: c.code, label: tagColorLabel(c) })),
@@ -90,8 +98,22 @@ export function AssetImportPage() {
         value: c.code,
         label: assetConditionLabel(c),
       })),
+      plant_code: masters.plants.map((p) => ({ value: p.code, label: p.code })),
+      plant_name: masters.plants
+        .filter((p) => Boolean(p.name?.trim()))
+        .map((p) => ({ value: p.name, label: p.name })),
+      cost_center: allCostCenters.map((c) => ({ value: c.code, label: c.code })),
+      cost_center_name: allCostCenters
+        .filter((c) => Boolean(c.name?.trim()))
+        .map((c) => ({ value: c.name, label: c.name })),
     }),
-    [masters.tagColors, masters.custodianUsers, masters.assetConditions],
+    [
+      masters.tagColors,
+      masters.custodianUsers,
+      masters.assetConditions,
+      masters.plants,
+      allCostCenters,
+    ],
   )
   const [file, setFile] = React.useState<File | null>(null)
   const [preview, setPreview] = React.useState<PreviewResponse | null>(null)
@@ -384,36 +406,110 @@ export function AssetImportPage() {
     toast.success(`Removed ${removed} row(s). Re-validate before submit.`)
   }
 
-  const handleCellChange = React.useCallback((rowIndex: number, key: string, value: string) => {
-    React.startTransition(() => {
-      setPreview((p) => {
-        if (!p) return p
-        const row = p.rows[rowIndex]
-        if (!row) return p
-        const nextData = { ...row.data }
-        if (!value.trim()) {
-          delete nextData[key]
-        } else {
-          nextData[key] = value
-        }
-        const nextRows = p.rows.slice()
-        const wasValid = row.valid
-        nextRows[rowIndex] = {
-          ...row,
-          valid: false,
-          errors: [],
-          field_errors: {},
-          data: nextData,
-        }
-        return {
-          ...p,
-          rows: nextRows,
-          valid_rows: wasValid ? Math.max(0, p.valid_rows - 1) : p.valid_rows,
-          error_rows: wasValid ? p.error_rows + 1 : p.error_rows,
-        }
+  const handleCellChange = React.useCallback(
+    (rowIndex: number, key: string, value: string) => {
+      React.startTransition(() => {
+        setPreview((p) => {
+          if (!p) return p
+          const row = p.rows[rowIndex]
+          if (!row) return p
+          const nextData = { ...row.data }
+          if (!value.trim()) {
+            delete nextData[key]
+          } else {
+            nextData[key] = value
+          }
+
+          // Keep plant / cost-center code↔name pairs in sync (same as create form).
+          if (key === "plant_code") {
+            const plant = masters.plants.find(
+              (x) => x.code.trim().toLowerCase() === value.trim().toLowerCase(),
+            )
+            if (plant) nextData.plant_name = plant.name
+            else if (!value.trim()) delete nextData.plant_name
+          } else if (key === "plant_name") {
+            const plant = masters.plants.find(
+              (x) => (x.name || "").trim().toLowerCase() === value.trim().toLowerCase(),
+            )
+            if (plant) nextData.plant_code = plant.code
+            else if (!value.trim()) delete nextData.plant_code
+          } else if (key === "cost_center") {
+            const plantCode = String(nextData.plant_code || "").trim().toLowerCase()
+            const cc = allCostCenters.find((x) => {
+              if (x.code.trim().toLowerCase() !== value.trim().toLowerCase()) return false
+              if (!plantCode) return true
+              return (x.plant_code || "").trim().toLowerCase() === plantCode
+            })
+            if (cc) {
+              nextData.cost_center_name = cc.name
+              // Fill plant from CC when plant was empty.
+              if (!plantCode && cc.plant_code) {
+                const plant = masters.plants.find((p) => p.code === cc.plant_code)
+                if (plant) {
+                  nextData.plant_code = plant.code
+                  nextData.plant_name = plant.name
+                }
+              }
+            } else if (!value.trim()) {
+              delete nextData.cost_center_name
+            }
+          } else if (key === "cost_center_name") {
+            const plantCode = String(nextData.plant_code || "").trim().toLowerCase()
+            const cc = allCostCenters.find((x) => {
+              if ((x.name || "").trim().toLowerCase() !== value.trim().toLowerCase()) return false
+              if (!plantCode) return true
+              return (x.plant_code || "").trim().toLowerCase() === plantCode
+            })
+            if (cc) {
+              nextData.cost_center = cc.code
+              if (!plantCode && cc.plant_code) {
+                const plant = masters.plants.find((p) => p.code === cc.plant_code)
+                if (plant) {
+                  nextData.plant_code = plant.code
+                  nextData.plant_name = plant.name
+                }
+              }
+            } else if (!value.trim()) {
+              delete nextData.cost_center
+            }
+          }
+
+          if (key === "plant_code" || key === "plant_name") {
+            const plantCode = String(nextData.plant_code || "").trim().toLowerCase()
+            const ccCode = String(nextData.cost_center || "").trim().toLowerCase()
+            if (ccCode && plantCode) {
+              const stillValid = allCostCenters.some(
+                (x) =>
+                  x.code.trim().toLowerCase() === ccCode &&
+                  (x.plant_code || "").trim().toLowerCase() === plantCode,
+              )
+              if (!stillValid) {
+                delete nextData.cost_center
+                delete nextData.cost_center_name
+              }
+            }
+          }
+
+          const nextRows = p.rows.slice()
+          const wasValid = row.valid
+          nextRows[rowIndex] = {
+            ...row,
+            valid: false,
+            errors: [],
+            field_errors: {},
+            data: nextData,
+          }
+          return {
+            ...p,
+            rows: nextRows,
+            valid_rows: wasValid ? Math.max(0, p.valid_rows - 1) : p.valid_rows,
+            error_rows: wasValid ? p.error_rows + 1 : p.error_rows,
+          }
+        })
       })
-    })
-  }, [])
+    },
+    [masters.plants, allCostCenters],
+  )
 
   const importing = importProgress !== null
 

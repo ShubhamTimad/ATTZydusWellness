@@ -1,6 +1,17 @@
 import type { LucideIcon } from "lucide-react"
 import type { AssetListItem } from "@/lib/assets-types"
-import { ClipboardList, ExternalLink, Pencil, Trash2, X, ScanLine } from "lucide-react"
+import { canSubmitForApproval } from "@/lib/asset-lifecycle"
+import {
+  Ban,
+  Check,
+  ClipboardList,
+  ExternalLink,
+  Pencil,
+  Send,
+  Trash2,
+  X,
+  ScanLine,
+} from "lucide-react"
 
 export type AssetActionItem = {
   id: string
@@ -22,19 +33,35 @@ export function countRfidTaggedSelected(rows: { rfid_code?: string | null }[]): 
   return rows.filter((r) => (r.rfid_code || "").trim().length > 0).length
 }
 
+export function eligibleSubmitAssets(rows: AssetListItem[]): AssetListItem[] {
+  return rows.filter((r) => canSubmitForApproval(r.lifecycle_status, r.approval_status))
+}
+
+export function eligibleDecisionAssets(rows: AssetListItem[]): AssetListItem[] {
+  return rows.filter((r) => (r.approval_status || "").toLowerCase() === "pending")
+}
+
 export function buildAssetListActionItems(opts: {
   selectedCount: number
   rfidTaggedCount?: number
+  submitEligibleCount?: number
+  decisionEligibleCount?: number
   canDelete: boolean
   canAttachRfid?: boolean
   canCreateOrder?: boolean
+  canSubmitForApproval?: boolean
+  canDecide?: boolean
 }): AssetActionItem[] {
   const {
     selectedCount,
     rfidTaggedCount = 0,
+    submitEligibleCount = 0,
+    decisionEligibleCount = 0,
     canDelete,
     canAttachRfid,
     canCreateOrder,
+    canSubmitForApproval: canSubmit = false,
+    canDecide = false,
   } = opts
 
   const actions: AssetActionItem[] = []
@@ -44,6 +71,50 @@ export function buildAssetListActionItems(opts: {
       id: "attach-rfid",
       label: "Attach RFID",
       icon: ScanLine,
+    })
+  }
+
+  if (canSubmit) {
+    const hint =
+      selectedCount === 0
+        ? undefined
+        : submitEligibleCount === 0
+          ? "No draft/rejected assets in selection"
+          : submitEligibleCount < selectedCount
+            ? `${submitEligibleCount} of ${selectedCount} eligible`
+            : `${submitEligibleCount} asset(s)`
+    actions.push({
+      id: "submit-for-approval",
+      label: "Submit for approval",
+      hint,
+      disabled: submitEligibleCount === 0,
+      icon: Send,
+    })
+  }
+
+  if (canDecide) {
+    const hint =
+      selectedCount === 0
+        ? undefined
+        : decisionEligibleCount === 0
+          ? "No pending assets in selection"
+          : decisionEligibleCount < selectedCount
+            ? `${decisionEligibleCount} of ${selectedCount} pending`
+            : `${decisionEligibleCount} asset(s)`
+    actions.push({
+      id: "approve-selected",
+      label: "Approve selected",
+      hint,
+      disabled: decisionEligibleCount === 0,
+      icon: Check,
+    })
+    actions.push({
+      id: "reject-selected",
+      label: "Reject selected",
+      hint,
+      disabled: decisionEligibleCount === 0,
+      variant: "destructive",
+      icon: Ban,
     })
   }
 

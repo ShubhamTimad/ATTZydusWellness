@@ -28,11 +28,6 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
 
 const ORDER_LIFECYCLE_ACTIONS = new Set(Object.keys(ORDER_STATUS_LABELS))
 
-type InventoryDelta = {
-  physicalCount?: { from: string; to: string }
-  verificationDate?: { from: string; to: string }
-}
-
 type DisplayRow = {
   id: string
   at: string
@@ -40,7 +35,7 @@ type DisplayRow = {
   action: string
   orderRef: string | null
   status: string
-  inventory: InventoryDelta
+  changes: AssetAuditLogRow["changes"]
   isOrder: boolean
 }
 
@@ -59,32 +54,103 @@ function orderRefFromRow(row: AssetAuditLogRow): string | null {
   return match?.[1]?.toUpperCase() ?? null
 }
 
-function parseInventoryChanges(changes: AssetAuditLogRow["changes"]): InventoryDelta {
-  const inventory: InventoryDelta = {}
-  for (const change of changes) {
-    if (change.field_label === "Physical count") {
-      inventory.physicalCount = { from: change.from_value, to: change.to_value }
-    } else if (change.field_label === "Last verification date") {
-      inventory.verificationDate = { from: change.from_value, to: change.to_value }
-    }
-  }
-  return inventory
-}
-
-function activityText(row: AssetAuditLogRow): string {
+function activityHeadline(row: AssetAuditLogRow): string {
   const summary = row.summary?.trim()
   if (summary) {
     let text = summary.split("\n")[0]?.trim() ?? summary
+    // Drop legacy parenthetical status notes from older audit rows.
+    text = text
+      .replace(/\s*\(asset remains inactive(?: until approved)?\)\s*$/i, "")
+      .replace(/\s*\(asset is now active\)\s*$/i, "")
+      .trim()
     const actor = row.actorName?.trim()
     if (actor && text.endsWith(` · ${actor}`)) {
-      text = text.slice(0, -(` · ${actor}`).length)
+      text = text.slice(0, -(` · ${actor}`).length).trim()
     }
-    if (actor && text.endsWith(` by ${actor}`)) {
-      text = text.slice(0, -(` by ${actor}`).length)
+    // Rejected/Approved with inline reason → title only; reason shown in changes.
+    if (actor && text.startsWith(`Rejected by ${actor}:`)) {
+      return "Rejected"
+    }
+    if (actor && text.startsWith(`Approved by ${actor}:`)) {
+      return "Approved"
+    }
+    if (actor && text.startsWith(`Reassigned by ${actor}`)) {
+      return "Reassigned"
+    }
+    if (actor) {
+      text = text.replace(` by ${actor}`, "").replace(/\s{2,}/g, " ").trim()
+    }
+    if (text.endsWith(":")) {
+      text = text.slice(0, -1).trim()
     }
     return text
   }
   return row.activityVerb.replace(/\s+by\s*$/i, "").trim() || row.activityVerb
+}
+
+function changesForRow(row: AssetAuditLogRow): AssetAuditLogRow["changes"] {
+  if (row.changes.length > 0) return row.changes
+
+  // Fallback: parse "Field: from → to" lines from summary body (older or missing change rows).
+  const lines = (row.summary || "").split("\n").slice(1)
+  const parsed: AssetAuditLogRow["changes"] = []
+  for (const line of lines) {
+    const m = line.match(/^(.+?):\s*(.*?)\s*→\s*(.*)$/)
+    if (!m) continue
+    parsed.push({
+      field_label: m[1].trim(),
+      from_value: m[2].trim() || "—",
+      to_value: m[3].trim() || "—",
+    })
+  }
+  if (parsed.length > 0) return parsed
+
+  // Rejected/Approved with inline reason in the headline.
+  const summary = row.summary?.trim() || ""
+  const actor = row.actorName?.trim()
+  if (actor) {
+    const rejectPrefix = `Rejected by ${actor}:`
+    if (summary.startsWith(rejectPrefix)) {
+      const reason = summary.slice(rejectPrefix.length).trim()
+      if (reason) {
+        return [{ field_label: "Reason", from_value: "—", to_value: reason }]
+      }
+    }
+    const approvePrefix = `Approved by ${actor}:`
+    if (summary.startsWith(approvePrefix)) {
+      const comment = summary.slice(approvePrefix.length).trim()
+      if (comment) {
+        return [{ field_label: "Comment", from_value: "—", to_value: comment }]
+      }
+    }
+    const reassignPrefix = `Reassigned by ${actor}:`
+    if (summary.startsWith(reassignPrefix)) {
+      const rest = summary.slice(reassignPrefix.length).trim()
+      const m = rest.match(/^(.*?)\s*→\s*(.*)$/)
+      if (m) {
+        return [
+          {
+            field_label: "Approver",
+            from_value: m[1].trim() || "—",
+            to_value: m[2].trim() || "—",
+          },
+        ]
+      }
+    }
+    const reassignTo = summary.match(
+      new RegExp(`^Reassigned by ${actor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} to (.+)$`),
+    )
+    if (reassignTo) {
+      return [
+        {
+          field_label: "Approver",
+          from_value: "—",
+          to_value: reassignTo[1].trim() || "—",
+        },
+      ]
+    }
+  }
+  return []
 }
 
 function minuteBucket(iso: string): string {
@@ -97,11 +163,12 @@ function buildDisplayRows(rows: AssetAuditLogRow[]): DisplayRow[] {
   return rows.map((row) => {
     const orderRef = orderRefFromRow(row)
     const isOrder = Boolean(orderRef) || row.action in ORDER_STATUS_LABELS
+    const headline = activityHeadline(row)
     const status =
       ORDER_STATUS_LABELS[row.action] ??
-      (orderRef && activityText(row).includes(orderRef)
-        ? activityText(row).replace(`${orderRef} · `, "").trim()
-        : activityText(row))
+      (orderRef && headline.includes(orderRef)
+        ? headline.replace(`${orderRef} · `, "").trim()
+        : headline)
 
     return {
       id: row.id,
@@ -110,7 +177,7 @@ function buildDisplayRows(rows: AssetAuditLogRow[]): DisplayRow[] {
       action: row.action,
       orderRef,
       status,
-      inventory: parseInventoryChanges(row.changes),
+      changes: changesForRow(row),
       isOrder,
     }
   })
@@ -128,7 +195,7 @@ function DeltaLine({
   return (
     <div className="grid grid-cols-[minmax(6.5rem,7.5rem)_1fr] items-baseline gap-x-2 text-[11px] leading-relaxed">
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="tabular-nums text-foreground">
+      <dd className="min-w-0 break-words tabular-nums text-foreground">
         <span>{from}</span>
         <span className="mx-1 text-muted-foreground" aria-hidden>
           →
@@ -153,8 +220,12 @@ function WhenCell({ at, muted }: { at: string; muted?: boolean }) {
 }
 
 function ActivityCell({ row }: { row: DisplayRow }) {
-  const { physicalCount, verificationDate } = row.inventory
-  const hasInventory = Boolean(physicalCount || verificationDate)
+  const changes = row.changes
+  // For reject/approve reason-only rows, show as a single detail line without "— →".
+  const reasonOnly =
+    changes.length === 1 &&
+    (changes[0].field_label === "Reason" || changes[0].field_label === "Comment") &&
+    changes[0].from_value === "—"
 
   return (
     <div className="min-w-0 space-y-1.5">
@@ -172,18 +243,25 @@ function ActivityCell({ row }: { row: DisplayRow }) {
         )}
       </p>
 
-      {hasInventory ? (
+      {changes.length > 0 ? (
         <dl className="space-y-0.5 rounded-md border border-border/40 bg-muted/15 px-2.5 py-1.5">
-          {physicalCount ? (
-            <DeltaLine label="Physical count" from={physicalCount.from} to={physicalCount.to} />
-          ) : null}
-          {verificationDate ? (
-            <DeltaLine
-              label="Verification date"
-              from={verificationDate.from}
-              to={verificationDate.to}
-            />
-          ) : null}
+          {reasonOnly ? (
+            <div className="grid grid-cols-[minmax(6.5rem,7.5rem)_1fr] items-baseline gap-x-2 text-[11px] leading-relaxed">
+              <dt className="text-muted-foreground">{changes[0].field_label}</dt>
+              <dd className="min-w-0 break-words text-foreground font-medium">
+                {changes[0].to_value}
+              </dd>
+            </div>
+          ) : (
+            changes.map((c) => (
+              <DeltaLine
+                key={`${c.field_label}-${c.from_value}-${c.to_value}`}
+                label={c.field_label}
+                from={c.from_value}
+                to={c.to_value}
+              />
+            ))
+          )}
         </dl>
       ) : null}
     </div>

@@ -408,8 +408,11 @@ class ApprovalEngineService:
         actor = self._db.get(User, actor_user_id)
         if actor is None:
             raise NotFoundError("User", actor_user_id)
-        if req.created_by != actor_user_id and not bool(actor.is_superuser):
-            raise ApprovalError("Only the person who submitted this request can resubmit it.")
+        # Assets: any user with submit permission may resubmit after edits (router enforces asset.create).
+        # Other entity types: only the original submitter (or superuser).
+        if str(req.entity_type) not in ("asset_creation", "asset_import"):
+            if req.created_by != actor_user_id and not bool(actor.is_superuser):
+                raise ApprovalError("Only the person who submitted this request can resubmit it.")
 
         entity_type = str(req.entity_type)
         if entity_type == "user_creation":
@@ -679,6 +682,8 @@ class ApprovalEngineService:
         act = action.strip().lower()
         if act not in ("approve", "reject"):
             raise ConflictError("action must be one of: approve, reject.")
+        if act == "reject" and not (comment or "").strip():
+            raise ConflictError("Reason is required when rejecting.")
 
         # Persist the action record first; then update task/request status depending on task type.
         self._db.add(
@@ -722,6 +727,7 @@ class ApprovalEngineService:
                     self._db,
                     asset_id=int(req.entity_id),
                     approver_user_id=actor_user_id,
+                    comment=comment,
                 )
             elif str(req.entity_type) in ("physical_order_creation", "physical_order_closure"):
                 from modules.orders.service import reject_order_approval
@@ -965,6 +971,7 @@ class ApprovalEngineService:
                 self._db,
                 asset_id=int(req.entity_id),
                 approver_user_id=approver_id,
+                comment=comment,
             )
             self._db.commit()
             return

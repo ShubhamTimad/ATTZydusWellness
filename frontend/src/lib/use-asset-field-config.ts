@@ -138,7 +138,8 @@ export function buildImportGridColumns(config: FieldConfigMap | null) {
     return {
       ...col,
       label: row?.display_label ?? col.label,
-      required: row?.is_required ?? col.required ?? false,
+      // Import required set is independent of create-form field config.
+      required: ASSET_REQUIRED_IMPORT_FIELDS.has(col.key),
     }
   })
 }

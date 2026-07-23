@@ -183,6 +183,49 @@ export type AssetDetail = {
   capitalization_form_id?: number | null
   capitalization_form_number?: string | null
   capitalization_form_asset_name?: string | null
+  approval_panel?: AssetApprovalPanel | null
+}
+
+export type AssetApprovalStepLine = {
+  step_order: number
+  approver_role_name: string
+  required_approvals: number
+  total_steps: number
+  phase: "completed" | "current" | "upcoming" | "rejected"
+  approved_count: number
+  actions: {
+    actor_user_id: number
+    actor_display_name: string
+    action: string
+    comment: string | null
+    created_at: string | null
+  }[]
+  status_label: string
+  pool_size?: number
+  pool_member_names?: string[]
+  assigned_user_id?: number | null
+  assigned_user_name?: string | null
+}
+
+export type AssetWorkflowRun = {
+  attempt: number
+  request_id: number
+  request_status: string
+  is_current: boolean
+  workflow_steps: AssetApprovalStepLine[]
+}
+
+export type AssetApprovalPanel = {
+  request_id: number
+  request_status: string
+  workflow_steps: AssetApprovalStepLine[]
+  workflow_runs?: AssetWorkflowRun[]
+  my_pending_task_id: number | null
+  pending_task_id?: number | null
+  current_assignee_user_id?: number | null
+  current_assignee_name?: string | null
+  current_step_role_name?: string | null
+  is_final_step?: boolean
 }
 
 export type AssetAuditChangeLine = {

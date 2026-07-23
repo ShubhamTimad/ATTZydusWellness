@@ -236,10 +236,11 @@ class ImportMasterLookups:
         """Rewrite name-based import values to canonical stored codes."""
         out = dict(data)
 
-        plant_value = str(data.get("plant_code") or "").strip()
+        plant_value = str(data.get("plant_code") or data.get("plant_name") or "").strip()
         plant = self.resolve_plant(plant_value) if plant_value else None
         if plant is not None:
             out["plant_code"] = str(plant.code)
+            out["plant_name"] = str(plant.name or plant.code)
 
         category_value = str(data.get("category_code") or "").strip()
         if category_value:
@@ -249,14 +250,24 @@ class ImportMasterLookups:
 
         plant_id = int(plant.id) if plant is not None else None
 
-        cost_center_value = str(data.get("cost_center") or "").strip()
+        cost_center_value = str(
+            data.get("cost_center") or data.get("cost_center_name") or ""
+        ).strip()
         cc_row = None
         if cost_center_value:
             cc_row, _ = self.resolve_cost_center(plant_id=plant_id, value=cost_center_value)
             if cc_row is not None:
                 out["cost_center"] = str(cc_row.code)
+                out["cost_center_name"] = str(cc_row.name or cc_row.code)
                 if plant_id is None:
                     plant_id = int(cc_row.plant_id)
+                    parent_plant = next(
+                        (p for p in self.plants if int(p.id) == plant_id),
+                        None,
+                    )
+                    if parent_plant is not None:
+                        out["plant_code"] = str(parent_plant.code)
+                        out["plant_name"] = str(parent_plant.name or parent_plant.code)
 
         profit_center_value = str(data.get("profit_center") or "").strip()
         if profit_center_value and cc_row is not None:

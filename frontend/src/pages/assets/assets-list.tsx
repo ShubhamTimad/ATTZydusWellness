@@ -53,6 +53,8 @@ import { ApiError, deleteJson, downloadFile, getJson, postJson, putJson } from "
 import {
   buildAssetListActionItems,
   countRfidTaggedSelected,
+  eligibleDecisionAssets,
+  eligibleSubmitAssets,
   selectedAssetsFromList,
 } from "@/lib/asset-actions"
 import type {
@@ -61,7 +63,10 @@ import type {
   AssetRfidAttachResult,
   FinancialYearListResponse,
   FinancialYearOption,
+  SubmitForApprovalResult,
 } from "@/lib/assets-types"
+import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
+import { CapexDecisionDialog } from "@/pages/capex/capex-decision-dialog"
 import type { CostCenterMaster, FunctionalLocationMaster } from "@/lib/masters-types"
 import {
   categoryLabel,
@@ -70,14 +75,18 @@ import {
   plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
-import { assetStatusLabel, assetStatusPillTone } from "@/lib/asset-lifecycle"
+import {
+  ASSET_APPROVAL_STATUS_TABS,
+  assetStatusLabel,
+  assetStatusPillTone,
+} from "@/lib/asset-lifecycle"
 import { hasPermission } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
 import { orderStatusLabel } from "@/lib/orders-types"
 import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
 import { cn } from "@/lib/utils"
 
-export type AssetListTab = "all" | "fy"
+export type AssetListTab = "all" | "draft" | "pending" | "rejected" | "approved" | "fy"
 export type AssetFySubTab = "verified" | "pending"
 
 export type AssetListColumnKey =
@@ -310,7 +319,7 @@ function buildQueryParams(
   if (filters.category_id) q.set("category_id", filters.category_id)
   if (filters.lifecycle_status) q.set("lifecycle_status", filters.lifecycle_status)
   if (filters.approval_status) q.set("approval_status", filters.approval_status)
-  if (listTab === "all" && filters.rfid_status) q.set("rfid_status", filters.rfid_status)
+  if (listTab !== "fy" && filters.rfid_status) q.set("rfid_status", filters.rfid_status)
   if (listTab === "fy") {
     q.set("fy_verification", fySubTab)
     if (filters.fy_start_year) q.set("fy_start_year", filters.fy_start_year)
@@ -328,13 +337,23 @@ function buildQueryParams(
 export function AssetsListPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const initialTab = searchParams.get("tab") === "fy" ? "fy" : "all"
+  const tabParam = searchParams.get("tab")
+  const initialTab: AssetListTab =
+    tabParam === "fy" ||
+    tabParam === "draft" ||
+    tabParam === "pending" ||
+    tabParam === "rejected" ||
+    tabParam === "approved"
+      ? tabParam
+      : "all"
+  const approvalTab = ASSET_APPROVAL_STATUS_TABS.find((t) => t.key === initialTab)
   const initialRfidStatus = searchParams.get("rfid_status")
   const validInitialRfid =
     initialRfidStatus === "tagged" || initialRfidStatus === "not_tagged" ? initialRfidStatus : ""
   const initialAllFilters: AssetListFilters = {
     ...DEFAULT_FILTERS,
-    rfid_status: initialTab === "all" ? validInitialRfid : "",
+    rfid_status: initialTab !== "fy" ? validInitialRfid : "",
+    approval_status: approvalTab?.approval_status ?? "",
   }
   const [listTab, setListTab] = React.useState<AssetListTab>(initialTab)
   const [fySubTab, setFySubTab] = React.useState<AssetFySubTab>("verified")
@@ -393,6 +412,9 @@ export function AssetsListPage() {
   const [fyYearOptions, setFyYearOptions] = React.useState<FinancialYearOption[]>([])
   const [currentFyStartYear, setCurrentFyStartYear] = React.useState<number | null>(null)
   const [exportOpen, setExportOpen] = React.useState(false)
+  const [submitAssignOpen, setSubmitAssignOpen] = React.useState(false)
+  const [bulkDecisionOpen, setBulkDecisionOpen] = React.useState(false)
+  const [bulkDecisionMode, setBulkDecisionMode] = React.useState<"approve" | "reject">("approve")
   const [columnsOpen, setColumnsOpen] = React.useState(false)
   const [visibleColumnKeys, setVisibleColumnKeys] = React.useState<AssetListColumnKey[]>(
     DEFAULT_ASSET_LIST_COLUMN_KEYS,
@@ -405,11 +427,13 @@ export function AssetsListPage() {
   const filterPlantId = draftFilters.plant_id ? Number(draftFilters.plant_id) : null
   const masters = useAssetMasterLookups(filterPlantId, null, null)
 
-  const canCreate = hasPermission("asset.create")
+  const canCreate = hasPermission("asset.create") || hasPermission("asset.manage")
   const canImport = hasPermission("asset.import")
   const canDelete = hasPermission("asset.delete") || hasPermission("asset.manage")
   const canCreateOrder = hasPermission("order.create")
   const canAttachRfid = hasPermission("asset.update") || hasPermission("asset.manage")
+  const canSubmitForApproval = canCreate
+  const canDecide = hasPermission("approval.act")
   const isFyTab = listTab === "fy"
   const showAttachRfid = canAttachRfid && !isFyTab
   const selectedFyStartYear =
@@ -520,6 +544,13 @@ export function AssetsListPage() {
   }, [load])
 
   function applyFilters() {
+    if (!isFyTab) {
+      const approval = draftFilters.approval_status
+      const matchingTab = ASSET_APPROVAL_STATUS_TABS.find(
+        (t) => t.key !== "all" && t.approval_status === approval,
+      )
+      setListTab(matchingTab?.key ?? "all")
+    }
     setFilters(draftFilters)
     setPage(1)
     setFiltersOpen(false)
@@ -623,9 +654,17 @@ export function AssetsListPage() {
   }
 
   function clearFilters() {
-    const next = isFyTab ? { ...DEFAULT_FY_FILTERS } : { ...DEFAULT_FILTERS }
-    setDraftFilters(next)
-    setFilters(next)
+    if (isFyTab) {
+      const next = { ...DEFAULT_FY_FILTERS }
+      setDraftFilters(next)
+      setFilters(next)
+    } else {
+      // Approval tabs own approval_status — clearing filters returns to All assets.
+      setListTab("all")
+      const next = { ...DEFAULT_FILTERS }
+      setDraftFilters(next)
+      setFilters(next)
+    }
     setColumnFilterInputs({ ...DEFAULT_COLUMN_FILTERS })
     setColumnFilters({ ...DEFAULT_COLUMN_FILTERS })
     setPage(1)
@@ -740,16 +779,38 @@ export function AssetsListPage() {
     () => countRfidTaggedSelected(selectedRows),
     [selectedRows],
   )
+  const submitEligibleRows = React.useMemo(
+    () => eligibleSubmitAssets(selectedRows),
+    [selectedRows],
+  )
+  const decisionEligibleRows = React.useMemo(
+    () => eligibleDecisionAssets(selectedRows),
+    [selectedRows],
+  )
   const listActions = React.useMemo(
     () =>
       buildAssetListActionItems({
         selectedCount: selected.size,
         rfidTaggedCount,
+        submitEligibleCount: submitEligibleRows.length,
+        decisionEligibleCount: decisionEligibleRows.length,
         canDelete,
         canAttachRfid: showAttachRfid,
         canCreateOrder,
+        canSubmitForApproval,
+        canDecide,
       }),
-    [selected.size, rfidTaggedCount, canDelete, showAttachRfid, canCreateOrder],
+    [
+      selected.size,
+      rfidTaggedCount,
+      submitEligibleRows.length,
+      decisionEligibleRows.length,
+      canDelete,
+      showAttachRfid,
+      canCreateOrder,
+      canSubmitForApproval,
+      canDecide,
+    ],
   )
 
   const attachRfidRow = selectedRows.length === 1 ? selectedRows[0] : null
@@ -824,6 +885,96 @@ export function AssetsListPage() {
       toast.error(e instanceof ApiError ? e.message : "Failed to attach RFID.")
     } finally {
       setRfidSaving(false)
+    }
+  }
+
+  function openBulkSubmit() {
+    if (submitEligibleRows.length === 0) {
+      toast.error("No draft or rejected assets in the selection.")
+      return
+    }
+    setSubmitAssignOpen(true)
+  }
+
+  async function submitSelectedWithAssignee(userId: number) {
+    const ids = submitEligibleRows.map((r) => r.id)
+    if (ids.length === 0) return
+    setBulkActionBusy(true)
+    try {
+      const res = await postJson<SubmitForApprovalResult>("/admin/assets/submit-for-approval", {
+        asset_ids: ids,
+        assignee_user_id: userId,
+      })
+      const parts: string[] = []
+      if (res.submitted_count > 0) parts.push(`${res.submitted_count} submitted`)
+      if (res.activated_count > 0) parts.push(`${res.activated_count} activated`)
+      if (res.errors?.length) {
+        toast.error(res.errors[0] ?? "Some assets could not be submitted.")
+      }
+      if (parts.length > 0) {
+        toast.success(parts.join(", ") + ".")
+        setSubmitAssignOpen(false)
+        setSelected(new Set())
+        await load()
+      } else if (!res.errors?.length) {
+        toast.error("No assets were submitted.")
+      }
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Submit failed.")
+    } finally {
+      setBulkActionBusy(false)
+    }
+  }
+
+  function openBulkDecision(mode: "approve" | "reject") {
+    if (decisionEligibleRows.length === 0) {
+      toast.error("No pending assets in the selection.")
+      return
+    }
+    setBulkDecisionMode(mode)
+    setBulkDecisionOpen(true)
+  }
+
+  async function confirmBulkDecision(payload: {
+    comment: string | null
+    nextAssignedUserId: number | null
+  }) {
+    const ids = decisionEligibleRows.map((r) => r.id)
+    const comment = (payload.comment || "").trim()
+    if (!comment) {
+      toast.error("Reason is required.")
+      return
+    }
+    if (ids.length === 0) return
+    setBulkActionBusy(true)
+    try {
+      const res = await postJson<{ processed_count: number; errors: string[] }>(
+        "/admin/assets/bulk-decision",
+        {
+          asset_ids: ids,
+          action: bulkDecisionMode,
+          comment,
+        },
+      )
+      if (res.processed_count > 0) {
+        toast.success(
+          bulkDecisionMode === "approve"
+            ? `${res.processed_count} approved.`
+            : `${res.processed_count} rejected.`,
+        )
+        setBulkDecisionOpen(false)
+        setSelected(new Set())
+        await load()
+      }
+      if (res.errors?.length) {
+        toast.error(res.errors[0] ?? "Some assets could not be processed.")
+      } else if (res.processed_count === 0) {
+        toast.error("No assets were processed.")
+      }
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Action failed.")
+    } finally {
+      setBulkActionBusy(false)
     }
   }
 
@@ -931,6 +1082,18 @@ export function AssetsListPage() {
       openAttachRfidFromSelection()
       return
     }
+    if (actionId === "submit-for-approval") {
+      openBulkSubmit()
+      return
+    }
+    if (actionId === "approve-selected") {
+      openBulkDecision("approve")
+      return
+    }
+    if (actionId === "reject-selected") {
+      openBulkDecision("reject")
+      return
+    }
     if (actionId === "create-physical-order") {
       void beginCreatePhysicalOrder()
       return
@@ -948,6 +1111,14 @@ export function AssetsListPage() {
       setSelected(new Set())
     }
   }
+
+  const bulkSubmitAssigneesUrl = React.useMemo(() => {
+    const first = submitEligibleRows[0]
+    if (!first) return "/admin/assets/assignees?action=asset.create"
+    const action =
+      (first.source_type || "").toLowerCase() === "import" ? "asset.import" : "asset.create"
+    return `/admin/assets/assignees?action=${encodeURIComponent(action)}`
+  }, [submitEligibleRows])
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -1015,15 +1186,25 @@ export function AssetsListPage() {
               const nextTab = value as AssetListTab
               setListTab(nextTab)
               if (nextTab === "fy") {
-                setFilters((f) => ({ ...DEFAULT_FY_FILTERS, plant_id: f.plant_id, category_id: f.category_id }))
-                setDraftFilters((f) => ({ ...DEFAULT_FY_FILTERS, plant_id: f.plant_id, category_id: f.category_id }))
+                setFilters((f) => ({
+                  ...DEFAULT_FY_FILTERS,
+                  plant_id: f.plant_id,
+                  category_id: f.category_id,
+                }))
+                setDraftFilters((f) => ({
+                  ...DEFAULT_FY_FILTERS,
+                  plant_id: f.plant_id,
+                  category_id: f.category_id,
+                }))
               } else {
+                const tabMeta = ASSET_APPROVAL_STATUS_TABS.find((t) => t.key === nextTab)
                 setFilters((f) => ({
                   ...DEFAULT_FILTERS,
                   plant_id: f.plant_id,
                   category_id: f.category_id,
                   lifecycle_status: f.lifecycle_status,
                   rfid_status: f.rfid_status,
+                  approval_status: tabMeta?.approval_status ?? "",
                 }))
                 setDraftFilters((f) => ({
                   ...DEFAULT_FILTERS,
@@ -1031,6 +1212,7 @@ export function AssetsListPage() {
                   category_id: f.category_id,
                   lifecycle_status: f.lifecycle_status,
                   rfid_status: f.rfid_status,
+                  approval_status: tabMeta?.approval_status ?? "",
                 }))
               }
               setPage(1)
@@ -1039,7 +1221,11 @@ export function AssetsListPage() {
             className="shrink-0"
           >
             <WorkspaceTabsList>
-              <WorkspaceTabsTrigger value="all">All assets</WorkspaceTabsTrigger>
+              {ASSET_APPROVAL_STATUS_TABS.map((t) => (
+                <WorkspaceTabsTrigger key={t.key} value={t.key}>
+                  {t.key === "all" ? "All assets" : t.label}
+                </WorkspaceTabsTrigger>
+              ))}
               <WorkspaceTabsTrigger value="fy">Financial year physical verification</WorkspaceTabsTrigger>
             </WorkspaceTabsList>
           </WorkspaceTabs>
@@ -1457,7 +1643,9 @@ export function AssetsListPage() {
               <FilterChip
                 label={`Approval: ${filters.approval_status.replace(/_/g, " ")}`}
                 onRemove={() => {
+                  setListTab("all")
                   setFilters((f) => ({ ...f, approval_status: "" }))
+                  setDraftFilters((f) => ({ ...f, approval_status: "" }))
                   setPage(1)
                 }}
               />
@@ -1887,6 +2075,36 @@ export function AssetsListPage() {
         selectedAssetIds={[...selected]}
         fyYearOptions={fyYearOptions}
         currentFyStartYear={currentFyStartYear}
+      />
+
+      <CapexAssigneePickerDialog
+        open={submitAssignOpen}
+        onOpenChange={setSubmitAssignOpen}
+        assigneesUrl={bulkSubmitAssigneesUrl}
+        roleLabel="Approver"
+        confirmLabel={
+          submitEligibleRows.length > 1
+            ? `Submit ${submitEligibleRows.length}`
+            : "Submit"
+        }
+        busy={bulkActionBusy}
+        onConfirm={submitSelectedWithAssignee}
+      />
+
+      <CapexDecisionDialog
+        open={bulkDecisionOpen}
+        onOpenChange={setBulkDecisionOpen}
+        mode={bulkDecisionMode}
+        busy={bulkActionBusy}
+        requireComment
+        title={
+          bulkDecisionMode === "approve"
+            ? `Approve ${decisionEligibleRows.length} asset${decisionEligibleRows.length === 1 ? "" : "s"}`
+            : `Reject ${decisionEligibleRows.length} asset${decisionEligibleRows.length === 1 ? "" : "s"}`
+        }
+        confirmLabel={bulkDecisionMode === "approve" ? "Approve" : "Reject"}
+        needsNextAssignee={false}
+        onConfirm={confirmBulkDecision}
       />
     </AdminPage>
   )

@@ -50,7 +50,25 @@ IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
         "asset_condition_code",
     ],
     "sub_location": ["sub location", "sub_location", "sublocation"],
-    "cost_center": ["cost center", "cost_center"],
+    "cost_center": [
+        "cost center",
+        "cost center code",
+        "cost_center",
+        "cost_center_code",
+    ],
+    "cost_center_name": [
+        "cost center name",
+        "cost_center_name",
+        "cost centre name",
+    ],
+    "capitalization_form_number": [
+        "capex form number",
+        "capitalization form number",
+        "capitalization form no",
+        "capex form no",
+        "capitalization_form_number",
+        "capex_form_number",
+    ],
     "party_details": ["party details", "party_details", "party"],
     "invoice_no": ["invoice no", "invoice no.", "invoice_no", "invoice number"],
     "invoice_date": ["invoice date", "invoice_date"],
@@ -68,10 +86,19 @@ IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
     ],
     "gross_block": ["gross block", "gross_block"],
     "life_span": ["life span", "life_span", "lifespan"],
-    "plant_code": ["plant name", "plant", "plant code", "plant_code"],
+    "plant_code": ["plant code", "plant_code", "plant"],
+    "plant_name": ["plant name", "plant_name", "plant description"],
     # Legacy / optional
-    "functional_location": ["functional location", "functional_location"],
-    "actual_location": ["actual location", "actual_location"],
+    "functional_location": [
+        "actual location 1",
+        "functional location",
+        "functional_location",
+    ],
+    "actual_location": [
+        "actual location 2",
+        "actual location",
+        "actual_location",
+    ],
     "profit_center": ["profit center", "profit_center"],
     "serial_no": ["serial", "serial no", "serial_no"],
 }
@@ -92,7 +119,9 @@ ASSET_FIELD_LABELS: dict[str, str] = {
     "asset_condition_id": "Asset Physical Condition",
     "asset_condition_code": "Asset Physical Condition",
     "sub_location": "Sub location",
-    "plant_id": "Plant name",
+    "plant_id": "Plant Name",
+    "plant_code": "Plant Code",
+    "plant_name": "Plant Name",
     "cost_center": "Cost Center Code",
     "cost_center_name": "Cost Center Name",
     "party_details": "Party Details",
@@ -111,6 +140,7 @@ ASSET_FIELD_LABELS: dict[str, str] = {
     "actual_location": "Actual location 2",
     "profit_center": "Profit center",
     "cap_date": "Capitalization Date",
+    "capitalization_form_number": "CapEx form number",
     "asset_description": "Asset Description",
 }
 
@@ -135,8 +165,6 @@ ASSET_REQUIRED_IMPORT_FIELD_KEYS: frozenset[str] = frozenset(
         "category_code",
         "plant_code",
         "cost_center",
-        "functional_location",
-        "actual_location",
     }
 )
 
@@ -173,7 +201,7 @@ def required_import_field_errors(data: dict[str, Any], *, db: Any | None = None)
             if key == "category_code":
                 label = "Asset category"
             elif key == "plant_code":
-                label = "Plant name"
+                label = "Plant Code"
             errors[key] = f"{label} is required."
     return errors
 
@@ -245,11 +273,14 @@ ASSET_IMPORT_TEMPLATE_FIELDS: list[str] = [
     "asset_custodian_code",
     "asset_condition_code",
     "plant_code",
+    "plant_name",
     "cost_center",
+    "cost_center_name",
     "profit_center",
     "functional_location",
     "actual_location",
     "sub_location",
+    "capitalization_form_number",
     "party_details",
     "invoice_no",
     "invoice_date",
@@ -262,7 +293,6 @@ ASSET_IMPORT_TEMPLATE_FIELDS: list[str] = [
     "depreciation_rate",
     "gross_block",
     "life_span",
-    "serial_no",
 ]
 
 # Default export columns (matches import grid / Assets → Export dialog).
@@ -345,8 +375,8 @@ ASSET_EXPORT_FIELDS: list[str] = [
 ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
     **ASSET_FIELD_LABELS,
     "category_code": "Asset category",
-    "plant_code": "Plant name",
-    "plant_name": "Plant description",
+    "plant_code": "Plant Code",
+    "plant_name": "Plant Name",
     "category_name": "Category description",
     "physical_count": "Physical count",
     "last_verification_date": "Last verification date",
@@ -358,14 +388,12 @@ ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
 
 
 def import_field_header_label(key: str, *, db: Any | None = None) -> str:
-    if db is not None:
-        from modules.assets.field_config import AssetFieldConfigService
+    """Import template headers: canonical labels + import-only required asterisks.
 
-        svc = AssetFieldConfigService(db)
-        label = svc.label(key)
-        if svc.is_required(key):
-            return f"{label} *"
-        return label
+    Do not use create-form field_config.is_required (locations stay required on create).
+    ``db`` is kept for call-site compatibility; labels come from export/import maps.
+    """
+    _ = db
     label = ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title())
     if key in ASSET_REQUIRED_IMPORT_FIELD_KEYS:
         return f"{label} *"

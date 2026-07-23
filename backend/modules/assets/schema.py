@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from modules.platform.tasks.schema import TaskApprovalStepLinePublic
+
 
 class AssetCategoryPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -295,6 +297,49 @@ class AssetDetailPublic(BaseModel):
     capitalization_form_id: int | None = None
     capitalization_form_number: str | None = None
     capitalization_form_asset_name: str | None = None
+    approval_panel: AssetApprovalPanel | None = None
+
+
+class AssetWorkflowRunPublic(BaseModel):
+    attempt: int
+    request_id: int
+    request_status: str
+    is_current: bool = False
+    workflow_steps: list[TaskApprovalStepLinePublic] = Field(default_factory=list)
+
+
+class AssetApprovalPanel(BaseModel):
+    """Approval timeline + viewer action context for asset detail."""
+
+    request_id: int
+    request_status: str
+    workflow_steps: list[TaskApprovalStepLinePublic] = Field(default_factory=list)
+    workflow_runs: list[AssetWorkflowRunPublic] = Field(default_factory=list)
+    my_pending_task_id: int | None = None
+    pending_task_id: int | None = None
+    current_assignee_user_id: int | None = None
+    current_assignee_name: str | None = None
+    current_step_role_name: str | None = None
+    is_final_step: bool = False
+
+
+class AssetAssigneeOption(BaseModel):
+    id: int
+    full_name: str
+    email: str | None = None
+
+
+class AssetAssigneeListResponse(BaseModel):
+    role_name: str
+    items: list[AssetAssigneeOption] = Field(default_factory=list)
+
+
+class AssetSubmitRequest(BaseModel):
+    assignee_user_id: int = Field(ge=1)
+
+
+class AssetReassignRequest(BaseModel):
+    assignee_user_id: int = Field(ge=1)
 
 
 class AssetAuditChangeLine(BaseModel):
@@ -348,11 +393,23 @@ class ImportConfirmRequest(BaseModel):
 
 class SubmitForApprovalRequest(BaseModel):
     asset_ids: list[int] = Field(min_length=1)
+    assignee_user_id: int = Field(ge=1)
 
 
 class SubmitForApprovalResponse(BaseModel):
     submitted_count: int
     activated_count: int
+    errors: list[str] = Field(default_factory=list)
+
+
+class AssetBulkDecisionRequest(BaseModel):
+    asset_ids: list[int] = Field(min_length=1)
+    action: str = Field(min_length=1)  # approve | reject
+    comment: str = Field(min_length=1, max_length=10_000)
+
+
+class AssetBulkDecisionResponse(BaseModel):
+    processed_count: int
     errors: list[str] = Field(default_factory=list)
 
 

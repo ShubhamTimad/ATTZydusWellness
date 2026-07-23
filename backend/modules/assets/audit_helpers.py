@@ -349,6 +349,8 @@ def activity_verb_for_action(action: str, new_value: dict[str, Any] | None, sour
         return "Submitted for approval by"
     if action == "rejected":
         return "Rejected by"
+    if action == "reassigned":
+        return "Reassigned by"
     if action == "deleted":
         return "Deleted by"
     return action.replace("_", " ").title() + " by"
@@ -382,6 +384,7 @@ def build_audit_summary(
     category_labels: dict[int, str] | None = None,
 ) -> str:
     nv = new_value or {}
+    ov = old_value or {}
     if action == "created":
         source = str(nv.get("source") or "")
         if not source:
@@ -410,13 +413,28 @@ def build_audit_summary(
             return f"Edited {fields} by {actor_name}"
         return f"Edited by {actor_name}"
     if action == "approved":
+        comment = str(nv.get("comment") or "").strip()
+        if comment:
+            return f"Approved by {actor_name}: {comment}"
         return f"Approved by {actor_name}"
     if action == "activated":
-        return f"Activated by {actor_name} (asset is now active)"
+        return f"Activated by {actor_name}"
     if action == "submitted_for_approval":
-        return f"Submitted for approval by {actor_name} (asset remains inactive until approved)"
+        assignee = str(nv.get("assignee_name") or "").strip()
+        if assignee:
+            return f"Submitted for approval by {actor_name} → {assignee}"
+        return f"Submitted for approval by {actor_name}"
     if action == "rejected":
-        return f"Rejected by {actor_name} (asset remains inactive)"
+        comment = str(nv.get("comment") or "").strip()
+        if comment:
+            return f"Rejected by {actor_name}: {comment}"
+        return f"Rejected by {actor_name}"
+    if action == "reassigned":
+        to_name = str(nv.get("assignee_name") or "").strip() or "—"
+        from_name = str(ov.get("assignee_name") or "").strip()
+        if from_name:
+            return f"Reassigned by {actor_name}: {from_name} → {to_name}"
+        return f"Reassigned by {actor_name} to {to_name}"
     if action == "deleted":
         return f"Deleted by {actor_name}"
     if action in ASSET_AUDIT_VISIBLE_ORDER_ACTIONS:

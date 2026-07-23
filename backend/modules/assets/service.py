@@ -20,12 +20,13 @@ from modules.assets.lifecycle import (
     action_codes_for_asset,
     asset_approval_payload,
     can_submit_for_approval,
+    find_latest_asset_approval_request,
     find_open_asset_approval_request,
     find_pending_asset_approval_request,
     is_awaiting_approval,
     set_asset_active_immediate,
     set_asset_approved_active,
-    set_asset_active_immediate,
+    set_asset_inactive_draft,
     set_asset_pending_approval,
     set_asset_rejected_inactive,
 )
@@ -83,6 +84,7 @@ from modules.orders.constants import ACTION_COMPLETE, ACTIVE_ORDER_STATUSES, ORD
 from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 from modules.assets.schema import (
     AssetActivePhysicalOrderPublic,
+    AssetApprovalPanel,
     AssetCreateRequest,
     AssetDetailPublic,
     AssetFinancialPayload,
@@ -91,6 +93,7 @@ from modules.assets.schema import (
     AssetInventoryPayload,
     AssetListItem,
     AssetListResponse,
+    AssetWorkflowRunPublic,
     FinancialYearListResponse,
     FinancialYearOptionPublic,
     AssetLocationPayload,
@@ -515,7 +518,11 @@ class AssetMasterService:
         return None
 
     def _submit_one_asset_for_approval(
-        self, asset: AssetMaster, *, actor_user_id: int | None
+        self,
+        asset: AssetMaster,
+        *,
+        actor_user_id: int | None,
+        assignee_user_id: int | None = None,
     ) -> str:
         """
         Send one asset into approval. Returns ``submitted`` (workflow tasks created) or
@@ -540,11 +547,26 @@ class AssetMasterService:
                 )
             if actor_user_id is None:
                 raise ConflictError("Authentication required to resubmit for approval.")
-            ApprovalEngineService(self._db).resubmit_rejected_request(
-                request_id=int(req.id),
-                actor_user_id=int(actor_user_id),
+            if assignee_user_id is None or int(assignee_user_id) < 1:
+                raise ConflictError("Select an approver before submitting.")
+            from modules.platform.approvals.service import ApprovalError
+
+            try:
+                ApprovalEngineService(self._db).resubmit_rejected_request(
+                    request_id=int(req.id),
+                    actor_user_id=int(actor_user_id),
+                    assigned_user_id=int(assignee_user_id),
+                )
+            except ApprovalError as exc:
+                raise ConflictError(str(exc)) from exc
+            # resubmit_rejected_request commits and already sets pending; refresh + audit.
+            self._db.refresh(asset)
+            assignee = self._db.get(User, int(assignee_user_id))
+            assignee_name = (
+                (assignee.full_name or assignee.email or f"User #{assignee_user_id}")
+                if assignee is not None
+                else f"User #{assignee_user_id}"
             )
-            set_asset_pending_approval(asset)
             log_asset_event(
                 self._db,
                 asset_id=asset.id,
@@ -553,6 +575,8 @@ class AssetMasterService:
                 new_value={
                     "action_code": action_code,
                     "resubmit": True,
+                    "assignee_user_id": int(assignee_user_id),
+                    "assignee_name": assignee_name,
                     "lifecycle_status": asset.lifecycle_status,
                     "approval_status": asset.approval_status,
                 },
@@ -584,6 +608,9 @@ class AssetMasterService:
             )
             return "activated"
 
+        if assignee_user_id is None or int(assignee_user_id) < 1:
+            raise ConflictError("Select an approver before submitting.")
+
         set_asset_pending_approval(asset)
         payload = asset_approval_payload(asset, action_code=action_code, extra=extra)
         ApprovalEngineService(self._db).create_request_for_entity(
@@ -592,6 +619,13 @@ class AssetMasterService:
             entity_id=asset.id,
             payload=payload,
             created_by=actor_user_id,
+            assigned_user_id=int(assignee_user_id),
+        )
+        assignee = self._db.get(User, int(assignee_user_id))
+        assignee_name = (
+            (assignee.full_name or assignee.email or f"User #{assignee_user_id}")
+            if assignee is not None
+            else f"User #{assignee_user_id}"
         )
         log_asset_event(
             self._db,
@@ -600,6 +634,8 @@ class AssetMasterService:
             action="submitted_for_approval",
             new_value={
                 "action_code": action_code,
+                "assignee_user_id": int(assignee_user_id),
+                "assignee_name": assignee_name,
                 "lifecycle_status": asset.lifecycle_status,
                 "approval_status": asset.approval_status,
             },
@@ -607,7 +643,11 @@ class AssetMasterService:
         return "submitted"
 
     def submit_for_approval(
-        self, asset_ids: list[int], *, actor_user_id: int | None
+        self,
+        asset_ids: list[int],
+        *,
+        actor_user_id: int | None,
+        assignee_user_id: int | None = None,
     ) -> SubmitForApprovalResponse:
         submitted_count = 0
         activated_count = 0
@@ -620,7 +660,11 @@ class AssetMasterService:
             seen.add(aid)
             try:
                 asset = self._load_asset(aid)
-                outcome = self._submit_one_asset_for_approval(asset, actor_user_id=actor_user_id)
+                outcome = self._submit_one_asset_for_approval(
+                    asset,
+                    actor_user_id=actor_user_id,
+                    assignee_user_id=assignee_user_id,
+                )
                 if outcome == "submitted":
                     submitted_count += 1
                 else:
@@ -644,6 +688,269 @@ class AssetMasterService:
             activated_count=activated_count,
             errors=errors,
         )
+
+    def _pending_task_for_actor(self, *, asset_id: int, actor_user_id: int):
+        """Pending approval task the actor may act on (user handoff or role pool)."""
+        from modules.platform.approvals.model import ApprovalRequest, ApprovalTask
+        from modules.platform.approvals.service import ApprovalEngineService
+
+        req_row = find_pending_asset_approval_request(self._db, asset_id=int(asset_id))
+        if req_row is None:
+            return None
+        req = self._db.scalar(
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == int(req_row.id))
+            .options(selectinload(ApprovalRequest.tasks))
+        )
+        if req is None:
+            return None
+        role_ids = ApprovalEngineService(self._db)._role_ids_for_user(int(actor_user_id))
+        for t in req.tasks or []:
+            if str(t.task_type) != "approval":
+                continue
+            if str(t.status).lower() != "pending":
+                continue
+            if t.assigned_user_id is not None:
+                if int(t.assigned_user_id) == int(actor_user_id):
+                    return t
+            elif t.assigned_role_id is not None and int(t.assigned_role_id) in role_ids:
+                return t
+        return None
+
+    def bulk_decision(
+        self,
+        asset_ids: list[int],
+        *,
+        actor_user_id: int,
+        action: str,
+        comment: str,
+    ):
+        from modules.assets.schema import AssetBulkDecisionResponse
+        from modules.platform.approvals.service import ApprovalError
+
+        note = (comment or "").strip()
+        if not note:
+            raise ConflictError("Reason is required.")
+        act = (action or "").strip().lower()
+        if act not in ("approve", "reject"):
+            raise ConflictError("action must be approve or reject.")
+
+        engine = ApprovalEngineService(self._db)
+        processed = 0
+        errors: list[str] = []
+        seen: set[int] = set()
+        for raw_id in asset_ids:
+            aid = int(raw_id)
+            if aid in seen:
+                continue
+            seen.add(aid)
+            try:
+                asset = self._load_asset(aid)
+                if (asset.approval_status or "").strip().lower() != APPROVAL_PENDING:
+                    errors.append(f"Asset {asset.asset_code}: not pending approval.")
+                    continue
+                task = self._pending_task_for_actor(asset_id=aid, actor_user_id=actor_user_id)
+                if task is None:
+                    errors.append(
+                        f"Asset {asset.asset_code}: no pending approval assigned to you."
+                    )
+                    continue
+                engine.act_on_task(
+                    task_id=int(task.id),
+                    actor_user_id=int(actor_user_id),
+                    action=act,
+                    comment=note,
+                )
+                processed += 1
+            except NotFoundError:
+                errors.append(f"Asset #{aid}: not found.")
+            except (ConflictError, ApprovalError) as exc:
+                errors.append(str(exc))
+            except Exception as exc:
+                errors.append(f"Asset #{aid}: {exc}")
+        return AssetBulkDecisionResponse(processed_count=processed, errors=errors)
+
+    def list_assignees_for_action(self, *, action_code: str):
+        from modules.assets.schema import AssetAssigneeListResponse, AssetAssigneeOption
+        from modules.platform.roles.model import Role
+        from modules.rbac_association import user_role
+
+        code = (action_code or "asset.create").strip()
+        if code not in ("asset.create", "asset.import"):
+            raise ConflictError("action must be asset.create or asset.import.")
+        wf = get_workflow_for_action(self._db, code)
+        if wf is None or not wf.steps:
+            raise ConflictError(
+                "No active asset approval workflow is configured. Map a workflow in Admin."
+            )
+        first = sorted(wf.steps, key=lambda s: int(s.step_order))[0]
+        role = self._db.get(Role, int(first.approver_role_id))
+        if role is None:
+            raise ConflictError("Workflow approver role is missing.")
+        users = list(
+            self._db.scalars(
+                select(User)
+                .select_from(user_role)
+                .join(User, User.id == user_role.c.user_id)
+                .where(user_role.c.role_id == int(role.id), User.is_active.is_(True))
+                .order_by(User.full_name.asc(), User.id.asc())
+            ).all()
+        )
+        return AssetAssigneeListResponse(
+            role_name=str(role.name),
+            items=[
+                AssetAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
+                for u in users
+            ],
+        )
+
+    def list_assignees_for_asset(self, asset_id: int):
+        """Users in the current pending step role (reassign) or workflow first step (submit)."""
+        from modules.assets.schema import AssetAssigneeListResponse, AssetAssigneeOption
+        from modules.platform.approvals.model import ApprovalRequest, ApprovalTask
+        from modules.platform.roles.model import Role
+        from modules.rbac_association import user_role
+
+        asset = self._load_asset(asset_id)
+        role_id: int | None = None
+
+        pending_req = find_pending_asset_approval_request(self._db, asset_id=int(asset.id))
+        if pending_req is not None:
+            req = self._db.scalar(
+                select(ApprovalRequest)
+                .where(ApprovalRequest.id == int(pending_req.id))
+                .options(selectinload(ApprovalRequest.tasks).selectinload(ApprovalTask.step))
+            )
+            pending = (
+                next(
+                    (
+                        t
+                        for t in (req.tasks or [])
+                        if str(t.task_type) == "approval" and str(t.status).lower() == "pending"
+                    ),
+                    None,
+                )
+                if req
+                else None
+            )
+            if pending is not None and pending.step is not None:
+                role_id = int(pending.step.approver_role_id)
+
+        if role_id is None:
+            action_code, _ = action_codes_for_asset(asset)
+            return self.list_assignees_for_action(action_code=action_code)
+
+        role = self._db.get(Role, role_id)
+        if role is None:
+            raise ConflictError("Approver role is missing.")
+        users = list(
+            self._db.scalars(
+                select(User)
+                .select_from(user_role)
+                .join(User, User.id == user_role.c.user_id)
+                .where(user_role.c.role_id == role_id, User.is_active.is_(True))
+                .order_by(User.full_name.asc(), User.id.asc())
+            ).all()
+        )
+        return AssetAssigneeListResponse(
+            role_name=str(role.name),
+            items=[
+                AssetAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
+                for u in users
+            ],
+        )
+
+    def reassign_approver(
+        self, asset_id: int, *, actor_user_id: int, assignee_user_id: int
+    ) -> AssetDetailPublic:
+        from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, TaskAuditLog
+        from modules.platform.roles.model import Role
+
+        asset = self._load_asset(asset_id)
+        if (asset.approval_status or "").strip().lower() != APPROVAL_PENDING:
+            raise ConflictError("Approver can only be reassigned while the asset is pending approval.")
+
+        req_row = find_pending_asset_approval_request(self._db, asset_id=int(asset.id))
+        if req_row is None:
+            raise ConflictError("No active approval request to reassign.")
+
+        req = self._db.scalar(
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == int(req_row.id))
+            .options(selectinload(ApprovalRequest.tasks).selectinload(ApprovalTask.step))
+        )
+        if req is None or str(req.status) != "pending":
+            raise ConflictError("Approval request is not pending.")
+
+        pending = next(
+            (
+                t
+                for t in (req.tasks or [])
+                if str(t.task_type) == "approval" and str(t.status).lower() == "pending"
+            ),
+            None,
+        )
+        if pending is None or pending.step is None:
+            raise ConflictError("No pending approval step to reassign.")
+
+        if pending.assigned_user_id is not None and int(pending.assigned_user_id) == int(
+            assignee_user_id
+        ):
+            raise ConflictError("Select a different approver.")
+
+        engine = ApprovalEngineService(self._db)
+        role_id = int(pending.step.approver_role_id)
+        role = self._db.get(Role, role_id)
+        role_name = role.name if role is not None else "Approvers"
+        role_users = engine._users_for_role(role_id)
+        if not any(int(u.id) == int(assignee_user_id) for u in role_users):
+            raise ConflictError(f"Selected user is not an active member of role {role_name!r}.")
+
+        def _uname(uid: int | None) -> str | None:
+            if uid is None:
+                return None
+            u = self._db.get(User, int(uid))
+            if u is None:
+                return f"User #{uid}"
+            return u.full_name or u.email or f"User #{uid}"
+
+        old_id = int(pending.assigned_user_id) if pending.assigned_user_id is not None else None
+        old_name = _uname(old_id)
+        new_name = _uname(assignee_user_id)
+
+        pending.assigned_user_id = int(assignee_user_id)
+        pending.assigned_role_id = None
+        self._db.flush()
+        self._db.add(
+            TaskAuditLog(
+                task_id=int(pending.id),
+                action="assigned",
+                actor_user_id=actor_user_id,
+                old_value={"assigned_user_id": old_id, "assigned_user_name": old_name},
+                new_value={
+                    "assigned_user_id": int(assignee_user_id),
+                    "assigned_user_name": new_name,
+                },
+            )
+        )
+        log_asset_event(
+            self._db,
+            asset_id=int(asset.id),
+            actor_user_id=actor_user_id,
+            action="reassigned",
+            old_value={"assignee_user_id": old_id, "assignee_name": old_name, "role_name": role_name},
+            new_value={
+                "assignee_user_id": int(assignee_user_id),
+                "assignee_name": new_name,
+                "role_name": role_name,
+            },
+        )
+        try:
+            engine._notify_approvers_for_task(task=pending, req=req)
+        except Exception:
+            pass
+        self._db.commit()
+        return self.get_asset(asset_id, viewer_user_id=actor_user_id)
 
     def create_asset(
         self, data: AssetCreateRequest, *, actor_user_id: int | None
@@ -696,7 +1003,7 @@ class AssetMasterService:
             source_type="manual",
             created_by=actor_user_id,
         )
-        set_asset_active_immediate(asset)
+        set_asset_inactive_draft(asset)
         self._db.add(asset)
         self._db.flush()
 
@@ -747,7 +1054,7 @@ class AssetMasterService:
             if "rfid" in msg:
                 raise DuplicateRfidError() from exc
             raise DuplicateCombinedAssetNumberError() from exc
-        return self.get_asset(asset.id)
+        return self.get_asset(asset.id, viewer_user_id=actor_user_id)
 
     def _master_names_for_asset(
         self,
@@ -1568,9 +1875,11 @@ class AssetMasterService:
         filename = report_filename("fy-physical-verification", normalized)
         return content, filename, content_type_for_format(normalized)
 
-    def get_asset(self, asset_id: int) -> AssetDetailPublic:
+    def get_asset(
+        self, asset_id: int, *, viewer_user_id: int | None = None
+    ) -> AssetDetailPublic:
         asset = self._load_asset(asset_id)
-        return self._to_detail(asset)
+        return self._to_detail(asset, viewer_user_id=viewer_user_id)
 
     def _load_asset(self, asset_id: int) -> AssetMaster:
         asset = self._db.scalar(
@@ -1579,8 +1888,8 @@ class AssetMasterService:
             .options(
                 selectinload(AssetMaster.category),
                 selectinload(AssetMaster.tag_color),
-            selectinload(AssetMaster.asset_custodian),
-            selectinload(AssetMaster.asset_condition),
+                selectinload(AssetMaster.asset_custodian),
+                selectinload(AssetMaster.asset_condition),
                 selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
                 selectinload(AssetMaster.information),
                 selectinload(AssetMaster.financial),
@@ -1591,7 +1900,138 @@ class AssetMasterService:
             raise NotFoundError("Asset", asset_id)
         return asset
 
-    def _to_detail(self, asset: AssetMaster) -> AssetDetailPublic:
+    def _workflow_runs_for_request(self, req: Any) -> list[AssetWorkflowRunPublic]:
+        from modules.platform.approvals.model import ApprovalRequest
+        from modules.platform.tasks.service import (
+            _build_workflow_steps_for_request,
+            _split_approval_task_runs,
+        )
+
+        assert isinstance(req, ApprovalRequest)
+        out: list[AssetWorkflowRunPublic] = []
+        wf_step_ids = {int(s.id) for s in (req.workflow.steps if req.workflow else [])}
+        live_tasks = [
+            t
+            for t in (req.tasks or [])
+            if t.step_id is not None and int(t.step_id) in wf_step_ids
+        ]
+        live_runs = _split_approval_task_runs(live_tasks)
+        for idx, run_tasks in enumerate(live_runs):
+            is_last = idx == len(live_runs) - 1
+            has_reject = any(str(t.status).lower() == "rejected" for t in run_tasks)
+            if is_last and str(req.status).lower() == "pending" and not has_reject:
+                status_override = None
+            elif has_reject:
+                status_override = "rejected"
+            elif is_last:
+                status_override = str(req.status)
+            else:
+                status_override = "rejected"
+            step_rows = _build_workflow_steps_for_request(
+                self._db,
+                req,
+                tasks=run_tasks,
+                status_override=status_override,
+            )
+            out.append(
+                AssetWorkflowRunPublic(
+                    attempt=len(out) + 1,
+                    request_id=int(req.id),
+                    request_status=status_override or str(req.status),
+                    is_current=is_last,
+                    workflow_steps=step_rows,
+                )
+            )
+        if out and not any(r.is_current for r in out):
+            out[-1].is_current = True
+        return out
+
+    def _approval_panel(
+        self, asset: AssetMaster, *, viewer_user_id: int | None
+    ) -> AssetApprovalPanel | None:
+        from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow
+        from modules.platform.roles.model import Role
+
+        req = find_latest_asset_approval_request(self._db, asset_id=int(asset.id))
+        if req is None:
+            return None
+
+        req = self._db.scalar(
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == int(req.id))
+            .options(
+                selectinload(ApprovalRequest.workflow).selectinload(ApprovalWorkflow.steps),
+                selectinload(ApprovalRequest.tasks).options(
+                    selectinload(ApprovalTask.step),
+                    selectinload(ApprovalTask.actions),
+                ),
+            )
+        )
+        if req is None:
+            return None
+
+        workflow_runs = self._workflow_runs_for_request(req)
+        steps = workflow_runs[-1].workflow_steps if workflow_runs else []
+
+        role_ids: set[int] = set()
+        if viewer_user_id is not None:
+            role_ids = ApprovalEngineService(self._db)._role_ids_for_user(int(viewer_user_id))
+
+        my_pending: int | None = None
+        pending_task: ApprovalTask | None = None
+        for t in req.tasks or []:
+            if str(t.task_type) != "approval":
+                continue
+            if str(t.status).lower() != "pending":
+                continue
+            pending_task = t
+            if viewer_user_id is not None:
+                if t.assigned_user_id is not None:
+                    if int(t.assigned_user_id) == int(viewer_user_id):
+                        my_pending = int(t.id)
+                elif t.assigned_role_id is not None and int(t.assigned_role_id) in role_ids:
+                    my_pending = int(t.id)
+            break
+
+        current_role: str | None = None
+        current_assignee_id: int | None = None
+        current_assignee_name: str | None = None
+        if pending_task is not None:
+            if pending_task.assigned_user_id is not None:
+                current_assignee_id = int(pending_task.assigned_user_id)
+                u = self._db.get(User, current_assignee_id)
+                current_assignee_name = (
+                    (u.full_name or u.email or f"User #{current_assignee_id}")
+                    if u is not None
+                    else f"User #{current_assignee_id}"
+                )
+            if pending_task.step is not None:
+                role = self._db.get(Role, int(pending_task.step.approver_role_id))
+                if role is not None:
+                    current_role = role.name
+
+        is_final = True
+        if str(req.status) == "pending" and steps:
+            current = next((s for s in steps if s.phase == "current"), None)
+            if current is not None:
+                is_final = int(current.step_order) >= int(current.total_steps)
+
+        return AssetApprovalPanel(
+            request_id=int(req.id),
+            request_status=str(req.status),
+            workflow_steps=steps,
+            workflow_runs=workflow_runs,
+            my_pending_task_id=my_pending,
+            pending_task_id=int(pending_task.id) if pending_task is not None else None,
+            current_assignee_user_id=current_assignee_id,
+            current_assignee_name=current_assignee_name,
+            current_step_role_name=current_role,
+            is_final_step=is_final,
+        )
+
+    def _to_detail(
+        self, asset: AssetMaster, *, viewer_user_id: int | None = None
+    ) -> AssetDetailPublic:
         info = asset.information
         loc = asset.location
         fin = asset.financial
@@ -1674,6 +2114,7 @@ class AssetMasterService:
             capitalization_form_id=int(linked_capex.id) if linked_capex is not None else None,
             capitalization_form_number=linked_capex.form_number if linked_capex is not None else None,
             capitalization_form_asset_name=linked_capex.asset_name if linked_capex is not None else None,
+            approval_panel=self._approval_panel(asset, viewer_user_id=viewer_user_id),
         )
 
     def attach_rfid(
@@ -1891,15 +2332,15 @@ class AssetMasterService:
                 raise DuplicateRfidError() from exc
             raise DuplicateAssetCodeError() from exc
 
-        self._maybe_auto_resubmit_asset_after_update(
+        self._log_rework_asset_update_if_any(
             asset_id=asset.id,
             actor_user_id=actor_user_id,
             before_snapshot=before,
             after_asset=self._load_asset(asset.id),
         )
-        return self.get_asset(asset.id)
+        return self.get_asset(asset.id, viewer_user_id=actor_user_id)
 
-    def _maybe_auto_resubmit_asset_after_update(
+    def _log_rework_asset_update_if_any(
         self,
         *,
         asset_id: int,
@@ -1907,16 +2348,14 @@ class AssetMasterService:
         before_snapshot: dict[str, Any],
         after_asset: AssetMaster,
     ) -> None:
-        """Mirror user-creation rework: log task changes and resubmit when the creator saves edits."""
+        """Record edits on an open rework task. Do not auto-resubmit — user picks assignee via Submit."""
         if actor_user_id is None:
             return
         after_snapshot = snapshot_asset(after_asset)
         if not diff_snapshots(before_snapshot, after_snapshot):
             return
         req = find_open_asset_approval_request(self._db, asset_id=asset_id)
-        if req is None or req.created_by is None:
-            return
-        if int(req.created_by) != int(actor_user_id):
+        if req is None:
             return
         rework_task_id = self._db.scalar(
             select(ApprovalTask.id).where(
@@ -1925,24 +2364,18 @@ class AssetMasterService:
                 ApprovalTask.status.in_(("open", "pending")),
             )
         )
-        if rework_task_id is not None:
-            self._db.add(
-                TaskAuditLog(
-                    task_id=int(rework_task_id),
-                    action="entity_updated",
-                    actor_user_id=actor_user_id,
-                    old_value=before_snapshot,
-                    new_value=after_snapshot,
-                )
+        if rework_task_id is None:
+            return
+        self._db.add(
+            TaskAuditLog(
+                task_id=int(rework_task_id),
+                action="entity_updated",
+                actor_user_id=actor_user_id,
+                old_value=before_snapshot,
+                new_value=after_snapshot,
             )
-            self._db.commit()
-        try:
-            ApprovalEngineService(self._db).resubmit_rejected_request(
-                request_id=int(req.id),
-                actor_user_id=int(actor_user_id),
-            )
-        except Exception:
-            self._db.rollback()
+        )
+        self._db.commit()
 
     def soft_delete(self, asset_id: int, *, actor_user_id: int | None) -> None:
         asset = self._load_asset(asset_id)
@@ -1996,6 +2429,30 @@ class AssetMasterService:
                         nv["changes"],
                         plant_labels=plant_labels,
                         category_labels=category_labels,
+                    )
+                ]
+            elif ev.action == "reassigned":
+                change_rows = [
+                    AssetAuditChangeLine(
+                        field_label="Approver",
+                        from_value=str(ov.get("assignee_name") or "—"),
+                        to_value=str(nv.get("assignee_name") or "—"),
+                    )
+                ]
+            elif ev.action == "rejected" and str(nv.get("comment") or "").strip():
+                change_rows = [
+                    AssetAuditChangeLine(
+                        field_label="Reason",
+                        from_value="—",
+                        to_value=str(nv.get("comment")).strip(),
+                    )
+                ]
+            elif ev.action == "approved" and str(nv.get("comment") or "").strip():
+                change_rows = [
+                    AssetAuditChangeLine(
+                        field_label="Comment",
+                        from_value="—",
+                        to_value=str(nv.get("comment")).strip(),
                     )
                 ]
             elif ev.action in ORDER_ASSET_AUDIT_ACTIONS:
@@ -2136,7 +2593,7 @@ class AssetMasterService:
                     import_batch_id=batch.id,
                     created_by=actor_user_id,
                 )
-                set_asset_active_immediate(asset)
+                set_asset_inactive_draft(asset)
                 self._db.add(asset)
                 self._db.flush()
                 info = mapped.get("information")
@@ -2153,6 +2610,23 @@ class AssetMasterService:
                 if fin:
                     self._db.add(_apply_financial(asset.id, fin))
                 self._db.add(_apply_inventory(asset.id, None))
+
+                capex_form_id = raw.data.get("capitalization_form_id")
+                if capex_form_id is not None:
+                    from modules.capex.service import CapexFormService
+
+                    try:
+                        CapexFormService(self._db).link_to_asset(
+                            int(capex_form_id),
+                            asset_id=int(asset.id),
+                            actor_user_id=actor_user_id,
+                            asset_code=str(code).strip().upper() or None,
+                        )
+                    except ConflictError as exc:
+                        # Asset already persisted; surface link failure without dropping the row.
+                        errors.append(f"Row {raw.row_number}: CapEx link failed: {exc}")
+                        capex_form_id = None
+
                 log_asset_event(
                     self._db,
                     asset_id=asset.id,
@@ -2163,6 +2637,9 @@ class AssetMasterService:
                         "batch_id": batch.id,
                         "lifecycle_status": asset.lifecycle_status,
                         "approval_status": asset.approval_status,
+                        "capitalization_form_id": (
+                            int(capex_form_id) if capex_form_id is not None else None
+                        ),
                     },
                 )
                 created += 1
@@ -2283,11 +2760,18 @@ class AssetMasterService:
         )
 
 
-def activate_asset_after_approval(db: Session, *, asset_id: int, approver_user_id: int | None) -> None:
+def activate_asset_after_approval(
+    db: Session,
+    *,
+    asset_id: int,
+    approver_user_id: int | None,
+    comment: str | None = None,
+) -> None:
     asset = db.get(AssetMaster, asset_id)
     if asset is None:
         return
     transition = set_asset_approved_active(asset, approver_user_id=approver_user_id)
+    note = (comment or "").strip() or None
     log_asset_event(
         db,
         asset_id=asset.id,
@@ -2297,6 +2781,7 @@ def activate_asset_after_approval(db: Session, *, asset_id: int, approver_user_i
         new_value={
             "source": asset.source_type,
             **transition["after"],
+            **({"comment": note} if note else {}),
         },
     )
     log_asset_event(
@@ -2309,11 +2794,18 @@ def activate_asset_after_approval(db: Session, *, asset_id: int, approver_user_i
     )
 
 
-def reject_asset_after_approval(db: Session, *, asset_id: int, approver_user_id: int | None) -> None:
+def reject_asset_after_approval(
+    db: Session,
+    *,
+    asset_id: int,
+    approver_user_id: int | None,
+    comment: str | None = None,
+) -> None:
     asset = db.get(AssetMaster, asset_id)
     if asset is None:
         return
     transition = set_asset_rejected_inactive(asset)
+    note = (comment or "").strip() or None
     log_asset_event(
         db,
         asset_id=asset.id,
@@ -2321,5 +2813,8 @@ def reject_asset_after_approval(db: Session, *, asset_id: int, approver_user_id:
         action="rejected",
         section="workflow",
         old_value=transition["before"],
-        new_value=transition["after"],
+        new_value={
+            **transition["after"],
+            **({"comment": note} if note else {}),
+        },
     )

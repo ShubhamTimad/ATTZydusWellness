@@ -320,7 +320,7 @@ export function AssetCreatePage() {
           toast.error("Asset created, but the image could not be uploaded. Add it from Edit.")
         }
       }
-      toast.success("Asset created and activated.")
+      toast.success("Asset created as draft. Submit it for approval from the asset page.")
       navigate(`/dashboard/assets/${created.id}`, { replace: true })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Create failed.")

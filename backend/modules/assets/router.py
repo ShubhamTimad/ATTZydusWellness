@@ -11,6 +11,9 @@ from core.auth import CurrentUser, get_current_user
 from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.assets.schema import (
+    AssetAssigneeListResponse,
+    AssetBulkDecisionRequest,
+    AssetBulkDecisionResponse,
     AssetCategoryPublic,
     AssetCustodianUserPublic,
     AssetCreateRequest,
@@ -22,6 +25,8 @@ from modules.assets.schema import (
     AssetListResponse,
     AssetListColumnsPreference,
     AssetImagePublic,
+    AssetReassignRequest,
+    AssetSubmitRequest,
     AssetUpdateRequest,
     FinancialYearListResponse,
     ImportCancelBatchResponse,
@@ -304,7 +309,41 @@ def submit_assets_for_approval(
     _: Annotated[object, Depends(require_permission("asset.create"))],
 ) -> SubmitForApprovalResponse:
     try:
-        return svc.submit_for_approval(body.asset_ids, actor_user_id=int(current.subject))
+        return svc.submit_for_approval(
+            body.asset_ids,
+            actor_user_id=int(current.subject),
+            assignee_user_id=int(body.assignee_user_id),
+        )
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/bulk-decision", response_model=AssetBulkDecisionResponse)
+def bulk_asset_decision(
+    body: AssetBulkDecisionRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("approval.act"))],
+) -> AssetBulkDecisionResponse:
+    try:
+        return svc.bulk_decision(
+            body.asset_ids,
+            actor_user_id=int(current.subject),
+            action=body.action,
+            comment=body.comment,
+        )
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get("/assignees", response_model=AssetAssigneeListResponse)
+def list_asset_assignees(
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+    action: str = Query("asset.create", description="asset.create or asset.import"),
+) -> AssetAssigneeListResponse:
+    try:
+        return svc.list_assignees_for_action(action_code=action)
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -312,12 +351,51 @@ def submit_assets_for_approval(
 @router.post("/{asset_id}/submit-for-approval", response_model=SubmitForApprovalResponse)
 def submit_asset_for_approval(
     asset_id: int,
+    body: AssetSubmitRequest,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
     _: Annotated[object, Depends(require_permission("asset.create"))],
 ) -> SubmitForApprovalResponse:
     try:
-        return svc.submit_for_approval([asset_id], actor_user_id=int(current.subject))
+        return svc.submit_for_approval(
+            [asset_id],
+            actor_user_id=int(current.subject),
+            assignee_user_id=int(body.assignee_user_id),
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get("/{asset_id}/assignees", response_model=AssetAssigneeListResponse)
+def list_assignees_for_asset(
+    asset_id: int,
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+) -> AssetAssigneeListResponse:
+    try:
+        return svc.list_assignees_for_asset(asset_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/{asset_id}/reassign", response_model=AssetDetailPublic)
+def reassign_asset_approver(
+    asset_id: int,
+    body: AssetReassignRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.reassign"))],
+) -> AssetDetailPublic:
+    try:
+        return svc.reassign_approver(
+            asset_id,
+            actor_user_id=int(current.subject),
+            assignee_user_id=int(body.assignee_user_id),
+        )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ConflictError as exc:
@@ -327,11 +405,12 @@ def submit_asset_for_approval(
 @router.get("/{asset_id}", response_model=AssetDetailPublic)
 def get_asset(
     asset_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
     _: Annotated[object, Depends(require_permission("asset.view"))],
 ) -> AssetDetailPublic:
     try:
-        return svc.get_asset(asset_id)
+        return svc.get_asset(asset_id, viewer_user_id=int(current.subject))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 

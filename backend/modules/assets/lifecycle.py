@@ -217,6 +217,21 @@ def find_pending_asset_approval_request(db: Session, *, asset_id: int):
     )
 
 
+def find_latest_asset_approval_request(db: Session, *, asset_id: int):
+    """Most recent approval request for an asset (any status) for detail progress UI."""
+    from modules.platform.approvals.model import ApprovalRequest
+
+    return db.scalar(
+        select(ApprovalRequest)
+        .where(
+            ApprovalRequest.entity_type.in_(("asset_creation", "asset_import")),
+            ApprovalRequest.entity_id == int(asset_id),
+        )
+        .order_by(ApprovalRequest.id.desc())
+        .limit(1)
+    )
+
+
 def action_codes_for_asset(asset: AssetMaster) -> tuple[str, str]:
     if (asset.source_type or "").strip().lower() == "import":
         return "asset.import", "asset_import"

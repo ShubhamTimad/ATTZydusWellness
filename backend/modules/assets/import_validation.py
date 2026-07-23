@@ -11,8 +11,103 @@ from modules.assets.field_definitions import required_import_field_errors
 from modules.assets.import_parser import is_blank_import_row
 from modules.assets.import_master_resolve import ImportMasterLookups
 from modules.assets.import_row_mapper import normalize_import_row
-from modules.assets.model import AssetCategory, AssetMaster
+from modules.assets.model import AssetMaster
 from modules.assets.schema import ImportPreviewRow
+from modules.capex.constants import STATUS_APPROVED
+from modules.capex.model import CapitalizationForm
+
+
+def _cell_str(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _merge_cost_center_columns(
+    data: dict[str, Any],
+    lookups: ImportMasterLookups,
+    field_errors: dict[str, str],
+    *,
+    plant_id: int | None,
+) -> str:
+    """Prefer Cost Center Code; accept Name alone; error if both resolve to different masters."""
+    code_val = _cell_str(data.get("cost_center"))
+    name_val = _cell_str(data.get("cost_center_name"))
+    if not code_val and not name_val:
+        return ""
+    if code_val and name_val:
+        row_code, err_code = lookups.resolve_cost_center(plant_id=plant_id, value=code_val)
+        row_name, err_name = lookups.resolve_cost_center(plant_id=plant_id, value=name_val)
+        if err_code:
+            field_errors["cost_center"] = err_code
+        if err_name:
+            field_errors["cost_center_name"] = err_name
+        if (
+            row_code is not None
+            and row_name is not None
+            and int(row_code.id) != int(row_name.id)
+        ):
+            field_errors["cost_center_name"] = (
+                "Cost Center Name does not match Cost Center Code."
+            )
+        if row_code is not None:
+            data["cost_center"] = str(row_code.code)
+            data["cost_center_name"] = str(row_code.name or row_code.code)
+        else:
+            data["cost_center"] = code_val
+        return _cell_str(data.get("cost_center"))
+    chosen = code_val or name_val
+    row, err = lookups.resolve_cost_center(plant_id=plant_id, value=chosen)
+    if err:
+        field_errors["cost_center" if code_val else "cost_center_name"] = err
+        data["cost_center"] = chosen
+        return chosen
+    if row is not None:
+        data["cost_center"] = str(row.code)
+        data["cost_center_name"] = str(row.name or row.code)
+        return str(row.code)
+    data["cost_center"] = chosen
+    return chosen
+
+
+def _merge_plant_columns(
+    data: dict[str, Any],
+    lookups: ImportMasterLookups,
+    field_errors: dict[str, str],
+) -> str:
+    """Prefer Plant Code; accept Name alone; error if both resolve to different plants."""
+    code_val = _cell_str(data.get("plant_code"))
+    name_val = _cell_str(data.get("plant_name"))
+    if not code_val and not name_val:
+        return ""
+    if code_val and name_val:
+        plant_code = lookups.resolve_plant(code_val)
+        plant_name = lookups.resolve_plant(name_val)
+        if plant_code is None:
+            field_errors["plant_code"] = "Unknown plant."
+        if plant_name is None:
+            field_errors["plant_name"] = "Unknown plant."
+        if (
+            plant_code is not None
+            and plant_name is not None
+            and int(plant_code.id) != int(plant_name.id)
+        ):
+            field_errors["plant_name"] = "Plant Name does not match Plant Code."
+        if plant_code is not None:
+            data["plant_code"] = str(plant_code.code)
+            data["plant_name"] = str(plant_code.name or plant_code.code)
+        else:
+            data["plant_code"] = code_val
+        return _cell_str(data.get("plant_code"))
+    chosen = code_val or name_val
+    plant = lookups.resolve_plant(chosen)
+    if plant is None:
+        field_errors["plant_code" if code_val else "plant_name"] = "Unknown plant."
+        data["plant_code"] = chosen
+        return chosen
+    data["plant_code"] = str(plant.code)
+    data["plant_name"] = str(plant.name or plant.code)
+    return str(plant.code)
 
 
 def _validate_location_masters(
@@ -37,7 +132,7 @@ def _validate_location_masters(
     if cost_center_code:
         cc_row, err = lookups.resolve_cost_center(plant_id=plant_id, value=cost_center_code)
         if err:
-            field_errors["cost_center"] = err
+            field_errors.setdefault("cost_center", err)
         elif cc_row is not None and plant_id is None:
             plant_id = int(cc_row.plant_id)
 
@@ -98,17 +193,12 @@ def _validate_location_masters(
                     field_errors["actual_location"] = err
 
 
-def _cell_str(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
 def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[ImportPreviewRow]:
     """Enrich rows with field_errors, duplicate flags, and valid status."""
     lookups = ImportMasterLookups(db)
     cans_in_file: dict[str, list[int]] = {}
     rfids_in_file: dict[str, list[int]] = {}
+    capex_in_file: dict[str, list[int]] = {}
 
     for row in rows:
         can = _cell_str(row.data.get("combined_asset_number")).upper()
@@ -117,12 +207,21 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
         rfid = _cell_str(row.data.get("rfid_code"))
         if rfid:
             rfids_in_file.setdefault(rfid, []).append(row.row_number)
+        capex_no = _cell_str(row.data.get("capitalization_form_number")).upper()
+        if capex_no:
+            capex_in_file.setdefault(capex_no, []).append(row.row_number)
 
     for row in rows:
         field_errors: dict[str, str] = {}
         errors: list[str] = []
         duplicate_combined_asset_number = False
         duplicate_rfid_code = False
+
+        # Accept companion name columns alone before required-field checks.
+        if not _cell_str(row.data.get("plant_code")) and _cell_str(row.data.get("plant_name")):
+            row.data["plant_code"] = row.data.get("plant_name")
+        if not _cell_str(row.data.get("cost_center")) and _cell_str(row.data.get("cost_center_name")):
+            row.data["cost_center"] = row.data.get("cost_center_name")
 
         field_errors.update(required_import_field_errors(row.data, db=db))
 
@@ -161,8 +260,15 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
             if lookups.resolve_category(cat_code) is None:
                 field_errors["category_code"] = "Unknown asset category."
 
-        plant_code = _cell_str(row.data.get("plant_code"))
-        cost_center_code = _cell_str(row.data.get("cost_center"))
+        plant_code = _merge_plant_columns(row.data, lookups, field_errors)
+        plant = lookups.resolve_plant(plant_code) if plant_code else None
+        plant_id = int(plant.id) if plant is not None else None
+        cost_center_code = _merge_cost_center_columns(
+            row.data,
+            lookups,
+            field_errors,
+            plant_id=plant_id,
+        )
         profit_center_code = _cell_str(row.data.get("profit_center"))
         functional_location_code = _cell_str(row.data.get("functional_location"))
         actual_location_code = _cell_str(row.data.get("actual_location"))
@@ -190,6 +296,35 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
         asset_condition_code = _cell_str(row.data.get("asset_condition_code"))
         if asset_condition_code and lookups.resolve_condition(asset_condition_code) is None:
             field_errors["asset_condition_code"] = "Unknown asset condition."
+
+        capex_no = _cell_str(row.data.get("capitalization_form_number"))
+        if capex_no:
+            key = capex_no.upper()
+            if len(capex_in_file.get(key, [])) > 1:
+                field_errors["capitalization_form_number"] = (
+                    "Duplicate CapEx form number in this file."
+                )
+            else:
+                form = db.scalar(
+                    select(CapitalizationForm).where(
+                        func.upper(CapitalizationForm.form_number) == key
+                    )
+                )
+                if form is None:
+                    field_errors["capitalization_form_number"] = (
+                        "Unknown capitalization form number."
+                    )
+                elif form.status != STATUS_APPROVED:
+                    field_errors["capitalization_form_number"] = (
+                        "Only an approved capitalization form can be linked."
+                    )
+                elif form.asset_id is not None:
+                    field_errors["capitalization_form_number"] = (
+                        "This capitalization form is already linked to an asset."
+                    )
+                else:
+                    row.data["capitalization_form_id"] = int(form.id)
+                    row.data["capitalization_form_number"] = form.form_number
 
         if field_errors:
             errors = list(dict.fromkeys(field_errors.values()))

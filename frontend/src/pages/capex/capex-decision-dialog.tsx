@@ -17,6 +17,10 @@ type Props = {
   onOpenChange: (open: boolean) => void
   mode: DecisionMode
   busy?: boolean
+  /** When true, comment/reason is required for both approve and reject. */
+  requireComment?: boolean
+  title?: string
+  confirmLabel?: string
   /** When approving and another step follows, pick next user from this role. */
   needsNextAssignee?: boolean
   nextAssigneeLevel?: string | null
@@ -32,6 +36,9 @@ export function CapexDecisionDialog({
   onOpenChange,
   mode,
   busy = false,
+  requireComment = false,
+  title,
+  confirmLabel,
   needsNextAssignee = false,
   nextAssigneeLevel = null,
   nextStepRoleName = null,
@@ -43,6 +50,7 @@ export function CapexDecisionDialog({
   const [selectedId, setSelectedId] = React.useState("")
 
   const showNextPicker = mode === "approve" && needsNextAssignee && Boolean(nextAssigneeLevel)
+  const commentRequired = requireComment || mode === "reject"
 
   React.useEffect(() => {
     if (!open) return
@@ -78,8 +86,10 @@ export function CapexDecisionDialog({
   }, [open, showNextPicker, nextAssigneeLevel])
 
   async function confirm() {
-    if (mode === "reject" && !comment.trim()) {
-      toast.error("Reason is required when rejecting.")
+    if (commentRequired && !comment.trim()) {
+      toast.error(
+        mode === "reject" ? "Reason is required when rejecting." : "Reason is required.",
+      )
       return
     }
     if (showNextPicker && !selectedId) {
@@ -96,7 +106,9 @@ export function CapexDecisionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 p-0 sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{mode === "approve" ? "Approve" : "Reject"}</DialogTitle>
+          <DialogTitle>
+            {title ?? (mode === "approve" ? "Approve" : "Reject")}
+          </DialogTitle>
         </DialogHeader>
         <div className="dialog-body space-y-3">
           {showNextPicker ? (
@@ -128,8 +140,8 @@ export function CapexDecisionDialog({
 
           <div className="app-form-field">
             <Label htmlFor="capex_decision_comment" className="app-form-label">
-              {mode === "reject" ? "Reason" : "Comment"}
-              {mode === "reject" ? <RequiredFieldMark /> : null}
+              {mode === "reject" || requireComment ? "Reason" : "Comment"}
+              {commentRequired ? <RequiredFieldMark /> : null}
             </Label>
             <textarea
               id="capex_decision_comment"
@@ -138,8 +150,10 @@ export function CapexDecisionDialog({
               disabled={busy}
               onChange={(e) => setComment(e.target.value)}
               placeholder={
-                mode === "reject"
-                  ? "Reason for rejection…"
+                commentRequired
+                  ? mode === "reject"
+                    ? "Reason for rejection…"
+                    : "Reason for approval…"
                   : "Optional comment…"
               }
               rows={3}
@@ -162,7 +176,9 @@ export function CapexDecisionDialog({
             disabled={busy || (showNextPicker && loadingUsers)}
             onClick={() => void confirm()}
           >
-            {busy ? "Working…" : mode === "approve" ? "Approve" : "Reject"}
+            {busy
+              ? "Working…"
+              : confirmLabel ?? (mode === "approve" ? "Approve" : "Reject")}
           </AdminPrimaryButton>
         </div>
       </DialogContent>

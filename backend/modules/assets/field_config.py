@@ -109,14 +109,12 @@ def validate_required_fields(
     for field_key in svc.required_keys():
         if scope_keys is not None and field_key not in scope_keys:
             continue
-        if field_key not in values:
-            continue
-        value = values.get(field_key)
+        value = values.get(field_key) if field_key in values else None
         if field_key in _NULLABLE_ID_FIELDS:
             if value is None:
                 errors[field_key] = f"{svc.label(field_key)} is required."
             continue
-        if not _required_text(value):
+        if field_key not in values or not _required_text(value):
             errors[field_key] = f"{svc.label(field_key)} is required."
     return errors
 
@@ -140,7 +138,5 @@ IMPORT_SCOPE = frozenset(
         "category_code",
         "plant_code",
         "cost_center",
-        "functional_location",
-        "actual_location",
     }
 )

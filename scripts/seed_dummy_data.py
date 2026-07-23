@@ -116,6 +116,7 @@ ROLE_SPECS: list[dict[str, object]] = [
             "asset.create",
             "asset.update",
             "asset.import",
+            "asset.reassign",
             "asset.manage",
         ],
     },
@@ -129,6 +130,7 @@ ROLE_SPECS: list[dict[str, object]] = [
             "task.act",
             "asset.view",
             "asset.approve",
+            "asset.reassign",
         ],
     },
     {
