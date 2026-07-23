@@ -46,6 +46,7 @@ import {
 } from "@/lib/asset-master-fields"
 import { useAssetFieldConfig } from "@/lib/use-asset-field-config"
 import {
+  assetClassLabel,
   assetConditionLabel,
   assetCustodianLabel,
   categoryLabel,
@@ -257,7 +258,7 @@ export function AssetDetailPage() {
         asset_custodian_id: asset.asset_custodian_id,
         asset_condition_id: asset.asset_condition_id,
         serial_no: asset.serial_no,
-        asset_class: asset.asset_class,
+        asset_class_id: asset.asset_class_id,
         asset_type: asset.asset_type,
         asset_category_id: asset.asset_category_id,
         ownership_type: asset.ownership_type,
@@ -382,6 +383,10 @@ export function AssetDetailPage() {
   }
 
   const onFinancialSection = (field: string, value: string | number | null) => {
+    if (field === "pm_equipment_id") {
+      setSection("information", field, value)
+      return
+    }
     if (field === "cost_center" || field === "cost_center_name") {
       const code = ((value as string) || "").trim() || null
       const name = code
@@ -460,6 +465,17 @@ export function AssetDetailPage() {
         asset_condition_id: id,
         asset_condition_code: row?.code ?? null,
         asset_condition_name: row?.name ?? null,
+      })
+      return
+    }
+    if (field === "asset_class_id") {
+      const id = value ? Number(value) : null
+      const row = id ? masters.assetClasses.find((c) => c.id === id) : null
+      set({
+        asset_class_id: id,
+        asset_class_code: row?.code ?? null,
+        asset_class_name: row?.name ?? null,
+        asset_class: row?.name ?? null,
       })
       return
     }
@@ -881,6 +897,10 @@ export function AssetDetailPage() {
             asset_condition_id: masters.assetConditions.map((c) => ({
               value: String(c.id),
               label: assetConditionLabel(c),
+            })),
+            asset_class_id: masters.assetClasses.map((c) => ({
+              value: String(c.id),
+              label: assetClassLabel(c),
             })),
           }}
           tagColors={a.rfid_code?.trim() ? masters.tagColors : []}

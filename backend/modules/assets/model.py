@@ -78,6 +78,9 @@ class AssetMaster(Base):
     asset_condition_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("asset_condition_masters.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    asset_class_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("asset_class_masters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     asset_class: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     asset_type: Mapped[str | None] = mapped_column(String(128), nullable=True)
     lifecycle_status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="draft", index=True)
@@ -106,6 +109,7 @@ class AssetMaster(Base):
     tag_color = relationship("TagColorMaster")
     asset_custodian = relationship("User", foreign_keys=[asset_custodian_id])
     asset_condition = relationship("AssetConditionMaster")
+    asset_class_master = relationship("AssetClassMaster")
     import_batch = relationship("AssetImportBatch", back_populates="assets")
     information = relationship(
         "AssetInformation", back_populates="asset", uselist=False, cascade="all, delete-orphan"

@@ -20,8 +20,6 @@ _REQUIRED = {
     "plant_id",
     "plant_code",
     "cost_center",
-    "functional_location",
-    "actual_location",
 }
 
 
@@ -45,6 +43,8 @@ def _row(
 ASSET_FIELD_CONFIG_SEED: list[FieldConfigSeed] = [
     _row("asset_name", "Asset name"),
     _row("asset_class", "Asset class"),
+    _row("asset_class_id", "Asset class"),
+    _row("asset_class_code", "Asset class"),
     _row("asset_type", "Asset type"),
     _row("asset_category_id", "Asset category"),
     _row("category_code", "Asset category"),

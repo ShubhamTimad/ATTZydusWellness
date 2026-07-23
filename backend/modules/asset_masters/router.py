@@ -32,6 +32,9 @@ from modules.asset_masters.schema import (
     AssetConditionCreate,
     AssetConditionPublic,
     AssetConditionUpdate,
+    AssetClassCreate,
+    AssetClassPublic,
+    AssetClassUpdate,
 )
 from modules.asset_masters.safety import MasterInUseError
 from modules.asset_masters.service import AssetMastersService, DuplicateMasterCodeError
@@ -247,6 +250,54 @@ def delete_asset_condition(
 ) -> None:
     try:
         svc.delete_asset_condition(row_id)
+    except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
+        _raise_master_errors(exc)
+
+
+@router.get("/asset-classes", response_model=list[AssetClassPublic])
+def list_asset_classes(
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_READ)],
+    active_only: bool = Query(True),
+) -> list[AssetClassPublic]:
+    return svc.list_asset_classes(active_only=active_only)
+
+
+@router.post("/asset-classes", response_model=AssetClassPublic, status_code=status.HTTP_201_CREATED)
+def create_asset_class(
+    payload: AssetClassCreate,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_CREATE)],
+) -> AssetClassPublic:
+    try:
+        return svc.create_asset_class(payload)
+    except DuplicateMasterCodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.patch("/asset-classes/{row_id}", response_model=AssetClassPublic)
+def update_asset_class(
+    row_id: int,
+    payload: AssetClassUpdate,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_UPDATE)],
+) -> AssetClassPublic:
+    try:
+        return svc.update_asset_class(row_id, payload)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DuplicateMasterCodeError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.delete("/asset-classes/{row_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_asset_class(
+    row_id: int,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_DELETE)],
+) -> None:
+    try:
+        svc.delete_asset_class(row_id)
     except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
         _raise_master_errors(exc)
 

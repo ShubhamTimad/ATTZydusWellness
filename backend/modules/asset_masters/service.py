@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from modules.assets.model import AssetCategory
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    AssetClassMaster,
     AssetConditionMaster,
     AssetCustodianMaster,
     CostCenterMaster,
@@ -15,6 +16,9 @@ from modules.asset_masters.model import (
     TagColorMaster,
 )
 from modules.asset_masters.schema import (
+    AssetClassCreate,
+    AssetClassPublic,
+    AssetClassUpdate,
     AssetConditionCreate,
     AssetConditionPublic,
     AssetConditionUpdate,
@@ -43,6 +47,7 @@ from modules.asset_masters.schema import (
 from modules.asset_masters.safety import (
     MasterInUseError,
     assert_actual_location_deletable,
+    assert_asset_class_deletable,
     assert_asset_condition_deletable,
     assert_category_deletable,
     assert_cost_center_deletable,
@@ -264,6 +269,56 @@ class AssetMastersService:
         if row is None:
             raise NotFoundError("Asset condition", row_id)
         assert_asset_condition_deletable(self._db, row_id)
+        self._db.delete(row)
+        self._db.commit()
+
+    # --- Asset classes ---
+
+    def list_asset_classes(self, *, active_only: bool = True) -> list[AssetClassPublic]:
+        stmt = select(AssetClassMaster).order_by(AssetClassMaster.name)
+        if active_only:
+            stmt = stmt.where(AssetClassMaster.is_active.is_(True))
+        rows = list(self._db.scalars(stmt).all())
+        return [AssetClassPublic.model_validate(r) for r in rows]
+
+    def create_asset_class(self, data: AssetClassCreate) -> AssetClassPublic:
+        row = AssetClassMaster(
+            code=data.code,
+            name=data.name.strip(),
+            is_active=True,
+        )
+        self._db.add(row)
+        try:
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            raise DuplicateMasterCodeError("Asset class code already exists.") from exc
+        self._db.refresh(row)
+        return AssetClassPublic.model_validate(row)
+
+    def update_asset_class(self, row_id: int, data: AssetClassUpdate) -> AssetClassPublic:
+        row = self._db.get(AssetClassMaster, row_id)
+        if row is None:
+            raise NotFoundError("Asset class", row_id)
+        if data.code is not None:
+            row.code = data.code
+        if data.name is not None:
+            row.name = data.name.strip()
+        if data.is_active is not None:
+            row.is_active = data.is_active
+        try:
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            raise DuplicateMasterCodeError("Asset class code already exists.") from exc
+        self._db.refresh(row)
+        return AssetClassPublic.model_validate(row)
+
+    def delete_asset_class(self, row_id: int) -> None:
+        row = self._db.get(AssetClassMaster, row_id)
+        if row is None:
+            raise NotFoundError("Asset class", row_id)
+        assert_asset_class_deletable(self._db, row_id)
         self._db.delete(row)
         self._db.commit()
 

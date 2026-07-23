@@ -114,6 +114,9 @@ export function AssetDetailSectionPanel({
     if (k === "asset_condition_id") {
       return asset.asset_condition_name ?? asset.asset_condition_code ?? "—"
     }
+    if (k === "asset_class_id") {
+      return asset.asset_class_name ?? asset.asset_class_code ?? asset.asset_class ?? "—"
+    }
     if (k === "functional_location") {
       return asset.location?.functional_location_name ?? String(raw)
     }
@@ -195,6 +198,8 @@ export function AssetDetailSectionPanel({
                     ? String(asset.asset_custodian_id ?? "")
                     : k === "asset_condition_id"
                       ? String(asset.asset_condition_id ?? "")
+                      : k === "asset_class_id"
+                        ? String(asset.asset_class_id ?? "")
                       : k === "cost_center_name" && hasSelect
                         ? String(asset.financial?.cost_center ?? "")
                         : String(rawVal ?? "")
@@ -229,7 +234,7 @@ export function AssetDetailSectionPanel({
                     onChange={(e) =>
                       onSection(
                         k,
-                        k === "asset_category_id" || k === "tag_color_id" || k === "asset_custodian_id" || k === "asset_condition_id"
+                        k === "asset_category_id" || k === "tag_color_id" || k === "asset_custodian_id" || k === "asset_condition_id" || k === "asset_class_id"
                           ? e.target.value
                             ? Number(e.target.value)
                             : null

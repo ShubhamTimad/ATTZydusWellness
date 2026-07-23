@@ -39,6 +39,7 @@ import {
   hasAnyNonUsersRbacPermission,
   hasPermission,
 } from "@/lib/permissions"
+import { navbarDisplayName, navbarInitials, type NavbarUser } from "@/lib/navbar-user"
 import { cn } from "@/lib/utils"
 
 type NavPerm = string | string[] | null
@@ -138,7 +139,7 @@ const shellNavGroups: ShellNavGroup[] = [
         label: "Settings",
         icon: Settings,
         to: "/dashboard/system-settings",
-        permission: "settings.update",
+        permission: ["settings.view", "settings.update"],
       },
     ],
   },
@@ -159,11 +160,20 @@ function pathMatchesNav(pathname: string, to: string): boolean {
 
 export type AppShellLayoutProps = {
   children: React.ReactNode
+  user?: NavbarUser | null
+  /** @deprecated Prefer ``user``; kept for callers that only have email. */
   userEmail?: string | null
   onSignOut?: () => void
 }
 
-export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayoutProps) {
+export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShellLayoutProps) {
+  const account: NavbarUser = user ?? {
+    fullName: null,
+    email: userEmail ?? null,
+    role: null,
+  }
+  const displayName = navbarDisplayName(account)
+  const initials = navbarInitials(account)
   const location = useLocation()
   const visibleGroups = shellNavGroups
     .map((group) => ({
@@ -199,16 +209,6 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
       return next
     })
   }
-
-  const initials = React.useMemo(() => {
-    const raw = (userEmail ?? "").trim()
-    if (!raw) return "?"
-    const left = raw.split("@")[0] ?? raw
-    const parts = left.split(/[.\-_ ]+/).filter(Boolean)
-    const a = (parts[0]?.[0] ?? left[0] ?? "?").toUpperCase()
-    const b = (parts[1]?.[0] ?? left[1] ?? "").toUpperCase()
-    return `${a}${b}`.slice(0, 2)
-  }, [userEmail])
 
   const navContent = (collapsed: boolean, onNavigate?: () => void) => (
     <nav
@@ -335,7 +335,7 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
                   </AvatarFallback>
                 </Avatar>
                 <span className="hidden max-w-[160px] truncate text-sm font-medium md:inline">
-                  {userEmail ?? "Account"}
+                  {displayName}
                 </span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
               </Button>
@@ -345,7 +345,13 @@ export function AppShellLayout({ children, userEmail, onSignOut }: AppShellLayou
                 <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
                   Signed in as
                 </span>
-                <div className="truncate text-sm font-semibold text-foreground">{userEmail ?? "—"}</div>
+                <div className="truncate text-sm font-semibold text-foreground">{displayName}</div>
+                {account.role?.trim() ? (
+                  <div className="truncate text-xs text-muted-foreground">Role: {account.role.trim()}</div>
+                ) : null}
+                {account.email?.trim() && account.fullName?.trim() ? (
+                  <div className="truncate text-xs text-muted-foreground">{account.email.trim()}</div>
+                ) : null}
               </DropdownMenuLabel>
               <DropdownMenuItem
                 className="h-10 cursor-pointer gap-2 rounded-lg px-2 text-sm font-medium"

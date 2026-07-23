@@ -16,6 +16,7 @@ import {
   WorkspaceTabsTrigger,
 } from "@/components/layout/list-page-ui"
 import { getJson, postJson, putJson } from "@/lib/api"
+import { hasPermission } from "@/lib/permissions"
 
 export type PasswordPolicy = {
   min_length: number
@@ -73,6 +74,8 @@ const MONTHS = [
 ]
 
 export function SettingsPage() {
+  const canWriteSettings = hasPermission("settings.update")
+  const canWriteAuth = canWriteSettings || hasPermission("auth_policy.update")
   const [policy, setPolicy] = React.useState<PasswordPolicy | null>(null)
   const [authPolicy, setAuthPolicy] = React.useState<AuthPolicy | null>(null)
   const [sessionIdle, setSessionIdle] = React.useState<SessionIdleSettings | null>(null)
@@ -93,8 +96,8 @@ export function SettingsPage() {
     try {
       const [data, auth, email, fy, idle] = await Promise.all([
         getJson<PasswordPolicy>("/admin/settings/password-policy"),
-        getJson<AuthPolicy>("/admin/settings/auth-policy"),
-        getJson<EmailDelivery>("/admin/settings/email-delivery"),
+        getJson<AuthPolicy>("/admin/settings/auth-policy").catch(() => null),
+        getJson<EmailDelivery>("/admin/settings/email-delivery").catch(() => null),
         getJson<FinancialYearSettings>("/admin/settings/financial-year").catch(() => null),
         getJson<SessionIdleSettings>("/admin/settings/session-idle").catch(() => ({
           idle_timeout_minutes: 10,
@@ -222,7 +225,7 @@ export function SettingsPage() {
                   <div className="flex justify-end border-t border-border/60 pt-4">
                     <AdminPrimaryButton
                       type="button"
-                      disabled={savingAuth}
+                      disabled={savingAuth || !canWriteAuth}
                       onClick={async () => {
                         if (!authPolicy) return
                         setSavingAuth(true)
@@ -278,7 +281,7 @@ export function SettingsPage() {
                 <div className="flex justify-end border-t border-border/60 pt-4">
                   <AdminPrimaryButton
                     type="button"
-                    disabled={savingSessionIdle}
+                    disabled={savingSessionIdle || !canWriteSettings}
                     onClick={async () => {
                       if (!sessionIdle) return
                       setSavingSessionIdle(true)
@@ -371,7 +374,7 @@ export function SettingsPage() {
               ))}
 
               <div className="flex justify-end border-t border-border/60 pt-4">
-                <AdminPrimaryButton type="button" onClick={() => void save()} disabled={saving}>
+                <AdminPrimaryButton type="button" onClick={() => void save()} disabled={saving || !canWriteSettings}>
                   {saving ? "Saving…" : "Save password policy"}
                 </AdminPrimaryButton>
               </div>
@@ -556,7 +559,7 @@ export function SettingsPage() {
                   <div className="flex justify-end border-t border-border/60 pt-4">
                     <AdminPrimaryButton
                       type="button"
-                      disabled={savingEmail}
+                      disabled={savingEmail || !canWriteSettings}
                       onClick={async () => {
                         if (!emailDelivery) return
                         setSavingEmail(true)
@@ -647,7 +650,7 @@ export function SettingsPage() {
                 <div className="flex justify-end border-t border-border/60 pt-4">
                   <AdminPrimaryButton
                     type="button"
-                    disabled={savingFinancialYear}
+                    disabled={savingFinancialYear || !canWriteSettings}
                     onClick={async () => {
                       if (!financialYear) return
                       setSavingFinancialYear(true)

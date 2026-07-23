@@ -26,7 +26,7 @@ export const ASSET_MASTER_FIELDS: AssetMasterFieldDef[] = [
   { key: "combined_asset_number", label: "Combined Asset No", section: "root", kind: "text" },
   { key: "sub_no", label: "Sub-No", section: "root", kind: "text" },
   { key: "asset_category_id", label: "Asset Category", section: "root", kind: "category" },
-  { key: "asset_class", label: "Asset Class", section: "root", kind: "text" },
+  { key: "asset_class_id", label: "Asset Class", section: "root", kind: "text" },
   { key: "asset_type", label: "Asset Type", section: "root", kind: "text" },
   { key: "asset_condition_id", label: "Asset Physical Condition", section: "root", kind: "text" },
   { key: "remark", label: "Remark", section: "root", kind: "text" },
@@ -87,7 +87,7 @@ export function isAssetManualFieldRequired(key: string): boolean {
 
 export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "asset_name", label: "Asset name", required: true },
-  { key: "asset_class", label: "Asset Class" },
+  { key: "asset_class_code", label: "Asset Class", kind: "select" },
   { key: "asset_type", label: "Asset Type" },
   { key: "category_code", label: "Asset Category", required: true },
   { key: "combined_asset_number", label: "Combined Asset No", required: true },
@@ -204,6 +204,8 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   asset_condition_code: "Asset Physical Condition",
   rfid_code: "RFID Code",
   asset_class: "Asset Class",
+  asset_class_id: "Asset Class",
+  asset_class_code: "Asset Class",
   asset_type: "Asset Type",
   functional_location: "Actual Location 1",
   actual_location: "Actual location 2",
@@ -215,6 +217,7 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   cap_date: "Capitalization Date",
   gross_block: "APC-IGAAP",
   life_span: "Life-Span (Years)",
+  pm_equipment_id: "PM equipment ID",
   physical_count: "Physical count",
   last_verification_date: "Last verification date",
   fy_verification_count: "Verifications this FY",
@@ -240,9 +243,8 @@ export type AssetViewSectionConfig = {
 }
 
 /**
- * Asset information panel — order matches 2-column row layout:
- * left: Asset Number, Combined Asset No, Category, Type, Remark, Custodian
- * right: RFID, Sub-No, Class, Physical Condition, Description
+ * Asset information panel — order matches create form / multi-column layout.
+ * Asset name is included here (also shown in the page header).
  */
 export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
   {
@@ -250,12 +252,13 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
     title: "Asset information",
     rootFields: true,
     keys: [
+      "asset_name",
       "asset_code",
       "rfid_code",
       "combined_asset_number",
       "sub_no",
       "asset_category_id",
-      "asset_class",
+      "asset_class_id",
       "asset_type",
       "asset_condition_id",
       "remark",
@@ -280,14 +283,18 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
     title: "Financial information",
     keys: [
       "cost_center",
-      "cap_date",
       "cost_center_name",
+      "cap_date",
       "gross_block",
       "party_details",
       "life_span",
+      "pm_equipment_id",
     ],
     dateFields: ["cap_date"],
     readOnlyKeys: [],
+    fieldStorage: {
+      pm_equipment_id: "information",
+    },
   },
   {
     id: "inventory",

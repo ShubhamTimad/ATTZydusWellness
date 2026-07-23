@@ -102,7 +102,7 @@ export function AdminOverviewPage() {
       description: "Email, password policy, and security",
       to: "/admin/settings",
       icon: Settings,
-      show: hasPermission("settings.update"),
+      show: hasPermission("settings.view") || hasPermission("settings.update"),
     },
     {
       label: "Workflows",

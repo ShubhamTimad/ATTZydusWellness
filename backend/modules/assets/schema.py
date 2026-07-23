@@ -98,6 +98,7 @@ class AssetCreateRequest(BaseModel):
     rfid_code: str | None = Field(default=None, max_length=128)
     serial_no: str | None = Field(default=None, max_length=128)
     asset_class: str | None = Field(default=None, max_length=128)
+    asset_class_id: int | None = None
     asset_type: str | None = Field(default=None, max_length=128)
     asset_category_id: int | None = None
     tag_color_id: int | None = None
@@ -120,6 +121,7 @@ class AssetUpdateRequest(BaseModel):
     rfid_code: str | None = None
     serial_no: str | None = None
     asset_class: str | None = Field(default=None, max_length=128)
+    asset_class_id: int | None = None
     asset_type: str | None = Field(default=None, max_length=128)
     asset_category_id: int | None = None
     tag_color_id: int | None = None
@@ -261,6 +263,9 @@ class AssetDetailPublic(BaseModel):
     serial_no: str | None
     asset_category_id: int | None
     asset_class: str | None = None
+    asset_class_id: int | None = None
+    asset_class_code: str | None = None
+    asset_class_name: str | None = None
     asset_type: str | None = None
     category_name: str | None = None
     tag_color_id: int | None = None

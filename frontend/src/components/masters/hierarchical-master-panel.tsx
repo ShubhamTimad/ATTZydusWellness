@@ -285,7 +285,7 @@ export function HierarchicalMasterPanel({
 
   return (
     <>
-      <AdminDataTable title={title} headerActions={addButton}>
+      <AdminDataTable title={title} headerActions={addButton} className="min-h-0 flex-1">
         <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>

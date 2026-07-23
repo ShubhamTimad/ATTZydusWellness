@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
-from core.permissions import require_permission
+from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.platform.settings.schema import (
     AuthPolicyPublic,
@@ -17,6 +17,19 @@ from modules.platform.settings.schema import (
 from modules.platform.settings.service import SettingsService
 
 router = APIRouter(prefix="/settings", tags=["admin", "settings"])
+
+# Settings module grants (settings.view / settings.update) cover the Settings page,
+# including auth-policy tabs that historically used a separate auth_policy.* feature.
+SettingsRead = Annotated[object, Depends(require_any_permission("settings.view", "settings.update"))]
+SettingsWrite = Annotated[object, Depends(require_permission("settings.update"))]
+AuthPolicyRead = Annotated[
+    object,
+    Depends(require_any_permission("auth_policy.view", "settings.view", "settings.update")),
+]
+AuthPolicyWrite = Annotated[
+    object,
+    Depends(require_any_permission("auth_policy.update", "settings.update")),
+]
 
 
 def get_settings_service(db: Session = Depends(get_db)) -> SettingsService:
@@ -34,7 +47,7 @@ def get_password_policy(
 def put_password_policy(
     payload: PasswordPolicyPublic,
     svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: Annotated[object, Depends(require_permission("settings.update"))],
+    _: SettingsWrite,
 ) -> PasswordPolicyPublic:
     return svc.put_password_policy(payload)
 
@@ -42,7 +55,7 @@ def put_password_policy(
 @router.get("/auth-policy", response_model=AuthPolicyPublic)
 def get_auth_policy(
     svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: Annotated[object, Depends(require_permission("auth_policy.view"))],
+    _: AuthPolicyRead,
 ) -> AuthPolicyPublic:
     return svc.get_auth_policy()
 
@@ -51,7 +64,7 @@ def get_auth_policy(
 def put_auth_policy(
     payload: AuthPolicyPublic,
     svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: Annotated[object, Depends(require_permission("auth_policy.update"))],
+    _: AuthPolicyWrite,
 ) -> AuthPolicyPublic:
     return svc.put_auth_policy(payload)
 
@@ -59,7 +72,7 @@ def put_auth_policy(
 @router.get("/email-delivery", response_model=EmailDeliveryPublic)
 def get_email_delivery(
     svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: Annotated[object, Depends(require_permission("settings.update"))],
+    _: SettingsRead,
 ) -> EmailDeliveryPublic:
     return svc.get_email_delivery()
 
@@ -68,7 +81,7 @@ def get_email_delivery(
 def put_email_delivery(
     payload: EmailDeliveryPublic,
     svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: Annotated[object, Depends(require_permission("settings.update"))],
+    _: SettingsWrite,
 ) -> EmailDeliveryPublic:
     return svc.put_email_delivery(payload)
 
@@ -77,7 +90,7 @@ def put_email_delivery(
 async def test_email_delivery(
     payload: EmailDeliveryTestRequest,
     svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: Annotated[object, Depends(require_permission("settings.update"))],
+    _: SettingsWrite,
 ) -> dict[str, str]:
     try:
         await run_in_threadpool(
@@ -97,7 +110,7 @@ async def test_email_delivery(
 @router.get("/session-idle", response_model=SessionIdleSettingsPublic)
 def get_session_idle(
     svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: Annotated[object, Depends(require_permission("settings.update"))],
+    _: SettingsRead,
 ) -> SessionIdleSettingsPublic:
     return svc.get_session_idle()
 
@@ -106,7 +119,7 @@ def get_session_idle(
 def put_session_idle(
     payload: SessionIdleSettingsPublic,
     svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: Annotated[object, Depends(require_permission("settings.update"))],
+    _: SettingsWrite,
 ) -> SessionIdleSettingsPublic:
     return svc.put_session_idle(payload)
 
@@ -114,7 +127,7 @@ def put_session_idle(
 @router.get("/financial-year", response_model=FinancialYearSettingsPublic)
 def get_financial_year(
     svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: Annotated[object, Depends(require_permission("settings.update"))],
+    _: SettingsRead,
 ) -> FinancialYearSettingsPublic:
     return svc.get_financial_year()
 
@@ -123,6 +136,6 @@ def get_financial_year(
 def put_financial_year(
     payload: FinancialYearSettingsPublic,
     svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: Annotated[object, Depends(require_permission("settings.update"))],
+    _: SettingsWrite,
 ) -> FinancialYearSettingsPublic:
     return svc.put_financial_year(payload)

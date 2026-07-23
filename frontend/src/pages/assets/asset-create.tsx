@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useNavigate } from "react-router-dom"
-import { ClipboardList, DollarSign, FileText, MapPin, Package } from "lucide-react"
+import { ClipboardList, DollarSign, MapPin, Package } from "lucide-react"
 import { toast } from "sonner"
 
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
@@ -23,6 +23,7 @@ import type { AssetDetail } from "@/lib/assets-types"
 import { useAssetFieldConfig } from "@/lib/use-asset-field-config"
 import { hasPermission } from "@/lib/permissions"
 import {
+  assetClassLabel,
   assetConditionLabel,
   assetCustodianLabel,
   categoryLabel,
@@ -39,7 +40,7 @@ type CreateForm = {
   combined_asset_number: string
   remark: string
   sub_no: string
-  asset_class: string
+  asset_class_id: string
   asset_type: string
   asset_category_id: string
   rfid_code: string
@@ -48,11 +49,7 @@ type CreateForm = {
   asset_condition_id: string
   serial_no: string
   ownership_type: string
-  inventory_no: string
   asset_description: string
-  engineering_description: string
-  qa_description: string
-  asset_allocation: string
   pm_equipment_id: string
   plant_id: string
   sub_location: string
@@ -89,7 +86,7 @@ const EMPTY_FORM: CreateForm = {
   combined_asset_number: "",
   remark: "",
   sub_no: "",
-  asset_class: "",
+  asset_class_id: "",
   asset_type: "",
   asset_category_id: "",
   rfid_code: "",
@@ -98,11 +95,7 @@ const EMPTY_FORM: CreateForm = {
   asset_condition_id: "",
   serial_no: "",
   ownership_type: "",
-  inventory_no: "",
   asset_description: "",
-  engineering_description: "",
-  qa_description: "",
-  asset_allocation: "",
   pm_equipment_id: "",
   plant_id: "",
   sub_location: "",
@@ -139,13 +132,12 @@ function validateCreateForm(
   getLabel: (key: string, fallback?: string) => string,
 ): string | null {
   const checks: { key: string; ok: boolean }[] = [
+    { key: "asset_name", ok: Boolean(form.asset_name.trim()) },
     { key: "combined_asset_number", ok: Boolean(form.combined_asset_number.trim()) },
     { key: "asset_category_id", ok: Boolean(form.asset_category_id) },
     { key: "plant_id", ok: Boolean(form.plant_id) },
     { key: "cost_center", ok: Boolean(form.cost_center.trim()) },
     { key: "profit_center", ok: Boolean(form.profit_center.trim()) },
-    { key: "functional_location", ok: Boolean(form.functional_location.trim()) },
-    { key: "actual_location", ok: Boolean(form.actual_location.trim()) },
   ]
   const missing = checks.filter((c) => isRequired(c.key) && !c.ok)
   if (missing.length === 0) return null
@@ -169,7 +161,7 @@ function buildCreatePayload(form: CreateForm) {
       : null,
     remark: form.remark.trim() || null,
     sub_no: form.sub_no.trim() || null,
-    asset_class: strOrNull(form.asset_class),
+    asset_class_id: form.asset_class_id ? Number(form.asset_class_id) : null,
     asset_type: strOrNull(form.asset_type),
     rfid_code: strOrNull(form.rfid_code),
     tag_color_id:
@@ -180,11 +172,11 @@ function buildCreatePayload(form: CreateForm) {
     asset_category_id: form.asset_category_id ? Number(form.asset_category_id) : null,
     ownership_type: strOrNull(form.ownership_type),
     information: {
-      inventory_no: strOrNull(form.inventory_no),
+      inventory_no: null,
       asset_description: strOrNull(form.asset_description),
-      engineering_description: strOrNull(form.engineering_description),
-      qa_description: strOrNull(form.qa_description),
-      asset_allocation: strOrNull(form.asset_allocation),
+      engineering_description: null,
+      qa_description: null,
+      asset_allocation: null,
       pm_equipment_id: strOrNull(form.pm_equipment_id),
     },
     location: {
@@ -374,6 +366,22 @@ export function AssetCreatePage() {
                 />
               </div>
               {field(
+                "asset_name",
+                <FormField
+                  id="asset_name"
+                  labelText={fc.getLabel("asset_name", "Asset name")}
+                  required={fc.isRequired("asset_name")}
+                  className="sm:col-span-2"
+                >
+                  <Input
+                    id="asset_name"
+                    value={form.asset_name}
+                    onChange={(e) => patch({ asset_name: e.target.value })}
+                    autoFocus
+                  />
+                </FormField>,
+              )}
+              {field(
                 "asset_code",
                 <FormField
                   id="asset_code"
@@ -385,7 +393,6 @@ export function AssetCreatePage() {
                     value={form.asset_code}
                     onChange={(e) => patch({ asset_code: e.target.value })}
                     className="font-mono uppercase"
-                    autoFocus
                   />
                 </FormField>,
               )}
@@ -454,13 +461,25 @@ export function AssetCreatePage() {
                 </FormField>,
               )}
               {field(
-                "asset_class",
-                <FormField id="asset_class" labelText={fc.getLabel("asset_class", "Asset Class")}>
-                  <Input
-                    id="asset_class"
-                    value={form.asset_class}
-                    onChange={(e) => patch({ asset_class: e.target.value })}
-                  />
+                "asset_class_id",
+                <FormField
+                  id="asset_class_id"
+                  labelText={fc.getLabel("asset_class_id", "Asset Class")}
+                  required={fc.isRequired("asset_class_id") || fc.isRequired("asset_class")}
+                >
+                  <select
+                    id="asset_class_id"
+                    className={adminSelectClass}
+                    value={form.asset_class_id}
+                    onChange={(e) => patch({ asset_class_id: e.target.value })}
+                  >
+                    <option value="">—</option>
+                    {masters.assetClasses.map((c) => (
+                      <option key={c.id} value={String(c.id)}>
+                        {assetClassLabel(c)}
+                      </option>
+                    ))}
+                  </select>
                 </FormField>,
               )}
               {field(
@@ -582,6 +601,17 @@ export function AssetCreatePage() {
                 </FormField>,
               )}
               <FormField
+                labelText="Plant Name"
+                required={fc.isRequired("plant_id")}
+              >
+                <Input
+                  readOnly
+                  disabled
+                  className="bg-muted/40"
+                  value={selectedPlant?.name ?? "Takeda"}
+                />
+              </FormField>
+              <FormField
                 id="functional_location"
                 labelText={fc.getLabel("functional_location", "Actual Location 1")}
                 required={fc.isRequired("functional_location")}
@@ -601,17 +631,6 @@ export function AssetCreatePage() {
                     </option>
                   ))}
                 </select>
-              </FormField>
-              <FormField
-                labelText="Plant Name"
-                required={fc.isRequired("plant_id")}
-              >
-                <Input
-                  readOnly
-                  disabled
-                  className="bg-muted/40"
-                  value={selectedPlant?.name ?? "Takeda"}
-                />
               </FormField>
               <FormField
                 id="actual_location"
@@ -651,53 +670,13 @@ export function AssetCreatePage() {
           </AdminPanel>
 
           <AdminPanel
-            title="Descriptions & allocation"
-            description="Extended asset information"
-            headerActions={<FileText className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
-          >
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <FormField id="inventory_no" labelText="Inventory no.">
-                <Input id="inventory_no" value={form.inventory_no} onChange={(e) => patch({ inventory_no: e.target.value })} />
-              </FormField>
-              <FormField id="pm_equipment_id" labelText="PM equipment ID">
-                <Input
-                  id="pm_equipment_id"
-                  value={form.pm_equipment_id}
-                  onChange={(e) => patch({ pm_equipment_id: e.target.value })}
-                />
-              </FormField>
-              <FormField id="asset_allocation" labelText="Asset allocation" className="sm:col-span-2">
-                <Input
-                  id="asset_allocation"
-                  value={form.asset_allocation}
-                  onChange={(e) => patch({ asset_allocation: e.target.value })}
-                />
-              </FormField>
-              <FormField id="engineering_description" labelText="Engineering description" className="sm:col-span-2">
-                <Input
-                  id="engineering_description"
-                  value={form.engineering_description}
-                  onChange={(e) => patch({ engineering_description: e.target.value })}
-                />
-              </FormField>
-              <FormField id="qa_description" labelText="QA description" className="sm:col-span-2">
-                <Input
-                  id="qa_description"
-                  value={form.qa_description}
-                  onChange={(e) => patch({ qa_description: e.target.value })}
-                />
-              </FormField>
-            </div>
-          </AdminPanel>
-
-          <AdminPanel
             title="Financial information"
             description="Cost, capitalization, and life span"
             headerActions={<DollarSign className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
+            className="lg:col-span-2"
           >
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {field(
                 "cost_center",
                 <FormField
@@ -721,17 +700,6 @@ export function AssetCreatePage() {
                 </FormField>,
               )}
               {field(
-                "cap_date",
-                <FormField id="cap_date" labelText={fc.getLabel("cap_date", "Capitalization Date")}>
-                  <Input
-                    id="cap_date"
-                    type="date"
-                    value={form.cap_date}
-                    onChange={(e) => patch({ cap_date: e.target.value })}
-                  />
-                </FormField>,
-              )}
-              {field(
                 "cost_center_name",
                 <FormField
                   id="cost_center_name"
@@ -750,6 +718,17 @@ export function AssetCreatePage() {
                       </option>
                     ))}
                   </select>
+                </FormField>,
+              )}
+              {field(
+                "cap_date",
+                <FormField id="cap_date" labelText={fc.getLabel("cap_date", "Capitalization Date")}>
+                  <Input
+                    id="cap_date"
+                    type="date"
+                    value={form.cap_date}
+                    onChange={(e) => patch({ cap_date: e.target.value })}
+                  />
                 </FormField>,
               )}
               {field(
@@ -874,6 +853,13 @@ export function AssetCreatePage() {
                   />
                 </FormField>,
               )}
+              <FormField id="pm_equipment_id" labelText="PM equipment ID">
+                <Input
+                  id="pm_equipment_id"
+                  value={form.pm_equipment_id}
+                  onChange={(e) => patch({ pm_equipment_id: e.target.value })}
+                />
+              </FormField>
             </div>
           </AdminPanel>
         </div>

@@ -38,10 +38,11 @@ def asset_export_value(asset: AssetMaster, field: str) -> Any:
     tag = asset.tag_color
     custodian = asset.asset_custodian
     condition = asset.asset_condition
+    asset_class = asset.asset_class_master
 
     values: dict[str, Any] = {
         "asset_name": asset.asset_name,
-        "asset_class": asset.asset_class,
+        "asset_class_code": asset_class.code if asset_class else asset.asset_class,
         "asset_type": asset.asset_type,
         "asset_code": asset.asset_code,
         "combined_asset_number": asset.combined_asset_number,

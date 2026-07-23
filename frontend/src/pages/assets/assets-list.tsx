@@ -1306,7 +1306,7 @@ export function AssetsListPage() {
               id="asset-search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search by name, code, serial, or RFID…"
+              placeholder="Search By Asset Name, Number , RFID Code"
               className="w-full pl-9"
               aria-label="Search assets"
             />

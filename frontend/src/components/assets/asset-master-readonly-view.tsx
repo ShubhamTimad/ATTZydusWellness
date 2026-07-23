@@ -108,7 +108,7 @@ export function AssetMasterReadOnlyView({ asset }: { asset: AssetDetail }) {
   const summaryItems: SummaryItem[] = [
     { label: "Status", value: assetStatusLabel(asset.lifecycle_status, asset.approval_status) },
     { label: "Asset code", value: asset.asset_code, mono: true },
-    { label: "Class / type", value: [asset.asset_class, asset.asset_type].filter(Boolean).join(" · ") || "—" },
+    { label: "Class / type", value: [asset.asset_class_name ?? asset.asset_class, asset.asset_type].filter(Boolean).join(" · ") || "—" },
     { label: "Category", value: asset.category_name ?? "—" },
     { label: "Plant", value: asset.plant_name ?? "—" },
     { label: "RFID", value: asset.rfid_code ?? "—", mono: true },

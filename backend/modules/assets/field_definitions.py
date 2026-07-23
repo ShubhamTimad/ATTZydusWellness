@@ -7,7 +7,14 @@ from typing import Any
 # Excel headers (case-insensitive) -> canonical import key
 IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
     "asset_name": ["asset name", "asset_name"],
-    "asset_class": ["asset class", "asset_class"],
+    "asset_class_code": [
+        "asset class",
+        "asset class code",
+        "asset_class",
+        "asset_class_code",
+        "class",
+        "class code",
+    ],
     "asset_type": ["asset type", "asset_type"],
     "category_code": [
         "asset category",
@@ -16,7 +23,14 @@ IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
         "category code",
         "category_code",
     ],
-    "asset_code": ["asset code", "asset_code", "code"],
+    "asset_code": [
+        "asset number",
+        "asset no",
+        "asset no.",
+        "asset code",
+        "asset_code",
+        "code",
+    ],
     "combined_asset_number": [
         "combined asset no",
         "combined asset number",
@@ -105,7 +119,8 @@ IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
 
 ASSET_FIELD_LABELS: dict[str, str] = {
     "asset_name": "Asset name",
-    "asset_class": "Asset class",
+    "asset_class_code": "Asset class",
+    "asset_class_id": "Asset class",
     "asset_type": "Asset type",
     "asset_category_id": "Asset category",
     "asset_code": "Asset Number",
@@ -175,8 +190,6 @@ ASSET_REQUIRED_MANUAL_FIELD_KEYS: frozenset[str] = frozenset(
         "asset_category_id",
         "plant_id",
         "cost_center",
-        "functional_location",
-        "actual_location",
     }
 )
 
@@ -238,16 +251,15 @@ def required_manual_create_field_errors(
             scope_keys=MANUAL_CREATE_SCOPE,
         )
     errors: dict[str, str] = {}
-    text_checks = (
-        ("asset_name", asset_name),
-        ("combined_asset_number", combined_asset_number),
-        ("cost_center", cost_center),
-        ("profit_center", profit_center),
-        ("functional_location", functional_location),
-        ("actual_location", actual_location),
-    )
-    for key, value in text_checks:
-        if not _required_text(value):
+    text_values = {
+        "asset_name": asset_name,
+        "combined_asset_number": combined_asset_number,
+        "cost_center": cost_center,
+    }
+    for key in ASSET_REQUIRED_MANUAL_FIELD_KEYS:
+        if key in ("asset_category_id", "plant_id"):
+            continue
+        if not _required_text(text_values.get(key)):
             label = ASSET_FIELD_LABELS.get(key, key.replace("_", " ").title())
             errors[key] = f"{label} is required."
     if asset_category_id is None:
@@ -260,7 +272,7 @@ def required_manual_create_field_errors(
 # Import template column order (plant and parents before dependent dropdowns).
 ASSET_IMPORT_TEMPLATE_FIELDS: list[str] = [
     "asset_name",
-    "asset_class",
+    "asset_class_code",
     "asset_type",
     "category_code",
     "combined_asset_number",
@@ -284,7 +296,6 @@ ASSET_IMPORT_TEMPLATE_FIELDS: list[str] = [
     "party_details",
     "invoice_no",
     "invoice_date",
-    "inventory_count",
     "voucher_no",
     "voucher_date",
     "grn_date",
@@ -298,7 +309,7 @@ ASSET_IMPORT_TEMPLATE_FIELDS: list[str] = [
 # Default export columns (matches import grid / Assets → Export dialog).
 ASSET_EXPORT_DEFAULT_FIELDS: list[str] = [
     "asset_name",
-    "asset_class",
+    "asset_class_code",
     "asset_type",
     "category_code",
     "combined_asset_number",
@@ -332,7 +343,7 @@ ASSET_EXPORT_DEFAULT_FIELDS: list[str] = [
 # Canonical keys for asset Excel export (import-compatible first, then metadata).
 ASSET_EXPORT_FIELDS: list[str] = [
     "asset_name",
-    "asset_class",
+    "asset_class_code",
     "asset_type",
     "category_code",
     "combined_asset_number",
@@ -390,7 +401,7 @@ ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
 def import_field_header_label(key: str, *, db: Any | None = None) -> str:
     """Import template headers: canonical labels + import-only required asterisks.
 
-    Do not use create-form field_config.is_required (locations stay required on create).
+    Do not use create-form field_config.is_required for import asterisks.
     ``db`` is kept for call-site compatibility; labels come from export/import maps.
     """
     _ = db

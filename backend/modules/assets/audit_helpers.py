@@ -57,7 +57,10 @@ def _norm(value: Any) -> Any:
 def snapshot_asset(asset: AssetMaster) -> dict[str, Any]:
     state: dict[str, Any] = {
         "asset_name": asset.asset_name,
-        "asset_class": asset.asset_class,
+        "asset_class": asset.asset_class_master.name
+        if getattr(asset, "asset_class_master", None)
+        else asset.asset_class,
+        "asset_class_id": asset.asset_class_id,
         "asset_type": asset.asset_type,
         "asset_code": asset.asset_code,
         "combined_asset_number": asset.combined_asset_number,

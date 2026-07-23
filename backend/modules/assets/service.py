@@ -64,6 +64,7 @@ from modules.assets.import_validation import (
 )
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    AssetClassMaster,
     AssetConditionMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
@@ -471,6 +472,30 @@ class AssetMasterService:
             return int(row.id)
         return None
 
+    def _resolve_asset_class_id(
+        self, *, asset_class_id: int | None, asset_class_code: str | None
+    ) -> int | None:
+        if asset_class_id is not None:
+            row = self._db.get(AssetClassMaster, asset_class_id)
+            if row is None or not row.is_active:
+                raise InvalidAssetMasterLookupError("Unknown or inactive asset class.")
+            return int(row.id)
+        if asset_class_code:
+            code = asset_class_code.strip().lower()
+            row = self._db.scalar(
+                select(AssetClassMaster).where(
+                    or_(
+                        func.lower(AssetClassMaster.code) == code,
+                        func.lower(AssetClassMaster.name) == code,
+                    ),
+                    AssetClassMaster.is_active.is_(True),
+                )
+            )
+            if row is None:
+                raise InvalidAssetMasterLookupError("Unknown asset class code.")
+            return int(row.id)
+        return None
+
     def _set_tag_color(self, asset: AssetMaster, tag_color_id: int | None) -> None:
         rfid = _normalize_rfid(asset.rfid_code or "")
         if tag_color_id is not None:
@@ -500,6 +525,18 @@ class AssetMasterService:
             asset.asset_condition_id = int(asset_condition_id)
         else:
             asset.asset_condition_id = None
+
+    def _set_asset_class(self, asset: AssetMaster, asset_class_id: int | None) -> None:
+        if asset_class_id is not None:
+            row = self._db.get(AssetClassMaster, asset_class_id)
+            if row is None or not row.is_active:
+                raise InvalidAssetMasterLookupError("Unknown or inactive asset class.")
+            asset.asset_class_id = int(asset_class_id)
+            # Keep legacy free-text column in sync for older readers/exports.
+            asset.asset_class = (row.name or row.code)[:128]
+        else:
+            asset.asset_class_id = None
+            asset.asset_class = None
 
     def _resolve_plant_id(self, plant_code: str | None, plant_id: int | None) -> int | None:
         if plant_id is not None:
@@ -997,7 +1034,6 @@ class AssetMasterService:
             rfid_code=data.rfid_code.strip() if data.rfid_code else None,
             serial_no=data.serial_no.strip() if data.serial_no else None,
             asset_category_id=data.asset_category_id,
-            asset_class=data.asset_class.strip() if data.asset_class else None,
             asset_type=data.asset_type.strip() if data.asset_type else None,
             ownership_type=data.ownership_type,
             source_type="manual",
@@ -1020,6 +1056,13 @@ class AssetMasterService:
             self._set_asset_custodian(asset, data.asset_custodian_id)
         if data.asset_condition_id is not None:
             self._set_asset_condition(asset, data.asset_condition_id)
+        class_id = data.asset_class_id
+        if class_id is None and data.asset_class:
+            class_id = self._resolve_asset_class_id(
+                asset_class_id=None, asset_class_code=data.asset_class
+            )
+        if class_id is not None:
+            self._set_asset_class(asset, class_id)
 
         capex_form_id = data.capitalization_form_id
         if capex_form_id is not None:
@@ -1728,6 +1771,7 @@ class AssetMasterService:
             selectinload(AssetMaster.tag_color),
             selectinload(AssetMaster.asset_custodian),
             selectinload(AssetMaster.asset_condition),
+            selectinload(AssetMaster.asset_class_master),
             selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
             selectinload(AssetMaster.financial),
             selectinload(AssetMaster.inventory),
@@ -1890,6 +1934,7 @@ class AssetMasterService:
                 selectinload(AssetMaster.tag_color),
                 selectinload(AssetMaster.asset_custodian),
                 selectinload(AssetMaster.asset_condition),
+            selectinload(AssetMaster.asset_class_master),
                 selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
                 selectinload(AssetMaster.information),
                 selectinload(AssetMaster.financial),
@@ -2077,7 +2122,12 @@ class AssetMasterService:
             rfid_code=asset.rfid_code,
             serial_no=asset.serial_no,
             asset_category_id=asset.asset_category_id,
-            asset_class=asset.asset_class,
+            asset_class=asset.asset_class_master.name
+            if asset.asset_class_master
+            else asset.asset_class,
+            asset_class_id=asset.asset_class_id,
+            asset_class_code=asset.asset_class_master.code if asset.asset_class_master else None,
+            asset_class_name=asset.asset_class_master.name if asset.asset_class_master else None,
             asset_type=asset.asset_type,
             category_name=asset.category.name if asset.category else None,
             tag_color_id=asset.tag_color_id,
@@ -2248,12 +2298,20 @@ class AssetMasterService:
             self._set_asset_custodian(asset, data.asset_custodian_id)
         if "asset_condition_id" in data.model_dump(exclude_unset=True):
             self._set_asset_condition(asset, data.asset_condition_id)
+        if "asset_class_id" in data.model_dump(exclude_unset=True):
+            self._set_asset_class(asset, data.asset_class_id)
+        elif data.asset_class is not None:
+            # Legacy free-text update: resolve to master when possible.
+            text = data.asset_class.strip() or None
+            if text:
+                class_id = self._resolve_asset_class_id(asset_class_id=None, asset_class_code=text)
+                self._set_asset_class(asset, class_id)
+            else:
+                self._set_asset_class(asset, None)
         if data.serial_no is not None:
             asset.serial_no = data.serial_no.strip() or None
         if data.asset_category_id is not None:
             asset.asset_category_id = data.asset_category_id
-        if data.asset_class is not None:
-            asset.asset_class = data.asset_class.strip() or None
         if data.asset_type is not None:
             asset.asset_type = data.asset_type.strip() or None
         if data.ownership_type is not None:
@@ -2571,6 +2629,10 @@ class AssetMasterService:
                         asset_condition_id=None,
                         asset_condition_code=str(mapped.get("asset_condition_code") or "") or None,
                     )
+                    asset_class_id = self._resolve_asset_class_id(
+                        asset_class_id=None,
+                        asset_class_code=str(mapped.get("asset_class_code") or "") or None,
+                    )
                 except InvalidAssetMasterLookupError as exc:
                     errors.append(f"Row {raw.row_number}: {exc.message}")
                     continue
@@ -2583,7 +2645,6 @@ class AssetMasterService:
                     rfid_code=mapped.get("rfid_code"),
                     serial_no=mapped.get("serial_no"),
                     asset_category_id=cat_id,
-                    asset_class=mapped.get("asset_class"),
                     asset_type=mapped.get("asset_type"),
                     tag_color_id=tag_color_id if rfid else None,
                     asset_custodian_id=asset_custodian_id,
@@ -2593,6 +2654,8 @@ class AssetMasterService:
                     import_batch_id=batch.id,
                     created_by=actor_user_id,
                 )
+                if asset_class_id is not None:
+                    self._set_asset_class(asset, asset_class_id)
                 set_asset_inactive_draft(asset)
                 self._db.add(asset)
                 self._db.flush()

@@ -86,7 +86,7 @@ def build_section_payloads(raw: dict[str, Any]) -> dict[str, Any]:
         "sub_no": n.get("sub_no"),
         "rfid_code": n.get("rfid_code"),
         "serial_no": n.get("serial_no"),
-        "asset_class": n.get("asset_class"),
+        "asset_class_code": n.get("asset_class_code"),
         "asset_type": n.get("asset_type"),
         "category_code": n.get("category_code"),
         "tag_color_code": n.get("tag_color_code"),

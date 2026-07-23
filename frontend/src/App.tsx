@@ -35,8 +35,10 @@ import {
   clearAuthProfile,
   hasAnyNonUsersRbacPermission,
   persistAuthFromMe,
+  SETTINGS_ACCESS_PERMISSIONS,
   TASK_ACCESS_PERMISSIONS,
 } from "@/lib/permissions"
+import type { NavbarUser } from "@/lib/navbar-user"
 
 function App() {
   return (
@@ -197,7 +199,7 @@ function App() {
           <Route
             path="system-settings"
             element={
-              <RequirePermission code="settings.update">
+              <RequirePermission anyOf={[...SETTINGS_ACCESS_PERMISSIONS]}>
                 <SettingsPage />
               </RequirePermission>
             }
@@ -246,7 +248,7 @@ function App() {
           <Route
             path="settings"
             element={
-              <RequirePermission code="settings.update">
+              <RequirePermission anyOf={[...SETTINGS_ACCESS_PERMISSIONS]}>
                 <SettingsPage />
               </RequirePermission>
             }
@@ -349,7 +351,7 @@ function AppLoginRoute() {
 function AppRoute() {
   const navigate = useNavigate()
   const [checking, setChecking] = React.useState(true)
-  const [userEmail, setUserEmail] = React.useState<string | null>(null)
+  const [navbarUser, setNavbarUser] = React.useState<NavbarUser | null>(null)
   const [profileTick, setProfileTick] = React.useState(0)
 
   React.useEffect(() => {
@@ -361,14 +363,24 @@ function AppRoute() {
         return
       }
       try {
-        const me = await getJson<{ email?: string; is_superuser?: boolean; permissions?: string[] }>("/me")
+        const me = await getJson<{
+          full_name?: string
+          email?: string
+          role?: string | null
+          is_superuser?: boolean
+          permissions?: string[]
+        }>("/me")
         if (cancelled) return
         persistAuthFromMe(me)
         if (me?.is_superuser === true) {
           navigate("/admin", { replace: true })
           return
         }
-        setUserEmail(typeof me.email === "string" ? me.email : null)
+        setNavbarUser({
+          fullName: typeof me.full_name === "string" ? me.full_name : null,
+          email: typeof me.email === "string" ? me.email : null,
+          role: typeof me.role === "string" ? me.role : null,
+        })
         setProfileTick((t) => t + 1)
         setChecking(false)
       } catch {
@@ -386,7 +398,7 @@ function AppRoute() {
   return (
     <SessionIdleWatcher loginPath="/login">
       <AppShellLayout
-        userEmail={userEmail}
+        user={navbarUser}
         onSignOut={() => {
           clearTokens()
           navigate("/login", { replace: true })
@@ -411,7 +423,7 @@ function AdminRoute() {
     | "workflow-assignment"
     | "email-templates"
   >("overview")
-  const [userEmail, setUserEmail] = React.useState<string | null>(null)
+  const [navbarUser, setNavbarUser] = React.useState<NavbarUser | null>(null)
   const [profileTick, setProfileTick] = React.useState(0)
   const [superGate, setSuperGate] = React.useState<"pending" | "ok">("pending")
 
@@ -433,14 +445,29 @@ function AdminRoute() {
     let cancelled = false
     ;(async () => {
       try {
-        const me = await getJson<{ email?: string; is_superuser?: boolean; permissions?: string[] }>("/me")
+        const me = await getJson<{
+          full_name?: string
+          email?: string
+          role?: string | null
+          is_superuser?: boolean
+          permissions?: string[]
+        }>("/me")
         if (cancelled) return
         persistAuthFromMe(me)
         if (me?.is_superuser !== true) {
           navigate("/dashboard", { replace: true })
           return
         }
-        setUserEmail(typeof me.email === "string" ? me.email : null)
+        setNavbarUser({
+          fullName: typeof me.full_name === "string" ? me.full_name : null,
+          email: typeof me.email === "string" ? me.email : null,
+          role:
+            typeof me.role === "string" && me.role.trim()
+              ? me.role
+              : me.is_superuser
+                ? "Superuser"
+                : null,
+        })
         setProfileTick((t) => t + 1)
         setSuperGate("ok")
       } catch {
@@ -480,7 +507,7 @@ function AdminRoute() {
           if (id === "email-templates") navigate("/admin/email-templates")
           if (id === "settings") navigate("/admin/settings")
         }}
-        userEmail={userEmail}
+        user={navbarUser}
         onSignOut={() => {
           clearTokens()
           navigate("/admin/login", { replace: true })

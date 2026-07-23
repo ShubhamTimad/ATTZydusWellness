@@ -3,6 +3,7 @@ import * as React from "react"
 import { getJson } from "@/lib/api"
 import type {
   ActualLocationMaster,
+  AssetClassMaster,
   AssetConditionMaster,
   AssetCustodianUser,
   CategoryMaster,
@@ -28,6 +29,7 @@ export function useAssetMasterLookups(
   const [tagColors, setTagColors] = React.useState<TagColorMaster[]>([])
   const [custodianUsers, setCustodianUsers] = React.useState<AssetCustodianUser[]>([])
   const [assetConditions, setAssetConditions] = React.useState<AssetConditionMaster[]>([])
+  const [assetClasses, setAssetClasses] = React.useState<AssetClassMaster[]>([])
 
   const canRead =
     hasPermission("asset.view") || hasPermission("masters.view")
@@ -41,6 +43,13 @@ export function useAssetMasterLookups(
     void getJson<TagColorMaster[]>("/admin/asset-masters/tag-colors")
       .then(setTagColors)
       .catch(() => setTagColors([]))
+  }, [canRead])
+
+  React.useEffect(() => {
+    if (!canRead) return
+    void getJson<AssetClassMaster[]>("/admin/asset-masters/asset-classes?active_only=false")
+      .then(setAssetClasses)
+      .catch(() => setAssetClasses([]))
   }, [canRead])
 
   React.useEffect(() => {
@@ -143,6 +152,7 @@ export function useAssetMasterLookups(
     tagColors,
     custodianUsers,
     assetConditions,
+    assetClasses,
   }
 }
 
@@ -155,6 +165,10 @@ export function assetCustodianLabel(c: AssetCustodianUser) {
 }
 
 export function assetConditionLabel(c: AssetConditionMaster) {
+  return `${c.code} — ${c.name}`
+}
+
+export function assetClassLabel(c: AssetClassMaster) {
   return `${c.code} — ${c.name}`
 }
 

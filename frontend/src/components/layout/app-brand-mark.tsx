@@ -65,7 +65,7 @@ export function AppBrandMark({
             onDark ? "text-white/60" : "text-muted-foreground",
           )}
         >
-          Asset Tracking
+          Asset Tagging & Tracking
         </p>
       ) : null}
     </div>

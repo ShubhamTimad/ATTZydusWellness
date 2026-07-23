@@ -163,6 +163,39 @@ class AssetConditionPublic(BaseModel):
     created_at: datetime | None = None
 
 
+class AssetClassCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str) -> str:
+        return _norm_code(value)
+
+
+class AssetClassUpdate(BaseModel):
+    code: str | None = Field(default=None, min_length=1, max_length=64)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    is_active: bool | None = None
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _norm_code(value)
+
+
+class AssetClassPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    is_active: bool
+    created_at: datetime | None = None
+
+
 class CostCenterCreate(BaseModel):
     code: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=255)

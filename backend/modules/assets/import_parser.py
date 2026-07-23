@@ -60,6 +60,21 @@ def _parse_row(mapped: dict[str, str], row_number: int) -> ImportPreviewRow | No
     )
 
 
+def _cell_to_str(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value).strip()
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        # Excel often stores whole numbers as floats (10004.0).
+        if value.is_integer():
+            return str(int(value))
+        return str(value).strip()
+    return str(value).strip()
+
+
 def parse_upload_file(*, filename: str | None, content: bytes) -> list[ImportPreviewRow]:
     name = (filename or "").lower()
     if name.endswith(".csv") or not name.endswith((".xlsx", ".xls")):
@@ -91,7 +106,7 @@ def parse_upload_file(*, filename: str | None, content: bytes) -> list[ImportPre
     header_map = _map_headers(headers)
     out = []
     for i, row in enumerate(rows_iter[1:], start=2):
-        cells = [str(c).strip() if c is not None else "" for c in row]
+        cells = [_cell_to_str(c) for c in row]
         mapped = {header_map[j]: cells[j] for j in header_map if j < len(cells)}
         parsed = _parse_row(mapped, i)
         if parsed is not None:

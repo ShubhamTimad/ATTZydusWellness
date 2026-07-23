@@ -90,3 +90,10 @@ export type AssetConditionMaster = {
   name: string
   is_active: boolean
 }
+
+export type AssetClassMaster = {
+  id: number
+  code: string
+  name: string
+  is_active: boolean
+}

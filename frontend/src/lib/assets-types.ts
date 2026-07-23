@@ -147,6 +147,9 @@ export type AssetDetail = {
   serial_no: string | null
   asset_category_id: number | null
   asset_class: string | null
+  asset_class_id: number | null
+  asset_class_code: string | null
+  asset_class_name: string | null
   asset_type: string | null
   category_name: string | null
   tag_color_id: number | null

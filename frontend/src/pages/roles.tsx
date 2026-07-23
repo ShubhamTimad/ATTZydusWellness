@@ -156,7 +156,7 @@ export function RolesPage() {
     setError(null)
     try {
       const [r, cat] = await Promise.all([
-        getJson<RoleListItem[]>("/admin/roles?skip=0&limit=50"),
+        getJson<RoleListItem[]>("/admin/roles?skip=0&limit=200"),
         getJson<PermissionCatalog>("/admin/permissions/catalog"),
       ])
       setRoles(r)
@@ -380,6 +380,8 @@ export function RolesPage() {
 
   return (
     <AdminPage
+      dense
+      viewportFill
       description="Link roles to plants and assign permissions by module. No plants selected = global role."
       actions={
         canCreateRole || canSaveRole ? (
@@ -405,14 +407,14 @@ export function RolesPage() {
       }
     >
       {error ? (
-        <Alert variant="destructive">
+        <Alert variant="destructive" className="shrink-0">
           <AlertTitle>Something went wrong</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
 
       {hasMissingCatalogPermissions && canSaveRole ? (
-        <Alert>
+        <Alert className="shrink-0">
           <AlertTitle>Missing permission rows</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center gap-2">
             <span>Some permissions exist in config but not in the database yet.</span>
@@ -430,8 +432,13 @@ export function RolesPage() {
         </Alert>
       ) : null}
 
-      <div className="grid min-h-0 gap-4 lg:grid-cols-[340px_1fr] lg:items-start">
-        <AdminPanel title="Roles" description="Select a role to configure" contentClassName="p-0">
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)] lg:items-stretch">
+        <AdminPanel
+          title="Roles"
+          description="Select a role to configure"
+          className="flex max-h-[min(42dvh,22rem)] min-h-0 flex-col lg:max-h-none"
+          contentClassName="min-h-0 flex-1 overflow-y-auto p-0"
+        >
           <Table>
             <TableBody>
               {roles === null ? (
@@ -486,7 +493,7 @@ export function RolesPage() {
                   ? "Assign plants and permissions for this role"
                   : "You need roles.update to save"
           }
-          className="flex max-h-[calc(100dvh-11rem)] min-h-0 flex-col"
+          className="flex min-h-0 flex-col"
           contentClassName="min-h-0 flex-1 overflow-y-auto px-5 py-4"
           headerActions={
             selectedRole && (canSaveRole || canDeleteRole) ? (

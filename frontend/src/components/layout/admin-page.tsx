@@ -42,7 +42,7 @@ export function AdminPage({
       {description || actions ? (
         <div
           className={cn(
-            "flex flex-wrap items-center justify-between gap-2",
+            "flex shrink-0 flex-wrap items-center justify-between gap-2",
             dense ? "gap-2" : "gap-4 sm:flex-row sm:items-start",
           )}
         >

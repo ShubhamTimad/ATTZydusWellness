@@ -115,8 +115,15 @@ export const TASK_ACCESS_PERMISSIONS = [
   "task.close",
 ] as const
 
+/** Settings module: view opens the page; update is required to save. */
+export const SETTINGS_ACCESS_PERMISSIONS = ["settings.view", "settings.update"] as const
+
 export function canAccessTasks(): boolean {
   return TASK_ACCESS_PERMISSIONS.some((code) => hasPermission(code))
+}
+
+export function canAccessSettings(): boolean {
+  return SETTINGS_ACCESS_PERMISSIONS.some((code) => hasPermission(code))
 }
 
 export function hasAnyNonUsersRbacPermission(): boolean {

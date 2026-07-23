@@ -82,7 +82,7 @@ def dashboard_summary(
     can_tasks = _has_any(grants, "approval.view", "task.view", "task.act")
     can_roles = _has_any(grants, "roles.view", "roles.create", "roles.update")
     can_permissions = _has_any(grants, "permissions.view", "permissions.create")
-    can_settings = _has(grants, "settings.update")
+    can_settings = _has_any(grants, "settings.view", "settings.update")
 
     counts: dict[str, int | None] = {
         "users_total": None,

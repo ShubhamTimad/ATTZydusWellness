@@ -296,6 +296,9 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
         asset_condition_code = _cell_str(row.data.get("asset_condition_code"))
         if asset_condition_code and lookups.resolve_condition(asset_condition_code) is None:
             field_errors["asset_condition_code"] = "Unknown asset condition."
+        asset_class_code = _cell_str(row.data.get("asset_class_code"))
+        if asset_class_code and lookups.resolve_asset_class(asset_class_code) is None:
+            field_errors["asset_class_code"] = "Unknown asset class."
 
         capex_no = _cell_str(row.data.get("capitalization_form_number"))
         if capex_no:

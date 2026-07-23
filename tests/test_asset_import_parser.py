@@ -31,6 +31,14 @@ def test_map_headers_accepts_template_required_marker() -> None:
     assert mapped[11] == "rfid_code"
 
 
+def test_map_headers_accepts_asset_number_label() -> None:
+    """Template uses 'Asset Number' (not 'Asset code')."""
+    mapped = _map_headers(["Combined Asset No *", "Asset Number", "Asset name *"])
+    assert mapped[0] == "combined_asset_number"
+    assert mapped[1] == "asset_code"
+    assert mapped[2] == "asset_name"
+
+
 def test_map_headers_accepts_legacy_cost_center_label() -> None:
     mapped = _map_headers(["Cost center *", "Capex form no"])
     assert mapped[0] == "cost_center"

@@ -204,7 +204,7 @@ export function MasterCrudPanel({
     kind === "category" || kind === "tag-color" || kind === "code-name" ? "Name" : "Description"
 
   return (
-    <AdminDataTable title={title} headerActions={addButton}>
+    <AdminDataTable title={title} headerActions={addButton} className="min-h-0 flex-1">
       <Table className="app-table-head-sticky">
         <TableHeader>
           <AdminTableHeaderRow>

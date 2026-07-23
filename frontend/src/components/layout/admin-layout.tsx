@@ -28,6 +28,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { SessionIdleNavbarBadge } from "@/components/session-idle-navbar-badge"
 import { hasPermission } from "@/lib/permissions"
+import { navbarDisplayName, navbarInitials, type NavbarUser } from "@/lib/navbar-user"
 import { cn } from "@/lib/utils"
 
 type NavPerm = string | string[] | null
@@ -108,7 +109,7 @@ const navGroups: NavGroup[] = [
           "email_templates.delete",
         ],
       },
-      { id: "settings", label: "Settings", icon: Settings, permission: "settings.update" },
+      { id: "settings", label: "Settings", icon: Settings, permission: ["settings.view", "settings.update"] },
     ],
   },
 ]
@@ -124,6 +125,8 @@ export type AdminLayoutProps = {
   pageTitle?: string
   activeId: AdminNavId
   onNavigate: (id: AdminNavId) => void
+  user?: NavbarUser | null
+  /** @deprecated Prefer ``user``; kept for callers that only have email. */
   userEmail?: string | null
   onSignOut?: () => void
 }
@@ -133,23 +136,20 @@ export function AdminLayout({
   pageTitle,
   activeId,
   onNavigate,
+  user,
   userEmail,
   onSignOut,
 }: AdminLayoutProps) {
   const allItems = navGroups.flatMap((g) => g.items)
   const activeLabel = allItems.find((i) => i.id === activeId)?.label ?? "Overview"
   const title = pageTitle ?? activeLabel
-  const email = userEmail ?? "—"
-
-  const initials = React.useMemo(() => {
-    const raw = (userEmail ?? "").trim()
-    if (!raw) return "?"
-    const left = raw.split("@")[0] ?? raw
-    const parts = left.split(/[.\-_ ]+/).filter(Boolean)
-    const a = (parts[0]?.[0] ?? left[0] ?? "?").toUpperCase()
-    const b = (parts[1]?.[0] ?? left[1] ?? "").toUpperCase()
-    return `${a}${b}`.slice(0, 2)
-  }, [userEmail])
+  const account: NavbarUser = user ?? {
+    fullName: null,
+    email: userEmail ?? null,
+    role: null,
+  }
+  const displayName = navbarDisplayName(account)
+  const initials = navbarInitials(account)
 
   const visibleGroups = navGroups
     .map((group) => ({
@@ -272,7 +272,7 @@ export function AdminLayout({
                     {initials}
                   </AvatarFallback>
                 </Avatar>
-                <span className="hidden max-w-[160px] truncate text-sm font-medium md:inline">{email}</span>
+                <span className="hidden max-w-[160px] truncate text-sm font-medium md:inline">{displayName}</span>
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
               </Button>
             </DropdownMenuTrigger>
@@ -281,7 +281,13 @@ export function AdminLayout({
                 <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
                   Signed in as
                 </span>
-                <div className="truncate text-sm font-semibold text-foreground">{email}</div>
+                <div className="truncate text-sm font-semibold text-foreground">{displayName}</div>
+                {account.role?.trim() ? (
+                  <div className="truncate text-xs text-muted-foreground">Role: {account.role.trim()}</div>
+                ) : null}
+                {account.email?.trim() && account.fullName?.trim() ? (
+                  <div className="truncate text-xs text-muted-foreground">{account.email.trim()}</div>
+                ) : null}
               </DropdownMenuLabel>
               <DropdownMenuItem
                 className="h-10 cursor-pointer justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground"

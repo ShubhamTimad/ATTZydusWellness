@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    AssetClassMaster,
+    AssetConditionMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
     TagColorMaster,
-    AssetConditionMaster,
 )
 from modules.assets.model import (
     AssetCategory,
@@ -83,6 +84,25 @@ def assert_asset_condition_deletable(db: Session, row_id: int) -> None:
     if _active_asset_count(count) > 0:
         raise MasterInUseError(
             "Cannot delete this asset condition while assets are assigned to it. "
+            "Reassign or remove those assets first."
+        )
+
+
+def assert_asset_class_deletable(db: Session, row_id: int) -> None:
+    row = db.get(AssetClassMaster, row_id)
+    if row is None:
+        return
+    count = db.scalar(
+        select(func.count())
+        .select_from(AssetMaster)
+        .where(
+            AssetMaster.deleted_at.is_(None),
+            AssetMaster.asset_class_id == row_id,
+        )
+    )
+    if _active_asset_count(count) > 0:
+        raise MasterInUseError(
+            "Cannot delete this asset class while assets are assigned to it. "
             "Reassign or remove those assets first."
         )
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    AssetClassMaster,
     AssetConditionMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
@@ -111,6 +112,9 @@ class ImportMasterLookups:
         self.conditions = list(
             db.scalars(select(AssetConditionMaster).where(AssetConditionMaster.is_active.is_(True))).all()
         )
+        self.asset_classes = list(
+            db.scalars(select(AssetClassMaster).where(AssetClassMaster.is_active.is_(True))).all()
+        )
 
     def resolve_plant(self, value: str) -> OrgUnit | None:
         row, _ = _pick_unique_by_code_or_name(self.plants, value, label="plant")
@@ -136,6 +140,10 @@ class ImportMasterLookups:
 
     def resolve_condition(self, value: str) -> AssetConditionMaster | None:
         row, _ = _pick_unique_by_code_or_name(self.conditions, value, label="asset condition")
+        return row
+
+    def resolve_asset_class(self, value: str) -> AssetClassMaster | None:
+        row, _ = _pick_unique_by_code_or_name(self.asset_classes, value, label="asset class")
         return row
 
     def resolve_cost_center(
@@ -314,5 +322,11 @@ class ImportMasterLookups:
             condition = self.resolve_condition(condition_value)
             if condition is not None:
                 out["asset_condition_code"] = str(condition.code)
+
+        class_value = str(data.get("asset_class_code") or "").strip()
+        if class_value:
+            asset_class = self.resolve_asset_class(class_value)
+            if asset_class is not None:
+                out["asset_class_code"] = str(asset_class.code)
 
         return out

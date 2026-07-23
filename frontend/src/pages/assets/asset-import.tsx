@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label"
 import { API_BASE_URL, downloadFile, getJson, postJson } from "@/lib/api"
 import type { CostCenterMaster } from "@/lib/masters-types"
 import {
+  assetClassLabel,
   assetConditionLabel,
   assetCustodianLabel,
   tagColorLabel,
@@ -98,6 +99,10 @@ export function AssetImportPage() {
         value: c.code,
         label: assetConditionLabel(c),
       })),
+      asset_class_code: masters.assetClasses.map((c) => ({
+        value: c.code,
+        label: assetClassLabel(c),
+      })),
       plant_code: masters.plants.map((p) => ({ value: p.code, label: p.code })),
       plant_name: masters.plants
         .filter((p) => Boolean(p.name?.trim()))
@@ -111,6 +116,7 @@ export function AssetImportPage() {
       masters.tagColors,
       masters.custodianUsers,
       masters.assetConditions,
+      masters.assetClasses,
       masters.plants,
       allCostCenters,
     ],

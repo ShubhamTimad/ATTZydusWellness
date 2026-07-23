@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    AssetClassMaster,
     AssetConditionMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
@@ -243,6 +244,21 @@ def build_import_template_xlsx(db: Session) -> bytes:
         _define_list_range(wb, "AssetConditions", LISTS_SHEET, list_col, row_start, row_end)
     list_col += 1
 
+    asset_classes = list(
+        db.scalars(
+            select(AssetClassMaster)
+            .where(AssetClassMaster.is_active.is_(True))
+            .order_by(AssetClassMaster.code)
+        ).all()
+    )
+    asset_class_labels = [
+        master_import_label(name=str(c.name), code=str(c.code)) for c in asset_classes
+    ]
+    row_start, row_end = _write_vertical_list(ws_lists, list_col, asset_class_labels)
+    if asset_class_labels:
+        _define_list_range(wb, "AssetClasses", LISTS_SHEET, list_col, row_start, row_end)
+    list_col += 1
+
     cost_centers = list(
         db.scalars(
             select(CostCenterMaster)
@@ -402,6 +418,8 @@ def build_import_template_xlsx(db: Session) -> bytes:
 
     if "asset_condition_code" in col_map and condition_labels:
         _add_list_validation(ws_import, col=col_map["asset_condition_code"], formula="=AssetConditions")
+    if "asset_class_code" in col_map and asset_class_labels:
+        _add_list_validation(ws_import, col=col_map["asset_class_code"], formula="=AssetClasses")
 
     if "plant_code" in col_map and "cost_center" in col_map and plant_codes:
         plant_ref = f"{get_column_letter(col_map['plant_code'])}2"
@@ -480,7 +498,7 @@ def build_import_template_xlsx(db: Session) -> bytes:
             "CapEx form number is optional; use an approved, unused form (e.g. CAP-2026-0001). "
             "Tag color is only valid when RFID is provided.",
         ),
-        ("6.", "Dates: use YYYY-MM-DD (e.g. 2024-06-15). Leave Inventory count blank to default to 1."),
+        ("6.", "Dates: use YYYY-MM-DD (e.g. 2024-06-15)."),
         ("7.", "Save as .xlsx and upload via Assets → Import."),
         ("", ""),
         ("Master data in this file", f"{len(plant_codes)} plants · {len(category_labels)} categories · "
