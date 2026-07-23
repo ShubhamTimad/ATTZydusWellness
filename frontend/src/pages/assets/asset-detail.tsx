@@ -90,7 +90,7 @@ const INVENTORY_READONLY = new Set([
 ])
 
 
-function formatDateTime(iso: string | undefined) {
+function formatDateTime(iso: string | null | undefined) {
   if (!iso) return "—"
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
