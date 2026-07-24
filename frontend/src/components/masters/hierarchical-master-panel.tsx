@@ -211,11 +211,19 @@ export function HierarchicalMasterPanel({
   }
 
   async function saveCreate() {
+    if (!code.trim()) {
+      toast.error("Code is required.")
+      return
+    }
     if (!name.trim()) {
       toast.error(hierarchyNameRequiredMessage(kind))
       return
     }
     if (needsPlant && !plantId) {
+      toast.error("Select a plant.")
+      return
+    }
+    if (needsParent && !plantId) {
       toast.error("Select a plant.")
       return
     }
@@ -238,6 +246,10 @@ export function HierarchicalMasterPanel({
 
   async function saveEdit() {
     if (!editRow) return
+    if (!code.trim()) {
+      toast.error("Code is required.")
+      return
+    }
     if (!name.trim()) {
       toast.error(hierarchyNameRequiredMessage(kind))
       return
@@ -563,7 +575,7 @@ function HierarchyDialog({
             />
           </div>
         </div>
-        <div className="flex justify-end gap-2">
+        <div className="dialog-footer-actions">
           <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

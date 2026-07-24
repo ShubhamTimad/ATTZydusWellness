@@ -144,7 +144,23 @@ export function MasterCrudPanel({
     return { code: code.trim(), description: desc.trim() }
   }
 
+  function validateForm(): string | null {
+    if (!code.trim()) return "Code is required."
+    if (kind === "category" || kind === "tag-color" || kind === "code-name") {
+      if (!name.trim()) return "Name is required."
+    } else if (!desc.trim()) {
+      return "Description is required."
+    }
+    if (kind === "location" && !plantId) return "Select a plant."
+    return null
+  }
+
   async function saveCreate() {
+    const err = validateForm()
+    if (err) {
+      toast.error(err)
+      return
+    }
     setSaving(true)
     try {
       await postJson(listUrl.replace(/\?.*$/, ""), buildPayload())
@@ -160,6 +176,11 @@ export function MasterCrudPanel({
 
   async function saveEdit() {
     if (!editRow) return
+    const err = validateForm()
+    if (err) {
+      toast.error(err)
+      return
+    }
     setSaving(true)
     const base = listUrl.replace(/\?.*$/, "").replace(/\/$/, "")
     const patchUrl = `${base}/${editRow.id}`

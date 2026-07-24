@@ -108,11 +108,49 @@ async function ensureFreshAccessToken(): Promise<string | null> {
   return refreshed ?? token
 }
 
+function fieldLabelFromLoc(loc: unknown): string | null {
+  if (!Array.isArray(loc)) return null
+  const parts = loc.filter((p): p is string => typeof p === "string" && p !== "body" && p !== "query")
+  const key = parts[parts.length - 1]
+  if (!key) return null
+  return key
+    .split("_")
+    .map((w) => (w.length ? w[0]!.toUpperCase() + w.slice(1) : w))
+    .join(" ")
+}
+
+function formatFastapiValidationDetail(detail: unknown[]): string | null {
+  const parts: string[] = []
+  for (const item of detail) {
+    if (!item || typeof item !== "object") continue
+    const msg = (item as { msg?: unknown }).msg
+    if (typeof msg !== "string" || !msg.trim()) continue
+    const type = (item as { type?: unknown }).type
+    const label = fieldLabelFromLoc((item as { loc?: unknown }).loc)
+    const required =
+      type === "missing" ||
+      type === "string_too_short" ||
+      /field required/i.test(msg) ||
+      /at least 1 character/i.test(msg)
+    if (label && required) {
+      parts.push(`${label} is required.`)
+    } else if (label) {
+      parts.push(`${label}: ${msg}`)
+    } else {
+      parts.push(msg)
+    }
+  }
+  return parts.length ? parts.join(" ") : null
+}
+
 function parseErrorMessage(data: unknown, status: number): string {
   if (data && typeof data === "object") {
     const detail = (data as { detail?: unknown }).detail
     if (typeof detail === "string") return detail
-    if (detail && typeof detail === "object" && detail !== null) {
+    if (Array.isArray(detail)) {
+      const formatted = formatFastapiValidationDetail(detail)
+      if (formatted) return formatted
+    } else if (detail && typeof detail === "object" && detail !== null) {
       const msg = (detail as { message?: unknown }).message
       if (typeof msg === "string" && msg.trim()) return msg
     }
