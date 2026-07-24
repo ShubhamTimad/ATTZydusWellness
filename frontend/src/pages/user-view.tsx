@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
 import { hasPermission, isSuperuser } from "@/lib/permissions"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
 type UserPublic = {
   id: number
@@ -60,6 +61,7 @@ export function UserViewPage() {
   const canResendMfa = hasPermission("mfa.manage")
 
   const canHardDelete = isSuperuser() && meId !== null && user !== null && user.id !== meId
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
   async function resendWelcomeEmail() {
     if (!user) return
@@ -93,15 +95,14 @@ export function UserViewPage() {
 
   async function handleDeleteUser() {
     if (!user) return
-    const ok = window.confirm(
-      `Permanently delete ${user.full_name}?\n\nThis removes the account and related onboarding approvals / task rows. This cannot be undone.`,
-    )
+    const ok = await confirmAsk({
+      title: "Permanently delete user?",
+      description: `Permanently delete ${user.full_name}?\n\nThis removes the account and related onboarding approvals / task rows. This cannot be undone.`,
+      confirmLabel: "Delete permanently",
+      destructive: true,
+      requireText: "DELETE",
+    })
     if (!ok) return
-    const typed = window.prompt('Type "DELETE" to confirm permanent deletion.', "")
-    if (typed !== "DELETE") {
-      setError("Deletion cancelled.")
-      return
-    }
     setDeleting(true)
     setError(null)
     try {
@@ -210,14 +211,19 @@ export function UserViewPage() {
 
   if (loading) {
     return (
-      <AdminPage description="Loading user profile…" actions={toolbar}>
-        <p className="text-sm text-muted-foreground">Please wait.</p>
-      </AdminPage>
+      <>
+        <AdminPage fullWidth description="Loading user profile…" actions={toolbar}>
+          <p className="text-sm text-muted-foreground">Please wait.</p>
+        </AdminPage>
+        {confirmDialog}
+      </>
     )
   }
 
   return (
+    <>
     <AdminPage
+      fullWidth
       description={user ? `${user.username} · ${user.email ?? "no email"}` : "User profile and audit history."}
       actions={toolbar}
     >
@@ -276,5 +282,7 @@ export function UserViewPage() {
         </div>
       )}
     </AdminPage>
+    {confirmDialog}
+    </>
   )
 }

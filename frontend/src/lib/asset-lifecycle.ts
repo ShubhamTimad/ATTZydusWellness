@@ -2,8 +2,22 @@ export function isAssetActive(lifecycleStatus: string, approvalStatus: string): 
   return lifecycleStatus === "active" && approvalStatus !== "pending"
 }
 
+export function isAssetDeactivated(lifecycleStatus: string): boolean {
+  return (lifecycleStatus || "").toLowerCase() === "deactivated"
+}
+
+export function canDeactivateAsset(lifecycleStatus: string, approvalStatus: string): boolean {
+  return isAssetActive(lifecycleStatus, approvalStatus)
+}
+
+export function canReactivateAsset(lifecycleStatus: string): boolean {
+  return isAssetDeactivated(lifecycleStatus)
+}
+
 /** List/detail badge from approval + lifecycle. */
 export function assetStatusLabel(lifecycleStatus: string, approvalStatus: string): string {
+  const lifecycle = (lifecycleStatus || "").toLowerCase()
+  if (lifecycle === "deactivated") return "Inactive"
   const approval = (approvalStatus || "").toLowerCase()
   if (approval === "draft") return "Draft"
   if (approval === "pending") return "Pending approval"
@@ -19,6 +33,7 @@ export function assetStatusVariant(
   lifecycleStatus: string,
   approvalStatus: string,
 ): "default" | "secondary" | "destructive" | "outline" {
+  if (isAssetDeactivated(lifecycleStatus)) return "secondary"
   const approval = (approvalStatus || "").toLowerCase()
   if (approval === "rejected") return "destructive"
   if (approval === "pending") return "outline"
@@ -32,6 +47,7 @@ export function assetStatusPillTone(
   lifecycleStatus: string,
   approvalStatus: string,
 ): AssetStatusPillTone {
+  if (isAssetDeactivated(lifecycleStatus)) return "neutral"
   const approval = (approvalStatus || "").toLowerCase()
   if (approval === "rejected") return "danger"
   if (approval === "pending") return "warning"
@@ -41,6 +57,7 @@ export function assetStatusPillTone(
 }
 
 export function canSubmitForApproval(lifecycleStatus: string, approvalStatus: string): boolean {
+  if (isAssetDeactivated(lifecycleStatus)) return false
   if (isAssetActive(lifecycleStatus, approvalStatus)) return false
   const approval = approvalStatus.toLowerCase()
   if (approval === "pending") return false

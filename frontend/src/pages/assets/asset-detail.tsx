@@ -20,7 +20,6 @@ import {
   adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -61,11 +60,14 @@ import {
   assetStatusLabel,
   assetStatusPillTone,
   buildAssetProgress,
+  canDeactivateAsset,
+  canReactivateAsset,
   canSubmitForApproval,
 } from "@/lib/asset-lifecycle"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 import { CapexDecisionDialog } from "@/pages/capex/capex-decision-dialog"
 import { CapexProcessFlow } from "@/pages/capex/capex-process-flow"
@@ -159,6 +161,7 @@ export function AssetDetailPage() {
   const canViewCapex = hasPermission("capitalization.view")
   const canApprovalAct = hasPermission("approval.act")
   const canReassignPerm = hasPermission("asset.reassign") || hasPermission("asset.manage")
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const fieldConfig = useAssetFieldConfig()
 
   const load = React.useCallback(async () => {
@@ -623,9 +626,41 @@ export function AssetDetailPage() {
         canUpdate,
         canEdit,
         editing,
+        canDeactivate: Boolean(
+          asset && canDeactivateAsset(asset.lifecycle_status, asset.approval_status),
+        ),
+        canReactivate: Boolean(asset && canReactivateAsset(asset.lifecycle_status)),
+        canSubmit,
+        canReassign,
+        canDecide: canActOnAsset,
       }),
-    [canUpdate, canEdit, editing],
+    [canUpdate, canEdit, editing, asset, canSubmit, canReassign, canActOnAsset],
   )
+
+  async function toggleLifecycle(action: "deactivate" | "reactivate") {
+    if (!asset) return
+    const ok = await confirmAsk({
+      title: action === "deactivate" ? "Deactivate asset?" : "Reactivate asset?",
+      description:
+        action === "deactivate"
+          ? `Deactivate “${asset.asset_name}”? It will be marked inactive until reactivated.`
+          : `Reactivate “${asset.asset_name}”?`,
+      confirmLabel: action === "deactivate" ? "Deactivate" : "Reactivate",
+      destructive: action === "deactivate",
+    })
+    if (!ok) return
+    setSaving(true)
+    try {
+      const updated = await postJson<AssetDetail>(`/admin/assets/${asset.id}/${action}`)
+      setAsset(updated)
+      toast.success(action === "deactivate" ? "Asset deactivated." : "Asset reactivated.")
+      void loadAudit(asset.id)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Action failed.")
+    } finally {
+      setSaving(false)
+    }
+  }
 
   function handleDetailAction(actionId: string) {
     if (actionId === "update-rfid") {
@@ -644,6 +679,32 @@ export function AssetDetailPage() {
       } else {
         setEditing(true)
       }
+      return
+    }
+
+    if (actionId === "submit") {
+      setSubmitAssignOpen(true)
+      return
+    }
+    if (actionId === "reassign") {
+      setReassignOpen(true)
+      return
+    }
+    if (actionId === "reject") {
+      openDecision("reject")
+      return
+    }
+    if (actionId === "approve") {
+      openDecision("approve")
+      return
+    }
+
+    if (actionId === "deactivate") {
+      void toggleLifecycle("deactivate")
+      return
+    }
+    if (actionId === "reactivate") {
+      void toggleLifecycle("reactivate")
     }
   }
   const toolbar = (
@@ -660,46 +721,6 @@ export function AssetDetailPage() {
         <AdminPrimaryButton type="button" disabled={saving || acting} onClick={() => void save()}>
           {saving ? "Saving…" : "Save changes"}
         </AdminPrimaryButton>
-      ) : null}
-      {canSubmit && !editing ? (
-        <AdminPrimaryButton
-          type="button"
-          disabled={saving || acting || reassigning}
-          onClick={() => setSubmitAssignOpen(true)}
-        >
-          Submit for approval
-        </AdminPrimaryButton>
-      ) : null}
-      {canReassign && !editing ? (
-        <Button
-          type="button"
-          variant="outline"
-          className="h-9 shadow-sm"
-          disabled={reassigning || acting || saving}
-          onClick={() => setReassignOpen(true)}
-        >
-          {reassigning ? "Reassigning…" : "Reassign"}
-        </Button>
-      ) : null}
-      {canActOnAsset && !editing ? (
-        <>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 shadow-sm"
-            disabled={acting || saving || reassigning}
-            onClick={() => openDecision("reject")}
-          >
-            Reject
-          </Button>
-          <AdminPrimaryButton
-            type="button"
-            disabled={acting || saving || reassigning}
-            onClick={() => openDecision("approve")}
-          >
-            Approve
-          </AdminPrimaryButton>
-        </>
       ) : null}
       {asset && detailActions.length > 0 ? (
         <AssetActionsMenu
@@ -1173,6 +1194,8 @@ export function AssetDetailPage() {
         needsNextAssignee={false}
         onConfirm={confirmDecision}
       />
+
+      {confirmDialog}
     </>
   )
 }

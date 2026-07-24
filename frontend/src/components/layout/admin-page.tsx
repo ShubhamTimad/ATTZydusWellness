@@ -30,12 +30,12 @@ export function AdminPage({
   return (
     <div
       className={cn(
-        "app-page mx-auto w-full",
+        "app-page mx-auto w-full min-w-0",
         fullWidth ? "max-w-none" : "max-w-7xl",
         dense ? "gap-[var(--app-grid-gap)]" : "gap-[var(--app-section-gap)]",
         viewportFill
           ? "flex min-h-0 flex-1 flex-col overflow-hidden"
-          : "min-h-0 flex-1 overflow-y-auto",
+          : "min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
         className,
       )}
     >

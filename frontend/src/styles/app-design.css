@@ -22,6 +22,8 @@
     display: flex;
     flex-direction: column;
     gap: var(--app-section-gap);
+    width: 100%;
+    min-width: 0;
   }
 
   .app-page-heading {
@@ -288,6 +290,8 @@
   }
 
   .app-data-table-card {
+    min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     border-radius: calc(var(--app-radius-surface) + 2px);
     border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);

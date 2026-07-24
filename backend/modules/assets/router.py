@@ -14,6 +14,8 @@ from modules.assets.schema import (
     AssetAssigneeListResponse,
     AssetBulkDecisionRequest,
     AssetBulkDecisionResponse,
+    AssetBulkLifecycleRequest,
+    AssetBulkLifecycleResponse,
     AssetCategoryPublic,
     AssetCustodianUserPublic,
     AssetCreateRequest,
@@ -336,6 +338,23 @@ def bulk_asset_decision(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
+@router.post("/bulk-lifecycle", response_model=AssetBulkLifecycleResponse)
+def bulk_asset_lifecycle(
+    body: AssetBulkLifecycleRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_any_permission("asset.update", "asset.manage"))],
+) -> AssetBulkLifecycleResponse:
+    try:
+        return svc.bulk_lifecycle(
+            body.asset_ids,
+            actor_user_id=int(current.subject),
+            action=body.action,
+        )
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
 @router.get("/assignees", response_model=AssetAssigneeListResponse)
 def list_asset_assignees(
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
@@ -534,6 +553,36 @@ def delete_asset(
         svc.soft_delete(asset_id, actor_user_id=int(current.subject))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/{asset_id}/deactivate", response_model=AssetDetailPublic)
+def deactivate_asset(
+    asset_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_any_permission("asset.update", "asset.manage"))],
+) -> AssetDetailPublic:
+    try:
+        return svc.deactivate(asset_id, actor_user_id=int(current.subject))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/{asset_id}/reactivate", response_model=AssetDetailPublic)
+def reactivate_asset(
+    asset_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_any_permission("asset.update", "asset.manage"))],
+) -> AssetDetailPublic:
+    try:
+        return svc.reactivate(asset_id, actor_user_id=int(current.subject))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.get("/{asset_id}/audit", response_model=list[AssetAuditEventPublic])

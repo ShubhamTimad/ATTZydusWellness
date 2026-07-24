@@ -348,6 +348,10 @@ def activity_verb_for_action(action: str, new_value: dict[str, Any] | None, sour
         return "Approved by"
     if action == "activated":
         return "Activated by"
+    if action == "deactivated":
+        return "Deactivated by"
+    if action == "reactivated":
+        return "Reactivated by"
     if action == "submitted_for_approval":
         return "Submitted for approval by"
     if action == "rejected":
@@ -422,6 +426,10 @@ def build_audit_summary(
         return f"Approved by {actor_name}"
     if action == "activated":
         return f"Activated by {actor_name}"
+    if action == "deactivated":
+        return f"Deactivated by {actor_name}"
+    if action == "reactivated":
+        return f"Reactivated by {actor_name}"
     if action == "submitted_for_approval":
         assignee = str(nv.get("assignee_name") or "").strip()
         if assignee:

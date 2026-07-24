@@ -153,7 +153,7 @@ export function CapexCreatePage() {
     <AdminPage
       fullWidth
       dense
-      description="Fill asset details and submit to Department HOD for approval."
+      description="Fill asset details and submit for approval."
       className="w-full pb-6"
       actions={<AdminBackLink to="/dashboard/capitalization">Capitalization forms</AdminBackLink>}
     >
@@ -291,8 +291,8 @@ export function CapexCreatePage() {
       <CapexAssigneePickerDialog
         open={assignOpen}
         onOpenChange={setAssignOpen}
-        level="hod"
-        roleLabel="Department HOD"
+        assigneesUrl={`/admin/capitalization-forms/assignees?requires_engineering=${form.requires_engineering ? "true" : "false"}`}
+        roleLabel="Approver"
         confirmLabel="Submit"
         busy={saving}
         onConfirm={submitWithAssignee}

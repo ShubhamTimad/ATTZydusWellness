@@ -18,7 +18,7 @@ from modules.capex.schema import (
     CapexReassignRequest,
     CapexSubmitRequest,
 )
-from modules.capex.service import CapexFormService
+from modules.capex.service import CapexFormService, action_and_entity_for_form
 from modules.errors import ConflictError, NotFoundError
 
 router = APIRouter(prefix="/capitalization-forms", tags=["admin", "capitalization-forms"])
@@ -61,10 +61,22 @@ def list_forms(
 def list_assignees(
     svc: Annotated[CapexFormService, Depends(get_capex_service)],
     _: Annotated[object, Depends(require_permission("capitalization.view"))],
-    level: str = Query("hod", description="hod | engineering | central_finance"),
+    level: str | None = Query(
+        None,
+        description="hod | engineering | central_finance (next-step / reassign pools)",
+    ),
+    requires_engineering: bool | None = Query(
+        None,
+        description="When set, return users in the mapped CapEx workflow's first-step role.",
+    ),
 ) -> CapexAssigneeListResponse:
     try:
-        return svc.list_assignees(level=level)
+        if requires_engineering is not None:
+            action_code, _ = action_and_entity_for_form(
+                requires_engineering=bool(requires_engineering)
+            )
+            return svc.list_assignees_for_action(action_code=action_code)
+        return svc.list_assignees(level=level or "hod")
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 

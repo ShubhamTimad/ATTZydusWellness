@@ -191,7 +191,7 @@ export function UserEditPage() {
 
   if (loading) {
     return (
-      <AdminPage description="Loading…" actions={<AdminBackLink to=".." />}>
+      <AdminPage fullWidth description="Loading…" actions={<AdminBackLink to=".." />}>
         <p className="text-sm text-muted-foreground">Please wait.</p>
       </AdminPage>
     )
@@ -199,6 +199,7 @@ export function UserEditPage() {
 
   return (
     <AdminPage
+      fullWidth
       description="Update profile, plant, role, and status."
       actions={<AdminBackLink to=".." />}
     >

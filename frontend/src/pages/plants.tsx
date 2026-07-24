@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { hasPermission, isSuperuser } from "@/lib/permissions"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
 type OrgUnitPublic = {
   id: number
@@ -57,6 +58,7 @@ export function PlantsPage() {
   const canUpdate = hasPermission("org_units.update") || isSuperuser()
   const canDelete = hasPermission("org_units.delete") || isSuperuser()
   const actionColSpan = (canUpdate ? 1 : 0) + (canDelete ? 1 : 0)
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
   async function load() {
     setError(null)
@@ -120,13 +122,13 @@ export function PlantsPage() {
   }
 
   async function deletePlant(plant: OrgUnitPublic) {
-    if (
-      !window.confirm(
-        `Delete plant "${plant.code}"? This is only allowed when no users are assigned to this plant.`,
-      )
-    ) {
-      return
-    }
+    const ok = await confirmAsk({
+      title: "Delete plant?",
+      description: `Delete plant "${plant.code}"? This is only allowed when no users are assigned to this plant.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    })
+    if (!ok) return
     toast.loading("Deleting plant…", { id: "delete-plant-page" })
     try {
       await deleteJson(`/admin/org-units/${plant.id}`)
@@ -212,6 +214,7 @@ export function PlantsPage() {
 
   return (
     <AdminPage
+      fullWidth
       description=""
       actions={
         canCreate ? (
@@ -330,6 +333,7 @@ export function PlantsPage() {
           </div>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </AdminPage>
   )
 }

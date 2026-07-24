@@ -149,14 +149,14 @@ export function SettingsPage() {
 
   if (!policy) {
     return (
-      <AdminPage description="Loading settings…">
+      <AdminPage fullWidth description="Loading settings…">
         <p className="text-sm text-muted-foreground">Please wait.</p>
       </AdminPage>
     )
   }
 
   return (
-    <AdminPage description="Security, authentication, and organization-wide email delivery.">
+    <AdminPage fullWidth description="Security, authentication, and organization-wide email delivery.">
       <WorkspaceTabs value={tab} onValueChange={(v) => setTab(v as "auth" | "password" | "email" | "financial")}>
         <WorkspaceTabsList>
           <WorkspaceTabsTrigger value="auth">Authentication</WorkspaceTabsTrigger>

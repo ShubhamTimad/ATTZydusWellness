@@ -156,6 +156,20 @@ def deactivate_workflow(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_workflow(
+    workflow_id: int,
+    svc: Annotated[ApprovalWorkflowService, Depends(get_workflow_service)],
+) -> Response:
+    try:
+        svc.delete_workflow(workflow_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.patch("/{workflow_id}/activate", response_model=ApprovalWorkflowDetail)
 def activate_workflow(
     workflow_id: int,

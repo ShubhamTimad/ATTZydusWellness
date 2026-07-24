@@ -62,6 +62,7 @@ export function UsersPage() {
 
   return (
     <AdminPage
+      fullWidth
       description="Manage accounts, roles, and plant assignments."
       actions={
         canCreate ? (

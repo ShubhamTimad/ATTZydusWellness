@@ -16,9 +16,11 @@ from modules.assets.lifecycle import (
     APPROVAL_REJECTED,
     LIFECYCLE_ACTIVE,
     LIFECYCLE_INACTIVE,
-    LIFECYCLE_PENDING_LEGACY,
+    LIFECYCLE_INACTIVE_FILTER,
     action_codes_for_asset,
     asset_approval_payload,
+    can_deactivate,
+    can_reactivate,
     can_submit_for_approval,
     find_latest_asset_approval_request,
     find_open_asset_approval_request,
@@ -26,8 +28,10 @@ from modules.assets.lifecycle import (
     is_awaiting_approval,
     set_asset_active_immediate,
     set_asset_approved_active,
+    set_asset_deactivated,
     set_asset_inactive_draft,
     set_asset_pending_approval,
+    set_asset_reactivated,
     set_asset_rejected_inactive,
 )
 from modules.assets.audit_helpers import (
@@ -1476,9 +1480,7 @@ class AssetMasterService:
         if lifecycle_status:
             ls = lifecycle_status.strip().lower()
             if ls == LIFECYCLE_INACTIVE:
-                base = base.where(
-                    AssetMaster.lifecycle_status.in_((LIFECYCLE_INACTIVE, LIFECYCLE_PENDING_LEGACY))
-                )
+                base = base.where(AssetMaster.lifecycle_status.in_(tuple(LIFECYCLE_INACTIVE_FILTER)))
             else:
                 base = base.where(AssetMaster.lifecycle_status == lifecycle_status)
         if approval_status:
@@ -2447,6 +2449,81 @@ class AssetMasterService:
             new_value={"lifecycle_status": LIFECYCLE_INACTIVE},
         )
         self._db.commit()
+
+    def deactivate(self, asset_id: int, *, actor_user_id: int | None) -> AssetDetailPublic:
+        asset = self._load_asset(asset_id)
+        if not can_deactivate(asset):
+            raise ConflictError(
+                f"Asset {asset.asset_code} cannot be deactivated "
+                "(only active assets that are not pending approval)."
+            )
+        change = set_asset_deactivated(asset)
+        asset.updated_at = _now()
+        log_asset_event(
+            self._db,
+            asset_id=asset.id,
+            actor_user_id=actor_user_id,
+            action="deactivated",
+            old_value=change["before"],
+            new_value=change["after"],
+        )
+        self._db.commit()
+        return self.get_asset(asset_id, viewer_user_id=actor_user_id)
+
+    def reactivate(self, asset_id: int, *, actor_user_id: int | None) -> AssetDetailPublic:
+        asset = self._load_asset(asset_id)
+        if not can_reactivate(asset):
+            raise ConflictError(
+                f"Asset {asset.asset_code} cannot be reactivated "
+                "(only previously deactivated assets)."
+            )
+        change = set_asset_reactivated(asset)
+        asset.updated_at = _now()
+        log_asset_event(
+            self._db,
+            asset_id=asset.id,
+            actor_user_id=actor_user_id,
+            action="reactivated",
+            old_value=change["before"],
+            new_value=change["after"],
+        )
+        self._db.commit()
+        return self.get_asset(asset_id, viewer_user_id=actor_user_id)
+
+    def bulk_lifecycle(
+        self,
+        asset_ids: list[int],
+        *,
+        actor_user_id: int,
+        action: str,
+    ):
+        from modules.assets.schema import AssetBulkLifecycleResponse
+
+        act = (action or "").strip().lower()
+        if act not in ("deactivate", "reactivate"):
+            raise ConflictError("action must be deactivate or reactivate.")
+
+        processed = 0
+        errors: list[str] = []
+        seen: set[int] = set()
+        for raw_id in asset_ids:
+            aid = int(raw_id)
+            if aid in seen:
+                continue
+            seen.add(aid)
+            try:
+                if act == "deactivate":
+                    self.deactivate(aid, actor_user_id=actor_user_id)
+                else:
+                    self.reactivate(aid, actor_user_id=actor_user_id)
+                processed += 1
+            except NotFoundError:
+                errors.append(f"Asset #{aid}: not found.")
+            except ConflictError as exc:
+                errors.append(str(exc))
+            except Exception as exc:
+                errors.append(f"Asset #{aid}: {exc}")
+        return AssetBulkLifecycleResponse(processed_count=processed, errors=errors)
 
     def list_audit(self, asset_id: int) -> list:
         from modules.assets.schema import AssetAuditChangeLine, AssetAuditEventPublic

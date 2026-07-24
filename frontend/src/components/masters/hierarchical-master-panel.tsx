@@ -28,6 +28,7 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
 import type { CostCenterMaster, FunctionalLocationMaster, PlantOption } from "@/lib/masters-types"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
 type HierarchyKind = "cost-center" | "profit-center" | "functional-location" | "actual-location"
 
@@ -106,6 +107,7 @@ export function HierarchicalMasterPanel({
   const base = ENDPOINTS[kind]
   const needsPlant = kind === "cost-center" || kind === "functional-location"
   const needsParent = kind === "profit-center" || kind === "actual-location"
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
   async function load() {
     const data = await getJson<Record<string, unknown>[]>(`${base}?active_only=false`)
@@ -254,13 +256,13 @@ export function HierarchicalMasterPanel({
   }
 
   async function deleteRow(row: Row) {
-    if (
-      !window.confirm(
-        `Delete "${row.code}"? Allowed only when no assets use this ${title.toLowerCase()} and it has no child records.`,
-      )
-    ) {
-      return
-    }
+    const ok = await confirmAsk({
+      title: `Delete ${title.toLowerCase()}?`,
+      description: `Delete "${row.code}"? Allowed only when no assets use this ${title.toLowerCase()} and it has no child records.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    })
+    if (!ok) return
     try {
       await deleteJson(`${base}/${row.id}`)
       toast.success("Deleted.")
@@ -400,6 +402,7 @@ export function HierarchicalMasterPanel({
         parentHint={editRow?.parent_label}
         plantHint={editRow?.plant_label}
       />
+      {confirmDialog}
     </>
   )
 }

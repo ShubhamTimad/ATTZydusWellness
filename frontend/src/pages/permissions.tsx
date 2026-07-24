@@ -124,6 +124,7 @@ export function PermissionsPage() {
 
   return (
     <AdminPage
+      fullWidth
       description="Read-only permission catalog from the backend. Permissions are defined in application config and synced to the database."
       actions={
         canSync ? (

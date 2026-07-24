@@ -220,7 +220,7 @@ export function AdminLayout({
   )
 
   return (
-    <div className="admin-shell flex h-svh min-h-0 w-full bg-background text-foreground">
+    <div className="admin-shell flex h-svh min-h-0 w-full overflow-hidden bg-background text-foreground">
       <aside className="hidden w-[260px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground shadow-sm lg:flex">
         <div className="flex h-[4.25rem] items-center gap-3 border-b border-sidebar-border px-4">
           {sidebarHeader}
@@ -243,7 +243,7 @@ export function AdminLayout({
         {renderNav()}
       </MobileNavDrawer>
 
-      <div className="flex min-w-0 flex-1 flex-col admin-canvas">
+      <div className="flex min-w-0 flex-1 flex-col admin-canvas overflow-x-hidden">
         <header className="sticky top-0 z-10 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border/80 bg-background/95 px-6 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="flex min-w-0 items-center gap-3">
             <Button
@@ -304,7 +304,9 @@ export function AdminLayout({
           </div>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-auto px-6 py-8">{children}</main>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-6 py-8">
+          {children}
+        </main>
       </div>
     </div>
   )

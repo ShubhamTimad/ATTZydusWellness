@@ -28,6 +28,7 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
 import type { PlantOption } from "@/lib/masters-types"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
 type Row = {
   id: number
@@ -68,6 +69,7 @@ export function MasterCrudPanel({
   const canUpdate = hasPermission("masters.update")
   const canDelete = hasPermission("masters.delete")
   const showActions = canUpdate || canDelete
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
   async function load() {
     const data = await getJson<Row[]>(listUrl)
@@ -175,13 +177,13 @@ export function MasterCrudPanel({
 
   async function deleteRow(row: Row) {
     const label = kind === "category" || kind === "tag-color" || kind === "code-name" ? row.name ?? row.code : row.code
-    if (
-      !window.confirm(
-        `Delete "${label}"? Allowed only when no assets use this ${title.toLowerCase()}.`,
-      )
-    ) {
-      return
-    }
+    const ok = await confirmAsk({
+      title: `Delete ${title.toLowerCase()}?`,
+      description: `Delete "${label}"? Allowed only when no assets use this ${title.toLowerCase()}.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    })
+    if (!ok) return
     const base = listUrl.replace(/\?.*$/, "").replace(/\/$/, "")
     try {
       await deleteJson(`${base}/${row.id}`)
@@ -204,6 +206,7 @@ export function MasterCrudPanel({
     kind === "category" || kind === "tag-color" || kind === "code-name" ? "Name" : "Description"
 
   return (
+    <>
     <AdminDataTable title={title} headerActions={addButton} className="min-h-0 flex-1">
       <Table className="app-table-head-sticky">
         <TableHeader>
@@ -349,6 +352,8 @@ export function MasterCrudPanel({
         </DialogContent>
       </Dialog>
     </AdminDataTable>
+    {confirmDialog}
+    </>
   )
 }
 

@@ -261,7 +261,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
   )
 
   return (
-    <div className="flex h-svh min-h-0 w-full app-canvas text-foreground">
+    <div className="flex h-svh min-h-0 w-full overflow-hidden app-canvas text-foreground">
       <aside
         className={cn(
           "hidden min-h-0 shrink-0 flex-col border-r border-border/80 bg-card shadow-[var(--app-shadow-surface)] transition-[width] duration-200 lg:flex",
@@ -379,8 +379,10 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
           </div>
         </header>
 
-        <main className="flex min-h-0 flex-1 flex-col overflow-hidden p-[var(--app-page-padding)]">
-          <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto">{children}</div>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-[var(--app-page-padding)]">
+          <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-auto">
+            {children}
+          </div>
         </main>
       </div>
 

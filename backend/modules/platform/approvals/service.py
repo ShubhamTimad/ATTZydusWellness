@@ -175,6 +175,25 @@ class ApprovalWorkflowService:
         self._db.commit()
         return self.get_workflow(workflow_id)
 
+    def delete_workflow(self, workflow_id: int) -> None:
+        """Delete a draft/inactive workflow. Blocked if still active or used by requests."""
+        from modules.platform.approvals.model import ApprovalRequest
+
+        wf = self.get_workflow(workflow_id)
+        if wf.is_active:
+            raise ConflictError("Deactivate the workflow before deleting it.")
+        used = self._db.scalar(
+            select(ApprovalRequest.id).where(ApprovalRequest.workflow_id == int(workflow_id)).limit(1)
+        )
+        if used is not None:
+            raise ConflictError(
+                "This workflow has approval history and cannot be deleted. Keep it as a draft."
+            )
+        # Clear mappings in-session (FK is NOT NULL; ORM must not SET NULL).
+        wf.workflow_mappings.clear()
+        self._db.delete(wf)
+        self._db.commit()
+
     def activate_workflow(self, workflow_id: int, *, actor_user_id: int | None) -> ApprovalWorkflow:
         wf = self.get_workflow(workflow_id)
         if wf.is_active:

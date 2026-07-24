@@ -1,24 +1,24 @@
 import * as React from "react"
-import { FileText, Link2, Printer } from "lucide-react"
+import { Check, FileText, Link2, Printer, Send, UserRoundCog, X } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { ApprovalWorkflowTimeline } from "@/components/approval-workflow-timeline"
+import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
   AdminBackLink,
   AdminPanel,
   AdminPillBadge,
-  AdminPrimaryButton,
   adminSwitchRowClass,
   adminTextareaClass,
 } from "@/components/layout/admin-ui"
-import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import type { AssetActionItem } from "@/lib/asset-actions"
 import {
   buildCapexProgress,
   capexStatusLabel,
@@ -34,7 +34,7 @@ import { cn } from "@/lib/utils"
 import { CapexAssigneePickerDialog } from "./capex-assignee-picker-dialog"
 import { CapexAuditLog } from "./capex-audit-log"
 import { CapexDecisionDialog } from "./capex-decision-dialog"
-import { CapexPrintPreviewDialog } from "./capex-print-form"
+import { printCapexForm } from "./capex-print-form"
 import { CapexProcessFlow } from "./capex-process-flow"
 
 function FormField({
@@ -123,7 +123,6 @@ export function CapexDetailPage() {
   const [reassigning, setReassigning] = React.useState(false)
   const [auditEvents, setAuditEvents] = React.useState<CapexAuditEvent[] | null>(null)
   const [auditLoading, setAuditLoading] = React.useState(false)
-  const [printOpen, setPrintOpen] = React.useState(false)
 
   const loadAudit = React.useCallback(async () => {
     if (!Number.isFinite(formId)) return
@@ -184,6 +183,83 @@ export function CapexDetailPage() {
   )
   const reassignLevel = detail?.approval_panel?.current_assignee_level ?? "hod"
   const reassignRoleName = detail?.approval_panel?.current_step_role_name ?? "Approver"
+
+  const toolbarActions = React.useMemo(() => {
+    const actions: AssetActionItem[] = [
+      {
+        id: "print",
+        label: "Print form",
+        icon: Printer,
+      },
+    ]
+    if (canReassign) {
+      actions.push({
+        id: "reassign",
+        label: "Reassign",
+        icon: UserRoundCog,
+      })
+    }
+    if (editable) {
+      actions.push({
+        id: "save",
+        label: saving ? "Saving…" : "Save changes",
+        icon: FileText,
+        disabled: saving,
+      })
+    }
+    if (canSubmit) {
+      actions.push({
+        id: "submit",
+        label: "Submit for approval",
+        icon: Send,
+      })
+    }
+    if (canActOnForm) {
+      actions.push({
+        id: "reject",
+        label: "Reject",
+        variant: "destructive",
+        icon: X,
+      })
+      actions.push({
+        id: "approve",
+        label: "Approve",
+        icon: Check,
+      })
+    }
+    return actions
+  }, [canReassign, editable, saving, canSubmit, canActOnForm])
+
+  function handleToolbarAction(actionId: string) {
+    if (actionId === "print") {
+      if (!detail) return
+      try {
+        printCapexForm(detail)
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Unable to open print dialog.")
+      }
+      return
+    }
+    if (actionId === "reassign") {
+      setReassignOpen(true)
+      return
+    }
+    if (actionId === "save") {
+      void save()
+      return
+    }
+    if (actionId === "submit") {
+      setSubmitAssignOpen(true)
+      return
+    }
+    if (actionId === "reject") {
+      openDecision("reject")
+      return
+    }
+    if (actionId === "approve") {
+      openDecision("approve")
+    }
+  }
 
   const patch = (p: Partial<CapexFormWritePayload>) =>
     setForm((f) => (f ? { ...f, ...p } : f))
@@ -319,62 +395,13 @@ export function CapexDetailPage() {
           >
             {capexStatusLabel(detail.status)}
           </AdminPillBadge>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 shadow-sm"
-            disabled={saving || acting || reassigning}
-            onClick={() => setPrintOpen(true)}
-          >
-            <Printer className="mr-1.5 size-4" aria-hidden />
-            Print form
-          </Button>
-          {canReassign ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 shadow-sm"
-              disabled={reassigning || acting || saving}
-              onClick={() => setReassignOpen(true)}
-            >
-              Reassign
-            </Button>
-          ) : null}
-          {editable ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 shadow-sm"
-              disabled={saving || acting}
-              onClick={() => void save()}
-            >
-              {saving ? "Saving…" : "Save changes"}
-            </Button>
-          ) : null}
-          {canSubmit ? (
-            <AdminPrimaryButton
-              type="button"
-              disabled={saving || acting}
-              onClick={() => setSubmitAssignOpen(true)}
-            >
-              Submit for approval
-            </AdminPrimaryButton>
-          ) : null}
-          {canActOnForm ? (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 shadow-sm"
-                disabled={acting}
-                onClick={() => openDecision("reject")}
-              >
-                Reject
-              </Button>
-              <AdminPrimaryButton type="button" disabled={acting} onClick={() => openDecision("approve")}>
-                Approve
-              </AdminPrimaryButton>
-            </>
+          {toolbarActions.length > 0 ? (
+            <AssetActionsMenu
+              actions={toolbarActions}
+              busy={saving || acting || reassigning}
+              onAction={handleToolbarAction}
+              className="h-9"
+            />
           ) : null}
           <AdminBackLink to="/dashboard/capitalization">Capitalization</AdminBackLink>
         </div>
@@ -568,8 +595,8 @@ export function CapexDetailPage() {
       <CapexAssigneePickerDialog
         open={submitAssignOpen}
         onOpenChange={setSubmitAssignOpen}
-        level="hod"
-        roleLabel="Department HOD"
+        assigneesUrl={`/admin/capitalization-forms/assignees?requires_engineering=${(form?.requires_engineering ?? detail?.requires_engineering) ? "true" : "false"}`}
+        roleLabel="Approver"
         confirmLabel="Submit"
         busy={saving}
         onConfirm={submitWithAssignee}
@@ -594,12 +621,6 @@ export function CapexDetailPage() {
         confirmLabel="Reassign"
         busy={reassigning}
         onConfirm={reassignApprover}
-      />
-
-      <CapexPrintPreviewDialog
-        open={printOpen}
-        onOpenChange={setPrintOpen}
-        detail={detail}
       />
     </AdminPage>
   )

@@ -43,6 +43,8 @@ class ApprovalWorkflow(Base):
     workflow_mappings = relationship(
         "ApprovalWorkflowMapping",
         back_populates="workflow",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
         lazy="selectin",
     )
 

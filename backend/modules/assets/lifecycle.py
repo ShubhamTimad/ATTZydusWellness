@@ -12,10 +12,16 @@ from modules.assets.model import AssetMaster
 # Canonical lifecycle values stored on ``asset_master.lifecycle_status``.
 LIFECYCLE_ACTIVE = "active"
 LIFECYCLE_INACTIVE = "inactive"
+# Manually taken out of service (not the same as draft/pending inactive).
+LIFECYCLE_DEACTIVATED = "deactivated"
 # Legacy rows may still use this until migrated; treat as inactive + pending approval.
 LIFECYCLE_PENDING_LEGACY = "pending_approval"
 
 LIFECYCLE_AWAITING_APPROVAL = frozenset({LIFECYCLE_INACTIVE, LIFECYCLE_PENDING_LEGACY})
+# List filter "Inactive" includes draft/pending inactive and manual deactivation.
+LIFECYCLE_INACTIVE_FILTER = frozenset(
+    {LIFECYCLE_INACTIVE, LIFECYCLE_PENDING_LEGACY, LIFECYCLE_DEACTIVATED}
+)
 
 # Not yet sent into an approval workflow (create/import only).
 APPROVAL_DRAFT = "draft"
@@ -62,6 +68,36 @@ def set_asset_inactive_draft(asset: AssetMaster) -> None:
 
 def is_operational(lifecycle_status: str | None) -> bool:
     return (lifecycle_status or "").strip().lower() == LIFECYCLE_ACTIVE
+
+
+def can_deactivate(asset: AssetMaster) -> bool:
+    """Operational assets may be manually taken out of service."""
+    return is_operational(asset.lifecycle_status) and (
+        (asset.approval_status or "").strip().lower() != APPROVAL_PENDING
+    )
+
+
+def can_reactivate(asset: AssetMaster) -> bool:
+    """Only manually deactivated assets can be brought back without re-approval."""
+    return (asset.lifecycle_status or "").strip().lower() == LIFECYCLE_DEACTIVATED
+
+
+def set_asset_deactivated(asset: AssetMaster) -> dict[str, Any]:
+    before = {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status}
+    asset.lifecycle_status = LIFECYCLE_DEACTIVATED
+    return {
+        "before": before,
+        "after": {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status},
+    }
+
+
+def set_asset_reactivated(asset: AssetMaster) -> dict[str, Any]:
+    before = {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status}
+    asset.lifecycle_status = LIFECYCLE_ACTIVE
+    return {
+        "before": before,
+        "after": {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status},
+    }
 
 
 def asset_approval_payload(asset: AssetMaster, *, action_code: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:

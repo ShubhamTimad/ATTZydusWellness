@@ -46,6 +46,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { AssetExportDialog } from "@/components/assets/asset-export-dialog"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
@@ -53,7 +54,9 @@ import { ApiError, deleteJson, downloadFile, getJson, postJson, putJson } from "
 import {
   buildAssetListActionItems,
   countRfidTaggedSelected,
+  eligibleDeactivateAssets,
   eligibleDecisionAssets,
+  eligibleReactivateAssets,
   eligibleSubmitAssets,
   selectedAssetsFromList,
 } from "@/lib/asset-actions"
@@ -431,9 +434,11 @@ export function AssetsListPage() {
   const canImport = hasPermission("asset.import")
   const canDelete = hasPermission("asset.delete") || hasPermission("asset.manage")
   const canCreateOrder = hasPermission("order.create")
-  const canAttachRfid = hasPermission("asset.update") || hasPermission("asset.manage")
+  const canUpdate = hasPermission("asset.update") || hasPermission("asset.manage")
+  const canAttachRfid = canUpdate
   const canSubmitForApproval = canCreate
   const canDecide = hasPermission("approval.act")
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const isFyTab = listTab === "fy"
   const showAttachRfid = canAttachRfid && !isFyTab
   const selectedFyStartYear =
@@ -787,6 +792,14 @@ export function AssetsListPage() {
     () => eligibleDecisionAssets(selectedRows),
     [selectedRows],
   )
+  const deactivateEligibleRows = React.useMemo(
+    () => eligibleDeactivateAssets(selectedRows),
+    [selectedRows],
+  )
+  const reactivateEligibleRows = React.useMemo(
+    () => eligibleReactivateAssets(selectedRows),
+    [selectedRows],
+  )
   const listActions = React.useMemo(
     () =>
       buildAssetListActionItems({
@@ -794,7 +807,10 @@ export function AssetsListPage() {
         rfidTaggedCount,
         submitEligibleCount: submitEligibleRows.length,
         decisionEligibleCount: decisionEligibleRows.length,
+        deactivateEligibleCount: deactivateEligibleRows.length,
+        reactivateEligibleCount: reactivateEligibleRows.length,
         canDelete,
+        canUpdate: canUpdate && !isFyTab,
         canAttachRfid: showAttachRfid,
         canCreateOrder,
         canSubmitForApproval,
@@ -805,7 +821,11 @@ export function AssetsListPage() {
       rfidTaggedCount,
       submitEligibleRows.length,
       decisionEligibleRows.length,
+      deactivateEligibleRows.length,
+      reactivateEligibleRows.length,
       canDelete,
+      canUpdate,
+      isFyTab,
       showAttachRfid,
       canCreateOrder,
       canSubmitForApproval,
@@ -981,7 +1001,13 @@ export function AssetsListPage() {
   async function deleteSelected() {
     const ids = selectedRows.map((r) => r.id)
     if (ids.length === 0) return
-    if (!window.confirm(`Delete ${ids.length} selected asset(s)? This cannot be undone.`)) return
+    const ok = await confirmAsk({
+      title: "Delete assets?",
+      description: `Delete ${ids.length} selected asset(s)? This cannot be undone.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    })
+    if (!ok) return
     setBulkActionBusy(true)
     try {
       const errors: string[] = []
@@ -1001,6 +1027,54 @@ export function AssetsListPage() {
       }
       setSelected(new Set())
       await load()
+    } finally {
+      setBulkActionBusy(false)
+    }
+  }
+
+  async function bulkLifecycle(action: "deactivate" | "reactivate") {
+    const rows = action === "deactivate" ? deactivateEligibleRows : reactivateEligibleRows
+    const ids = rows.map((r) => r.id)
+    if (ids.length === 0) {
+      toast.error(
+        action === "deactivate"
+          ? "No active assets in the selection."
+          : "No deactivated assets in the selection.",
+      )
+      return
+    }
+    const ok = await confirmAsk({
+      title: action === "deactivate" ? "Deactivate assets?" : "Reactivate assets?",
+      description:
+        action === "deactivate"
+          ? `Deactivate ${ids.length} active asset(s)? They will be marked inactive until reactivated.`
+          : `Reactivate ${ids.length} deactivated asset(s)?`,
+      confirmLabel: action === "deactivate" ? "Deactivate" : "Reactivate",
+      destructive: action === "deactivate",
+    })
+    if (!ok) return
+    setBulkActionBusy(true)
+    try {
+      const res = await postJson<{ processed_count: number; errors: string[] }>(
+        "/admin/assets/bulk-lifecycle",
+        { asset_ids: ids, action },
+      )
+      if (res.processed_count > 0) {
+        toast.success(
+          action === "deactivate"
+            ? `${res.processed_count} deactivated.`
+            : `${res.processed_count} reactivated.`,
+        )
+        setSelected(new Set())
+        await load()
+      }
+      if (res.errors?.length) {
+        toast.error(res.errors[0] ?? "Some assets could not be processed.")
+      } else if (res.processed_count === 0) {
+        toast.error("No assets were processed.")
+      }
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Action failed.")
     } finally {
       setBulkActionBusy(false)
     }
@@ -1105,6 +1179,14 @@ export function AssetsListPage() {
     }
     if (actionId === "delete") {
       void deleteSelected()
+      return
+    }
+    if (actionId === "deactivate") {
+      void bulkLifecycle("deactivate")
+      return
+    }
+    if (actionId === "reactivate") {
+      void bulkLifecycle("reactivate")
       return
     }
     if (actionId === "clear-selection") {
@@ -2106,6 +2188,7 @@ export function AssetsListPage() {
         needsNextAssignee={false}
         onConfirm={confirmBulkDecision}
       />
+      {confirmDialog}
     </AdminPage>
   )
 }

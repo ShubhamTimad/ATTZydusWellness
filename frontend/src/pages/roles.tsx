@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils"
 import { Pencil, Plus, Trash2 } from "lucide-react"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { canListOrgUnitsForAssignments, hasPermission, isSuperuser } from "@/lib/permissions"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
 type OrgUnitPublic = {
   id: number
@@ -121,6 +122,27 @@ function orderedActionColumns(actions: string[]): string[] {
   return out
 }
 
+function permissionIdsInTab(tab: CatalogTab): number[] {
+  return tab.permissions.map((p) => p.id).filter((id): id is number => id != null)
+}
+
+function permissionIdsInModule(mod: CatalogModule): number[] {
+  return mod.tabs.flatMap(permissionIdsInTab)
+}
+
+function permissionIdsInCatalog(catalog: PermissionCatalog): number[] {
+  return catalog.modules.flatMap(permissionIdsInModule)
+}
+
+function selectionState(ids: number[], selected: Set<number>): boolean | "indeterminate" {
+  if (ids.length === 0) return false
+  let n = 0
+  for (const id of ids) if (selected.has(id)) n += 1
+  if (n === 0) return false
+  if (n === ids.length) return true
+  return "indeterminate"
+}
+
 export function RolesPage() {
   const [roles, setRoles] = React.useState<RoleListItem[] | null>(null)
   const [plants, setPlants] = React.useState<OrgUnitPublic[] | null>(null)
@@ -151,6 +173,7 @@ export function RolesPage() {
   const canDeleteRole = hasPermission("roles.delete") || isSuperuser()
   /** Same as ``GET /admin/org-units`` (plant pickers for roles vs. Plants admin module). */
   const canLoadPlantList = canListOrgUnitsForAssignments()
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
   async function loadBase() {
     setError(null)
@@ -230,6 +253,23 @@ export function RolesPage() {
       mod.tabs.some((tab) => tab.permissions.some((perm) => perm.id == null))
     )
   }, [catalog])
+
+  const allCatalogPermissionIds = React.useMemo(
+    () => (catalog ? permissionIdsInCatalog(catalog) : []),
+    [catalog],
+  )
+
+  function togglePermissionIds(ids: number[], on: boolean) {
+    if (!canSaveRole || ids.length === 0) return
+    setSelectedPermissionIds((prev) => {
+      const next = new Set(prev)
+      for (const id of ids) {
+        if (on) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }
 
   async function createRole() {
     const name = createName.trim()
@@ -319,13 +359,13 @@ export function RolesPage() {
 
   async function deleteRole() {
     if (!selectedRole) return
-    if (
-      !window.confirm(
-        `Delete role "${selectedRole.name}"? This is only allowed when no users are assigned to this role.`,
-      )
-    ) {
-      return
-    }
+    const ok = await confirmAsk({
+      title: "Delete role?",
+      description: `Delete role "${selectedRole.name}"? This is only allowed when no users are assigned to this role.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    })
+    if (!ok) return
     toast.loading("Deleting role…", { id: "delete-role" })
     try {
       await deleteJson(`/admin/roles/${selectedRole.id}`)
@@ -381,6 +421,7 @@ export function RolesPage() {
   return (
     <AdminPage
       dense
+      fullWidth
       viewportFill
       description="Link roles to plants and assign permissions by module. No plants selected = global role."
       actions={
@@ -580,13 +621,65 @@ export function RolesPage() {
                     </p>
                   )}
                 </div>
+
+                {canSaveRole && allCatalogPermissionIds.length > 0 ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+                    <p className="text-xs text-muted-foreground">
+                      Permissions · {selectedPermissionIds.size} selected
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8"
+                        onClick={() => togglePermissionIds(allCatalogPermissionIds, true)}
+                      >
+                        Select all
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-8"
+                        onClick={() => togglePermissionIds(allCatalogPermissionIds, false)}
+                      >
+                        Clear all
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
                 {catalog.modules.map((mod) => {
                   const moduleActions = orderedActionColumns(
                     mod.tabs.flatMap((t) => (Array.isArray(t.actions) ? t.actions : [])),
                   )
+                  const moduleIds = permissionIdsInModule(mod)
+                  const moduleChecked = selectionState(moduleIds, selectedPermissionIds)
                   return (
                     <div key={mod.key} className="space-y-2">
-                      <div className="text-sm font-semibold">{mod.title}</div>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-semibold">{mod.title}</div>
+                        {canSaveRole && moduleIds.length > 0 ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label
+                              className={cn(
+                                "inline-flex items-center gap-1.5 text-xs text-muted-foreground",
+                                "cursor-pointer",
+                              )}
+                            >
+                              <Checkbox
+                                checked={moduleChecked}
+                                aria-label={`Select all in ${mod.title}`}
+                                onCheckedChange={(v) =>
+                                  togglePermissionIds(moduleIds, v === true)
+                                }
+                              />
+                              Select all
+                            </label>
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="overflow-x-auto rounded-lg border border-border/60">
                         <Table className="w-auto min-w-0">
                           <TableHeader>
@@ -603,13 +696,29 @@ export function RolesPage() {
                             </AdminTableHeaderRow>
                           </TableHeader>
                           <TableBody>
-                            {mod.tabs.map((tab) => (
+                            {mod.tabs.map((tab) => {
+                              const tabIds = permissionIdsInTab(tab)
+                              const tabChecked = selectionState(tabIds, selectedPermissionIds)
+                              return (
                               <TableRow
                                 key={`${mod.key}.${tab.key}`}
                                 className="border-b border-border/40"
                               >
                                 <AdminTableCell className="px-4 font-medium text-muted-foreground">
-                                  {tab.title}
+                                  <div className="flex items-center gap-2">
+                                    {canSaveRole && tabIds.length > 0 ? (
+                                      <Checkbox
+                                        checked={tabChecked}
+                                        disabled={!canSaveRole}
+                                        aria-label={`Select all permissions for ${tab.title}`}
+                                        title={`Select all for ${tab.title}`}
+                                        onCheckedChange={(v) =>
+                                          togglePermissionIds(tabIds, v === true)
+                                        }
+                                      />
+                                    ) : null}
+                                    <span>{tab.title}</span>
+                                  </div>
                                 </AdminTableCell>
                                 {moduleActions.map((act) => {
                                   const cell = tab.permissions.find((p) => p.action === act)
@@ -654,7 +763,8 @@ export function RolesPage() {
                                   )
                                 })}
                               </TableRow>
-                            ))}
+                              )
+                            })}
                           </TableBody>
                         </Table>
                       </div>
@@ -794,6 +904,7 @@ export function RolesPage() {
           </div>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </AdminPage>
   )
 }

@@ -65,6 +65,27 @@ def action_and_entity_for_form(*, requires_engineering: bool) -> tuple[str, str]
     return ACTION_SUBMIT, ENTITY_TYPE
 
 
+def _users_in_role(db: Session, role_id: int) -> list[User]:
+    return list(
+        db.scalars(
+            select(User)
+            .select_from(user_role)
+            .join(User, User.id == user_role.c.user_id)
+            .where(user_role.c.role_id == int(role_id), User.is_active.is_(True))
+            .order_by(User.full_name.asc(), User.id.asc())
+        ).all()
+    )
+
+
+def _first_step_role(db: Session, workflow: ApprovalWorkflow) -> Role:
+    if not workflow.steps:
+        raise ConflictError("Active CapEx workflow has no steps configured.")
+    first = sorted(workflow.steps, key=lambda s: int(s.step_order))[0]
+    role = db.get(Role, int(first.approver_role_id))
+    if role is None:
+        raise ConflictError("Workflow approver role is missing.")
+    return role
+
 
 _FIELD_LABELS: dict[str, str] = {
     "asset_name": "Asset name",
@@ -91,6 +112,7 @@ _AUDIT_LABELS: dict[str, str] = {
     "approved": "Fully approved",
     "rejected": "Rejected",
     "linked_to_asset": "Linked to asset",
+    "unlinked_from_asset": "Unlinked from asset",
 }
 
 
@@ -392,7 +414,7 @@ class CapexFormService:
             new_value={
                 "assignee_user_id": int(assignee_user_id),
                 "assignee_name": _user_display(self._db, assignee_user_id),
-                "role_name": ROLE_HOD,
+                "role_name": _first_step_role(self._db, workflow).name,
                 "workflow_switched": True,
                 "entity_type": entity_type,
             },
@@ -540,17 +562,34 @@ class CapexFormService:
         role = self._db.scalar(select(Role).where(Role.name == role_name))
         if role is None:
             raise ConflictError(f"Role {role_name!r} is not configured.")
-        users = list(
-            self._db.scalars(
-                select(User)
-                .select_from(user_role)
-                .join(User, User.id == user_role.c.user_id)
-                .where(user_role.c.role_id == int(role.id), User.is_active.is_(True))
-                .order_by(User.full_name.asc(), User.id.asc())
-            ).all()
-        )
+        users = _users_in_role(self._db, int(role.id))
         return CapexAssigneeListResponse(
             role_name=role_name,
+            items=[
+                CapexAssigneeOption(
+                    id=int(u.id),
+                    full_name=u.full_name,
+                    email=u.email,
+                )
+                for u in users
+            ],
+        )
+
+    def list_assignees_for_action(self, *, action_code: str) -> CapexAssigneeListResponse:
+        """Users in the first step role of the workflow mapped to this CapEx action.
+
+        ponytail: next-step pools still use level=hod|engineering|central_finance via
+        seeded role names; upgrade by resolving role_id from the live workflow step.
+        """
+        wf = get_workflow_for_action(self._db, action_code)
+        if wf is None or not wf.steps:
+            raise ConflictError(
+                "No active CapEx approval workflow is configured. Contact an administrator."
+            )
+        role = _first_step_role(self._db, wf)
+        users = _users_in_role(self._db, int(role.id))
+        return CapexAssigneeListResponse(
+            role_name=str(role.name),
             items=[
                 CapexAssigneeOption(
                     id=int(u.id),
@@ -590,7 +629,7 @@ class CapexFormService:
         )
         if data.submit:
             if data.assignee_user_id is None:
-                raise ConflictError("Select a Department HOD before submitting.")
+                raise ConflictError("Select an approver before submitting.")
             self._submit(
                 form,
                 actor_user_id=actor_user_id,
@@ -753,7 +792,7 @@ class CapexFormService:
         if not (form.asset_name or "").strip():
             raise ConflictError("Asset name is required.")
         if assignee_user_id < 1:
-            raise ConflictError("Select a Department HOD before submitting.")
+            raise ConflictError("Select an approver before submitting.")
 
         action_code, entity_type = action_and_entity_for_form(
             requires_engineering=bool(form.requires_engineering)
@@ -764,13 +803,20 @@ class CapexFormService:
                 "No active CapEx approval workflow is configured. Contact an administrator."
             )
 
+        first_role = _first_step_role(self._db, wf)
+        role_users = _users_in_role(self._db, int(first_role.id))
+        if not any(int(u.id) == int(assignee_user_id) for u in role_users):
+            raise ConflictError(
+                f"Selected user is not an active member of role {first_role.name!r}."
+            )
+
         engine = ApprovalEngineService(self._db)
         try:
             assignee_name = _user_display(self._db, assignee_user_id)
             assign_meta = {
                 "assignee_user_id": int(assignee_user_id),
                 "assignee_name": assignee_name,
-                "role_name": ROLE_HOD,
+                "role_name": str(first_role.name),
             }
             if form.approval_request_id and form.status in (STATUS_REJECTED, STATUS_IN_REWORK):
                 existing = self._db.scalar(
@@ -950,7 +996,7 @@ class CapexFormService:
                     )
             elif ev.action in ("submitted", "resubmitted"):
                 who = nv.get("assignee_name") or "—"
-                role = nv.get("role_name") or ROLE_HOD
+                role = nv.get("role_name") or "Approver"
                 detail = f"Assigned to {who} · {role}"
             elif ev.action == "reassigned":
                 old_who = ov.get("assignee_name") or "—"

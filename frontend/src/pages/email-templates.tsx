@@ -264,14 +264,14 @@ export function EmailTemplatesPage() {
   if (view === "edit") {
     if (editLoading) {
       return (
-        <AdminPage>
+        <AdminPage fullWidth>
           <p className="text-sm text-muted-foreground">Loading…</p>
         </AdminPage>
       )
     }
     if (!tpl) {
       return (
-        <AdminPage className="space-y-4">
+        <AdminPage fullWidth className="space-y-4">
           <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToList}>
             ← Back to templates
           </Button>
@@ -281,7 +281,7 @@ export function EmailTemplatesPage() {
     }
 
     return (
-      <AdminPage className="space-y-4">
+      <AdminPage fullWidth className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToList}>
             ← Back to templates
@@ -417,6 +417,7 @@ export function EmailTemplatesPage() {
 
   return (
     <AdminPage
+      fullWidth
       description="Notification templates for system events. Click a row to edit."
       actions={
         canCreate ? (

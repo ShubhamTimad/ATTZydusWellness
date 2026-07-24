@@ -1,27 +1,10 @@
-import * as React from "react"
-import { Download, Printer, X } from "lucide-react"
-import { toast } from "sonner"
-
 import { TAKEDA_LOGO_SRC } from "@/components/layout/app-brand-mark"
-import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import {
   capexStatusLabel,
   type CapexApprovalStepLine,
   type CapexFormDetail,
   type CapexWorkflowRun,
 } from "@/lib/capex-types"
-import { cn } from "@/lib/utils"
-
-/** Screen A4 at 96dpi (210mm × 297mm). */
-const A4_W = 794
-const A4_H = 1123
 
 type SignBlock = {
   roleLabel: string
@@ -114,11 +97,6 @@ function buildSignBlocks(detail: CapexFormDetail): SignBlock[] {
     })
   }
 
-  blocks.push({
-    ...approveFromRole(steps, "Central Finance"),
-    roleLabel: "Signature of Central Finance",
-  })
-
   return blocks
 }
 
@@ -146,162 +124,8 @@ function formRows(detail: CapexFormDetail) {
   ]
 }
 
-function DocumentHeader({ detail, printedAt }: { detail: CapexFormDetail; printedAt: string }) {
-  return (
-    <header className="mb-3 shrink-0 border-b-2 border-black pb-2.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          <img
-            src={TAKEDA_LOGO_SRC}
-            alt="Takeda"
-            className="h-9 w-auto shrink-0 object-contain object-left"
-            style={{ maxWidth: 110 }}
-          />
-          <div className="min-w-0 pt-0.5" style={{ fontFamily: "system-ui, sans-serif" }}>
-            <div className="text-[12px] font-bold leading-tight text-neutral-900">Takeda</div>
-            <div className="text-[9px] leading-snug text-neutral-600">Asset Tracking &amp; Tagging</div>
-            <div className="mt-0.5 text-[8px] text-neutral-500">Controlled document</div>
-          </div>
-        </div>
-        <div
-          className="max-w-[42%] shrink-0 text-right text-[9px] leading-relaxed text-neutral-700"
-          style={{ fontFamily: "system-ui, sans-serif" }}
-        >
-          <div className="break-words">
-            <span className="text-neutral-500">Print date:</span>{" "}
-            <span className="font-semibold text-neutral-900">{printedAt}</span>
-          </div>
-          <div className="break-all">
-            <span className="text-neutral-500">Form no:</span>{" "}
-            <span className="font-semibold text-neutral-900">{detail.form_number}</span>
-          </div>
-          <div>
-            <span className="text-neutral-500">Status:</span>{" "}
-            <span className="font-semibold text-neutral-900">{capexStatusLabel(detail.status)}</span>
-          </div>
-        </div>
-      </div>
-      <h1
-        className="m-0 mt-2.5 text-center font-bold uppercase text-neutral-900"
-        style={{ fontSize: 17, letterSpacing: "0.05em" }}
-      >
-        Asset Capitalisation Form
-      </h1>
-    </header>
-  )
-}
-
-function DocumentFooter({ detail, printedAt }: { detail: CapexFormDetail; printedAt: string }) {
-  return (
-    <footer
-      className="mt-3 shrink-0 border-t border-neutral-400 pt-2"
-      style={{ fontFamily: "system-ui, sans-serif" }}
-    >
-      <div className="flex items-end justify-between gap-3 text-[8.5px] leading-snug text-neutral-600">
-        <div className="min-w-0">
-          <div className="font-semibold text-neutral-800">Takeda · Asset Tracking &amp; Tagging</div>
-          <div className="break-words">
-            Confidential — internal use only. {detail.form_number}. Printed {printedAt}.
-          </div>
-        </div>
-        <div className="shrink-0 text-right">
-          <div>Page 1 of 1</div>
-          <div>System-generated hardcopy</div>
-        </div>
-      </div>
-    </footer>
-  )
-}
-
-function CapexHardcopySheet({ detail }: { detail: CapexFormDetail }) {
-  const rows = formRows(detail)
-  const signs = buildSignBlocks(detail)
-  const printedAt = formatPrintDateTime()
-
-  return (
-    <div
-      className="box-border flex flex-col bg-white text-black"
-      style={{
-        width: A4_W,
-        height: A4_H,
-        padding: "16px 20px 12px",
-        fontFamily: '"Times New Roman", Times, Georgia, serif',
-        fontSize: 14,
-        lineHeight: 1.35,
-      }}
-    >
-      <DocumentHeader detail={detail} printedAt={printedAt} />
-
-      <table className="w-full table-fixed border-collapse" style={{ fontSize: 12 }}>
-        <thead>
-          <tr>
-            <th
-              className="border border-black bg-neutral-100 px-2 py-1.5 text-left font-bold"
-              style={{ width: "11%" }}
-            >
-              Sr. No.
-            </th>
-            <th
-              className="border border-black bg-neutral-100 px-2 py-1.5 text-left font-bold"
-              style={{ width: "39%" }}
-            >
-              Particulars
-            </th>
-            <th
-              className="border border-black bg-neutral-100 px-2 py-1.5 text-left font-bold"
-              style={{ width: "50%" }}
-            >
-              Details
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.no}>
-              <td className="border border-black px-2 py-1.5 text-center align-top">{r.no}</td>
-              <td className="border border-black px-2 py-1.5 align-top">{r.particular}</td>
-              <td className="break-words border border-black px-2 py-1.5 align-top">{r.detail}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <div className="mt-auto flex justify-between gap-3 pt-5">
-        {signs.map((s) => (
-          <div key={s.roleLabel} className="min-w-0 flex-1 overflow-hidden" style={{ fontSize: 10.5 }}>
-            <div className="mb-1.5 font-bold leading-snug">{s.roleLabel}:</div>
-            <div
-              className={cn(
-                "mb-1.5 border-b border-black px-0.5 pb-1",
-                s.signed ? "text-neutral-900" : "text-transparent",
-              )}
-              style={{
-                minHeight: 28,
-                fontFamily: "Segoe Script, Brush Script MT, Apple Chancery, cursive",
-                fontSize: 15,
-                fontStyle: "italic",
-              }}
-            >
-              {s.signed ? s.name || "Approved" : "\u00a0"}
-            </div>
-            <div className="mt-1 break-words">
-              Name: <span className="font-semibold">{s.signed && s.name ? s.name : ""}</span>
-            </div>
-            <div className="mt-0.5">
-              Date:{" "}
-              <span className="font-semibold">{s.signed ? formatPrintDate(s.signedAt) : ""}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <DocumentFooter detail={detail} printedAt={printedAt} />
-    </div>
-  )
-}
-
-/** Clean A4 print document — avoids dialog transform clipping in browser print. */
-function openCapexPrintDocument(detail: CapexFormDetail): void {
+/** Opens the native system print dialog (printer or Save as PDF). No custom preview. */
+export function printCapexForm(detail: CapexFormDetail): void {
   const printedAt = formatPrintDateTime()
   const rows = formRows(detail)
   const signs = buildSignBlocks(detail)
@@ -338,9 +162,9 @@ function openCapexPrintDocument(detail: CapexFormDetail): void {
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>${escapeHtml(detail.form_number)} — Asset Capitalisation Form</title>
+  <title>&#8203;</title>
   <style>
-    @page { size: A4 portrait; margin: 12mm; }
+    @page { size: A4 portrait; margin: 14mm 16mm; }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
@@ -349,132 +173,175 @@ function openCapexPrintDocument(detail: CapexFormDetail): void {
       color: #111;
       font-family: "Times New Roman", Times, Georgia, serif;
       font-size: 11pt;
-      line-height: 1.35;
+      line-height: 1.4;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
     .page {
       width: 100%;
-      min-height: calc(297mm - 24mm);
+      min-height: calc(297mm - 28mm);
       display: flex;
       flex-direction: column;
+      gap: 0;
     }
     .doc-header {
-      border-bottom: 2px solid #111;
-      padding-bottom: 8px;
-      margin-bottom: 12px;
+      border-bottom: 2.5px solid #111;
+      padding: 2px 2px 14px;
+      margin: 0 0 16px;
     }
-    .doc-header-top {
+    .brand-logo {
+      margin: 0 0 8px;
+    }
+    .brand-logo img {
+      height: 52px;
+      width: auto;
+      max-width: 160px;
+      object-fit: contain;
+      object-position: left top;
+      display: block;
+    }
+    .doc-header-row {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 12px;
+      gap: 20px;
+      margin-bottom: 4px;
     }
-    .brand {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
+    .brand-text {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 0;
       min-width: 0;
       flex: 1;
     }
-    .brand img { height: 36px; width: auto; max-width: 110px; object-fit: contain; }
-    .brand-text { font-family: system-ui, sans-serif; }
-    .brand-text .name { font-size: 11pt; font-weight: 700; }
-    .brand-text .sub { font-size: 8pt; color: #555; }
-    .brand-text .tag { font-size: 7.5pt; color: #777; margin-top: 1px; }
-    .meta {
-      font-family: system-ui, sans-serif;
-      font-size: 8pt;
-      text-align: right;
-      line-height: 1.45;
-      max-width: 42%;
-      flex-shrink: 0;
+    .brand-text .sub {
+      font-size: 10pt;
+      color: #222;
+      font-weight: 600;
+      margin-top: 0;
+      line-height: 1.35;
     }
-    .meta strong { color: #111; }
-    .meta span { color: #666; }
+    .brand-text .tag {
+      font-size: 9pt;
+      color: #666;
+      margin-top: 2px;
+      line-height: 1.35;
+    }
+    .meta {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 10pt;
+      text-align: right;
+      line-height: 1.35;
+      flex-shrink: 0;
+      min-width: 38%;
+      max-width: 45%;
+    }
+    .meta div + div { margin-top: 2px; }
+    .meta strong { color: #111; font-weight: 650; }
+    .meta span { color: #555; }
     h1 {
-      margin: 10px 0 0;
+      margin: 2px 0 0;
+      padding: 10px 4px 0;
       text-align: center;
-      font-size: 14pt;
+      font-size: 17pt;
       font-weight: 700;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
+      line-height: 1.25;
+    }
+    .form-body {
+      flex: 0 0 auto;
+      margin: 0 0 8px;
     }
     table.form {
       width: 100%;
       border-collapse: collapse;
       table-layout: fixed;
-      font-size: 10pt;
+      font-size: 10.5pt;
     }
     table.form th, table.form td {
       border: 1px solid #111;
-      padding: 5px 7px;
+      padding: 8px 10px;
       vertical-align: top;
       word-wrap: break-word;
       overflow-wrap: anywhere;
     }
     table.form th {
-      background: #f0f0f0;
+      background: #ececec;
       font-weight: 700;
       text-align: left;
-      font-size: 9.5pt;
+      font-size: 10pt;
+      padding: 9px 10px;
     }
-    .c-no { width: 11%; text-align: center; }
-    .c-part { width: 39%; }
+    table.form tbody tr td {
+      min-height: 1.6em;
+    }
+    .c-no { width: 12%; text-align: center; }
+    .c-part { width: 38%; }
     .c-det { width: 50%; }
     .sigs {
       display: flex;
       justify-content: space-between;
-      gap: 10px;
-      margin-top: auto;
-      padding-top: 22px;
+      align-items: flex-start;
+      gap: 18px;
+      margin: 28px 2px 0;
+      padding: 8px 0 4px;
       page-break-inside: avoid;
     }
     .sig-block {
       flex: 1 1 0;
       min-width: 0;
-      font-size: 8.5pt;
+      font-size: 9.5pt;
       overflow: hidden;
+      padding: 0 2px;
     }
-    .sig-label { font-weight: 700; margin-bottom: 6px; }
+    .sig-label {
+      font-weight: 700;
+      margin-bottom: 10px;
+      font-size: 9.5pt;
+      line-height: 1.3;
+    }
     .sig-mark {
-      min-height: 26px;
+      min-height: 32px;
       font-family: "Segoe Script", "Brush Script MT", "Apple Chancery", cursive;
-      font-size: 13pt;
+      font-size: 14pt;
       font-style: italic;
       border-bottom: 1px solid #111;
-      margin-bottom: 6px;
-      padding-bottom: 2px;
+      margin-bottom: 8px;
+      padding-bottom: 4px;
     }
     .sig-mark.empty { color: transparent; }
-    .sig-line { margin-top: 2px; }
+    .sig-line {
+      margin-top: 4px;
+      line-height: 1.4;
+    }
     .doc-footer {
-      margin-top: 12px;
-      padding-top: 6px;
-      border-top: 1px solid #999;
-      font-family: system-ui, sans-serif;
-      font-size: 7.5pt;
+      margin-top: auto;
+      padding: 14px 2px 2px;
+      border-top: 1.5px solid #777;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 8.5pt;
       color: #555;
       display: flex;
       justify-content: space-between;
-      gap: 10px;
+      gap: 14px;
+      line-height: 1.45;
+      page-break-inside: avoid;
     }
     .doc-footer .left { min-width: 0; }
     .doc-footer .right { text-align: right; flex-shrink: 0; }
-    .doc-footer strong { color: #222; }
+    .doc-footer strong { color: #222; font-size: 9pt; }
   </style>
 </head>
 <body>
   <div class="page">
     <header class="doc-header">
-      <div class="doc-header-top">
-        <div class="brand">
-          <img src="${escapeHtml(logoUrl)}" alt="Takeda" />
-          <div class="brand-text">
-            <div class="name">Takeda</div>
-            <div class="sub">Asset Tracking &amp; Tagging</div>
-            <div class="tag">Controlled document</div>
-          </div>
+      <div class="brand-logo">
+        <img src="${escapeHtml(logoUrl)}" alt="Takeda" />
+      </div>
+      <div class="doc-header-row">
+        <div class="brand-text">
+          <div class="sub">Asset Tracking &amp; Tagging</div>
+          <div class="tag">Controlled document</div>
         </div>
         <div class="meta">
           <div><span>Print date:</span> <strong>${escapeHtml(printedAt)}</strong></div>
@@ -485,16 +352,18 @@ function openCapexPrintDocument(detail: CapexFormDetail): void {
       <h1>Asset Capitalisation Form</h1>
     </header>
 
-    <table class="form">
-      <thead>
-        <tr>
-          <th class="c-no">Sr. No.</th>
-          <th class="c-part">Particulars</th>
-          <th class="c-det">Details</th>
-        </tr>
-      </thead>
-      <tbody>${tableRows}</tbody>
-    </table>
+    <div class="form-body">
+      <table class="form">
+        <thead>
+          <tr>
+            <th class="c-no">Sr. No.</th>
+            <th class="c-part">Particulars</th>
+            <th class="c-det">Details</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>
 
     <div class="sigs">${signCols}</div>
 
@@ -509,148 +378,44 @@ function openCapexPrintDocument(detail: CapexFormDetail): void {
       </div>
     </footer>
   </div>
-  <script>
-    window.addEventListener("load", function () {
-      setTimeout(function () { window.focus(); window.print(); }, 200);
-    });
-  </script>
 </body>
 </html>`
 
-  const w = window.open("", "_blank", "noopener,noreferrer")
-  if (!w) {
-    throw new Error("Pop-up blocked. Allow pop-ups to print or save as PDF.")
+  const FRAME_ID = "capex-print-frame"
+  let iframe = document.getElementById(FRAME_ID) as HTMLIFrameElement | null
+  if (!iframe) {
+    iframe = document.createElement("iframe")
+    iframe.id = FRAME_ID
+    iframe.setAttribute("aria-hidden", "true")
+    iframe.style.cssText =
+      "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none"
+    document.body.appendChild(iframe)
   }
-  w.document.open()
-  w.document.write(html)
-  w.document.close()
-}
 
-type PreviewProps = {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  detail: CapexFormDetail
-}
+  const win = iframe.contentWindow
+  const doc = iframe.contentDocument
+  if (!win || !doc) {
+    throw new Error("Unable to prepare the print document.")
+  }
 
-/** On-screen A4 preview; Print / Save as PDF use a clean print document. */
-export function CapexPrintPreviewDialog({ open, onOpenChange, detail }: PreviewProps) {
-  const stageRef = React.useRef<HTMLDivElement>(null)
-  const [scale, setScale] = React.useState(0.75)
+  doc.open()
+  doc.write(html)
+  doc.close()
+  // Empty <title> falls back to the parent app title ("Takeda") in Chrome print headers.
+  doc.title = "\u200B"
 
-  React.useLayoutEffect(() => {
-    if (!open) return
-    const stage = stageRef.current
-    if (!stage) return
-
-    const update = () => {
-      const padX = 48
-      const padY = 40
-      const sw = Math.max(stage.clientWidth - padX, 180)
-      const sh = Math.max(stage.clientHeight - padY, 180)
-      if (sw < 50 || sh < 50) return
-      const next = Math.min(sw / A4_W, sh / A4_H) * 0.96
-      setScale(Number.isFinite(next) && next > 0.25 ? next : 0.75)
-    }
-
-    const id1 = window.requestAnimationFrame(() => {
-      update()
-      window.requestAnimationFrame(update)
-    })
-    const ro = new ResizeObserver(update)
-    ro.observe(stage)
-    window.addEventListener("resize", update)
-    return () => {
-      window.cancelAnimationFrame(id1)
-      ro.disconnect()
-      window.removeEventListener("resize", update)
-    }
-  }, [open])
-
-  const runPrint = React.useCallback(() => {
+  const trigger = () => {
     try {
-      openCapexPrintDocument(detail)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Unable to open print document.")
+      win.focus()
+      win.print()
+    } catch {
+      throw new Error("Unable to open the system print dialog.")
     }
-  }, [detail])
+  }
 
-  const slotW = Math.round(A4_W * scale)
-  const slotH = Math.round(A4_H * scale)
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        className={cn(
-          "flex h-[min(96vh,1100px)] w-[min(96vw,920px)] flex-col gap-0 overflow-hidden p-0",
-          "max-w-none sm:max-w-none md:max-w-none lg:max-w-none",
-          "rounded-2xl border border-border/70 bg-card shadow-2xl",
-        )}
-      >
-        <DialogHeader className="!gap-0 shrink-0 !border-b border-border/80 !px-4 !py-1.5 text-left">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-baseline gap-2">
-              <DialogTitle className="text-sm font-semibold tracking-tight">
-                Print preview
-              </DialogTitle>
-              <DialogDescription className="text-xs text-muted-foreground">
-                {detail.form_number} · A4
-              </DialogDescription>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="size-7 shrink-0 rounded-full"
-              onClick={() => onOpenChange(false)}
-              aria-label="Close preview"
-            >
-              <X className="size-3.5" />
-            </Button>
-          </div>
-        </DialogHeader>
-
-        <div ref={stageRef} className="relative min-h-0 flex-1 overflow-auto bg-[#e8ebf0]">
-          <div className="flex min-h-full justify-center px-6 py-5">
-            <div className="relative shrink-0" style={{ width: slotW, height: slotH }}>
-              <div
-                className="origin-top-left shadow-[0_8px_30px_rgba(0,0,0,0.18)] ring-1 ring-black/10"
-                style={{
-                  width: A4_W,
-                  height: A4_H,
-                  transform: `scale(${scale})`,
-                }}
-              >
-                <CapexHardcopySheet detail={detail} />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border/80 bg-card px-5 py-3">
-          <p className="text-xs text-muted-foreground">
-            Preview on screen, then print or save as PDF.
-          </p>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Close
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={runPrint}
-              title="Opens a clean print page — choose Save as PDF in the dialog"
-            >
-              <Download className="mr-1.5 size-4" aria-hidden />
-              Save as PDF
-            </Button>
-            <Button type="button" onClick={runPrint}>
-              <Printer className="mr-1.5 size-4" aria-hidden />
-              Print
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  )
+  if (doc.readyState === "complete") {
+    window.setTimeout(trigger, 150)
+  } else {
+    win.addEventListener("load", () => window.setTimeout(trigger, 150), { once: true })
+  }
 }

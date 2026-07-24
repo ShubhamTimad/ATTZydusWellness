@@ -2,7 +2,7 @@ import * as React from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Plus } from "lucide-react"
+import { Pencil, Plus, Trash2 } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,7 @@ import {
 } from "@/components/layout/admin-ui"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
 type RoleListItem = { id: number; name: string }
 
@@ -50,6 +51,60 @@ type WorkflowDetail = {
   created_by: number | null
   created_at: string
   steps: StepRow[]
+}
+
+/** Known entity types the app resolves for approval workflows. */
+const WORKFLOW_ENTITY_TYPES: { value: string; label: string }[] = [
+  { value: "user_creation", label: "User creation" },
+  { value: "asset_creation", label: "Asset creation" },
+  { value: "asset_import", label: "Asset import" },
+  { value: "capitalization_request", label: "Capitalization (no Engineering)" },
+  { value: "capitalization_request_engineering", label: "Capitalization (with Engineering)" },
+  { value: "physical_order_creation", label: "Physical order creation" },
+  { value: "physical_order_closure", label: "Physical order closure" },
+]
+
+const KNOWN_ENTITY_TYPE_VALUES = new Set(WORKFLOW_ENTITY_TYPES.map((e) => e.value))
+
+function entityTypeLabel(code: string): string {
+  return WORKFLOW_ENTITY_TYPES.find((e) => e.value === code)?.label ?? code
+}
+
+function EntityTypeSelect({
+  id,
+  value,
+  onChange,
+  disabled,
+  allowUnknown,
+}: {
+  id?: string
+  value: string
+  onChange: (next: string) => void
+  disabled?: boolean
+  /** Keep current value selectable when it is not in the known list. */
+  allowUnknown?: boolean
+}) {
+  const unknown = allowUnknown && value && !KNOWN_ENTITY_TYPE_VALUES.has(value)
+  return (
+    <select
+      id={id}
+      className={adminSelectClass}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {unknown ? (
+        <option value={value} disabled>
+          {value} (custom)
+        </option>
+      ) : null}
+      {WORKFLOW_ENTITY_TYPES.map((e) => (
+        <option key={e.value} value={e.value}>
+          {e.label}
+        </option>
+      ))}
+    </select>
+  )
 }
 
 function roleName(roles: RoleListItem[], roleId: number): string {
@@ -82,7 +137,9 @@ export function WorkflowAssignmentPage() {
   const [addingStep, setAddingStep] = React.useState(false)
   const [activating, setActivating] = React.useState(false)
   const [deactivating, setDeactivating] = React.useState(false)
+  const [deleting, setDeleting] = React.useState(false)
   const [stepSavingId, setStepSavingId] = React.useState<number | null>(null)
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -158,6 +215,7 @@ export function WorkflowAssignmentPage() {
       toast.success("Workflow created.")
       setCreateOpen(false)
       setNewWorkflowName("")
+      setNewEntityType("user_creation")
       await load()
       openWorkflow(created.id)
     } catch (e) {
@@ -277,14 +335,59 @@ export function WorkflowAssignmentPage() {
     }
   }
 
+  async function onDeleteWorkflow(wf: WorkflowDetail) {
+    if (wf.is_active) {
+      toast.error("Deactivate the workflow before deleting it.")
+      return
+    }
+    const ok = await confirmAsk({
+      title: "Delete workflow?",
+      description: `Delete workflow “${wf.name}”? This cannot be undone. Workflows with approval history cannot be deleted.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    })
+    if (!ok) return
+    setDeleting(true)
+    try {
+      await deleteJson(`/admin/approval-workflows/${wf.id}`)
+      toast.success("Workflow deleted.")
+      if (selectedId === String(wf.id)) backToList()
+      await load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not delete workflow.")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   if (view === "edit" && selectedWf) {
     return (
-      <AdminPage className="space-y-4">
-        <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToList}>
-          ← Back to workflows
-        </Button>
+      <>
+      <AdminPage dense fullWidth viewportFill className="gap-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
+          <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToList}>
+            ← Back to workflows
+          </Button>
+          {!selectedWf.is_active ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              disabled={deleting}
+              onClick={() => void onDeleteWorkflow(selectedWf)}
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+              {deleting ? "Deleting…" : "Delete workflow"}
+            </Button>
+          ) : null}
+        </div>
 
-        <AdminPanel title={selectedWf.name} contentClassName="space-y-4 px-5 py-5">
+        <AdminPanel
+          title={selectedWf.name}
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          contentClassName="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-5"
+        >
             <div className="flex flex-wrap items-center gap-2">
               <AdminStatusBadge active={selectedWf.is_active} />
               {selectedWf.is_active ? (
@@ -306,11 +409,13 @@ export function WorkflowAssignmentPage() {
                 <Input value={editName} onChange={(e) => setEditName(e.target.value)} disabled={loading} />
               </div>
               <div className="space-y-1.5">
-                <Label>Entity type</Label>
-                <Input
+                <Label htmlFor="edit-wf-type">Entity type</Label>
+                <EntityTypeSelect
+                  id="edit-wf-type"
                   value={editEntityType}
-                  onChange={(e) => setEditEntityType(e.target.value)}
+                  onChange={setEditEntityType}
                   disabled={loading || selectedWf.is_active}
+                  allowUnknown
                 />
               </div>
             </div>
@@ -327,41 +432,43 @@ export function WorkflowAssignmentPage() {
             <Separator />
 
             <p className="text-sm font-medium">Approval levels</p>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-16">Level</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead className="w-28">Required</TableHead>
-                  {canEditSteps ? <TableHead className="w-32 text-right">Actions</TableHead> : null}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {[...(selectedWf.steps ?? [])]
-                  .sort((a, b) => a.step_order - b.step_order)
-                  .map((s) => (
-                    <StepEditRow
-                      key={s.id}
-                      step={s}
-                      roles={roles}
-                      canEdit={canEditSteps}
-                      saving={stepSavingId === s.id}
-                      onSave={(roleId, req) => void onSaveStep(s, roleId, req)}
-                      onDelete={() => void onDeleteStep(s.id)}
-                    />
-                  ))}
-                {(selectedWf.steps ?? []).length === 0 ? (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell
-                      colSpan={canEditSteps ? 4 : 3}
-                      className="text-sm text-muted-foreground"
-                    >
-                      No levels yet.
-                    </TableCell>
+                    <TableHead className="w-16">Level</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead className="w-28">Required</TableHead>
+                    {canEditSteps ? <TableHead className="w-32 text-right">Actions</TableHead> : null}
                   </TableRow>
-                ) : null}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {[...(selectedWf.steps ?? [])]
+                    .sort((a, b) => a.step_order - b.step_order)
+                    .map((s) => (
+                      <StepEditRow
+                        key={s.id}
+                        step={s}
+                        roles={roles}
+                        canEdit={canEditSteps}
+                        saving={stepSavingId === s.id}
+                        onSave={(roleId, req) => void onSaveStep(s, roleId, req)}
+                        onDelete={() => void onDeleteStep(s.id)}
+                      />
+                    ))}
+                  {(selectedWf.steps ?? []).length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={canEditSteps ? 4 : 3}
+                        className="text-sm text-muted-foreground"
+                      >
+                        No levels yet.
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </TableBody>
+              </Table>
+            </div>
 
             {canEditSteps ? (
               <div className="flex flex-wrap gap-2 items-end rounded-md border p-3">
@@ -404,12 +511,18 @@ export function WorkflowAssignmentPage() {
             </AdminPrimaryButton>
         </AdminPanel>
       </AdminPage>
+      {confirmDialog}
+      </>
     )
   }
 
   return (
+    <>
     <AdminPage
-      description="Define approval levels per entity type. Click a row to edit."
+      dense
+      fullWidth
+      viewportFill
+      description="Define approval levels per entity type. Create, edit, activate, or delete draft workflows."
       actions={
         <AdminPrimaryButton type="button" onClick={() => setCreateOpen(true)} disabled={loading}>
           <Plus className="size-4" aria-hidden />
@@ -417,7 +530,7 @@ export function WorkflowAssignmentPage() {
         </AdminPrimaryButton>
       }
     >
-      <AdminDataTable>
+      <AdminDataTable className="min-h-0 flex-1">
         <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>
@@ -425,21 +538,22 @@ export function WorkflowAssignmentPage() {
               <AdminTableHeadCell>Entity type</AdminTableHeadCell>
               <AdminTableHeadCell>Status</AdminTableHeadCell>
               <AdminTableHeadCell>Levels</AdminTableHeadCell>
+              <AdminTableHeadCell className="w-[160px] text-right">Actions</AdminTableHeadCell>
             </AdminTableHeaderRow>
           </TableHeader>
           <TableBody>
             {loading ? (
-              <AdminTableEmptyRow colSpan={4}>Loading workflows…</AdminTableEmptyRow>
+              <AdminTableEmptyRow colSpan={5}>Loading workflows…</AdminTableEmptyRow>
             ) : sortedWorkflows.length === 0 ? (
-              <AdminTableEmptyRow colSpan={4}>
+              <AdminTableEmptyRow colSpan={5}>
                 No workflows yet. Click Create workflow.
               </AdminTableEmptyRow>
             ) : (
               sortedWorkflows.map((w) => (
-                <AdminTableBodyRow key={w.id} onClick={() => openWorkflow(w.id)}>
+                <AdminTableBodyRow key={w.id} interactive={false}>
                   <AdminTableCell className="font-medium">{w.name}</AdminTableCell>
-                  <AdminTableCell className="font-mono text-xs text-muted-foreground">
-                    {w.entity_type}
+                  <AdminTableCell className="text-sm text-muted-foreground" title={w.entity_type}>
+                    {entityTypeLabel(w.entity_type)}
                   </AdminTableCell>
                   <AdminTableCell>
                     {w.is_active ? (
@@ -452,6 +566,35 @@ export function WorkflowAssignmentPage() {
                   </AdminTableCell>
                   <AdminTableCell className="max-w-md truncate text-xs text-muted-foreground">
                     {stepsSummary(w, roles)}
+                  </AdminTableCell>
+                  <AdminTableCell className="text-right">
+                    <div className="flex justify-end gap-0.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+                        aria-label={`Edit ${w.name}`}
+                        onClick={() => openWorkflow(w.id)}
+                      >
+                        <Pencil className="size-3.5" aria-hidden />
+                        <span className="hidden sm:inline">Edit</span>
+                      </Button>
+                      {!w.is_active ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-destructive"
+                          disabled={deleting}
+                          aria-label={`Delete ${w.name}`}
+                          onClick={() => void onDeleteWorkflow(w)}
+                        >
+                          <Trash2 className="size-3.5" aria-hidden />
+                          <span className="hidden sm:inline">Delete</span>
+                        </Button>
+                      ) : null}
+                    </div>
                   </AdminTableCell>
                 </AdminTableBodyRow>
               ))
@@ -466,7 +609,7 @@ export function WorkflowAssignmentPage() {
             <DialogTitle>Create workflow</DialogTitle>
             <DialogDescription>Creates a draft workflow you can configure next.</DialogDescription>
           </DialogHeader>
-          <div className="dialog-body">
+          <div className="dialog-body max-h-[min(70vh,28rem)] space-y-3 overflow-y-auto">
             <div className="space-y-1.5">
               <Label htmlFor="create-wf-name">Name</Label>
               <Input
@@ -479,11 +622,10 @@ export function WorkflowAssignmentPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="create-wf-type">Entity type</Label>
-              <Input
+              <EntityTypeSelect
                 id="create-wf-type"
                 value={newEntityType}
-                onChange={(e) => setNewEntityType(e.target.value)}
-                placeholder="user_creation"
+                onChange={setNewEntityType}
               />
             </div>
             <div className="flex justify-end gap-2 pt-1">
@@ -498,6 +640,8 @@ export function WorkflowAssignmentPage() {
         </DialogContent>
       </Dialog>
     </AdminPage>
+    {confirmDialog}
+    </>
   )
 }
 

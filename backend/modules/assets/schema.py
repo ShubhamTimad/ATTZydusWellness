@@ -418,6 +418,16 @@ class AssetBulkDecisionResponse(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class AssetBulkLifecycleRequest(BaseModel):
+    asset_ids: list[int] = Field(min_length=1)
+    action: str = Field(min_length=1)  # deactivate | reactivate
+
+
+class AssetBulkLifecycleResponse(BaseModel):
+    processed_count: int
+    errors: list[str] = Field(default_factory=list)
+
+
 class ImportConfirmResponse(BaseModel):
     batch_id: int
     created_count: int

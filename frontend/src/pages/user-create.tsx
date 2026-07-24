@@ -166,6 +166,7 @@ export function UserCreatePage() {
 
   return (
     <AdminPage
+      fullWidth
       description="Choose a plant, then a role for that plant. The user is activated immediately and a temporary password is emailed (if configured)."
       actions={<AdminBackLink to=".." />}
     >

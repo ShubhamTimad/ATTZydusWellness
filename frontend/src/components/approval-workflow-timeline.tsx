@@ -1,4 +1,4 @@
-import { Check, Circle, CircleUserRound, Clock, Mail, User, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Check, Circle, CircleUserRound, Clock, Mail, User, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -175,22 +175,37 @@ function personForStep(step: TaskApprovalStepLine): string | null {
 }
 
 function CompactStepList({ steps }: { steps: TaskApprovalStepLine[] }) {
+  // Latest step first (highest step_order on top); earlier steps below.
+  const ordered = steps.length > 1 ? [...steps].reverse() : steps
   return (
     <ol className="relative">
-      {steps.map((step, i) => {
+      {ordered.map((step, i) => {
         const st = phaseStyles(step.phase)
-        const isLast = i === steps.length - 1
+        const isLast = i === ordered.length - 1
+        // Next row is chronologically earlier (flow ran earlier → this step).
+        const earlier = !isLast ? ordered[i + 1] : null
         const person = personForStep(step)
+        const linkPhase = earlier?.phase ?? step.phase
         return (
-          <li key={`${step.step_order}-${step.approver_role_name}`} className="relative flex gap-3 pb-5 last:pb-0">
-            {!isLast ? (
+          <li key={`${step.step_order}-${step.approver_role_name}`} className="relative flex gap-3 pb-6 last:pb-0">
+            {earlier ? (
               <div
-                className={cn(
-                  "absolute left-[15px] top-8 h-[calc(100%-0.25rem)] w-px",
-                  segmentClassForPhase(step.phase),
-                )}
+                className="pointer-events-none absolute left-0 top-8 z-0 flex h-[calc(100%-0.5rem)] w-8 flex-col items-center"
                 aria-hidden
-              />
+              >
+                <div className={cn("w-px flex-1", segmentClassForPhase(linkPhase))} />
+                <ArrowUp
+                  className={cn(
+                    "size-3.5 shrink-0",
+                    linkPhase === "completed"
+                      ? "text-primary-500 dark:text-primary-400"
+                      : linkPhase === "current"
+                        ? "text-amber-500 dark:text-amber-400"
+                        : "text-muted-foreground/50",
+                  )}
+                />
+                <div className={cn("w-px flex-1", segmentClassForPhase(linkPhase))} />
+              </div>
             ) : null}
             <div
               className={cn(
@@ -200,7 +215,7 @@ function CompactStepList({ steps }: { steps: TaskApprovalStepLine[] }) {
             >
               {phaseIcon(step.phase)}
             </div>
-            <div className="min-w-0 flex-1 pt-0.5">
+            <div className="relative z-10 min-w-0 flex-1 pt-0.5">
               <div className="flex flex-wrap items-center gap-2">
                 {phaseStateBadge(step.phase)}
                 <p className={cn("text-sm font-semibold leading-tight", rowTextStyles(step.phase))}>
@@ -220,12 +235,26 @@ function CompactStepList({ steps }: { steps: TaskApprovalStepLine[] }) {
               ) : (
                 <p className="mt-1 text-xs text-muted-foreground">Not assigned yet</p>
               )}
+              {earlier ? (
+                <p className="mt-2 flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                  <span className="text-muted-foreground/80">↑</span>
+                  <span>
+                    {earlier.approver_role_name}
+                    <span className="mx-1 text-muted-foreground/60">→</span>
+                    {step.approver_role_name}
+                  </span>
+                </p>
+              ) : null}
             </div>
           </li>
         )
       })}
     </ol>
   )
+}
+
+function rejectedAtRole(steps: TaskApprovalStepLine[]): string | null {
+  return steps.find((s) => s.phase === "rejected")?.approver_role_name ?? null
 }
 
 function CompactTimeline({
@@ -237,10 +266,12 @@ function CompactTimeline({
   title?: string
   runs?: CompactRun[]
 }) {
-  const sections =
+  // Latest attempt first so the active run is at the top.
+  const chronological =
     runs && runs.length > 0
       ? runs
       : [{ label: undefined as string | undefined, steps }]
+  const sections = chronological.length > 1 ? [...chronological].reverse() : chronological
 
   return (
     <div className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
@@ -248,19 +279,37 @@ function CompactTimeline({
         <h3 className="text-sm font-semibold">{title ?? "Approval progress"}</h3>
       </div>
       <div className="px-4 py-3">
-        {sections.map((section, idx) => (
-          <div
-            key={`attempt-${idx}-${section.label ?? "current"}`}
-            className={cn(idx > 0 && "mt-4 border-t border-border/60 pt-4")}
-          >
-            {section.label ? (
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {section.label}
-              </p>
-            ) : null}
-            <CompactStepList steps={section.steps} />
-          </div>
-        ))}
+        {sections.map((section, idx) => {
+          // In latest-first order, the next section is the older attempt this one replaced.
+          const older = idx < sections.length - 1 ? sections[idx + 1] : null
+          const fromRole = older ? rejectedAtRole(older.steps) : null
+          return (
+            <div key={`attempt-${idx}-${section.label ?? "current"}`}>
+              {idx > 0 ? (
+                <div className="my-4 flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <div className="h-px flex-1 bg-border/60" />
+                  <span className="inline-flex shrink-0 items-center gap-1 font-medium uppercase tracking-wide">
+                    <ArrowDown className="size-3 opacity-70" aria-hidden />
+                    Earlier attempt
+                  </span>
+                  <div className="h-px flex-1 bg-border/60" />
+                </div>
+              ) : null}
+              {section.label ? (
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {section.label}
+                </p>
+              ) : null}
+              {idx === 0 && older && fromRole ? (
+                <p className="mb-3 text-[11px] text-muted-foreground">
+                  Resubmitted after <span className="font-medium text-foreground/80">{fromRole}</span>{" "}
+                  rejected on the earlier attempt
+                </p>
+              ) : null}
+              <CompactStepList steps={section.steps} />
+            </div>
+          )
+        })}
       </div>
     </div>
   )
