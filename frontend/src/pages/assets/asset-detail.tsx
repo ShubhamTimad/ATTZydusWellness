@@ -651,7 +651,7 @@ export function AssetDetailPage() {
     if (!ok) return
     setSaving(true)
     try {
-      const updated = await postJson<AssetDetail>(`/admin/assets/${asset.id}/${action}`)
+      const updated = await postJson<AssetDetail>(`/admin/assets/${asset.id}/${action}`, {})
       setAsset(updated)
       toast.success(action === "deactivate" ? "Asset deactivated." : "Asset reactivated.")
       void loadAudit(asset.id)

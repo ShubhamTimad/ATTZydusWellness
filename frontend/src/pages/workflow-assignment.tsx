@@ -552,8 +552,8 @@ export function WorkflowAssignmentPage() {
               sortedWorkflows.map((w) => (
                 <AdminTableBodyRow key={w.id} interactive={false}>
                   <AdminTableCell className="font-medium">{w.name}</AdminTableCell>
-                  <AdminTableCell className="text-sm text-muted-foreground" title={w.entity_type}>
-                    {entityTypeLabel(w.entity_type)}
+                  <AdminTableCell className="text-sm text-muted-foreground">
+                    <span title={w.entity_type}>{entityTypeLabel(w.entity_type)}</span>
                   </AdminTableCell>
                   <AdminTableCell>
                     {w.is_active ? (
