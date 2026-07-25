@@ -250,6 +250,7 @@ export function CapexListPage() {
                             setColumnFilterInputs((f) => ({ ...f, form_number: e.target.value }))
                           }
                           aria-label="Filter form number"
+                          placeholder="Form number"
                           className={columnFilterControlClass}
                         />
                       </AdminTableHeadCell>
@@ -260,6 +261,7 @@ export function CapexListPage() {
                             setColumnFilterInputs((f) => ({ ...f, asset_name: e.target.value }))
                           }
                           aria-label="Filter asset name"
+                          placeholder="Asset name"
                           className={columnFilterControlClass}
                         />
                       </AdminTableHeadCell>
@@ -270,6 +272,7 @@ export function CapexListPage() {
                             setColumnFilterInputs((f) => ({ ...f, department: e.target.value }))
                           }
                           aria-label="Filter department"
+                          placeholder="Department"
                           className={columnFilterControlClass}
                         />
                       </AdminTableHeadCell>
@@ -297,6 +300,7 @@ export function CapexListPage() {
                             setColumnFilterInputs((f) => ({ ...f, created_by: e.target.value }))
                           }
                           aria-label="Filter created by"
+                          placeholder="Created by"
                           className={columnFilterControlClass}
                         />
                       </AdminTableHeadCell>

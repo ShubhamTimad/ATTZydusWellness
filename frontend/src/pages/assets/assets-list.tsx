@@ -53,7 +53,6 @@ import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
 import { ApiError, deleteJson, downloadFile, getJson, postJson, putJson } from "@/lib/api"
 import {
   buildAssetListActionItems,
-  countRfidTaggedSelected,
   eligibleDeactivateAssets,
   eligibleDecisionAssets,
   eligibleReactivateAssets,
@@ -73,7 +72,6 @@ import { CapexDecisionDialog } from "@/pages/capex/capex-decision-dialog"
 import type { CostCenterMaster, FunctionalLocationMaster } from "@/lib/masters-types"
 import {
   categoryLabel,
-  costCenterLabel,
   functionalLocationLabel,
   plantLabel,
   useAssetMasterLookups,
@@ -100,6 +98,7 @@ export type AssetListColumnKey =
   | "category_name"
   | "plant"
   | "cost_center"
+  | "cost_center_name"
   | "functional_location"
   | "actual_location"
   | "inventory_count"
@@ -125,6 +124,7 @@ const ASSET_LIST_COLUMNS: AssetListColumnDefinition[] = [
   { key: "category_name", label: "Category", group: "Asset" },
   { key: "plant", label: "Plant", group: "Location & financial" },
   { key: "cost_center", label: "Cost Center Code", group: "Location & financial" },
+  { key: "cost_center_name", label: "Cost Center Name", group: "Location & financial" },
   { key: "functional_location", label: "Actual Location 1", group: "Location & financial" },
   { key: "actual_location", label: "Actual Location 2", group: "Location & financial" },
   { key: "inventory_count", label: "Inventory Count", group: "Inventory & status" },
@@ -247,7 +247,18 @@ function assetListCell(row: AssetListItem, key: AssetListColumnKey): React.React
     case "plant":
       return formatMasterLabel(row.plant_code, row.plant_name)
     case "cost_center":
-      return formatMasterLabel(row.cost_center, row.cost_center_description)
+      return (
+        <span className="font-mono text-xs text-foreground">{row.cost_center?.trim() || "—"}</span>
+      )
+    case "cost_center_name":
+      return (
+        <span
+          className="block max-w-[14rem] truncate"
+          title={row.cost_center_description ?? undefined}
+        >
+          {row.cost_center_description?.trim() || "—"}
+        </span>
+      )
     case "functional_location":
       return formatMasterLabel(row.functional_location, row.functional_location_description)
     case "actual_location":
@@ -391,6 +402,7 @@ export function AssetsListPage() {
       .catch(() => setFunctionalLocationOptions([]))
   }, [])
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
+  const [selectedHasRfid, setSelectedHasRfid] = React.useState<Map<number, boolean>>(new Map())
   const [loading, setLoading] = React.useState(false)
   const [bulkActionBusy, setBulkActionBusy] = React.useState(false)
   const [orderValidateBusy, setOrderValidateBusy] = React.useState(false)
@@ -577,11 +589,14 @@ export function AssetsListPage() {
       key === "asset_name" ||
       key === "rfid_code"
     ) {
+      const columnLabel =
+        ASSET_LIST_COLUMNS.find((column) => column.key === key)?.label ?? key.replaceAll("_", " ")
       return (
         <Input
           value={columnFilterInputs[key]}
           onChange={(e) => setColumnFilterInputs((f) => ({ ...f, [key]: e.target.value }))}
-          aria-label={`Filter ${key.replaceAll("_", " ")}`}
+          aria-label={`Filter ${columnLabel}`}
+          placeholder={columnLabel}
           className={columnFilterControlClass}
         />
       )
@@ -594,7 +609,7 @@ export function AssetsListPage() {
           aria-label="Filter category"
           onChange={(e) => setColumnPanelFilter("category_id", e.target.value)}
         >
-          <option value="">All</option>
+          <option value="">Category</option>
           {masters.categories.map((category) => (
             <option key={category.id} value={String(category.id)}>
               {categoryLabel(category)}
@@ -603,20 +618,24 @@ export function AssetsListPage() {
         </select>
       )
     }
-    if (key === "cost_center") {
+    if (key === "cost_center" || key === "cost_center_name") {
       return (
         <select
           className={cn(adminSelectClass, columnFilterControlClass)}
           value={columnFilterInputs.cost_center}
-          aria-label="Filter cost center"
+          aria-label={key === "cost_center" ? "Filter cost center code" : "Filter cost center name"}
           onChange={(e) =>
             setColumnFilterInputs((f) => ({ ...f, cost_center: e.target.value }))
           }
         >
-          <option value="">All</option>
+          <option value="">
+            {key === "cost_center_name" ? "Cost Center Name" : "Cost Center Code"}
+          </option>
           {costCenterOptions.map((costCenter) => (
             <option key={costCenter.id} value={costCenter.code}>
-              {costCenterLabel(costCenter)}
+              {key === "cost_center_name"
+                ? costCenter.name || costCenter.code
+                : costCenter.code}
             </option>
           ))}
         </select>
@@ -632,7 +651,7 @@ export function AssetsListPage() {
             setColumnFilterInputs((f) => ({ ...f, functional_location: e.target.value }))
           }
         >
-          <option value="">All</option>
+          <option value="">Actual Location 1</option>
           {functionalLocationOptions.map((location) => (
             <option key={location.id} value={location.code}>
               {functionalLocationLabel(location)}
@@ -649,7 +668,7 @@ export function AssetsListPage() {
           aria-label="Filter status"
           onChange={(e) => setColumnPanelFilter("lifecycle_status", e.target.value)}
         >
-          <option value="">All</option>
+          <option value="">Status</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
@@ -716,7 +735,7 @@ export function AssetsListPage() {
     setFilters((f) => ({ ...f, fy_start_year: fyYear, fy_scan_from: from, fy_scan_to: to }))
     setDraftFilters((f) => ({ ...f, fy_start_year: fyYear, fy_scan_from: from, fy_scan_to: to }))
     setPage(1)
-    setSelected(new Set())
+    clearSelection()
   }
 
   function applyScanDate(field: "fy_scan_from" | "fy_scan_to", value: string) {
@@ -760,10 +779,22 @@ export function AssetsListPage() {
     }
   }
 
+  function clearSelection() {
+    setSelected(new Set())
+    setSelectedHasRfid(new Map())
+  }
+
   function toggleRow(id: number, on: boolean) {
+    const row = data?.items.find((item) => item.id === id)
     setSelected((prev) => {
       const next = new Set(prev)
       if (on) next.add(id)
+      else next.delete(id)
+      return next
+    })
+    setSelectedHasRfid((prev) => {
+      const next = new Map(prev)
+      if (on) next.set(id, Boolean(row?.rfid_code?.trim()))
       else next.delete(id)
       return next
     })
@@ -771,19 +802,50 @@ export function AssetsListPage() {
 
   function toggleAll(on: boolean) {
     if (!data) return
-    if (on) setSelected(new Set(data.items.map((i) => i.id)))
-    else setSelected(new Set())
+    const pageIds = data.items.map((item) => item.id)
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (on) {
+        for (const id of pageIds) next.add(id)
+      } else {
+        for (const id of pageIds) next.delete(id)
+      }
+      return next
+    })
+    setSelectedHasRfid((prev) => {
+      const next = new Map(prev)
+      if (on) {
+        for (const row of data.items) {
+          next.set(row.id, Boolean(row.rfid_code?.trim()))
+        }
+      } else {
+        for (const id of pageIds) next.delete(id)
+      }
+      return next
+    })
   }
 
   const items = data?.items ?? []
+  const pageSelectedCount = items.filter((row) => selected.has(row.id)).length
+  const allPageSelected = items.length > 0 && pageSelectedCount === items.length
+  const somePageSelected = pageSelectedCount > 0 && !allPageSelected
   const selectedRows = React.useMemo(
     () => selectedAssetsFromList(items, selected),
     [items, selected],
   )
-  const rfidTaggedCount = React.useMemo(
-    () => countRfidTaggedSelected(selectedRows),
-    [selectedRows],
-  )
+  const rfidTaggedCount = React.useMemo(() => {
+    let count = 0
+    for (const id of selected) {
+      const known = selectedHasRfid.get(id)
+      if (known != null) {
+        if (known) count += 1
+        continue
+      }
+      const row = items.find((item) => item.id === id)
+      if (row?.rfid_code?.trim()) count += 1
+    }
+    return count
+  }, [selected, selectedHasRfid, items])
   const submitEligibleRows = React.useMemo(
     () => eligibleSubmitAssets(selectedRows),
     [selectedRows],
@@ -930,7 +992,7 @@ export function AssetsListPage() {
       if (parts.length > 0) {
         toast.success(parts.join(", ") + ".")
         setSubmitAssignOpen(false)
-        setSelected(new Set())
+        clearSelection()
         await load()
       } else if (!res.errors?.length) {
         toast.error("No assets were submitted.")
@@ -979,7 +1041,7 @@ export function AssetsListPage() {
             : `${res.processed_count} rejected.`,
         )
         setBulkDecisionOpen(false)
-        setSelected(new Set())
+        clearSelection()
         await load()
       }
       if (res.errors?.length) {
@@ -1021,7 +1083,7 @@ export function AssetsListPage() {
       } else {
         toast.error(errors[0] ?? "Delete failed.")
       }
-      setSelected(new Set())
+      clearSelection()
       await load()
     } finally {
       setBulkActionBusy(false)
@@ -1061,7 +1123,7 @@ export function AssetsListPage() {
             ? `${res.processed_count} deactivated.`
             : `${res.processed_count} reactivated.`,
         )
-        setSelected(new Set())
+        clearSelection()
         await load()
       }
       if (res.errors?.length) {
@@ -1131,6 +1193,7 @@ export function AssetsListPage() {
     setResetVerificationAssetIds(resetIds)
     setEligibleForOrder(eligible)
     setSelected(new Set(eligible))
+    setSelectedHasRfid(new Map(eligible.map((id) => [id, true])))
     setActiveConflictOpen(false)
     setMissingRfidOpen(false)
     setPlantMismatchOpen(false)
@@ -1178,7 +1241,7 @@ export function AssetsListPage() {
       return
     }
     if (actionId === "clear-selection") {
-      setSelected(new Set())
+      clearSelection()
     }
   }
 
@@ -1286,7 +1349,7 @@ export function AssetsListPage() {
                 }))
               }
               setPage(1)
-              setSelected(new Set())
+              clearSelection()
             }}
             className="shrink-0"
           >
@@ -1354,7 +1417,7 @@ export function AssetsListPage() {
               onValueChange={(value) => {
                 setFySubTab(value as AssetFySubTab)
                 setPage(1)
-                setSelected(new Set())
+                clearSelection()
               }}
             >
               <WorkspaceTabsList>
@@ -1778,9 +1841,9 @@ export function AssetsListPage() {
               <AdminTableHeaderRow>
                 <AdminTableHeadCell className="w-10 px-3">
                   <Checkbox
-                    checked={items.length > 0 && selected.size === items.length}
+                    checked={allPageSelected ? true : somePageSelected ? "indeterminate" : false}
                     onCheckedChange={(v) => toggleAll(Boolean(v))}
-                    aria-label="Select all"
+                    aria-label="Select all on this page"
                   />
                 </AdminTableHeadCell>
                 {visibleColumns.map((column) => (
@@ -2147,10 +2210,13 @@ export function AssetsListPage() {
         open={createOrderOpen}
         onOpenChange={setCreateOrderOpen}
         assetIds={eligibleForOrder}
-        plantId={selectedRows[0]?.plant_id ?? null}
+        plantId={
+          selectedRows[0]?.plant_id ??
+          (filters.plant_id ? Number(filters.plant_id) : null)
+        }
         resetVerificationAssetIds={resetVerificationAssetIds}
         onCreated={(order) => {
-          setSelected(new Set())
+          clearSelection()
           navigate(`/dashboard/orders/${order.id}`)
         }}
       />

@@ -262,6 +262,7 @@ ASSET_LIST_COLUMN_KEYS = frozenset(
     (
         *DEFAULT_ASSET_LIST_COLUMNS,
         "plant",
+        "cost_center_name",
         "actual_location",
         "last_verification_date",
         "approval_status",
