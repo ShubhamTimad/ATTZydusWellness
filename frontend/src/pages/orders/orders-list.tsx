@@ -34,9 +34,6 @@ function tabCount(
   tab: (typeof ORDER_STATUS_TABS)[number],
 ): number {
   if (!module) return 0
-  if (tab.key === "pending_approval") {
-    return (module.pending_approval ?? 0) + (module.pending_closure_approval ?? 0)
-  }
   if (!tab.countKey) return 0
   const value = module[tab.countKey]
   return typeof value === "number" ? value : 0
@@ -44,7 +41,7 @@ function tabCount(
 
 export function OrdersListPage() {
   const navigate = useNavigate()
-  const [tab, setTab] = React.useState("in_progress")
+  const [tab, setTab] = React.useState("assigned")
   const [page, setPage] = React.useState(1)
   const [data, setData] = React.useState<PhysicalOrderListResponse | null>(null)
   const [counts, setCounts] = React.useState<OrdersDashboardModule | null>(null)

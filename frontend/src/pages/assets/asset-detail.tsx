@@ -20,6 +20,7 @@ import {
   adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -631,10 +632,8 @@ export function AssetDetailPage() {
         ),
         canReactivate: Boolean(asset && canReactivateAsset(asset.lifecycle_status)),
         canSubmit,
-        canReassign,
-        canDecide: canActOnAsset,
       }),
-    [canUpdate, canEdit, editing, asset, canSubmit, canReassign, canActOnAsset],
+    [canUpdate, canEdit, editing, asset, canSubmit],
   )
 
   async function toggleLifecycle(action: "deactivate" | "reactivate") {
@@ -686,18 +685,6 @@ export function AssetDetailPage() {
       setSubmitAssignOpen(true)
       return
     }
-    if (actionId === "reassign") {
-      setReassignOpen(true)
-      return
-    }
-    if (actionId === "reject") {
-      openDecision("reject")
-      return
-    }
-    if (actionId === "approve") {
-      openDecision("approve")
-      return
-    }
 
     if (actionId === "deactivate") {
       void toggleLifecycle("deactivate")
@@ -721,6 +708,39 @@ export function AssetDetailPage() {
         <AdminPrimaryButton type="button" disabled={saving || acting} onClick={() => void save()}>
           {saving ? "Saving…" : "Save changes"}
         </AdminPrimaryButton>
+      ) : null}
+      {!editing && canReassign ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-9"
+          disabled={saving || acting || reassigning}
+          onClick={() => setReassignOpen(true)}
+        >
+          Reassign
+        </Button>
+      ) : null}
+      {!editing && canActOnAsset ? (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9"
+            disabled={saving || acting || reassigning}
+            onClick={() => openDecision("reject")}
+          >
+            Reject
+          </Button>
+          <AdminPrimaryButton
+            type="button"
+            disabled={saving || acting || reassigning}
+            onClick={() => openDecision("approve")}
+          >
+            Approve
+          </AdminPrimaryButton>
+        </>
       ) : null}
       {asset && detailActions.length > 0 ? (
         <AssetActionsMenu

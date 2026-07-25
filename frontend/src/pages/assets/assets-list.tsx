@@ -806,7 +806,6 @@ export function AssetsListPage() {
         selectedCount: selected.size,
         rfidTaggedCount,
         submitEligibleCount: submitEligibleRows.length,
-        decisionEligibleCount: decisionEligibleRows.length,
         deactivateEligibleCount: deactivateEligibleRows.length,
         reactivateEligibleCount: reactivateEligibleRows.length,
         canDelete,
@@ -814,13 +813,11 @@ export function AssetsListPage() {
         canAttachRfid: showAttachRfid,
         canCreateOrder,
         canSubmitForApproval,
-        canDecide,
       }),
     [
       selected.size,
       rfidTaggedCount,
       submitEligibleRows.length,
-      decisionEligibleRows.length,
       deactivateEligibleRows.length,
       reactivateEligibleRows.length,
       canDelete,
@@ -829,7 +826,6 @@ export function AssetsListPage() {
       showAttachRfid,
       canCreateOrder,
       canSubmitForApproval,
-      canDecide,
     ],
   )
 
@@ -1160,14 +1156,6 @@ export function AssetsListPage() {
       openBulkSubmit()
       return
     }
-    if (actionId === "approve-selected") {
-      openBulkDecision("approve")
-      return
-    }
-    if (actionId === "reject-selected") {
-      openBulkDecision("reject")
-      return
-    }
     if (actionId === "create-physical-order") {
       void beginCreatePhysicalOrder()
       return
@@ -1483,6 +1471,29 @@ export function AssetsListPage() {
                 <FileText className="size-4" aria-hidden />
                 {fyExportBusy === "pdf" ? "Exporting…" : "PDF"}
               </Button>
+            </>
+          ) : null}
+
+          {selected.size > 0 && canDecide ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={listToolbarBtnClass}
+                disabled={bulkActionBusy || decisionEligibleRows.length === 0}
+                onClick={() => openBulkDecision("reject")}
+              >
+                Reject selected
+              </Button>
+              <AdminPrimaryButton
+                type="button"
+                className={listToolbarBtnClass}
+                disabled={bulkActionBusy || decisionEligibleRows.length === 0}
+                onClick={() => openBulkDecision("approve")}
+              >
+                Approve selected
+              </AdminPrimaryButton>
             </>
           ) : null}
 

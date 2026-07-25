@@ -10,8 +10,8 @@ export function OrdersDashboard({ data }: { data: OrdersDashboardModule }) {
   const theme = DASHBOARD_THEMES.orders
   const showPlantBreakdown = shouldShowPlantBreakdown(data.by_plant)
   const inPipeline =
-    data.pending_approval + data.assigned + data.in_progress + data.pending_closure_approval
-  const finished = data.completed + data.closed
+    (data.draft ?? 0) + data.assigned + data.in_progress + data.completed
+  const finished = data.approved + data.closed
 
   return (
     <DashboardPanel
@@ -27,10 +27,11 @@ export function OrdersDashboard({ data }: { data: OrdersDashboardModule }) {
       </KpiGrid>
 
       <StatChipRow>
-        <StatChip label="Pending approval" value={data.pending_approval} active={data.pending_approval > 0} />
+        <StatChip label="Draft" value={data.draft ?? 0} active={(data.draft ?? 0) > 0} />
         <StatChip label="Assigned" value={data.assigned} />
         <StatChip label="In progress" value={data.in_progress} active={data.in_progress > 0} />
-        <StatChip label="Pending closure" value={data.pending_closure_approval} />
+        <StatChip label="Completed" value={data.completed} />
+        <StatChip label="Approved" value={data.approved} />
         <StatChip label="Rejected" value={data.rejected} />
       </StatChipRow>
 

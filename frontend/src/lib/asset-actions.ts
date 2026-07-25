@@ -6,8 +6,6 @@ import {
   canSubmitForApproval,
 } from "@/lib/asset-lifecycle"
 import {
-  Ban,
-  Check,
   ClipboardList,
   ExternalLink,
   Pencil,
@@ -15,9 +13,8 @@ import {
   PowerOff,
   Send,
   Trash2,
-  UserRoundCog,
-  X,
   ScanLine,
+  X,
 } from "lucide-react"
 
 export type AssetActionItem = {
@@ -60,7 +57,6 @@ export function buildAssetListActionItems(opts: {
   selectedCount: number
   rfidTaggedCount?: number
   submitEligibleCount?: number
-  decisionEligibleCount?: number
   deactivateEligibleCount?: number
   reactivateEligibleCount?: number
   canDelete: boolean
@@ -68,13 +64,11 @@ export function buildAssetListActionItems(opts: {
   canAttachRfid?: boolean
   canCreateOrder?: boolean
   canSubmitForApproval?: boolean
-  canDecide?: boolean
 }): AssetActionItem[] {
   const {
     selectedCount,
     rfidTaggedCount = 0,
     submitEligibleCount = 0,
-    decisionEligibleCount = 0,
     deactivateEligibleCount = 0,
     reactivateEligibleCount = 0,
     canDelete,
@@ -82,7 +76,6 @@ export function buildAssetListActionItems(opts: {
     canAttachRfid,
     canCreateOrder,
     canSubmitForApproval: canSubmit = false,
-    canDecide = false,
   } = opts
 
   const actions: AssetActionItem[] = []
@@ -110,32 +103,6 @@ export function buildAssetListActionItems(opts: {
       hint,
       disabled: submitEligibleCount === 0,
       icon: Send,
-    })
-  }
-
-  if (canDecide) {
-    const hint =
-      selectedCount === 0
-        ? undefined
-        : decisionEligibleCount === 0
-          ? "No pending assets in selection"
-          : decisionEligibleCount < selectedCount
-            ? `${decisionEligibleCount} of ${selectedCount} pending`
-            : `${decisionEligibleCount} asset(s)`
-    actions.push({
-      id: "approve-selected",
-      label: "Approve selected",
-      hint,
-      disabled: decisionEligibleCount === 0,
-      icon: Check,
-    })
-    actions.push({
-      id: "reject-selected",
-      label: "Reject selected",
-      hint,
-      disabled: decisionEligibleCount === 0,
-      variant: "destructive",
-      icon: Ban,
     })
   }
 
@@ -221,8 +188,6 @@ export function buildAssetDetailActionItems(opts: {
   canDeactivate?: boolean
   canReactivate?: boolean
   canSubmit?: boolean
-  canReassign?: boolean
-  canDecide?: boolean
 }): AssetActionItem[] {
   const {
     canUpdate,
@@ -231,8 +196,6 @@ export function buildAssetDetailActionItems(opts: {
     canDeactivate = false,
     canReactivate = false,
     canSubmit = false,
-    canReassign = false,
-    canDecide = false,
   } = opts
   const actions: AssetActionItem[] = []
 
@@ -259,28 +222,6 @@ export function buildAssetDetailActionItems(opts: {
       id: "submit",
       label: "Submit for approval",
       icon: Send,
-    })
-  }
-
-  if (canReassign && !editing) {
-    actions.push({
-      id: "reassign",
-      label: "Reassign",
-      icon: UserRoundCog,
-    })
-  }
-
-  if (canDecide && !editing) {
-    actions.push({
-      id: "reject",
-      label: "Reject",
-      variant: "destructive",
-      icon: Ban,
-    })
-    actions.push({
-      id: "approve",
-      label: "Approve",
-      icon: Check,
     })
   }
 

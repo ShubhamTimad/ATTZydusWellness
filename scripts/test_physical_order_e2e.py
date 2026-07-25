@@ -83,13 +83,20 @@ def main() -> int:
             errors.append("validate returned no eligible assets")
 
     r = api(creator_token, "GET", "/admin/physical-orders/executors")
-    executors = r.json() if r.status_code == 200 else []
-    executor_id = next((e["id"] for e in executors if e.get("email") == "executor1@demo.com"), None)
-    if executor_id is None and executors:
-        executor_id = executors[0]["id"]
-    if executor_id is None:
-        errors.append("No executors returned")
+    if r.status_code != 200:
+        errors.append(f"executors: {r.status_code} {r.text}")
+        executor_pool = []
         executor_id = 1
+    else:
+        payload = r.json()
+        checks.append(f"executor workflow role={payload.get('role_name')}")
+        executor_pool = payload.get("items") or []
+        executor_id = next((e["id"] for e in executor_pool if e.get("email") == "executor1@demo.com"), None)
+        if executor_id is None and executor_pool:
+            executor_id = executor_pool[0]["id"]
+        if executor_id is None:
+            errors.append("No executors returned from workflow role")
+            executor_id = 1
 
     reset_ids: list[int] = []
     if val.get("already_verified_in_fy"):
@@ -127,39 +134,18 @@ def main() -> int:
     if not order.get("items"):
         errors.append("order has no items after create")
 
-    if order.get("status") != "pending_approval":
-        errors.append(f"expected pending_approval, got {order.get('status')}")
-
-    notice = order.get("approval_notice")
-    if reset_ids and not notice:
-        errors.append("approval_notice missing when reset_verification_asset_ids sent")
-    elif notice:
-        checks.append(f"approval_notice: {notice.get('message')}")
+    if order.get("status") != "assigned":
+        errors.append(f"expected assigned after create+submit, got {order.get('status')}")
 
     if not order.get("created_by_name"):
         errors.append("created_by_name empty on detail")
+    if not order.get("assigned_to_name"):
+        errors.append("assigned_to_name empty after submit")
 
-    # Approve creation (single-step Operator workflow after seed update)
-    r = api(creator_token, "POST", f"/admin/physical-orders/{order_id}/approval/approve-order")
-    if r.status_code != 200:
-        errors.append(f"approve-order: {r.status_code} {r.text}")
-    else:
-        approved = r.json()
-        checks.append(f"after approve status={approved.get('status')}")
-        if approved.get("status") not in ("approved", "assigned"):
-            # Retry once if a second approval step still exists in DB
-            r2 = api(creator_token, "POST", f"/admin/physical-orders/{order_id}/approval/approve-order")
-            if r2.status_code == 200:
-                approved = r2.json()
-                checks.append(f"after 2nd approve status={approved.get('status')}")
-        if approved.get("status") != "assigned":
-            errors.append(
-                f"expected assigned after approval, got {approved.get('status')} "
-                "(re-run seed_dummy_data.py to use single-step creation workflow)"
-            )
-        progress_keys = [s.get("key") for s in (approved.get("progress") or {}).get("steps") or []]
-        if "approved" not in progress_keys:
-            errors.append(f"progress stepper missing approved step: {progress_keys}")
+    progress_keys = [s.get("key") for s in (order.get("progress") or {}).get("steps") or []]
+    for required in ("order_created", "assigned", "in_progress", "completed", "closed"):
+        if required not in progress_keys:
+            errors.append(f"progress stepper missing {required}: {progress_keys}")
 
     # Executor runs order
     r = api(executor_token, "POST", f"/admin/physical-orders/{order_id}/start")
@@ -200,9 +186,10 @@ def main() -> int:
         audit = r.json()
         actions = [e.get("action") for e in audit]
         checks.append(f"asset audit events ({len(audit)}): {actions[:8]}")
-        expected_actions = {"physical_order_created", "physical_order_approved", "physical_order_started", "physical_order_verified"}
+        expected_actions = {"physical_order_created", "physical_order_started", "physical_order_verified"}
         if reset_ids:
             expected_actions.add("physical_verification_reset")
+        # Legacy create-approval may still write physical_order_approved; not required in new flow.
         missing = expected_actions - set(actions)
         if missing:
             errors.append(f"asset audit missing actions: {sorted(missing)}")

@@ -1,13 +1,12 @@
 import * as React from "react"
 import { Link, useParams } from "react-router-dom"
 import {
-  CheckCircle2,
-  Clock3,
+  ListFilter,
   Loader2,
   Lock,
-  Package,
   ScanLine,
-  XCircle,
+  Search,
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -20,14 +19,12 @@ import {
   AdminTableCell,
   AdminTableHeadCell,
   AdminTableHeaderRow,
+  adminSelectClass,
 } from "@/components/layout/admin-ui"
 import {
   AdminTableBodyRow,
   AdminTableEmptyRow,
-  ListPageHeader,
-  WorkspaceTabs,
-  WorkspaceTabsList,
-  WorkspaceTabsTrigger,
+  AdminTablePagination,
 } from "@/components/layout/list-page-ui"
 import { OrderAuditLog } from "@/components/orders/order-audit-log"
 import { OrderLifecycleStepper } from "@/components/orders/order-lifecycle-stepper"
@@ -45,11 +42,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { adminSelectClass } from "@/components/layout/admin-ui"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import {
   orderStatusLabel,
   orderStatusPillTone,
+  type ExecutorListResponse,
   type ExecutorUser,
   type PhysicalOrderDetail,
   type PhysicalOrderItem,
@@ -57,7 +54,23 @@ import {
 import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
-type ItemFilter = "all" | "pending" | "verified" | "approved" | "rejected"
+type AssetColumnFilters = {
+  asset: string
+  rfid: string
+  status: "" | "pending" | "verified" | "rejected"
+  verified_by: string
+}
+
+const DEFAULT_ASSET_COLUMN_FILTERS: AssetColumnFilters = {
+  asset: "",
+  rfid: "",
+  status: "",
+  verified_by: "",
+}
+
+const ORDER_ASSETS_PAGE_SIZE = 25
+const columnFilterControlClass = "h-8 w-full min-w-[6rem] text-xs"
+const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
 
 const ORDER_ACTION_BUSY_LABELS: Record<string, string> = {
   "/submit-closure": "Completing order…",
@@ -83,15 +96,34 @@ function formatDate(iso: string | null | undefined) {
 }
 
 
-function matchesItemFilter(item: PhysicalOrderItem, filter: ItemFilter): boolean {
-  if (filter === "pending") {
-    return !item.physically_verified && item.verification_status !== "rejected"
+function matchesAssetSearch(item: PhysicalOrderItem, search: string): boolean {
+  const q = search.trim().toLowerCase()
+  if (!q) return true
+  return [item.asset_code, item.asset_name, item.rfid_code, item.verified_by_name]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(q))
+}
+
+function matchesAssetColumnFilters(item: PhysicalOrderItem, filters: AssetColumnFilters): boolean {
+  const assetQ = filters.asset.trim().toLowerCase()
+  if (
+    assetQ &&
+    !item.asset_code.toLowerCase().includes(assetQ) &&
+    !item.asset_name.toLowerCase().includes(assetQ)
+  ) {
+    return false
   }
-  if (filter === "verified") return item.physically_verified
-  if (filter === "approved") {
-    return item.physically_verified && item.verification_status !== "rejected"
+  const rfidQ = filters.rfid.trim().toLowerCase()
+  if (rfidQ && !(item.rfid_code || "").toLowerCase().includes(rfidQ)) return false
+  if (filters.status === "pending") {
+    if (item.physically_verified || item.verification_status === "rejected") return false
+  } else if (filters.status === "verified") {
+    if (!item.physically_verified) return false
+  } else if (filters.status === "rejected") {
+    if (item.verification_status !== "rejected") return false
   }
-  if (filter === "rejected") return item.verification_status === "rejected"
+  const byQ = filters.verified_by.trim().toLowerCase()
+  if (byQ && !(item.verified_by_name || "").toLowerCase().includes(byQ)) return false
   return true
 }
 
@@ -101,46 +133,49 @@ function itemRowTone(item: PhysicalOrderItem): "approved" | "rejected" | "defaul
   return "default"
 }
 
-type StatTone = "neutral" | "warning" | "success" | "danger"
-
-function OrderStatCard({
+function OrderSummaryField({
   label,
   value,
   tone,
-  icon: Icon,
 }: {
   label: string
-  value: number
-  tone: StatTone
-  icon: React.ComponentType<{ className?: string }>
+  value: React.ReactNode
+  tone?: "warning" | "success"
 }) {
-  const toneStyles: Record<StatTone, string> = {
-    neutral: "border-border/70 bg-muted/20 text-foreground",
-    warning: "border-amber-200/80 bg-amber-50/80 text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100",
-    success: "border-emerald-200/80 bg-emerald-50/80 text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-100",
-    danger: "border-red-200/80 bg-red-50/80 text-red-950 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-100",
-  }
-  const iconStyles: Record<StatTone, string> = {
-    neutral: "bg-muted text-muted-foreground",
-    warning: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
-    success: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-    danger: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
-  }
-
   return (
-    <div className={cn("rounded-xl border p-3.5 shadow-sm", toneStyles[tone])}>
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] opacity-70">{label}</p>
-          <p className="mt-1.5 text-2xl font-semibold tabular-nums leading-none">{value}</p>
-        </div>
-        <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg", iconStyles[tone])}>
-          <Icon className="size-4" aria-hidden />
-        </span>
-      </div>
+    <div
+      className={cn(
+        "min-w-0 rounded-md px-2.5 py-1.5",
+        tone === "warning" && "bg-amber-50/90 dark:bg-amber-950/25",
+        tone === "success" && "bg-emerald-50/90 dark:bg-emerald-950/25",
+        !tone && "bg-muted/35",
+      )}
+    >
+      <p
+        className={cn(
+          "text-[10px] font-medium uppercase tracking-[0.06em]",
+          tone === "warning" && "text-amber-800/80 dark:text-amber-200/80",
+          tone === "success" && "text-emerald-800/80 dark:text-emerald-200/80",
+          !tone && "text-muted-foreground",
+        )}
+      >
+        {label}
+      </p>
+      <p
+        className={cn(
+          "mt-0.5 truncate text-sm font-semibold tabular-nums leading-snug",
+          tone === "warning" && "text-amber-950 dark:text-amber-50",
+          tone === "success" && "text-emerald-950 dark:text-emerald-50",
+          !tone && "text-foreground",
+        )}
+      >
+        {value}
+      </p>
     </div>
   )
 }
+
+const orderPanelPad = "px-[var(--app-card-padding)]"
 
 export function OrderDetailPage() {
   const { id } = useParams()
@@ -150,18 +185,30 @@ export function OrderDetailPage() {
   const [busy, setBusy] = React.useState(false)
   const [busyAction, setBusyAction] = React.useState<string | null>(null)
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
-  const [itemFilter, setItemFilter] = React.useState<ItemFilter>("all")
+  const [assetSearchInput, setAssetSearchInput] = React.useState("")
+  const [assetSearch, setAssetSearch] = React.useState("")
+  const [assetColumnFiltersOpen, setAssetColumnFiltersOpen] = React.useState(false)
+  const [assetColumnFilterInputs, setAssetColumnFilterInputs] = React.useState<AssetColumnFilters>(
+    DEFAULT_ASSET_COLUMN_FILTERS,
+  )
+  const [assetColumnFilters, setAssetColumnFilters] = React.useState<AssetColumnFilters>(
+    DEFAULT_ASSET_COLUMN_FILTERS,
+  )
+  const [assetPage, setAssetPage] = React.useState(1)
   const [selectedScanItemId, setSelectedScanItemId] = React.useState<number | null>(null)
   const [scanValue, setScanValue] = React.useState("")
   const [rejectOpen, setRejectOpen] = React.useState(false)
   const [rejectReason, setRejectReason] = React.useState("")
-  const [rejectMode, setRejectMode] = React.useState<"items" | "order" | "execution">("items")
+  const [rejectMode, setRejectMode] = React.useState<"items" | "order">("items")
   const [closureRejectConfirmOpen, setClosureRejectConfirmOpen] = React.useState(false)
   const [closureRejectBlockedOpen, setClosureRejectBlockedOpen] = React.useState(false)
   const [closureRejectVerifiedCodes, setClosureRejectVerifiedCodes] = React.useState<string[]>([])
   const [reassignOpen, setReassignOpen] = React.useState(false)
+  const [assignOpen, setAssignOpen] = React.useState(false)
   const [executors, setExecutors] = React.useState<ExecutorUser[]>([])
+  const [executorRoleName, setExecutorRoleName] = React.useState<string | null>(null)
   const [reassignTo, setReassignTo] = React.useState("")
+  const [assignTo, setAssignTo] = React.useState("")
   const canApprove = hasPermission("order.approve")
   const canExecute = hasPermission("order.execute")
   const canCreate = hasPermission("order.create")
@@ -193,20 +240,57 @@ export function OrderDetailPage() {
   }, [load])
 
   React.useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setAssetSearch(assetSearchInput)
+      setAssetPage(1)
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [assetSearchInput])
+
+  React.useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setAssetColumnFilters((prev) => {
+        const changed = Object.entries(assetColumnFilterInputs).some(
+          ([k, v]) => prev[k as keyof AssetColumnFilters] !== v,
+        )
+        if (!changed) return prev
+        setAssetPage(1)
+        return { ...assetColumnFilterInputs }
+      })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [assetColumnFilterInputs])
+
+  React.useEffect(() => {
+    setAssetPage(1)
+    setAssetSearchInput("")
+    setAssetSearch("")
+    setAssetColumnFilterInputs({ ...DEFAULT_ASSET_COLUMN_FILTERS })
+    setAssetColumnFilters({ ...DEFAULT_ASSET_COLUMN_FILTERS })
+  }, [id])
+
+  React.useEffect(() => {
     if (!order) return
     const stillVisible = order.items.some((item) => item.id === selectedScanItemId)
     if (!stillVisible) setSelectedScanItemId(null)
   }, [order, selectedScanItemId])
 
   React.useEffect(() => {
-    if (!reassignOpen || !order) return
-    void getJson<ExecutorUser[]>(`/admin/physical-orders/executors?plant_id=${order.plant_id}`)
-      .then(setExecutors)
-      .catch(() => setExecutors([]))
-  }, [reassignOpen, order?.plant_id])
+    if ((!reassignOpen && !assignOpen) || !order) return
+    void getJson<ExecutorListResponse>(`/admin/physical-orders/executors?plant_id=${order.plant_id}`)
+      .then((res) => {
+        setExecutors(res.items)
+        setExecutorRoleName(res.role_name)
+      })
+      .catch((e) => {
+        setExecutors([])
+        setExecutorRoleName(null)
+        toast.error(e instanceof ApiError ? e.message : "Could not load executors from workflow.")
+      })
+  }, [reassignOpen, assignOpen, order?.plant_id])
 
-  async function runAction(path: string, body?: Record<string, unknown>) {
-    if (!id) return
+  async function runAction(path: string, body?: Record<string, unknown>): Promise<boolean> {
+    if (!id) return false
     setBusy(true)
     setBusyAction(path)
     try {
@@ -240,11 +324,19 @@ export function OrderDetailPage() {
         )
       } else if (path === "/submit-closure") {
         toast.success("Order completed.")
+      } else if (path === "/submit") {
+        toast.success(
+          res.assigned_to_name
+            ? `Order assigned to ${res.assigned_to_name}.`
+            : "Order assigned.",
+        )
       } else {
         toast.success("Updated.")
       }
+      return true
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
+      return false
     } finally {
       setBusy(false)
       setBusyAction(null)
@@ -283,6 +375,7 @@ export function OrderDetailPage() {
   }
 
   const hasClosureWorkflow = order.progress.closure_workflow != null
+  const isDraft = order.status === "draft"
   const isPendingApproval = order.status === "pending_approval"
   const isAssigned = order.status === "assigned"
   const isInProgress = order.status === "in_progress"
@@ -294,37 +387,42 @@ export function OrderDetailPage() {
   const isAssignee = currentUserId != null && order.assigned_to === currentUserId
   const canReviewCreation = isPendingApproval && canApprove
   const canReviewClosure = isCompleted && hasClosureWorkflow && canApprove
+  const canAssignSubmit = (isDraft || isRejected) && canCreate && isCreator
   const canScan =
     isInProgress && canExecute && isAssignee
-  const filteredItems = order.items.filter((item) => matchesItemFilter(item, itemFilter))
+  const filteredItems = order.items.filter(
+    (item) =>
+      matchesAssetSearch(item, assetSearch) && matchesAssetColumnFilters(item, assetColumnFilters),
+  )
+  const assetTotal = filteredItems.length
+  const assetTotalPages = Math.max(1, Math.ceil(assetTotal / ORDER_ASSETS_PAGE_SIZE))
+  const safeAssetPage = Math.min(assetPage, assetTotalPages)
+  const pagedItems = filteredItems.slice(
+    (safeAssetPage - 1) * ORDER_ASSETS_PAGE_SIZE,
+    safeAssetPage * ORDER_ASSETS_PAGE_SIZE,
+  )
   const selectedScanItem = order.items.find((item) => item.id === selectedScanItemId) ?? null
-  const showRejectedFilter = isInProgress && order.rejected_item_count > 0
   const busyLabel = busyAction ? ORDER_ACTION_BUSY_LABELS[busyAction] ?? "Working…" : null
-  const approvingOrder =
-    busyAction === "/approval/approve-all" ||
-    busyAction === "/approval/approve-order" ||
-    busyAction === "/approval/approve-items"
-  const completingOrder = busyAction === "/submit-closure"
+  const activeAssetColumnFilterCount = Object.values(assetColumnFilters).filter((value) =>
+    Boolean(value.trim()),
+  ).length
+  const showStatusRejectedOption = order.rejected_item_count > 0
 
   const canReassign = isAssigned && canReassignOrder && !isClosed
   const canClose =
     (isClosureApproved || (isCompleted && !hasClosureWorkflow)) &&
     (canApprove || canUpdate || (canCreate && isCreator))
-  const hasActions =
-    (isRejected && canCreate && isCreator) ||
-    (isAssigned && canExecute && isAssignee) ||
-    canReassign ||
-    canClose ||
-    canScan ||
-    canReviewCreation ||
-    canReviewClosure
+
+  function clearAssetFilters() {
+    setAssetSearchInput("")
+    setAssetSearch("")
+    setAssetColumnFilterInputs({ ...DEFAULT_ASSET_COLUMN_FILTERS })
+    setAssetColumnFilters({ ...DEFAULT_ASSET_COLUMN_FILTERS })
+    setAssetPage(1)
+  }
 
   function itemIsScannable(item: PhysicalOrderItem): boolean {
     return canScan && !item.physically_verified
-  }
-
-  function itemIsRejectableDuringExecution(item: PhysicalOrderItem): boolean {
-    return canScan && !item.physically_verified && item.verification_status !== "rejected"
   }
 
   function itemIsSelectableAtClosure(_item: PhysicalOrderItem): boolean {
@@ -361,10 +459,8 @@ export function OrderDetailPage() {
     void runAction("/approval/approve-items", { item_ids: [...selected] })
   }
 
-  const showRowSelection = canReviewClosure || canScan
-  const selectableItems = filteredItems.filter((item) =>
-    canReviewClosure ? itemIsSelectableAtClosure(item) : itemIsRejectableDuringExecution(item),
-  )
+  const showRowSelection = canReviewClosure
+  const selectableItems = filteredItems.filter((item) => itemIsSelectableAtClosure(item))
 
   const showRejectColumn = order.rejected_item_count > 0 || canReviewClosure
   const tableColSpan = (showRowSelection ? 1 : 0) + 4 + (showRejectColumn ? 1 : 0)
@@ -372,25 +468,144 @@ export function OrderDetailPage() {
     order.progress.steps.find((step) => step.key === order.progress.current_step_key) ??
     order.progress.steps.find((step) => step.status === "active")
 
+  const canStart = isAssigned && canExecute && isAssignee
+
   return (
-    <AdminPage fullWidth actions={<AdminBackLink to="/dashboard/orders">Orders</AdminBackLink>}>
-      <ListPageHeader
-        className="shrink-0"
-        title={order.order_number}
-        description={`${order.plant_name} · ${order.cost_center_code}${
-          order.assigned_to_name
-            ? order.assigned_at
-              ? ` · ${order.assigned_to_name}`
-              : ` · Pending: ${order.assigned_to_name}`
-            : ""
-        }`}
-        actions={
-          <AdminPillBadge tone={orderStatusPillTone(order.status)}>
+    <AdminPage
+      fullWidth
+      dense
+      className="w-full pb-6"
+      actions={
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <AdminPillBadge
+            tone={orderStatusPillTone(order.status)}
+            className="h-9 px-3.5 text-sm font-semibold"
+          >
             {orderStatusLabel(order.status)}
           </AdminPillBadge>
-        }
-      />
-
+          {canReassign ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={() => {
+                setReassignTo("")
+                setReassignOpen(true)
+              }}
+            >
+              Reassign
+            </Button>
+          ) : null}
+          {canReviewCreation ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                disabled={busy}
+                onClick={() => {
+                  setRejectMode("order")
+                  setRejectOpen(true)
+                }}
+              >
+                Reject
+              </Button>
+              <AdminPrimaryButton
+                type="button"
+                disabled={busy}
+                onClick={() => void runAction("/approval/approve-order")}
+              >
+                Approve
+              </AdminPrimaryButton>
+            </>
+          ) : null}
+          {canReviewClosure ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                disabled={busy || selected.size === 0}
+                onClick={beginClosureLineReject}
+              >
+                Reject selected
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                disabled={busy || selected.size === 0}
+                onClick={beginClosureLineApprove}
+              >
+                Approve selected
+              </Button>
+              <AdminPrimaryButton
+                type="button"
+                disabled={busy}
+                onClick={() => void runAction("/approval/approve-all")}
+              >
+                Approve
+              </AdminPrimaryButton>
+            </>
+          ) : null}
+          {canAssignSubmit ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setAssignTo(order.assigned_to ? String(order.assigned_to) : "")
+                setAssignOpen(true)
+              }}
+            >
+              {isRejected ? "Reassign & submit" : "Assign & submit"}
+            </AdminPrimaryButton>
+          ) : null}
+          {canStart ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => void runAction("/start")}
+            >
+              Start
+            </AdminPrimaryButton>
+          ) : null}
+          {canScan ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => void runAction("/submit-closure")}
+            >
+              Complete
+            </AdminPrimaryButton>
+          ) : null}
+          {canClose ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => void runAction("/close")}
+            >
+              Close
+            </AdminPrimaryButton>
+          ) : null}
+          <AdminBackLink to="/dashboard/orders">Orders</AdminBackLink>
+        </div>
+      }
+    >
+      <div className="space-y-[var(--app-grid-gap)]">
+      <div className="shrink-0">
+        <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+          {order.order_number}
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {order.plant_name} · {order.cost_center_code}
+          {order.assigned_to_name ? ` · ${order.assigned_to_name}` : ""}
+        </p>
+      </div>
       {canReviewCreation && order.approval_notice?.message ? (
         <Alert className="shrink-0 border-amber-200/80 bg-amber-50/90 dark:border-amber-900/50 dark:bg-amber-950/30">
           <AlertTitle>Financial year verification</AlertTitle>
@@ -417,72 +632,52 @@ export function OrderDetailPage() {
       ) : null}
 
       <AdminPanel className="shrink-0 overflow-hidden p-0">
-        <div className="border-b border-border/60 bg-muted/15 px-4 py-3 sm:px-5">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            Order progress
+        <div className={cn("border-b border-border/60 bg-muted/15 py-3", orderPanelPad)}>
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            Progress
           </p>
           <OrderLifecycleStepper
-            compact
             steps={order.progress.steps}
             currentStepKey={order.progress.current_step_key}
             orderStatus={order.status}
           />
           {activeProgressStep?.detail ? (
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{activeProgressStep.detail}</p>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{activeProgressStep.detail}</p>
           ) : null}
         </div>
+      </AdminPanel>
 
-        <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
-          <OrderStatCard label="Pending" value={order.pending_physical_count} tone="warning" icon={Clock3} />
-          <OrderStatCard label="Verified" value={order.physically_verified_count} tone="success" icon={CheckCircle2} />
-          <OrderStatCard label="Total assets" value={order.total_count} tone="neutral" icon={Package} />
-          {order.rejected_item_count > 0 ? (
-            <OrderStatCard label="Rejected" value={order.rejected_item_count} tone="danger" icon={XCircle} />
-          ) : (
-            <div className="rounded-xl border border-border/70 bg-muted/20 p-3.5 shadow-sm text-foreground">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] opacity-70">Complete</p>
-                  <p className="mt-1.5 text-2xl font-semibold tabular-nums leading-none">
-                    {order.total_count > 0
-                      ? `${Math.round((order.physically_verified_count / order.total_count) * 100)}%`
-                      : "—"}
-                  </p>
-                </div>
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
-                  <CheckCircle2 className="size-4" aria-hidden />
-                </span>
-              </div>
-            </div>
-          )}
+      <AdminPanel className="shrink-0 overflow-hidden p-0">
+        <div className={cn("space-y-2 py-3", orderPanelPad)}>
+          <h3 className="text-sm font-semibold text-foreground">Order summary</h3>
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
+            <OrderSummaryField
+              label="Pending"
+              value={order.pending_physical_count}
+              tone="warning"
+            />
+            <OrderSummaryField
+              label="Verified"
+              value={order.physically_verified_count}
+              tone="success"
+            />
+            <OrderSummaryField label="Created" value={formatDt(order.created_at)} />
+            <OrderSummaryField
+              label="Started"
+              value={order.started_at ? formatDt(order.started_at) : "—"}
+            />
+            <OrderSummaryField
+              label="Executor"
+              value={order.assigned_to_name || "—"}
+            />
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-x-6 gap-y-2 border-t border-border/60 px-4 py-3 text-sm sm:px-5">
-          <p className="text-muted-foreground">
-            <span className="font-medium text-foreground">Created</span> {formatDt(order.created_at)}
-          </p>
-          {order.started_at ? (
-            <p className="text-muted-foreground">
-              <span className="font-medium text-foreground">Started</span> {formatDt(order.started_at)}
-            </p>
-          ) : null}
-          {order.assigned_to_name ? (
-            <p className="text-muted-foreground">
-              <span className="font-medium text-foreground">Executor</span> {order.assigned_to_name}
-            </p>
-          ) : null}
-        </div>
-        {order.remarks ? (
-          <p className="shrink-0 border-t border-border/60 px-4 py-3 text-sm leading-relaxed text-foreground sm:px-5">
-            {order.remarks}
-          </p>
-        ) : null}
-
-        {hasActions ? (
-          <div className="relative flex flex-wrap gap-2 border-t border-border/60 bg-muted/10 px-4 py-3 sm:px-5">
+        {canScan ? (
+          <div className={cn("relative space-y-3 border-t border-border/60 py-4", orderPanelPad)}>
             {busy && busyLabel ? (
               <div
-                className="absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-b-[inherit] bg-background/75 backdrop-blur-[1px]"
+                className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-background/75 backdrop-blur-[1px]"
                 aria-live="polite"
                 aria-busy="true"
               >
@@ -490,326 +685,405 @@ export function OrderDetailPage() {
                 <span className="text-sm font-medium text-foreground">{busyLabel}</span>
               </div>
             ) : null}
-            {isRejected && canCreate && isCreator ? (
-              <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/submit")}>
-                Resubmit
-              </AdminPrimaryButton>
-            ) : null}
-            {isAssigned && canExecute && isAssignee ? (
-              <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/start")}>
-                Start
-              </AdminPrimaryButton>
-            ) : null}
-            {canReassign ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy}
-                onClick={() => {
-                  setReassignTo("")
-                  setReassignOpen(true)
-                }}
-              >
-                Reassign
-              </Button>
-            ) : null}
-            {canClose ? (
-              <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/close")}>
-                {busyAction === "/close" ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                    Closing…
-                  </>
-                ) : (
-                  "Close"
-                )}
-              </AdminPrimaryButton>
-            ) : null}
-            {canScan ? (
-              <>
-                {selectedScanItem ? (
-                  <div className="w-full space-y-3 rounded-lg border border-border/60 bg-muted/20 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="flex items-center gap-2 text-sm font-medium">
-                          <ScanLine className="size-4 text-primary" aria-hidden />
-                          Scan {selectedScanItem.asset_code}
-                        </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          Expected RFID: {selectedScanItem.rfid_code ?? "—"}
-                        </p>
-                      </div>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedScanItemId(null)}>
-                        Cancel
-                      </Button>
-                    </div>
-                    <div className="flex flex-wrap items-end gap-2">
-                      <div className="min-w-[12rem] flex-1 space-y-1">
-                        <Label htmlFor="scan" className="sr-only">
-                          Scan RFID
-                        </Label>
-                        <Input
-                          id="scan"
-                          autoFocus
-                          value={scanValue}
-                          onChange={(e) => setScanValue(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") void scan()
-                          }}
-                          placeholder="Scan RFID tag…"
-                          className="h-10"
-                        />
-                      </div>
-                      <Button type="button" disabled={busy || !scanValue.trim()} onClick={() => void scan()}>
-                        Verify
-                      </Button>
-                    </div>
+            {selectedScanItem ? (
+              <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="flex items-center gap-2 text-sm font-medium">
+                      <ScanLine className="size-4 text-primary" aria-hidden />
+                      Scan {selectedScanItem.asset_code}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Expected RFID: {selectedScanItem.rfid_code ?? "—"}
+                    </p>
                   </div>
-                ) : (
-                  <p className="w-full text-sm text-muted-foreground">
-                    Select a pending asset below to scan its RFID tag.
-                  </p>
-                )}
-                <AdminPrimaryButton
-                  type="button"
-                  disabled={busy || order.pending_physical_count > 0}
-                  onClick={() => void runAction("/submit-closure")}
-                >
-                  {completingOrder ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" aria-hidden />
-                      Completing…
-                    </>
-                  ) : (
-                    "Complete"
-                  )}
-                </AdminPrimaryButton>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy || selected.size === 0}
-                  onClick={() => {
-                    setRejectMode("execution")
-                    setRejectOpen(true)
-                  }}
-                >
-                  Reject selected
-                </Button>
-              </>
-            ) : null}
-            {canReviewCreation ? (
-              <>
-                <AdminPrimaryButton
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void runAction("/approval/approve-order")}
-                >
-                  Approve order
-                </AdminPrimaryButton>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  disabled={busy}
-                  onClick={() => {
-                    setRejectMode("order")
-                    setRejectOpen(true)
-                  }}
-                >
-                  Reject order
-                </Button>
-              </>
-            ) : null}
-            {canReviewClosure ? (
-              <>
-                <AdminPrimaryButton type="button" disabled={busy} onClick={() => void runAction("/approval/approve-all")}>
-                  {approvingOrder ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" aria-hidden />
-                      Approving…
-                    </>
-                  ) : (
-                    "Approve"
-                  )}
-                </AdminPrimaryButton>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy || selected.size === 0}
-                  onClick={beginClosureLineApprove}
-                >
-                  Approve selected
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy || selected.size === 0}
-                  onClick={beginClosureLineReject}
-                >
-                  Reject selected
-                </Button>
-              </>
-            ) : null}
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedScanItemId(null)}>
+                    Cancel
+                  </Button>
+                </div>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="min-w-[12rem] flex-1 space-y-1">
+                    <Label htmlFor="scan" className="sr-only">
+                      Scan RFID
+                    </Label>
+                    <Input
+                      id="scan"
+                      autoFocus
+                      value={scanValue}
+                      onChange={(e) => setScanValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void scan()
+                      }}
+                      placeholder="Scan RFID tag…"
+                      className="h-10"
+                    />
+                  </div>
+                  <Button type="button" disabled={busy || !scanValue.trim()} onClick={() => void scan()}>
+                    Verify
+                  </Button>
+                </div>
+              </div>
+            ) : order.pending_physical_count > 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Select a pending asset below to scan its RFID tag, or use Complete when ready.
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                All assets scanned. Use Complete when ready.
+              </p>
+            )}
           </div>
         ) : null}
       </AdminPanel>
 
       <AdminPanel className="shrink-0 overflow-hidden p-0">
-        <div className="border-b border-border/60 bg-muted/10 px-4 py-2.5 sm:px-5">
-          <p className="text-sm font-medium text-foreground">Assets</p>
+        <div className={cn("flex flex-wrap items-center gap-2 border-b border-border/60 py-3", orderPanelPad)}>
+          <p className="mr-auto text-sm font-medium text-foreground">
+            Assets
+            <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
+              ({order.total_count})
+            </span>
+          </p>
+          <div className="relative min-w-[14rem] flex-1 sm:max-w-md">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              id="order-asset-search"
+              value={assetSearchInput}
+              onChange={(e) => setAssetSearchInput(e.target.value)}
+              placeholder="Search asset code, name, RFID, or verifier…"
+              className="h-9 w-full pl-9"
+              aria-label="Search order assets"
+            />
+            {assetSearchInput ? (
+              <button
+                type="button"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                aria-label="Clear search"
+                onClick={() => setAssetSearchInput("")}
+              >
+                <X className="size-4" />
+              </button>
+            ) : null}
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(
+              listToolbarBtnClass,
+              assetColumnFiltersOpen && "border-primary/40 bg-primary/5",
+            )}
+            aria-expanded={assetColumnFiltersOpen}
+            onClick={() => setAssetColumnFiltersOpen((open) => !open)}
+          >
+            <ListFilter className="size-4" aria-hidden />
+            Filter
+            {activeAssetColumnFilterCount > 0 ? (
+              <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
+                {activeAssetColumnFilterCount}
+              </Badge>
+            ) : null}
+          </Button>
+
+          {activeAssetColumnFilterCount > 0 || assetSearch.trim() ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={listToolbarBtnClass}
+              onClick={clearAssetFilters}
+            >
+              Clear
+            </Button>
+          ) : null}
         </div>
-        <div className="border-b border-border/60 px-4 py-2 sm:px-5">
-          <WorkspaceTabs value={itemFilter} onValueChange={(value) => setItemFilter(value as ItemFilter)}>
-            <WorkspaceTabsList>
-              <WorkspaceTabsTrigger value="all">All ({order.total_count})</WorkspaceTabsTrigger>
-              <WorkspaceTabsTrigger value="pending">Pending ({order.pending_physical_count})</WorkspaceTabsTrigger>
-              <WorkspaceTabsTrigger value="verified">Verified ({order.physically_verified_count})</WorkspaceTabsTrigger>
-              {showRejectedFilter ? (
-                <WorkspaceTabsTrigger value="rejected">Rejected ({order.rejected_item_count})</WorkspaceTabsTrigger>
+        <div className="app-data-table-wrap min-h-0">
+          <Table className="app-table-head-sticky">
+            <TableHeader>
+              <AdminTableHeaderRow>
+                {showRowSelection ? (
+                  <AdminTableHeadCell className="w-10">
+                    <Checkbox
+                      checked={
+                        selectableItems.length > 0 &&
+                        selectableItems.every((item) => selected.has(item.id))
+                      }
+                      disabled={selectableItems.length === 0}
+                      onCheckedChange={(on) => {
+                        if (on) setSelected(new Set(selectableItems.map((item) => item.id)))
+                        else setSelected(new Set())
+                      }}
+                    />
+                  </AdminTableHeadCell>
+                ) : null}
+                <AdminTableHeadCell>Asset</AdminTableHeadCell>
+                <AdminTableHeadCell>RFID</AdminTableHeadCell>
+                <AdminTableHeadCell>Status</AdminTableHeadCell>
+                <AdminTableHeadCell>Verified</AdminTableHeadCell>
+                {showRejectColumn ? <AdminTableHeadCell>Rejection</AdminTableHeadCell> : null}
+              </AdminTableHeaderRow>
+              {assetColumnFiltersOpen ? (
+                <AdminTableHeaderRow>
+                  {showRowSelection ? (
+                    <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
+                  ) : null}
+                  <AdminTableHeadCell className="px-2 py-1.5">
+                    <Input
+                      value={assetColumnFilterInputs.asset}
+                      onChange={(e) =>
+                        setAssetColumnFilterInputs((f) => ({ ...f, asset: e.target.value }))
+                      }
+                      aria-label="Filter asset code or name"
+                      placeholder="Code / name"
+                      className={columnFilterControlClass}
+                    />
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="px-2 py-1.5">
+                    <Input
+                      value={assetColumnFilterInputs.rfid}
+                      onChange={(e) =>
+                        setAssetColumnFilterInputs((f) => ({ ...f, rfid: e.target.value }))
+                      }
+                      aria-label="Filter RFID"
+                      placeholder="RFID"
+                      className={columnFilterControlClass}
+                    />
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="px-2 py-1.5">
+                    <select
+                      value={assetColumnFilterInputs.status}
+                      onChange={(e) =>
+                        setAssetColumnFilterInputs((f) => ({
+                          ...f,
+                          status: e.target.value as AssetColumnFilters["status"],
+                        }))
+                      }
+                      aria-label="Filter status"
+                      className={cn(adminSelectClass, columnFilterControlClass)}
+                    >
+                      <option value="">All statuses</option>
+                      <option value="pending">Pending</option>
+                      <option value="verified">Verified</option>
+                      {showStatusRejectedOption || assetColumnFilterInputs.status === "rejected" ? (
+                        <option value="rejected">Rejected</option>
+                      ) : null}
+                    </select>
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="px-2 py-1.5">
+                    <Input
+                      value={assetColumnFilterInputs.verified_by}
+                      onChange={(e) =>
+                        setAssetColumnFilterInputs((f) => ({ ...f, verified_by: e.target.value }))
+                      }
+                      aria-label="Filter verified by"
+                      placeholder="Verified by"
+                      className={columnFilterControlClass}
+                    />
+                  </AdminTableHeadCell>
+                  {showRejectColumn ? (
+                    <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
+                  ) : null}
+                </AdminTableHeaderRow>
               ) : null}
-            </WorkspaceTabsList>
-          </WorkspaceTabs>
-        </div>
-        <Table className="app-table-head-sticky">
-          <TableHeader>
-            <AdminTableHeaderRow>
-              {showRowSelection ? (
-                <AdminTableHeadCell className="w-10">
-                  <Checkbox
-                    checked={
-                      selectableItems.length > 0 && selectableItems.every((item) => selected.has(item.id))
-                    }
-                    disabled={selectableItems.length === 0}
-                    onCheckedChange={(on) => {
-                      if (on) setSelected(new Set(selectableItems.map((item) => item.id)))
-                      else setSelected(new Set())
-                    }}
-                  />
-                </AdminTableHeadCell>
-              ) : null}
-              <AdminTableHeadCell>Asset</AdminTableHeadCell>
-              <AdminTableHeadCell>RFID</AdminTableHeadCell>
-              <AdminTableHeadCell>Status</AdminTableHeadCell>
-              <AdminTableHeadCell>Verified</AdminTableHeadCell>
-              {showRejectColumn ? <AdminTableHeadCell>Rejection</AdminTableHeadCell> : null}
-            </AdminTableHeaderRow>
-          </TableHeader>
-          <TableBody>
-            {filteredItems.length === 0 ? (
-              <AdminTableEmptyRow colSpan={tableColSpan}>No assets in this view.</AdminTableEmptyRow>
-            ) : (
-              filteredItems.map((item) => {
-                const scannable = itemIsScannable(item)
-                const isSelectedForScan = selectedScanItemId === item.id
-                const rowTone = itemRowTone(item)
-                return (
-                  <AdminTableBodyRow
-                    key={item.id}
-                    interactive={scannable}
-                    className={cn(
-                      rowTone === "approved" && "bg-emerald-50/70 dark:bg-emerald-950/20",
-                      rowTone === "rejected" && "bg-red-50/80 dark:bg-red-950/25",
-                      scannable && "cursor-pointer hover:bg-muted/30",
-                      isSelectedForScan && "bg-primary/5 ring-1 ring-inset ring-primary/20",
-                    )}
-                    onClick={() => {
-                      if (!scannable) return
-                      setSelectedScanItemId(item.id)
-                      setScanValue("")
-                    }}
-                  >
-                    {showRowSelection ? (
-                      <AdminTableCell>
-                        <div onClick={(e: React.MouseEvent) => e.stopPropagation()} role="presentation">
-                          <Checkbox
-                            checked={selected.has(item.id)}
-                            disabled={
-                              canScan
-                                ? !itemIsRejectableDuringExecution(item)
-                                : !itemIsSelectableAtClosure(item)
-                            }
-                            onCheckedChange={(on) => {
-                              setSelected((prev) => {
-                                const next = new Set(prev)
-                                if (on) next.add(item.id)
-                                else next.delete(item.id)
-                                return next
-                              })
-                            }}
-                          />
-                        </div>
+            </TableHeader>
+            <TableBody>
+              {pagedItems.length === 0 ? (
+                <AdminTableEmptyRow colSpan={tableColSpan}>
+                  {assetTotal === 0 && (assetSearch.trim() || activeAssetColumnFilterCount > 0)
+                    ? "No assets match your search or filters."
+                    : "No assets in this view."}
+                </AdminTableEmptyRow>
+              ) : (
+                pagedItems.map((item) => {
+                  const scannable = itemIsScannable(item)
+                  const isSelectedForScan = selectedScanItemId === item.id
+                  const rowTone = itemRowTone(item)
+                  return (
+                    <AdminTableBodyRow
+                      key={item.id}
+                      interactive={scannable}
+                      className={cn(
+                        rowTone === "approved" && "bg-emerald-50/70 dark:bg-emerald-950/20",
+                        rowTone === "rejected" && "bg-red-50/80 dark:bg-red-950/25",
+                        scannable && "cursor-pointer hover:bg-muted/30",
+                        isSelectedForScan && "bg-primary/5 ring-1 ring-inset ring-primary/20",
+                      )}
+                      onClick={() => {
+                        if (!scannable) return
+                        setSelectedScanItemId(item.id)
+                        setScanValue("")
+                      }}
+                    >
+                      {showRowSelection ? (
+                        <AdminTableCell>
+                          <div onClick={(e: React.MouseEvent) => e.stopPropagation()} role="presentation">
+                            <Checkbox
+                              checked={selected.has(item.id)}
+                              disabled={!itemIsSelectableAtClosure(item)}
+                              onCheckedChange={(on) => {
+                                setSelected((prev) => {
+                                  const next = new Set(prev)
+                                  if (on) next.add(item.id)
+                                  else next.delete(item.id)
+                                  return next
+                                })
+                              }}
+                            />
+                          </div>
+                        </AdminTableCell>
+                      ) : null}
+                      <AdminTableCell className="whitespace-normal">
+                        <Link
+                          to={`/dashboard/assets/${item.asset_id}`}
+                          className="font-mono text-xs text-primary hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {item.asset_code}
+                        </Link>
+                        <p className="mt-0.5 text-sm text-foreground">{item.asset_name}</p>
                       </AdminTableCell>
-                    ) : null}
-                    <AdminTableCell className="whitespace-normal">
-                      <Link
-                        to={`/dashboard/assets/${item.asset_id}`}
-                        className="font-mono text-xs text-primary hover:underline"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {item.asset_code}
-                      </Link>
-                      <p className="mt-0.5 text-sm text-foreground">{item.asset_name}</p>
-                    </AdminTableCell>
-                    <AdminTableCell className="font-mono text-xs text-foreground">
-                      {item.rfid_code ?? "—"}
-                    </AdminTableCell>
-                    <AdminTableCell>
-                      {item.verification_status === "rejected" && !item.physically_verified ? (
-                        <Badge variant="destructive">Rejected</Badge>
-                      ) : item.physically_verified ? (
-                        <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600">
-                          <Lock className="size-3" aria-hidden />
-                          Verified
-                        </Badge>
-                      ) : scannable ? (
-                        <Badge variant="secondary">Scan pending</Badge>
-                      ) : (
-                        <Badge variant="outline">{item.verification_status}</Badge>
-                      )}
-                    </AdminTableCell>
-                    <AdminTableCell className="whitespace-normal text-sm text-foreground">
-                      {item.physically_verified ? (
-                        <>
-                          <div>{formatDate(item.last_verification_date)}</div>
-                          {item.verified_by_name ? (
-                            <div className="text-xs text-muted-foreground">{item.verified_by_name}</div>
-                          ) : null}
-                        </>
-                      ) : (
-                        "—"
-                      )}
-                    </AdminTableCell>
-                    {showRejectColumn ? (
-                      <AdminTableCell className="whitespace-normal text-sm text-foreground">
-                        {item.rejection_reason ? (
-                          <span className="text-destructive">{item.rejection_reason}</span>
+                      <AdminTableCell className="font-mono text-xs text-foreground">
+                        {item.rfid_code ?? "—"}
+                      </AdminTableCell>
+                      <AdminTableCell>
+                        {item.verification_status === "rejected" && !item.physically_verified ? (
+                          <Badge variant="destructive">Rejected</Badge>
                         ) : item.physically_verified ? (
-                          <span className="text-muted-foreground">—</span>
+                          <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600">
+                            <Lock className="size-3" aria-hidden />
+                            Verified
+                          </Badge>
+                        ) : scannable ? (
+                          <Badge variant="secondary">Scan pending</Badge>
+                        ) : (
+                          <Badge variant="outline">{item.verification_status}</Badge>
+                        )}
+                      </AdminTableCell>
+                      <AdminTableCell className="whitespace-normal text-sm text-foreground">
+                        {item.physically_verified ? (
+                          <>
+                            <div>{formatDate(item.last_verification_date)}</div>
+                            {item.verified_by_name ? (
+                              <div className="text-xs text-muted-foreground">{item.verified_by_name}</div>
+                            ) : null}
+                          </>
                         ) : (
                           "—"
                         )}
                       </AdminTableCell>
-                    ) : null}
-                  </AdminTableBodyRow>
-                )
-              })
-            )}
-          </TableBody>
-        </Table>
+                      {showRejectColumn ? (
+                        <AdminTableCell className="whitespace-normal text-sm text-foreground">
+                          {item.rejection_reason ? (
+                            <span className="text-destructive">{item.rejection_reason}</span>
+                          ) : item.physically_verified ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            "—"
+                          )}
+                        </AdminTableCell>
+                      ) : null}
+                    </AdminTableBodyRow>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        <AdminTablePagination
+          page={safeAssetPage}
+          totalPages={assetTotalPages}
+          total={assetTotal}
+          pageSize={ORDER_ASSETS_PAGE_SIZE}
+          itemLabel="assets"
+          onPageChange={setAssetPage}
+        />
       </AdminPanel>
 
       <OrderAuditLog rows={order.audit} />
+      </div>
+
+      <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{isRejected ? "Reassign & submit" : "Assign & submit"}</DialogTitle>
+            <DialogDescription>
+              {executorRoleName
+                ? `Select a user from the "${executorRoleName}" role defined in the physical order assignment workflow. The order moves to Assigned so they can start work.`
+                : "Select an executor from the role defined in the physical order assignment workflow. The order moves to Assigned so they can start work."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="dialog-body space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="assign-to">
+                {executorRoleName ? `${executorRoleName} *` : "Executor *"}
+              </Label>
+              <select
+                id="assign-to"
+                className={adminSelectClass}
+                value={assignTo}
+                onChange={(e) => setAssignTo(e.target.value)}
+              >
+                <option value="">
+                  {executorRoleName ? `Select ${executorRoleName}…` : "Select executor…"}
+                </option>
+                {executors.map((e) => (
+                  <option key={e.id} value={String(e.id)}>
+                    {e.full_name}
+                    {e.email ? ` (${e.email})` : ""}
+                  </option>
+                ))}
+              </select>
+              {executors.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {executorRoleName
+                    ? `No users in the "${executorRoleName}" role for this plant. Assign that role to users scoped to this plant.`
+                    : "Configure the physical order assignment workflow (order.create) and ensure its first-step role has users for this plant."}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="dialog-footer-actions">
+            <Button type="button" variant="outline" onClick={() => setAssignOpen(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy || !assignTo}
+              onClick={() => {
+                if (!assignTo) {
+                  toast.error("Select an executor.")
+                  return
+                }
+                void runAction("/submit", { assigned_to: Number(assignTo) }).then((ok) => {
+                  if (ok) setAssignOpen(false)
+                })
+              }}
+            >
+              {busyAction === "/submit" ? "Submitting…" : "Submit"}
+            </AdminPrimaryButton>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={reassignOpen} onOpenChange={setReassignOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reassign order</DialogTitle>
             <DialogDescription>
-              Select a new executor. Work has not started yet, so reassignment is allowed.
+              {executorRoleName
+                ? `Select a different user from the "${executorRoleName}" workflow role. Work has not started yet.`
+                : "Select a new executor. Work has not started yet, so reassignment is allowed."}
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="reassign-to">Executor</Label>
+              <Label htmlFor="reassign-to">
+                {executorRoleName ? executorRoleName : "Executor"}
+              </Label>
               <select
                 id="reassign-to"
                 className={adminSelectClass}
@@ -852,11 +1126,7 @@ export function OrderDetailPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {rejectMode === "order"
-                ? "Reject order"
-                : rejectMode === "execution"
-                  ? "Reject selected assets"
-                  : "Reject selected assets"}
+              {rejectMode === "order" ? "Reject order" : "Reject selected assets"}
             </DialogTitle>
             <DialogDescription>A reason is required.</DialogDescription>
           </DialogHeader>
@@ -880,11 +1150,6 @@ export function OrderDetailPage() {
                   const reason = rejectReason.trim()
                   if (rejectMode === "order") {
                     void runAction("/approval/reject-order", { reason }).then(() => setRejectOpen(false))
-                  } else if (rejectMode === "execution") {
-                    void runAction("/execution/reject-items", {
-                      item_ids: [...selected],
-                      rejection_reason: reason,
-                    }).then(() => setRejectOpen(false))
                   } else {
                     void runAction("/approval/reject-items", {
                       item_ids: [...selected],

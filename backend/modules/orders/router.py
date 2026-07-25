@@ -11,6 +11,7 @@ from db.session import get_db
 from modules.errors import ConflictError, NotFoundError
 from modules.orders.schema import (
     CreatePhysicalOrderRequest,
+    ExecutorListResponse,
     ItemIdsRequest,
     PhysicalOrderDetail,
     PhysicalOrderListResponse,
@@ -18,10 +19,10 @@ from modules.orders.schema import (
     RejectOrderRequest,
     ScanAssetRequest,
     ScanAssetResponse,
+    SubmitPhysicalOrderRequest,
     UpdatePhysicalOrderRequest,
     ValidateAssetsRequest,
     ValidateAssetsResponse,
-    ExecutorUserPublic,
 )
 from modules.orders.service import PhysicalOrderService
 
@@ -41,7 +42,7 @@ def validate_assets(
     return svc.validate_assets(body.asset_ids)
 
 
-@router.get("/executors", response_model=list[ExecutorUserPublic])
+@router.get("/executors", response_model=ExecutorListResponse)
 def list_executors(
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[
@@ -50,10 +51,13 @@ def list_executors(
     ],
     plant_id: int | None = Query(
         None,
-        description="Limit to users who may execute orders at this plant.",
+        description="Limit to users in the workflow role who belong to this plant.",
     ),
-) -> list[ExecutorUserPublic]:
-    return svc.list_executors(plant_id=plant_id)
+) -> ExecutorListResponse:
+    try:
+        return svc.list_executors(plant_id=plant_id)
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 @router.get("", response_model=PhysicalOrderListResponse)
@@ -117,14 +121,20 @@ def update_order(
 @router.post("/{order_id}/submit", response_model=PhysicalOrderDetail)
 def submit_order(
     order_id: int,
+    body: SubmitPhysicalOrderRequest,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[object, Depends(require_permission("order.create"))],
 ) -> PhysicalOrderDetail:
     try:
-        return svc.submit_order(order_id, actor_user_id=int(current.subject))
-    except ConflictError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+        return svc.submit_order(
+            order_id,
+            actor_user_id=int(current.subject),
+            assigned_to=int(body.assigned_to),
+        )
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
 
 
 @router.post("/{order_id}/approval/approve-order", response_model=PhysicalOrderDetail)

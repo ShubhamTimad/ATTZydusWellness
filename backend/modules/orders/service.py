@@ -43,6 +43,7 @@ from modules.orders.progress import build_order_progress, enrich_audit_rows
 from modules.orders.schema import (
     ActiveOrderConflict,
     CreatePhysicalOrderRequest,
+    ExecutorListResponse,
     ExecutorUserPublic,
     InvalidAssetRef,
     PhysicalOrderApprovalNotice,
@@ -526,29 +527,76 @@ class PhysicalOrderService:
                 return True
         return False
 
-    def list_executors(self, *, plant_id: int | None = None) -> list[ExecutorUserPublic]:
-        """Active users who may be assigned to execute physical orders."""
-        users = self._db.scalars(
-            select(User)
-            .where(User.is_active.is_(True), User.is_superuser.is_(False))
-            .options(
-                selectinload(User.org_units),
-                selectinload(User.roles).selectinload(Role.permissions),
-                selectinload(User.roles).selectinload(Role.org_units),
+    def _users_in_role(self, role_id: int) -> list[User]:
+        return list(
+            self._db.scalars(
+                select(User)
+                .select_from(user_role)
+                .join(User, User.id == user_role.c.user_id)
+                .where(user_role.c.role_id == int(role_id), User.is_active.is_(True))
+                .options(
+                    selectinload(User.org_units),
+                    selectinload(User.roles).selectinload(Role.permissions),
+                    selectinload(User.roles).selectinload(Role.org_units),
+                )
+                .order_by(User.full_name.asc(), User.id.asc())
+            ).all()
+        )
+
+    def _executor_role_from_workflow(self) -> Role:
+        """Executor pool = first-step role of the workflow mapped to order.create."""
+        wf = get_workflow_for_action(self._db, ACTION_CREATE)
+        if wf is None or not wf.steps:
+            raise ConflictError(
+                "No active physical order assignment workflow is configured. "
+                "Map order.create to a workflow in Workflow Assignment."
             )
-            .order_by(User.full_name)
-        ).all()
-        out: list[ExecutorUserPublic] = []
+        first = sorted(wf.steps, key=lambda s: int(s.step_order))[0]
+        role = self._db.get(Role, int(first.approver_role_id))
+        if role is None:
+            raise ConflictError("Workflow assignment role is missing.")
+        return role
+
+    def _user_in_plant_scope(self, user: User, plant_id: int) -> bool:
+        user_plants = {int(ou.id) for ou in (user.org_units or [])}
+        if user_plants and plant_id not in user_plants:
+            return False
+        return True
+
+    def list_executors(self, *, plant_id: int | None = None) -> ExecutorListResponse:
+        """Users in the workflow-mapped assignment role (not a hardcoded role name)."""
+        role = self._executor_role_from_workflow()
+        users = self._users_in_role(int(role.id))
+        items: list[ExecutorUserPublic] = []
         for user in users:
-            uid = int(user.id)
-            if not self._user_can_execute_orders(uid) or not self._user_can_view_orders(uid):
+            if user.is_superuser:
                 continue
-            if plant_id is not None and not self._user_may_execute_at_plant(user, int(plant_id)):
+            if plant_id is not None and not self._user_in_plant_scope(user, int(plant_id)):
                 continue
-            out.append(
-                ExecutorUserPublic(id=uid, full_name=user.full_name, email=user.email)
+            items.append(
+                ExecutorUserPublic(
+                    id=int(user.id),
+                    full_name=user.full_name,
+                    email=user.email,
+                )
             )
-        return out
+        return ExecutorListResponse(
+            role_id=int(role.id),
+            role_name=str(role.name),
+            items=items,
+        )
+
+    def _assert_valid_executor(self, user_id: int, *, plant_id: int) -> User:
+        user = self._db.get(User, user_id)
+        if user is None or not user.is_active:
+            raise NotFoundError("User", user_id)
+        pool = self.list_executors(plant_id=plant_id)
+        if int(user_id) not in {e.id for e in pool.items}:
+            raise ConflictError(
+                f"Selected user is not in the \"{pool.role_name}\" role configured "
+                "for physical order assignment at this plant."
+            )
+        return user
 
     def _apply_pending_verification_resets(
         self,
@@ -679,9 +727,10 @@ class PhysicalOrderService:
             raise ConflictError("Assets must have a cost center assigned.")
         cost_center_id = self._resolve_cost_center_id(plant_id, cc_code)
 
-        assignee = self._db.get(User, body.assigned_to)
-        if assignee is None or not assignee.is_active:
-            raise NotFoundError("User", body.assigned_to)
+        assignee: User | None = None
+        assigned_to_id: int | None = body.assigned_to
+        if assigned_to_id is not None:
+            assignee = self._assert_valid_executor(int(assigned_to_id), plant_id=plant_id)
 
         eligible_set = set(validation.eligible_asset_ids)
         reset_ids = {int(i) for i in (body.reset_verification_asset_ids or [])}
@@ -705,7 +754,7 @@ class PhysicalOrderService:
             plant_id=plant_id,
             cost_center_id=cost_center_id,
             created_by=actor_user_id,
-            assigned_to=body.assigned_to,
+            assigned_to=assigned_to_id,
             status=ORDER_STATUS_DRAFT,
             remarks=body.remarks,
             reset_verification_asset_ids=sorted(reset_ids) if reset_ids else None,
@@ -737,14 +786,16 @@ class PhysicalOrderService:
             new_value={
                 "order_number": order.order_number,
                 "asset_count": len(assets),
-                "assigned_to": body.assigned_to,
-                "assigned_to_name": assignee.full_name,
+                "assigned_to": assigned_to_id,
+                "assigned_to_name": assignee.full_name if assignee is not None else None,
                 "reset_on_approval_asset_ids": sorted(reset_ids) if reset_ids else [],
                 "financial_year": period.label if reset_ids else None,
             },
         )
         if body.submit:
-            self._submit_for_creation_approval(order, actor_user_id=actor_user_id)
+            if assigned_to_id is None:
+                raise ConflictError("Select an executor before submitting.")
+            self._submit_and_assign(order, actor_user_id=actor_user_id)
         else:
             self._db.commit()
         return self.get_order(int(order.id))
@@ -764,36 +815,26 @@ class PhysicalOrderService:
             payload["approval_notice"] = notice.model_dump(mode="json")
         return payload
 
-    def _submit_for_creation_approval(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
+    def _submit_and_assign(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
+        """Draft/Rejected → Assigned (creator picks workflow-role executor)."""
         if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
             raise ConflictError("Order cannot be submitted in its current status.")
-        wf = get_workflow_for_action(self._db, ACTION_CREATE)
-        if wf:
-            engine = ApprovalEngineService(self._db)
-            req = engine.create_request_for_entity(
-                workflow=wf,
-                entity_type=ENTITY_TYPE_CREATION,
-                entity_id=int(order.id),
-                payload=self._order_payload(order, action_code=ACTION_CREATE),
-                created_by=actor_user_id,
-            )
-            order.approval_request_id = int(req.id)
-            order.status = ORDER_STATUS_PENDING_APPROVAL
-            log_order_event(
-                self._db,
-                order_id=int(order.id),
-                action="submitted_for_approval",
-                actor_user_id=actor_user_id,
-                new_value={"approval_request_id": int(req.id)},
-            )
-        else:
-            self._apply_pending_verification_resets(order, actor_user_id=actor_user_id)
-            self._activate_assignment(
-                order,
-                actor_user_id=actor_user_id,
-                after_creation_approval=False,
-            )
+        if order.assigned_to is None:
+            raise ConflictError("Select an executor before submitting.")
+        self._assert_valid_executor(int(order.assigned_to), plant_id=int(order.plant_id))
+        self._apply_pending_verification_resets(order, actor_user_id=actor_user_id)
+        # Clear any leftover creation-approval linkage from legacy flows.
+        order.approval_request_id = None
+        self._activate_assignment(
+            order,
+            actor_user_id=actor_user_id,
+            after_creation_approval=False,
+        )
         self._db.commit()
+
+    def _submit_for_creation_approval(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
+        # Kept as alias for older call sites / scripts.
+        self._submit_and_assign(order, actor_user_id=actor_user_id)
 
     def _activate_assignment(
         self,
@@ -907,6 +948,10 @@ class PhysicalOrderService:
                 ),
             )
         # Legacy tab keys (kept for bookmarks / API clients)
+        elif tab == "draft":
+            base = base.where(PhysicalOrder.status == ORDER_STATUS_DRAFT)
+        elif tab == "rejected":
+            base = base.where(PhysicalOrder.status == ORDER_STATUS_REJECTED)
         elif tab == "pending_approval":
             base = base.where(
                 PhysicalOrder.status.in_(
@@ -1102,9 +1147,7 @@ class PhysicalOrderService:
         if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
             raise ConflictError("Only draft or rejected orders can be edited.")
         if assigned_to is not None:
-            assignee = self._db.get(User, assigned_to)
-            if assignee is None or not assignee.is_active:
-                raise NotFoundError("User", assigned_to)
+            assignee = self._assert_valid_executor(int(assigned_to), plant_id=int(order.plant_id))
             old = order.assigned_to
             order.assigned_to = assigned_to
             log_order_event(
@@ -1113,7 +1156,11 @@ class PhysicalOrderService:
                 action="assignment_changed",
                 actor_user_id=actor_user_id,
                 old_value={"assigned_to": old},
-                new_value={"assigned_to": assigned_to, "intended_only": True},
+                new_value={
+                    "assigned_to": assigned_to,
+                    "assigned_to_name": assignee.full_name,
+                    "intended_only": True,
+                },
             )
         if remarks is not None:
             order.remarks = remarks
@@ -1136,14 +1183,38 @@ class PhysicalOrderService:
         self._db.commit()
         return self.get_order(order_id)
 
-    def submit_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+    def submit_order(
+        self,
+        order_id: int,
+        *,
+        actor_user_id: int,
+        assigned_to: int,
+    ) -> PhysicalOrderDetail:
         order = self._load_order(order_id)
         if order.created_by != actor_user_id:
             raise ConflictError("Only the order creator can submit.")
+        if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
+            raise ConflictError("Order cannot be submitted in its current status.")
+        assignee = self._assert_valid_executor(int(assigned_to), plant_id=int(order.plant_id))
+        old_assignee = order.assigned_to
+        order.assigned_to = int(assigned_to)
+        if old_assignee != int(assigned_to):
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="assignment_changed",
+                actor_user_id=actor_user_id,
+                old_value={"assigned_to": old_assignee},
+                new_value={
+                    "assigned_to": int(assigned_to),
+                    "assigned_to_name": assignee.full_name,
+                    "intended_only": True,
+                },
+            )
         for item in order.items:
             item.verification_status = ITEM_STATUS_PENDING
             item.rejection_reason = None
-        self._submit_for_creation_approval(order, actor_user_id=actor_user_id)
+        self._submit_and_assign(order, actor_user_id=actor_user_id)
         return self.get_order(order_id)
 
     def _find_pending_closure_task(
@@ -1433,11 +1504,7 @@ class PhysicalOrderService:
             raise ConflictError("Order can only be reassigned before work starts.")
         if assigned_to == order.assigned_to:
             raise ConflictError("Select a different executor to reassign this order.")
-        assignee = self._db.get(User, assigned_to)
-        if assignee is None or not assignee.is_active:
-            raise NotFoundError("User", assigned_to)
-        if not self._user_can_execute_orders(int(assignee.id)):
-            raise ConflictError("Assignee must have permission to execute physical orders.")
+        assignee = self._assert_valid_executor(int(assigned_to), plant_id=int(order.plant_id))
         old_id = order.assigned_to
         old_name = self._user_name(old_id)
         new_name = assignee.full_name
@@ -1618,15 +1685,7 @@ class PhysicalOrderService:
             raise ConflictError("Order is not in progress.")
         if order.assigned_to != actor_user_id:
             raise ConflictError("Only the assigned executor can submit for closure.")
-        pending = [
-            i
-            for i in order.items
-            if not self._is_physically_verified(i) and i.verification_status != ITEM_STATUS_REJECTED
-        ]
-        if pending:
-            raise ConflictError(
-                "Every line must be verified by RFID scan or rejected before submitting for closure."
-            )
+        # Unscanned lines are left for closure review; executor may complete early.
         for item in order.items:
             item.verification_status = ITEM_STATUS_PENDING
             item.rejection_reason = None

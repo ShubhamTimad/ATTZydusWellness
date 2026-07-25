@@ -304,10 +304,14 @@ def _find_audit_actor(audit_rows: list[PhysicalOrderAudit], action: str, user_na
     return None
 
 
-def _step_order(*, has_creation_workflow: bool, has_closure_workflow: bool) -> tuple[str, ...]:
-    """Business lifecycle keys in display order (approval steps only when configured)."""
+def _step_order(*, show_creation_approval: bool, has_closure_workflow: bool) -> tuple[str, ...]:
+    """Business lifecycle keys in display order.
+
+    Happy path: Draft → Assigned → In Progress → Completed → Approved → Closed.
+    Creation-approval step is only shown for legacy pending_approval orders.
+    """
     keys: list[str] = ["order_created"]
-    if has_creation_workflow:
+    if show_creation_approval:
         keys.append("approved")
     keys.extend(["assigned", "in_progress", "completed"])
     if has_closure_workflow:
@@ -319,25 +323,33 @@ def _step_order(*, has_creation_workflow: bool, has_closure_workflow: bool) -> t
 def _active_step_key(
     order_status: str,
     *,
-    has_creation_workflow: bool,
+    show_creation_approval: bool,
     has_closure_workflow: bool,
     work_completed: bool = False,
 ) -> str | None:
-    """Which timeline segment is current for each order status."""
+    """Which timeline segment is current for each order status.
+
+    Finished milestones are behind the highlight; the ring sits on the next
+    action (or the in-flight stage). Closed is terminal (all completed).
+    """
     if order_status == ORDER_STATUS_DRAFT:
         return "order_created"
     if order_status == ORDER_STATUS_PENDING_APPROVAL:
-        return "approved" if has_creation_workflow else "order_created"
+        return "approved" if show_creation_approval else "order_created"
     if order_status == ORDER_STATUS_APPROVED:
+        # Closure approved → next action is Close.
         if has_closure_workflow and work_completed:
-            return "closure_approved"
-        return "approved"
+            return "closed"
+        return "approved" if show_creation_approval else "assigned"
     if order_status == ORDER_STATUS_ASSIGNED:
         return "assigned"
     if order_status == ORDER_STATUS_IN_PROGRESS:
         return "in_progress"
     if order_status in (ORDER_STATUS_PENDING_CLOSURE, ORDER_STATUS_COMPLETED):
-        return "completed"
+        # Work finished → highlight approval (or Close when no closure workflow).
+        if has_closure_workflow:
+            return "closure_approved"
+        return "closed"
     if order_status == ORDER_STATUS_CLOSED:
         return "closed"
     if order_status == ORDER_STATUS_REJECTED:
@@ -366,6 +378,10 @@ def _step_phase(
     step_idx = step_order.index(step_key)
     active_idx = step_order.index(active_key)
 
+    # Terminal success: every reached step (including Closed) is done — no "current" ring.
+    if order_status == ORDER_STATUS_CLOSED:
+        return "completed" if step_idx <= active_idx else "pending"
+
     if step_idx < active_idx:
         return "completed"
     if step_idx == active_idx:
@@ -380,21 +396,22 @@ def build_order_progress(
     audit_rows: list[PhysicalOrderAudit],
     user_name_fn,
 ) -> PhysicalOrderProgressPublic:
-    creation_wf = _workflow_definition(db, action_code=ACTION_CREATE, phase="creation")
+    creation_wf = _workflow_definition(db, action_code=ACTION_CREATE, phase="assignment")
     closure_wf = _workflow_definition(db, action_code=ACTION_COMPLETE, phase="closure")
-    has_creation_workflow = creation_wf is not None
+    status = str(order.status)
+    # Creation-approval UI only for legacy in-flight pending_approval orders.
+    show_creation_approval = status == ORDER_STATUS_PENDING_APPROVAL
     has_closure_workflow = closure_wf is not None
     step_order = _step_order(
-        has_creation_workflow=has_creation_workflow,
+        show_creation_approval=show_creation_approval,
         has_closure_workflow=has_closure_workflow,
     )
 
-    status = str(order.status)
     verified = sum(1 for i in order.items if i.scan_time is not None)
     total = len(order.items)
     active_key = _active_step_key(
         status,
-        has_creation_workflow=has_creation_workflow,
+        show_creation_approval=show_creation_approval,
         has_closure_workflow=has_closure_workflow,
         work_completed=order.completed_at is not None,
     )
@@ -424,7 +441,7 @@ def build_order_progress(
         ),
     ]
 
-    if has_creation_workflow:
+    if show_creation_approval:
         steps.append(
             OrderLifecycleStepPublic(
                 key="approved",
@@ -479,15 +496,7 @@ def build_order_progress(
                     or _find_audit_actor(audit_rows, "completed", user_name_fn)
                 ),
                 occurred_at=work_completed_at,
-                detail=(
-                    "Awaiting approval"
-                    if status == ORDER_STATUS_COMPLETED and has_closure_workflow
-                    else (
-                        "Ready to close"
-                        if status == ORDER_STATUS_COMPLETED
-                        else None
-                    )
-                ),
+                detail=None,
             ),
         ]
     )
@@ -501,8 +510,8 @@ def build_order_progress(
                 actor_name=_find_audit_actor(audit_rows, "closure_approved", user_name_fn),
                 occurred_at=_find_audit_time(audit_rows, "closure_approved"),
                 detail=(
-                    "Ready to close"
-                    if status == ORDER_STATUS_APPROVED
+                    "Awaiting approval"
+                    if status == ORDER_STATUS_COMPLETED
                     else None
                 ),
             )
@@ -515,6 +524,12 @@ def build_order_progress(
             status=phase("closed"),
             actor_name=_find_audit_actor(audit_rows, "closed", user_name_fn),
             occurred_at=order.closed_at,
+            detail=(
+                "Ready to close"
+                if status in (ORDER_STATUS_APPROVED, ORDER_STATUS_COMPLETED)
+                and active_key == "closed"
+                else None
+            ),
         )
     )
 
@@ -526,7 +541,7 @@ def build_order_progress(
                 status="rejected",
                 actor_name=_find_audit_actor(audit_rows, "rejected", user_name_fn),
                 occurred_at=_find_audit_time(audit_rows, "rejected"),
-                detail="Creation approval rejected",
+                detail="Order rejected",
             )
         )
 

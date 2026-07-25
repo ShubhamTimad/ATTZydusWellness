@@ -1,141 +1,164 @@
-import { cn } from "@/lib/utils"
+import { Check, X } from "lucide-react"
+
 import type { OrderLifecycleStep } from "@/lib/orders-types"
+import { cn } from "@/lib/utils"
 
 type Props = {
   steps: OrderLifecycleStep[]
   currentStepKey: string | null
   orderStatus?: string
-  /** Compact ribbon for detail pages. */
-  compact?: boolean
 }
+
+type Phase = "completed" | "current" | "upcoming" | "rejected"
 
 /** Fallback when backend does not send current_step_key. */
 const STATUS_TO_STEP_KEY: Record<string, string> = {
   draft: "order_created",
   pending_approval: "approved",
-  approved: "approved",
+  // After closure approval, next action is Close.
+  approved: "closed",
   assigned: "assigned",
   in_progress: "in_progress",
-  pending_closure_approval: "completed",
-  completed: "completed",
+  pending_closure_approval: "closure_approved",
+  completed: "closure_approved",
   closed: "closed",
   rejected: "rejected",
 }
 
-function chevronClip(isFirst: boolean, isLast: boolean, notch: number): string {
-  const n = `${notch}px`
-  if (isFirst && isLast) return "polygon(0 0, 100% 0, 100% 100%, 0 100%)"
-  if (isFirst) return `polygon(0 0, calc(100% - ${n}) 0, 100% 50%, calc(100% - ${n}) 100%, 0 100%)`
-  if (isLast) return `polygon(0 0, 100% 0, 100% 100%, 0 100%, ${n} 50%)`
-  return `polygon(0 0, calc(100% - ${n}) 0, 100% 50%, calc(100% - ${n}) 100%, 0 100%, ${n} 50%)`
-}
-
-type VisualPhase = "completed" | "current" | "upcoming" | "rejected"
-
 function resolveActiveKey(orderStatus?: string, fallbackKey?: string | null): string | null {
   if (fallbackKey) return fallbackKey
-  if (orderStatus && STATUS_TO_STEP_KEY[orderStatus]) {
-    return STATUS_TO_STEP_KEY[orderStatus]
-  }
+  if (orderStatus && STATUS_TO_STEP_KEY[orderStatus]) return STATUS_TO_STEP_KEY[orderStatus]
   return null
 }
 
-function resolveVisualPhase(
+function phaseFor(
   step: OrderLifecycleStep,
   stepIndex: number,
   steps: OrderLifecycleStep[],
   activeKey: string | null,
   orderStatus?: string,
-): VisualPhase {
-  if (orderStatus === "rejected" && step.key === "rejected") {
+): Phase {
+  if (orderStatus === "rejected" && (step.key === "rejected" || step.status === "rejected")) {
     return "rejected"
   }
-  if (step.key === activeKey) {
-    return "current"
+  if (step.status === "rejected") return "rejected"
+
+  // CapEx-style: trust backend status first so Closed / finished steps show checkmarks.
+  if (step.status === "completed") return "completed"
+
+  // Closed order with a stale "active" payload still renders as done.
+  if (orderStatus === "closed") {
+    const activeIdx = activeKey ? steps.findIndex((s) => s.key === activeKey) : steps.length - 1
+    if (activeIdx < 0 || stepIndex <= activeIdx) return "completed"
+    return "upcoming"
   }
+
+  if (step.key === activeKey || step.status === "active") return "current"
+
   const activeIdx = activeKey ? steps.findIndex((s) => s.key === activeKey) : -1
-  if (activeIdx >= 0 && stepIndex < activeIdx) {
-    return "completed"
-  }
+  if (activeIdx >= 0 && stepIndex < activeIdx) return "completed"
   return "upcoming"
 }
 
-function segmentSurface(phase: VisualPhase): string {
-  switch (phase) {
-    case "completed":
-      return "border border-zinc-200/90 bg-[linear-gradient(180deg,#f4f4f5_0%,#e4e4e7_100%)] text-zinc-600"
-    case "current":
-      return "border border-primary/30 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--primary)_72%,white)_0%,var(--primary)_100%)] text-primary-foreground shadow-sm"
-    case "rejected":
-      return "border border-destructive/40 bg-[linear-gradient(180deg,#fca5a5_0%,var(--destructive)_100%)] text-white shadow-sm"
-    default:
-      return "border border-zinc-200 bg-white text-zinc-500"
-  }
-}
-
 function displayLabel(step: OrderLifecycleStep, orderStatus?: string, isCurrent?: boolean): string {
-  if (step.key === "rejected") return "REJECTED"
+  if (step.key === "rejected") return "Rejected"
   if (isCurrent && orderStatus === "pending_approval" && step.key === "approved") {
-    return "PENDING APPROVAL"
-  }
-  if (step.key === "closure_approved" && isCurrent) {
-    return "APPROVED"
+    return "Pending approval"
   }
   if (isCurrent && orderStatus === "draft" && step.key === "order_created") {
-    return "DRAFT"
+    return "Draft"
   }
-  return step.label.toUpperCase()
+  if (step.key === "order_created") {
+    return orderStatus === "draft" ? "Draft" : "Order created"
+  }
+  if (step.key === "in_progress") return "In progress"
+  if (step.key === "closure_approved") return "Approved"
+  // Prefer backend label; normalize accidental ALL CAPS.
+  const raw = (step.label || step.key).trim()
+  if (raw === raw.toUpperCase() && raw.length > 1) {
+    return raw.charAt(0) + raw.slice(1).toLowerCase()
+  }
+  return raw
 }
 
-export function OrderLifecycleStepper({ steps, currentStepKey, orderStatus, compact = false }: Props) {
+/** CapEx-style horizontal process flow: numbered nodes + connectors. */
+export function OrderLifecycleStepper({ steps, currentStepKey, orderStatus }: Props) {
   const displaySteps = steps.filter(
     (s) => s.key !== "rejected" || orderStatus === "rejected" || orderStatus === "in_rework",
   )
   const activeKey = resolveActiveKey(orderStatus, currentStepKey)
-  const notch = compact ? 10 : 16
 
   return (
-    <div className={cn("overflow-x-auto", compact ? "pb-0" : "pb-1")}>
-      <ol className={cn("flex", compact ? "min-w-[32rem]" : "min-w-[42rem]")}>
-        {displaySteps.map((step, index) => {
-          const isFirst = index === 0
-          const isLast = index === displaySteps.length - 1
-          const isCurrent = step.key === activeKey
-          const phase = resolveVisualPhase(step, index, displaySteps, activeKey, orderStatus)
+    <ol className="flex w-full min-w-0 items-start overflow-x-auto pb-1">
+      {displaySteps.map((step, index) => {
+        const phase = phaseFor(step, index, displaySteps, activeKey, orderStatus)
+        const isLast = index === displaySteps.length - 1
+        const prevPhase =
+          index > 0 ? phaseFor(displaySteps[index - 1]!, index - 1, displaySteps, activeKey, orderStatus) : null
+        const leftFilled =
+          index > 0 && (prevPhase === "completed" || phase === "completed" || phase === "rejected")
+        const rightFilled = !isLast && phase === "completed"
+        const isCurrent = phase === "current"
 
-          return (
-            <li
-              key={step.key}
-              className={cn(
-                "relative flex-1",
-                compact ? "min-w-[4.25rem]" : "min-w-[5.5rem]",
-                index > 0 && (compact ? "-ml-2" : "-ml-3"),
-              )}
-              style={{ zIndex: displaySteps.length - index }}
-              aria-current={isCurrent ? "step" : undefined}
-              title={step.detail ?? step.label}
-            >
+        return (
+          <li
+            key={step.key}
+            className="flex min-w-[5.25rem] flex-1 flex-col items-center sm:min-w-[6rem]"
+            aria-current={isCurrent ? "step" : undefined}
+            title={
+              step.detail
+                ? `${displayLabel(step, orderStatus, isCurrent)} — ${step.detail}`
+                : displayLabel(step, orderStatus, isCurrent)
+            }
+          >
+            <div className="flex w-full items-center">
               <div
                 className={cn(
-                  "flex items-center justify-center text-center",
-                  compact ? "min-h-[1.75rem] px-3 py-1" : "min-h-[3.25rem] flex-col px-5 py-2",
-                  segmentSurface(phase),
+                  "h-0.5 flex-1",
+                  index === 0 ? "bg-transparent" : leftFilled ? "bg-primary/60" : "bg-border",
                 )}
-                style={{ clipPath: chevronClip(isFirst, isLast, notch) }}
+                aria-hidden
+              />
+              <div
+                className={cn(
+                  "relative z-[1] flex size-8 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold",
+                  phase === "completed" && "border-primary bg-primary text-primary-foreground",
+                  phase === "current" &&
+                    "border-primary bg-background text-primary shadow-[0_0_0_4px] shadow-primary/15",
+                  phase === "upcoming" && "border-border bg-muted/40 text-muted-foreground",
+                  phase === "rejected" && "border-destructive bg-destructive text-white",
+                )}
               >
-                <span
-                  className={cn(
-                    "font-semibold leading-none",
-                    compact ? "text-[10px] sm:text-[11px]" : "text-xs leading-tight sm:text-sm",
-                  )}
-                >
-                  {displayLabel(step, orderStatus, isCurrent)}
-                </span>
+                {phase === "completed" ? (
+                  <Check className="size-4" strokeWidth={2.5} aria-hidden />
+                ) : phase === "rejected" ? (
+                  <X className="size-4" strokeWidth={2.5} aria-hidden />
+                ) : (
+                  <span>{index + 1}</span>
+                )}
               </div>
-            </li>
-          )
-        })}
-      </ol>
-    </div>
+              <div
+                className={cn(
+                  "h-0.5 flex-1",
+                  isLast ? "bg-transparent" : rightFilled ? "bg-primary/60" : "bg-border",
+                )}
+                aria-hidden
+              />
+            </div>
+            <p
+              className={cn(
+                "mt-2 max-w-[9.5rem] px-1 text-center text-[11px] leading-snug sm:text-xs",
+                phase === "completed" && "font-medium text-foreground",
+                phase === "current" && "font-semibold text-primary",
+                phase === "upcoming" && "font-medium text-muted-foreground",
+                phase === "rejected" && "font-semibold text-destructive",
+              )}
+            >
+              {displayLabel(step, orderStatus, isCurrent)}
+            </p>
+          </li>
+        )
+      })}
+    </ol>
   )
 }

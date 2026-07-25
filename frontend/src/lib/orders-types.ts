@@ -43,6 +43,12 @@ export type ExecutorUser = {
   email: string | null
 }
 
+export type ExecutorListResponse = {
+  role_id: number
+  role_name: string
+  items: ExecutorUser[]
+}
+
 export type PhysicalOrderListItem = {
   id: number
   order_number: string
@@ -181,6 +187,7 @@ export type PhysicalOrderDetail = {
 
 export type OrdersDashboardModule = {
   total_orders: number
+  draft?: number
   pending_approval: number
   approved: number
   assigned: number
@@ -203,32 +210,36 @@ export type OrderListTab = {
 /** Physical order status filter on the asset list (matches the Order status column). */
 export const ASSET_PHYSICAL_ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "none", label: "No order" },
-  { value: "pending_approval", label: "Pending approval" },
-  { value: "approved", label: "Approved" },
+  { value: "draft", label: "Draft" },
   { value: "assigned", label: "Assigned" },
   { value: "in_progress", label: "In progress" },
-  { value: "pending_closure_approval", label: "Completed" },
   { value: "completed", label: "Completed" },
+  { value: "approved", label: "Approved" },
   { value: "closed", label: "Closed" },
+  { value: "rejected", label: "Rejected" },
 ]
 
 /** Status tabs aligned with the physical order lifecycle (same order as the progress bar). */
 export const ORDER_STATUS_TABS: OrderListTab[] = [
-  { key: "pending_approval", label: "Pending approval" },
-  { key: "approved", label: "Approved", countKey: "approved" },
+  { key: "draft", label: "Draft", countKey: "draft" },
   { key: "assigned", label: "Assigned", countKey: "assigned" },
   { key: "in_progress", label: "In progress", countKey: "in_progress" },
   { key: "completed", label: "Completed", countKey: "completed" },
+  { key: "approved", label: "Approved", countKey: "approved" },
   { key: "closed", label: "Closed", countKey: "closed" },
+  { key: "rejected", label: "Rejected", countKey: "rejected" },
 ]
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
   pending_approval: "Pending approval",
   approved: "Approved",
+  assigned: "Assigned",
   pending_closure_approval: "Completed",
   completed: "Completed",
   closed: "Closed",
   in_progress: "In progress",
+  rejected: "Rejected",
 }
 
 export function orderStatusLabel(status: string): string {

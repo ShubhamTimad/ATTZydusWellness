@@ -223,6 +223,7 @@ def get_dashboard_summary(
         "modules": {
             "orders": {
                 "total_orders": sum(by_status.values()),
+                "draft": by_status.get("draft", 0),
                 "pending_approval": by_status.get("pending_approval", 0),
                 "approved": approved_count,
                 "assigned": assigned_count,

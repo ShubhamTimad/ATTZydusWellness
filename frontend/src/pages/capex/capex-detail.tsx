@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Check, FileText, Link2, Printer, Send, UserRoundCog, X } from "lucide-react"
+import { FileText, Link2, Printer, Send } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -11,9 +11,11 @@ import {
   AdminBackLink,
   AdminPanel,
   AdminPillBadge,
+  AdminPrimaryButton,
   adminSwitchRowClass,
   adminTextareaClass,
 } from "@/components/layout/admin-ui"
+import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -192,13 +194,6 @@ export function CapexDetailPage() {
         icon: Printer,
       },
     ]
-    if (canReassign) {
-      actions.push({
-        id: "reassign",
-        label: "Reassign",
-        icon: UserRoundCog,
-      })
-    }
     if (editable) {
       actions.push({
         id: "save",
@@ -214,21 +209,8 @@ export function CapexDetailPage() {
         icon: Send,
       })
     }
-    if (canActOnForm) {
-      actions.push({
-        id: "reject",
-        label: "Reject",
-        variant: "destructive",
-        icon: X,
-      })
-      actions.push({
-        id: "approve",
-        label: "Approve",
-        icon: Check,
-      })
-    }
     return actions
-  }, [canReassign, editable, saving, canSubmit, canActOnForm])
+  }, [editable, saving, canSubmit])
 
   function handleToolbarAction(actionId: string) {
     if (actionId === "print") {
@@ -240,10 +222,6 @@ export function CapexDetailPage() {
       }
       return
     }
-    if (actionId === "reassign") {
-      setReassignOpen(true)
-      return
-    }
     if (actionId === "save") {
       void save()
       return
@@ -251,13 +229,6 @@ export function CapexDetailPage() {
     if (actionId === "submit") {
       setSubmitAssignOpen(true)
       return
-    }
-    if (actionId === "reject") {
-      openDecision("reject")
-      return
-    }
-    if (actionId === "approve") {
-      openDecision("approve")
     }
   }
 
@@ -395,6 +366,39 @@ export function CapexDetailPage() {
           >
             {capexStatusLabel(detail.status)}
           </AdminPillBadge>
+          {canReassign ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={saving || acting || reassigning}
+              onClick={() => setReassignOpen(true)}
+            >
+              Reassign
+            </Button>
+          ) : null}
+          {canActOnForm ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                disabled={saving || acting || reassigning}
+                onClick={() => openDecision("reject")}
+              >
+                Reject
+              </Button>
+              <AdminPrimaryButton
+                type="button"
+                disabled={saving || acting || reassigning}
+                onClick={() => openDecision("approve")}
+              >
+                Approve
+              </AdminPrimaryButton>
+            </>
+          ) : null}
           {toolbarActions.length > 0 ? (
             <AssetActionsMenu
               actions={toolbarActions}

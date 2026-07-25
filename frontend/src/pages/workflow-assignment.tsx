@@ -60,8 +60,8 @@ const WORKFLOW_ENTITY_TYPES: { value: string; label: string }[] = [
   { value: "asset_import", label: "Asset import" },
   { value: "capitalization_request", label: "Capitalization (no Engineering)" },
   { value: "capitalization_request_engineering", label: "Capitalization (with Engineering)" },
-  { value: "physical_order_creation", label: "Physical order creation" },
-  { value: "physical_order_closure", label: "Physical order closure" },
+  { value: "physical_order_creation", label: "Physical order assignment (executor role)" },
+  { value: "physical_order_closure", label: "Physical order closure approval" },
 ]
 
 const KNOWN_ENTITY_TYPE_VALUES = new Set(WORKFLOW_ENTITY_TYPES.map((e) => e.value))

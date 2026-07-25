@@ -49,13 +49,19 @@ class ValidateAssetsResponse(BaseModel):
 
 class CreatePhysicalOrderRequest(BaseModel):
     asset_ids: list[int] = Field(..., min_length=1)
-    assigned_to: int
+    assigned_to: int | None = None
     remarks: str | None = None
-    submit: bool = True
+    submit: bool = False
     reset_verification_asset_ids: list[int] = Field(
         default_factory=list,
-        description="Assets to clear physical verification when creation is approved (re-audit in current FY).",
+        description="Assets to clear physical verification when the order is assigned (re-audit in current FY).",
     )
+
+
+class SubmitPhysicalOrderRequest(BaseModel):
+    """Assign an executor from the workflow role and move Draft → Assigned."""
+
+    assigned_to: int = Field(..., ge=1)
 
 
 class PhysicalOrderItemPublic(BaseModel):
@@ -203,6 +209,14 @@ class ExecutorUserPublic(BaseModel):
     id: int
     full_name: str
     email: str | None
+
+
+class ExecutorListResponse(BaseModel):
+    """Users in the first-step role of the physical-order assignment workflow."""
+
+    role_id: int
+    role_name: str
+    items: list[ExecutorUserPublic]
 
 
 class UpdatePhysicalOrderRequest(BaseModel):
