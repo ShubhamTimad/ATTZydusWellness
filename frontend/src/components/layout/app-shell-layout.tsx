@@ -1,6 +1,8 @@
 import * as React from "react"
 import {
   ChevronDown,
+  ClipboardCheck,
+  ClipboardList,
   Database,
   Factory,
   KeyRound,
@@ -9,7 +11,6 @@ import {
   Package,
   FileBarChart,
   FileText,
-  ShoppingCart,
   Menu,
   PanelLeft,
   Settings,
@@ -44,12 +45,22 @@ import { cn } from "@/lib/utils"
 
 type NavPerm = string | string[] | null
 
-type ShellNavItem = {
+type ShellNavChild = {
   id: string
   label: string
   icon: LucideIcon
   to: string
   permission: NavPerm
+}
+
+type ShellNavItem = {
+  id: string
+  label: string
+  icon: LucideIcon
+  /** Leaf link. Parents with `children` may omit this (collapsed sidebar uses the first child). */
+  to?: string
+  permission: NavPerm
+  children?: ShellNavChild[]
   /**
    * When true, hide this item unless the user has at least one RBAC grant outside ``users.*``
    * (so roles with only user-management permissions do not see generic workspace tabs).
@@ -77,9 +88,17 @@ const shellNavGroups: ShellNavGroup[] = [
       {
         id: "orders",
         label: "Order",
-        icon: ShoppingCart,
-        to: "/dashboard/orders",
+        icon: ClipboardList,
         permission: "order.view",
+        children: [
+          {
+            id: "physical-verification-orders",
+            label: "Physical verification",
+            icon: ClipboardCheck,
+            to: "/dashboard/orders",
+            permission: "order.view",
+          },
+        ],
       },
       {
         id: "assets",
@@ -145,17 +164,46 @@ const shellNavGroups: ShellNavGroup[] = [
   },
 ]
 
+function navPermAllowed(permission: NavPerm): boolean {
+  if (permission === null) return true
+  if (Array.isArray(permission)) return permission.some((c) => hasPermission(c))
+  return hasPermission(permission)
+}
+
+function navChildVisible(child: ShellNavChild): boolean {
+  return navPermAllowed(child.permission)
+}
+
 function navItemVisible(item: ShellNavItem): boolean {
   if (item.hideWhenOnlyUsersModule && !hasAnyNonUsersRbacPermission()) return false
-  const p = item.permission
-  if (p === null) return true
-  if (Array.isArray(p)) return p.some((c) => hasPermission(c))
-  return hasPermission(p)
+  if (!navPermAllowed(item.permission)) return false
+  if (item.children?.length) {
+    return item.children.some(navChildVisible)
+  }
+  return Boolean(item.to)
 }
 
 function pathMatchesNav(pathname: string, to: string): boolean {
   if (to === "/dashboard") return pathname === "/dashboard" || pathname === "/dashboard/"
   return pathname === to || pathname.startsWith(`${to}/`)
+}
+
+function itemHasActiveChild(item: ShellNavItem, pathname: string): boolean {
+  return Boolean(item.children?.some((child) => pathMatchesNav(pathname, child.to)))
+}
+
+function resolveActiveNav(
+  items: ShellNavItem[],
+  pathname: string,
+): { item: ShellNavItem; child?: ShellNavChild } | null {
+  for (const item of items) {
+    const visibleChildren = item.children?.filter(navChildVisible) ?? []
+    for (const child of visibleChildren) {
+      if (pathMatchesNav(pathname, child.to)) return { item, child }
+    }
+    if (item.to && pathMatchesNav(pathname, item.to)) return { item }
+  }
+  return null
 }
 
 export type AppShellLayoutProps = {
@@ -178,16 +226,24 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
   const visibleGroups = shellNavGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter(navItemVisible),
+      items: group.items
+        .filter(navItemVisible)
+        .map((item) =>
+          item.children?.length
+            ? { ...item, children: item.children.filter(navChildVisible) }
+            : item,
+        ),
     }))
     .filter((group) => group.items.length > 0)
   const visibleNav = visibleGroups.flatMap((group) => group.items)
 
-  const activeItem = visibleNav.find((item) => pathMatchesNav(location.pathname, item.to))
-  const title = activeItem?.label ?? "Dashboard"
+  const activeNav = resolveActiveNav(visibleNav, location.pathname)
+  const title = activeNav?.child?.label ?? activeNav?.item.label ?? "Dashboard"
   const [profileOpen, setProfileOpen] = React.useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false)
+  const [expandedNavIds, setExpandedNavIds] = React.useState<Set<string>>(() => new Set())
+
   React.useEffect(() => {
     try {
       setIsSidebarCollapsed(localStorage.getItem("ui.sidebarCollapsed") === "1")
@@ -198,6 +254,16 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
   React.useEffect(() => {
     setMobileNavOpen(false)
   }, [location.pathname])
+  React.useEffect(() => {
+    if (!activeNav?.item.children?.length) return
+    setExpandedNavIds((prev) => {
+      if (prev.has(activeNav.item.id)) return prev
+      const next = new Set(prev)
+      next.add(activeNav.item.id)
+      return next
+    })
+  }, [activeNav?.item.id, activeNav?.item.children?.length])
+
   function toggleSidebar() {
     setIsSidebarCollapsed((v) => {
       const next = !v
@@ -206,6 +272,15 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
       } catch {
         // ignore
       }
+      return next
+    })
+  }
+
+  function toggleNavExpanded(id: string) {
+    setExpandedNavIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
@@ -224,7 +299,91 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
           ) : null}
           {group.items.map((item) => {
             const Icon = item.icon
-            const isActive = pathMatchesNav(location.pathname, item.to)
+            const children = item.children ?? []
+            const hasChildren = children.length > 0
+            const childActive = itemHasActiveChild(item, location.pathname)
+            const selfActive = Boolean(item.to && pathMatchesNav(location.pathname, item.to))
+            const isActive = selfActive || childActive
+            const expanded = expandedNavIds.has(item.id) || childActive
+            const collapsedTarget = item.to ?? children[0]?.to
+
+            if (hasChildren && !collapsed) {
+              return (
+                <div key={item.id} className="space-y-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "relative h-9 w-full justify-start gap-2.5 rounded-[calc(var(--app-radius-surface)-2px)] pl-3 text-left font-medium",
+                      "text-foreground hover:bg-muted/70",
+                      expanded && !childActive && "bg-muted/50",
+                      childActive && "text-foreground",
+                    )}
+                    aria-expanded={expanded}
+                    onClick={() => toggleNavExpanded(item.id)}
+                  >
+                    <Icon
+                      className={cn(
+                        "size-4 shrink-0",
+                        childActive ? "text-primary opacity-100" : "opacity-70",
+                      )}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    <ChevronDown
+                      className={cn(
+                        "size-3.5 shrink-0 opacity-60 transition-transform duration-200",
+                        expanded && "rotate-180",
+                        childActive && "text-primary opacity-100",
+                      )}
+                      aria-hidden
+                    />
+                  </Button>
+                  {expanded ? (
+                    <div
+                      className="relative ml-[1.15rem] space-y-0.5 border-l border-border/80 pl-3"
+                      role="group"
+                      aria-label={`${item.label} types`}
+                    >
+                      {children.map((child) => {
+                        const ChildIcon = child.icon
+                        const childIsActive = pathMatchesNav(location.pathname, child.to)
+                        return (
+                          <Button
+                            key={child.id}
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className={cn(
+                              "relative h-9 w-full justify-start gap-2.5 rounded-[calc(var(--app-radius-surface)-2px)] px-2.5 text-left text-sm font-medium",
+                              "text-foreground hover:bg-muted/70",
+                              childIsActive &&
+                                "border-l-2 border-primary bg-primary/8 pl-[calc(0.625rem-2px)] text-primary hover:bg-primary/10 hover:text-primary",
+                            )}
+                            asChild
+                          >
+                            <Link to={child.to} onClick={onNavigate}>
+                              <ChildIcon
+                                className={cn(
+                                  "size-4 shrink-0",
+                                  childIsActive ? "text-primary opacity-100" : "opacity-70",
+                                )}
+                                aria-hidden
+                              />
+                              <span className="min-w-0 flex-1 truncate leading-snug">{child.label}</span>
+                            </Link>
+                          </Button>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            }
+
+            if (!collapsedTarget) return null
+
             return (
               <Button
                 key={item.id}
@@ -242,7 +401,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
                 )}
                 asChild
               >
-                <Link to={item.to} onClick={onNavigate}>
+                <Link to={collapsedTarget} onClick={onNavigate}>
                   <Icon
                     className={cn(
                       "size-4 shrink-0",
