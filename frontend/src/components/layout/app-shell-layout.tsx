@@ -8,6 +8,7 @@ import {
   KeyRound,
   LayoutDashboard,
   LogOut,
+  Network,
   Package,
   FileBarChart,
   FileText,
@@ -137,6 +138,13 @@ const shellNavGroups: ShellNavGroup[] = [
         label: "Plant",
         icon: Factory,
         to: "/dashboard/plants",
+        permission: ["org_units.view", "org_units.create", "org_units.update", "org_units.delete"],
+      },
+      {
+        id: "departments",
+        label: "Department",
+        icon: Network,
+        to: "/dashboard/departments",
         permission: ["org_units.view", "org_units.create", "org_units.update", "org_units.delete"],
       },
       {

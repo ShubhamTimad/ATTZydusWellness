@@ -3,13 +3,14 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import and_, delete, func, or_, select, union_all
+from sqlalchemy import and_, delete, false, func, or_, select, tuple_, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.model import ApprovalTask, TaskAuditLog
 from modules.platform.approvals.service import ApprovalEngineService
+from modules.platform.users.scope import ViewerOrgScope, load_viewer_org_scope
 from modules.assets.lifecycle import (
     APPROVAL_DRAFT,
     APPROVAL_PENDING,
@@ -1453,10 +1454,19 @@ class AssetMasterService:
         actual_location: str | None = None,
         asset_ids: list[int] | None = None,
         column_filters: dict[str, str] | None = None,
+        viewer_scope: ViewerOrgScope | None = None,
     ) -> tuple[Any, str, VerificationWindow | None, dict[str, int] | None, set[int] | None, int | None, int | None]:
+        scope = viewer_scope or ViewerOrgScope(None, None, None)
+        if plant_id is not None and scope.plant_ids is not None and int(plant_id) not in scope.plant_ids:
+            plant_id = -1  # force empty via impossible plant
+        if plant_id is not None and scope.cost_center_keys is not None:
+            allowed_plants = {pid for pid, _ in scope.cost_center_keys}
+            if allowed_plants and int(plant_id) not in allowed_plants:
+                plant_id = -1
+
         fy_mode, _current_period, scan_window, fy_summary, verified_ids = self._asset_list_context(
             search=search,
-            plant_id=plant_id,
+            plant_id=None if plant_id == -1 else plant_id,
             category_id=category_id,
             fy_verification=fy_verification,
             fy_start_year=fy_start_year,
@@ -1464,6 +1474,17 @@ class AssetMasterService:
             fy_scan_to=fy_scan_to,
         )
         base = select(AssetMaster).where(AssetMaster.deleted_at.is_(None))
+        if plant_id == -1:
+            base = base.where(false())
+            return (
+                base,
+                fy_mode,
+                scan_window,
+                fy_summary,
+                verified_ids,
+                None,
+                None,
+            )
         if search:
             q = f"%{search.strip()}%"
             base = base.where(
@@ -1511,6 +1532,23 @@ class AssetMasterService:
         if plant_id is not None:
             _ensure_location_join()
             base = base.where(AssetLocationInformation.plant_id == plant_id)
+        elif scope.plant_ids is not None and scope.cost_center_keys is None:
+            _ensure_location_join()
+            base = base.where(AssetLocationInformation.plant_id.in_(scope.plant_ids))
+
+        if scope.cost_center_keys is not None:
+            _ensure_location_join()
+            _ensure_financial_join()
+            if not scope.cost_center_keys:
+                base = base.where(false())
+            else:
+                base = base.where(
+                    tuple_(
+                        AssetLocationInformation.plant_id,
+                        AssetFinancialInformation.cost_center,
+                    ).in_(list(scope.cost_center_keys))
+                )
+
         cc_filter = (cost_center or "").strip()
         if cc_filter:
             _ensure_financial_join()
@@ -1591,9 +1629,11 @@ class AssetMasterService:
         sort_by: str = "created_at",
         sort_dir: str = "desc",
         column_filters: dict[str, str] | None = None,
+        viewer_user_id: int | None = None,
     ) -> AssetListResponse:
         page = max(1, page)
         page_size = min(max(1, page_size), 100)
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
         (
             base,
             _fy_mode,
@@ -1615,6 +1655,7 @@ class AssetMasterService:
             fy_scan_from=fy_scan_from,
             fy_scan_to=fy_scan_to,
             column_filters=column_filters,
+            viewer_scope=scope,
         )
         current_period = financial_year_period_for()
         fy_mode = (fy_verification or "").strip().lower()
@@ -1748,6 +1789,7 @@ class AssetMasterService:
         sort_by: str = "asset_code",
         sort_dir: str = "asc",
         max_rows: int = 100_000,
+        viewer_user_id: int | None = None,
     ) -> tuple[bytes, str, str]:
         from modules.assets.export import build_asset_export_xlsx
         from modules.assets.field_definitions import ASSET_EXPORT_FIELDS
@@ -1757,6 +1799,7 @@ class AssetMasterService:
         if not export_fields:
             raise ConflictError("Select at least one valid export field.")
 
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
         base, *_rest = self._asset_list_base_query(
             plant_id=plant_id,
             category_id=category_id,
@@ -1768,6 +1811,7 @@ class AssetMasterService:
             fy_scan_from=fy_scan_from,
             fy_scan_to=fy_scan_to,
             asset_ids=asset_ids,
+            viewer_scope=scope,
         )
         base = base.options(
             selectinload(AssetMaster.category),
@@ -1926,7 +1970,26 @@ class AssetMasterService:
         self, asset_id: int, *, viewer_user_id: int | None = None
     ) -> AssetDetailPublic:
         asset = self._load_asset(asset_id)
+        self._assert_asset_in_viewer_scope(asset, viewer_user_id=viewer_user_id)
         return self._to_detail(asset, viewer_user_id=viewer_user_id)
+
+    def _assert_asset_in_viewer_scope(
+        self, asset: AssetMaster, *, viewer_user_id: int | None
+    ) -> None:
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        if scope.unrestricted:
+            return
+        loc = asset.location
+        fin = asset.financial
+        plant_id = int(loc.plant_id) if loc and loc.plant_id else None
+        cc_code = (fin.cost_center or "").strip() if fin else ""
+        if scope.cost_center_keys is not None:
+            if plant_id is None or not cc_code or (plant_id, cc_code) not in scope.cost_center_keys:
+                raise NotFoundError("Asset", int(asset.id))
+            return
+        if scope.plant_ids is not None:
+            if plant_id is None or plant_id not in scope.plant_ids:
+                raise NotFoundError("Asset", int(asset.id))
 
     def _load_asset(self, asset_id: int) -> AssetMaster:
         asset = self._db.scalar(

@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from core.auth import CurrentUser, get_current_user
 from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.errors import RbacSafetyError
@@ -26,6 +27,7 @@ def get_org_unit_service(db: Session = Depends(get_db)) -> OrgUnitService:
 @router.get("", response_model=list[OrgUnitPublic])
 def list_org_units(
     svc: Annotated[OrgUnitService, Depends(get_org_unit_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     _: Annotated[
         object,
         Depends(
@@ -43,8 +45,13 @@ def list_org_units(
         ),
     ],
     org_type: str | None = Query(None, alias="type"),
+    parent_id: int | None = Query(None),
 ) -> list[OrgUnit]:
-    return svc.list_org_units(org_type=org_type)
+    return svc.list_org_units(
+        org_type=org_type,
+        parent_id=parent_id,
+        viewer_user_id=int(current.subject),
+    )
 
 
 @router.get("/{org_unit_id}", response_model=OrgUnitPublic)
@@ -75,10 +82,14 @@ def create_org_unit(
 ) -> OrgUnit:
     try:
         return svc.create_org_unit(payload)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except DuplicateOrgUnitCodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="A plant with this code already exists.",
+            detail="An org unit with this code already exists for this type.",
         ) from exc
 
 
@@ -96,7 +107,7 @@ def update_org_unit(
     except DuplicateOrgUnitCodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="A plant with this code already exists.",
+            detail="An org unit with this code already exists for this type.",
         ) from exc
 
 
@@ -110,10 +121,12 @@ def delete_org_unit(
         svc.delete_org_unit(org_unit_id)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RbacSafetyError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except DuplicateOrgUnitCodeError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Could not delete this plant because other records still reference it.",
+            detail="Could not delete this org unit because other records still reference it.",
         ) from exc

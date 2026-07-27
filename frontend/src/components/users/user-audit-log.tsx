@@ -16,6 +16,8 @@ const FIELD_LABELS: Record<string, string> = {
   is_active: "Status",
   role_name: "Role",
   org_unit_name: "Plant",
+  department_name: "Departments",
+  cost_center_name: "Cost centers",
   full_name: "Full name",
   username: "Username",
   phone: "Phone",

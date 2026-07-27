@@ -57,6 +57,7 @@ from modules.asset_masters.safety import (
 )
 from modules.errors import ConflictError, NotFoundError
 from modules.platform.org_units.model import OrgUnit
+from modules.platform.users.scope import load_viewer_org_scope
 
 
 class DuplicateMasterCodeError(ConflictError):
@@ -66,6 +67,9 @@ class DuplicateMasterCodeError(ConflictError):
 class AssetMastersService:
     def __init__(self, db: Session) -> None:
         self._db = db
+
+    def _viewer_scope(self, viewer_user_id: int | None):
+        return load_viewer_org_scope(self._db, viewer_user_id)
 
     # --- Categories ---
 
@@ -325,13 +329,30 @@ class AssetMastersService:
     # --- Cost centers (under plant) ---
 
     def list_cost_centers(
-        self, *, plant_id: int | None = None, active_only: bool = True
+        self,
+        *,
+        plant_id: int | None = None,
+        active_only: bool = True,
+        viewer_user_id: int | None = None,
     ) -> list[CostCenterPublic]:
+        scope = self._viewer_scope(viewer_user_id)
         stmt = select(CostCenterMaster).order_by(CostCenterMaster.code)
         if active_only:
             stmt = stmt.where(CostCenterMaster.is_active.is_(True))
         if plant_id is not None:
+            if scope.plant_ids is not None and int(plant_id) not in scope.plant_ids:
+                return []
+            if scope.cost_center_keys is not None:
+                allowed = {pid for pid, _ in scope.cost_center_keys}
+                if allowed and int(plant_id) not in allowed:
+                    return []
             stmt = stmt.where(CostCenterMaster.plant_id == plant_id)
+        elif scope.plant_ids is not None and scope.cost_center_ids is None:
+            stmt = stmt.where(CostCenterMaster.plant_id.in_(scope.plant_ids))
+        if scope.cost_center_ids is not None:
+            if not scope.cost_center_ids:
+                return []
+            stmt = stmt.where(CostCenterMaster.id.in_(scope.cost_center_ids))
         rows = list(self._db.scalars(stmt).all())
         return [self._cost_center_public(r) for r in rows]
 
@@ -386,15 +407,35 @@ class AssetMastersService:
     # --- Profit centers (under cost center) ---
 
     def list_profit_centers(
-        self, *, cost_center_id: int | None = None, plant_id: int | None = None, active_only: bool = True
+        self,
+        *,
+        cost_center_id: int | None = None,
+        plant_id: int | None = None,
+        active_only: bool = True,
+        viewer_user_id: int | None = None,
     ) -> list[ProfitCenterPublic]:
+        scope = self._viewer_scope(viewer_user_id)
         stmt = select(ProfitCenterMaster).order_by(ProfitCenterMaster.code)
         if active_only:
             stmt = stmt.where(ProfitCenterMaster.is_active.is_(True))
         if cost_center_id is not None:
+            if scope.cost_center_ids is not None and int(cost_center_id) not in scope.cost_center_ids:
+                return []
             stmt = stmt.where(ProfitCenterMaster.cost_center_id == cost_center_id)
         elif plant_id is not None:
+            if scope.plant_ids is not None and int(plant_id) not in scope.plant_ids:
+                return []
             stmt = stmt.join(CostCenterMaster).where(CostCenterMaster.plant_id == plant_id)
+            if scope.cost_center_ids is not None:
+                if not scope.cost_center_ids:
+                    return []
+                stmt = stmt.where(CostCenterMaster.id.in_(scope.cost_center_ids))
+        elif scope.cost_center_ids is not None:
+            if not scope.cost_center_ids:
+                return []
+            stmt = stmt.where(ProfitCenterMaster.cost_center_id.in_(scope.cost_center_ids))
+        elif scope.plant_ids is not None:
+            stmt = stmt.join(CostCenterMaster).where(CostCenterMaster.plant_id.in_(scope.plant_ids))
         rows = list(self._db.scalars(stmt).all())
         return [self._profit_center_public(r) for r in rows]
 
@@ -453,13 +494,27 @@ class AssetMastersService:
     # --- Functional locations (under plant) ---
 
     def list_functional_locations(
-        self, *, plant_id: int | None = None, active_only: bool = True
+        self,
+        *,
+        plant_id: int | None = None,
+        active_only: bool = True,
+        viewer_user_id: int | None = None,
     ) -> list[FunctionalLocationPublic]:
+        scope = self._viewer_scope(viewer_user_id)
+        plant_scope = scope.plant_ids
+        if plant_scope is None and scope.cost_center_keys is not None:
+            plant_scope = frozenset(pid for pid, _ in scope.cost_center_keys) or frozenset()
         stmt = select(FunctionalLocationMaster).order_by(FunctionalLocationMaster.code)
         if active_only:
             stmt = stmt.where(FunctionalLocationMaster.is_active.is_(True))
         if plant_id is not None:
+            if plant_scope is not None and int(plant_id) not in plant_scope:
+                return []
             stmt = stmt.where(FunctionalLocationMaster.plant_id == plant_id)
+        elif plant_scope is not None:
+            if not plant_scope:
+                return []
+            stmt = stmt.where(FunctionalLocationMaster.plant_id.in_(plant_scope))
         rows = list(self._db.scalars(stmt).all())
         return [self._functional_location_public(r) for r in rows]
 
@@ -525,15 +580,32 @@ class AssetMastersService:
         functional_location_id: int | None = None,
         plant_id: int | None = None,
         active_only: bool = True,
+        viewer_user_id: int | None = None,
     ) -> list[ActualLocationPublic]:
+        scope = self._viewer_scope(viewer_user_id)
+        plant_scope = scope.plant_ids
+        if plant_scope is None and scope.cost_center_keys is not None:
+            plant_scope = frozenset(pid for pid, _ in scope.cost_center_keys) or frozenset()
         stmt = select(ActualLocationMaster).order_by(ActualLocationMaster.code)
         if active_only:
             stmt = stmt.where(ActualLocationMaster.is_active.is_(True))
         if functional_location_id is not None:
             stmt = stmt.where(ActualLocationMaster.functional_location_id == functional_location_id)
+            if plant_scope is not None:
+                fl = self._db.get(FunctionalLocationMaster, functional_location_id)
+                if fl is None or int(fl.plant_id) not in plant_scope:
+                    return []
         elif plant_id is not None:
+            if plant_scope is not None and int(plant_id) not in plant_scope:
+                return []
             stmt = stmt.join(FunctionalLocationMaster).where(
                 FunctionalLocationMaster.plant_id == plant_id
+            )
+        elif plant_scope is not None:
+            if not plant_scope:
+                return []
+            stmt = stmt.join(FunctionalLocationMaster).where(
+                FunctionalLocationMaster.plant_id.in_(plant_scope)
             )
         rows = list(self._db.scalars(stmt).all())
         return [self._actual_location_public(r) for r in rows]

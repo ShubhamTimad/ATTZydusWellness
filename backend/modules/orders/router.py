@@ -36,10 +36,11 @@ def get_order_service(db: Session = Depends(get_db)) -> PhysicalOrderService:
 @router.post("/validate-assets", response_model=ValidateAssetsResponse)
 def validate_assets(
     body: ValidateAssetsRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[object, Depends(require_permission("order.create"))],
 ) -> ValidateAssetsResponse:
-    return svc.validate_assets(body.asset_ids)
+    return svc.validate_assets(body.asset_ids, viewer_user_id=int(current.subject))
 
 
 @router.get("/executors", response_model=ExecutorListResponse)
@@ -65,11 +66,28 @@ def list_orders(
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     current: Annotated[CurrentUser, Depends(get_current_user)],
     _: Annotated[object, Depends(require_permission("order.view"))],
-    tab: str = Query("all"),
+    tab: str = Query("draft"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
+    search: str | None = Query(None),
+    plant_id: int | None = Query(None),
+    cost_center_id: int | None = Query(None),
+    order_number: str | None = Query(None),
+    assigned_to: str | None = Query(None),
+    created_by: str | None = Query(None),
 ) -> PhysicalOrderListResponse:
-    return svc.list_orders(tab=tab, page=page, page_size=page_size, viewer_id=int(current.subject))
+    return svc.list_orders(
+        tab=tab,
+        page=page,
+        page_size=page_size,
+        viewer_id=int(current.subject),
+        search=search,
+        plant_id=plant_id,
+        cost_center_id=cost_center_id,
+        order_number=order_number,
+        assigned_to=assigned_to,
+        created_by=created_by,
+    )
 
 
 @router.post("", response_model=PhysicalOrderDetail, status_code=status.HTTP_201_CREATED)
@@ -88,11 +106,12 @@ def create_order(
 @router.get("/{order_id}", response_model=PhysicalOrderDetail)
 def get_order(
     order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[object, Depends(require_permission("order.view"))],
 ) -> PhysicalOrderDetail:
     try:
-        return svc.get_order(order_id)
+        return svc.get_order(order_id, viewer_user_id=int(current.subject))
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 

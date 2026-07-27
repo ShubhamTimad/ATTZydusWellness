@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Building2, Mail, Phone, Shield, User } from "lucide-react"
+import { Building2, Landmark, Mail, Phone, Shield, User, UsersRound } from "lucide-react"
 
 import { AdminStatusBadge } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -21,6 +21,8 @@ type MeProfile = {
   phone: string | null
   role: string | null
   org_unit: string | null
+  department: string | null
+  cost_center: string | null
   is_active: boolean
   is_superuser: boolean
   created_at: string
@@ -117,7 +119,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
           <DialogHeader className="px-0 pt-0">
             <DialogTitle className="sr-only">My profile</DialogTitle>
             <DialogDescription className="sr-only">
-              Your account details and plant assignment.
+              Your account details, plant, department, and cost center.
             </DialogDescription>
           </DialogHeader>
 
@@ -181,6 +183,8 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
               <ProfileRow icon={Mail} label="Email" value={me.email ?? "—"} />
               <ProfileRow icon={Phone} label="Mobile" value={me.phone ?? "—"} />
               <ProfileRow icon={Building2} label="Plant" value={me.org_unit ?? "—"} />
+              <ProfileRow icon={UsersRound} label="Department" value={me.department ?? "—"} />
+              <ProfileRow icon={Landmark} label="Cost center" value={me.cost_center ?? "—"} />
               <ProfileRow icon={Shield} label="Roles" value={me.role ?? "—"} />
             </div>
           )}
