@@ -31,6 +31,25 @@ user_org_unit = Table(
     Column("org_unit_id", Integer, ForeignKey("org_units.id", ondelete="CASCADE"), nullable=False),
 )
 
+user_department = Table(
+    "user_departments",
+    Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("org_unit_id", Integer, ForeignKey("org_units.id", ondelete="CASCADE"), primary_key=True),
+)
+
+user_cost_center = Table(
+    "user_cost_centers",
+    Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "cost_center_id",
+        Integer,
+        ForeignKey("cost_center_masters.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
 role_org_unit = Table(
     "role_org_units",
     Base.metadata,

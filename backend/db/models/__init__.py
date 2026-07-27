@@ -17,7 +17,14 @@ from modules.platform.approvals.model import (
 )
 from modules.platform.rbac_audit.model import RbacAuditLog
 from modules.platform.rbac_versioning.model import RbacCompanyPermissionVersion, RbacUserPermissionVersion
-from modules.rbac_association import role_org_unit, role_permission, user_org_unit, user_role  # noqa: F401
+from modules.rbac_association import (
+    role_org_unit,
+    role_permission,
+    user_cost_center,
+    user_department,
+    user_org_unit,
+    user_role,
+)  # noqa: F401
 from modules.platform.roles.model import Role
 from modules.platform.settings.model import Setting
 from modules.platform.users.model import User

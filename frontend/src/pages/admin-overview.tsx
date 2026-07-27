@@ -6,6 +6,7 @@ import {
   KeyRound,
   Link2,
   Mail,
+  Network,
   Settings,
   Shield,
   Users,
@@ -78,6 +79,16 @@ export function AdminOverviewPage() {
       description: "Plants and plant codes",
       to: "/admin/plants",
       icon: Factory,
+      show:
+        hasPermission("org_units.view") ||
+        hasPermission("org_units.create") ||
+        hasPermission("org_units.update"),
+    },
+    {
+      label: "Departments",
+      description: "Departments under each plant",
+      to: "/admin/departments",
+      icon: Network,
       show:
         hasPermission("org_units.view") ||
         hasPermission("org_units.create") ||

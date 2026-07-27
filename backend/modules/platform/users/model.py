@@ -4,7 +4,7 @@ from sqlalchemy import JSON, Boolean, DateTime, String, false, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import Base
-from modules.rbac_association import user_org_unit, user_role
+from modules.rbac_association import user_cost_center, user_department, user_org_unit, user_role
 
 
 class User(Base):
@@ -54,6 +54,18 @@ class User(Base):
     org_units = relationship(
         "OrgUnit",
         secondary=user_org_unit,
+        lazy="selectin",
+        overlaps="departments",
+    )
+    departments = relationship(
+        "OrgUnit",
+        secondary=user_department,
+        lazy="selectin",
+        overlaps="org_units",
+    )
+    cost_centers = relationship(
+        "CostCenterMaster",
+        secondary=user_cost_center,
         lazy="selectin",
     )
     mfa_record = relationship(
