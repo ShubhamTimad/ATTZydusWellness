@@ -9,6 +9,7 @@ import {
   LogOut,
   Mail,
   Menu,
+  Network,
   Settings,
   Shield,
   Users,
@@ -37,6 +38,7 @@ export type AdminNavId =
   | "overview"
   | "users"
   | "plants"
+  | "departments"
   | "roles"
   | "permissions"
   | "settings"
@@ -67,6 +69,12 @@ const navGroups: NavGroup[] = [
         id: "plants",
         label: "Plants",
         icon: Factory,
+        permission: ["org_units.view", "org_units.create", "org_units.update", "org_units.delete"],
+      },
+      {
+        id: "departments",
+        label: "Departments",
+        icon: Network,
         permission: ["org_units.view", "org_units.create", "org_units.update", "org_units.delete"],
       },
       { id: "users", label: "Users", icon: Users, permission: "users.view" },

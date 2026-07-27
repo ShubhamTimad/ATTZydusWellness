@@ -14,7 +14,7 @@ from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, Task
 from modules.errors import NotFoundError, RbacSafetyError
 from modules.platform.auth.model import PasswordResetToken, UserSession
 from modules.platform.org_units.model import OrgUnit
-from modules.rbac_association import user_org_unit
+from modules.asset_masters.model import CostCenterMaster
 from modules.platform.rbac_audit.service import RbacAuditService
 from modules.rbac_safety import (
     assert_did_not_remove_last_role_based_admin,
@@ -58,6 +58,97 @@ class UserService:
         alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+[]{}"
         return "".join(secrets.choice(alphabet) for _ in range(20))
 
+    def _require_plant(self, org_unit_id: int) -> OrgUnit:
+        org = self._db.get(OrgUnit, org_unit_id)
+        if org is None:
+            raise NotFoundError("OrgUnit", org_unit_id)
+        if (org.type or "").upper() != "PLANT":
+            raise ValueError("org_unit_id must be a plant")
+        return org
+
+    def _require_plants(self, org_unit_ids: list[int]) -> list[OrgUnit]:
+        if not org_unit_ids:
+            raise ValueError("At least one plant is required")
+        return [self._require_plant(int(oid)) for oid in org_unit_ids]
+
+    def _resolve_departments(
+        self, department_ids: list[int], *, plant_ids: set[int]
+    ) -> list[OrgUnit]:
+        if not department_ids:
+            return []
+        if not plant_ids:
+            raise ValueError("Assign a plant before setting departments")
+        out: list[OrgUnit] = []
+        for department_id in department_ids:
+            dept = self._db.get(OrgUnit, int(department_id))
+            if dept is None:
+                raise NotFoundError("Department", department_id)
+            if (dept.type or "").upper() != "DEPARTMENT":
+                raise ValueError("department_ids must be departments")
+            if dept.parent_id is None or int(dept.parent_id) not in plant_ids:
+                raise ValueError("Each department must belong to one of the selected plants")
+            out.append(dept)
+        return out
+
+    def _resolve_cost_centers(
+        self, cost_center_ids: list[int], *, plant_ids: set[int]
+    ) -> list[CostCenterMaster]:
+        if not cost_center_ids:
+            return []
+        if not plant_ids:
+            raise ValueError("Assign a plant before setting cost centers")
+        out: list[CostCenterMaster] = []
+        for cost_center_id in cost_center_ids:
+            cc = self._db.get(CostCenterMaster, int(cost_center_id))
+            if cc is None:
+                raise NotFoundError("Cost center", cost_center_id)
+            if int(cc.plant_id) not in plant_ids:
+                raise ValueError("Each cost center must belong to one of the selected plants")
+            if not bool(cc.is_active):
+                raise ValueError("Cost center is inactive")
+            out.append(cc)
+        return out
+
+    @staticmethod
+    def _user_load_options():
+        return (
+            selectinload(User.roles),
+            selectinload(User.org_units),
+            selectinload(User.departments),
+            selectinload(User.cost_centers),
+            selectinload(User.mfa_record),
+        )
+
+    @staticmethod
+    def _assignment_audit_fields(user: User) -> dict[str, object]:
+        """Human-readable plant / department / cost-center labels for RBAC audit diffs."""
+        plant_names = sorted(
+            ou.name.strip() for ou in (user.org_units or []) if (ou.name or "").strip()
+        )
+        dept_labels = sorted(
+            (
+                f"{d.code} — {d.name}"
+                if (d.code or "").strip()
+                else (d.name or "").strip()
+            )
+            for d in (user.departments or [])
+            if (d.name or "").strip() or (d.code or "").strip()
+        )
+        cc_labels = sorted(
+            (
+                f"{c.code} — {c.name}"
+                if (c.name or "").strip()
+                else (c.code or "").strip()
+            )
+            for c in (user.cost_centers or [])
+            if (c.code or "").strip()
+        )
+        return {
+            "org_unit_name": ", ".join(plant_names) if plant_names else None,
+            "department_name": ", ".join(dept_labels) if dept_labels else None,
+            "cost_center_name": ", ".join(cc_labels) if cc_labels else None,
+        }
+
     def _revoke_user_access(self, user_id: int) -> None:
         """Invalidate open sessions and unused password-reset tokens for a deactivated user."""
         now = datetime.now(timezone.utc)
@@ -94,9 +185,10 @@ class UserService:
         if role is None:
             raise NotFoundError("Role", data.role_id)
 
-        org = self._db.get(OrgUnit, data.org_unit_id)
-        if org is None:
-            raise NotFoundError("OrgUnit", data.org_unit_id)
+        plants = self._require_plants(data.org_unit_ids)
+        plant_ids = {int(p.id) for p in plants}
+        departments = self._resolve_departments(data.department_ids, plant_ids=plant_ids)
+        cost_centers = self._resolve_cost_centers(data.cost_center_ids, plant_ids=plant_ids)
 
         autogenerated = True
         plain_password = self._generate_password()
@@ -113,15 +205,11 @@ class UserService:
             is_active=bool(data.is_active),
         )
         user.roles.append(role)
+        user.org_units = plants
+        user.departments = departments
+        user.cost_centers = cost_centers
         self._db.add(user)
         self._db.flush()
-
-        self._db.execute(
-            delete(user_org_unit).where(user_org_unit.c.user_id == user.id)
-        )
-        self._db.execute(
-            user_org_unit.insert().values(user_id=user.id, org_unit_id=org.id)
-        )
 
         audit = RbacAuditService(self._db)
         audit.log(
@@ -137,8 +225,9 @@ class UserService:
                 "email": user.email,
                 "role_id": role.id,
                 "role_name": role.name,
-                "org_unit_id": org.id,
-                "org_unit_name": org.name,
+                "org_unit_ids": [int(p.id) for p in plants],
+                "department_ids": [int(d.id) for d in departments],
+                "cost_center_ids": [int(c.id) for c in cost_centers],
             },
         )
         bump_user_permission_version(self._db, user.id)
@@ -160,11 +249,7 @@ class UserService:
         reloaded = self._db.scalar(
             select(User)
             .where(User.id == user_id)
-            .options(
-                selectinload(User.roles),
-                selectinload(User.org_units),
-                selectinload(User.mfa_record),
-            )
+            .options(*self._user_load_options())
         )
         assert reloaded is not None
         if reloaded.is_active:
@@ -185,7 +270,7 @@ class UserService:
     def list_users(self, *, offset: int = 0, limit: int = 50) -> list[User]:
         stmt = (
             select(User)
-            .options(selectinload(User.roles), selectinload(User.org_units), selectinload(User.mfa_record))
+            .options(*self._user_load_options())
             .order_by(User.created_at.desc())
             .offset(offset)
             .limit(limit)
@@ -200,7 +285,9 @@ class UserService:
         actor_user_id: int | None = None,
     ) -> User:
         admin_before = count_users_with_admin_capability(self._db)
-        user = self._db.get(User, user_id)
+        user = self._db.scalar(
+            select(User).where(User.id == user_id).options(*self._user_load_options())
+        )
         if user is None:
             raise NotFoundError("User", user_id)
         if user.is_superuser:
@@ -215,6 +302,7 @@ class UserService:
             "email": user.email,
             "is_active": bool(user.is_active),
         }
+        assignment_before = self._assignment_audit_fields(user)
 
         if "full_name" in updates and updates["full_name"] is not None:
             user.full_name = str(updates["full_name"]).strip()
@@ -274,14 +362,38 @@ class UserService:
             user.roles.clear()
             user.roles.append(role)
 
-        if "org_unit_id" in updates and updates["org_unit_id"] is not None:
-            org = self._db.get(OrgUnit, int(updates["org_unit_id"]))
-            if org is None:
-                raise NotFoundError("OrgUnit", int(updates["org_unit_id"]))
-            self._db.execute(delete(user_org_unit).where(user_org_unit.c.user_id == user.id))
-            self._db.execute(
-                user_org_unit.insert().values(user_id=user.id, org_unit_id=org.id)
+        plant_ids: set[int] = {int(p.id) for p in (user.org_units or [])}
+        plants_changed = False
+        if "org_unit_ids" in updates and updates["org_unit_ids"] is not None:
+            plants = self._require_plants(list(updates["org_unit_ids"]))
+            user.org_units = plants
+            plant_ids = {int(p.id) for p in plants}
+            plants_changed = True
+
+        if not plant_ids and (
+            "department_ids" in updates or "cost_center_ids" in updates
+        ):
+            raise ValueError("Assign a plant before setting department or cost center")
+
+        if "department_ids" in updates and updates["department_ids"] is not None:
+            user.departments = self._resolve_departments(
+                list(updates["department_ids"]), plant_ids=plant_ids
             )
+        elif plants_changed:
+            user.departments = [
+                d
+                for d in (user.departments or [])
+                if d.parent_id is not None and int(d.parent_id) in plant_ids
+            ]
+
+        if "cost_center_ids" in updates and updates["cost_center_ids"] is not None:
+            user.cost_centers = self._resolve_cost_centers(
+                list(updates["cost_center_ids"]), plant_ids=plant_ids
+            )
+        elif plants_changed:
+            user.cost_centers = [
+                c for c in (user.cost_centers or []) if int(c.plant_id) in plant_ids
+            ]
 
         self._db.flush()
         assert_did_not_remove_last_role_based_admin(
@@ -300,6 +412,7 @@ class UserService:
             "email": user.email,
             "is_active": bool(user.is_active),
         }
+        assignment_after = self._assignment_audit_fields(user)
         audit_old: dict[str, object] = {}
         audit_new: dict[str, object] = {}
         if role_changed:
@@ -309,6 +422,10 @@ class UserService:
             if profile_before.get(key) != profile_after.get(key):
                 audit_old[key] = profile_before[key]
                 audit_new[key] = profile_after[key]
+        for key in ("org_unit_name", "department_name", "cost_center_name"):
+            if assignment_before.get(key) != assignment_after.get(key):
+                audit_old[key] = assignment_before[key]
+                audit_new[key] = assignment_after[key]
         if audit_old:
             action = "update"
             if set(audit_old.keys()) == {"is_active"}:
@@ -336,7 +453,7 @@ class UserService:
         reloaded = self._db.scalar(
             select(User)
             .where(User.id == uid)
-            .options(selectinload(User.roles), selectinload(User.org_units), selectinload(User.mfa_record))
+            .options(*self._user_load_options())
         )
         assert reloaded is not None
 
@@ -499,7 +616,7 @@ class UserService:
         user = self._db.scalar(
             select(User)
             .where(User.id == int(user_id))
-            .options(selectinload(User.org_units), selectinload(User.mfa_record))
+            .options(*self._user_load_options())
         )
         if user is None:
             raise NotFoundError("User", user_id)
@@ -527,7 +644,7 @@ class UserService:
         user = self._db.scalar(
             select(User)
             .where(User.id == int(user_id))
-            .options(selectinload(User.org_units), selectinload(User.mfa_record))
+            .options(*self._user_load_options())
         )
         if user is None:
             raise NotFoundError("User", user_id)

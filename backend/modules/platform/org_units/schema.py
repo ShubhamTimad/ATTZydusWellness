@@ -16,7 +16,7 @@ class OrgUnitCreate(BaseModel):
     def normalize_code(cls, value: str) -> str:
         code = value.strip().upper()
         if not code:
-            raise ValueError("Plant code is required")
+            raise ValueError("Code is required")
         return code
 
 
@@ -29,7 +29,7 @@ class OrgUnitUpdate(BaseModel):
     def normalize_code(cls, value: str) -> str:
         code = value.strip().upper()
         if not code:
-            raise ValueError("Plant code is required")
+            raise ValueError("Code is required")
         return code
 
 

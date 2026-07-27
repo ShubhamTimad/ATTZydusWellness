@@ -213,7 +213,12 @@ class AuthService:
         user = self._db.scalar(
             select(User)
             .where(User.id == user_id)
-            .options(selectinload(User.roles), selectinload(User.org_units))
+            .options(
+                selectinload(User.roles),
+                selectinload(User.org_units),
+                selectinload(User.departments),
+                selectinload(User.cost_centers),
+            )
         )
         if user is None:
             raise NotFoundError("User", user_id)
@@ -221,10 +226,20 @@ class AuthService:
 
     def get_me_public(self, user_id: int) -> UserMe:
         user = self.get_me(user_id)
-        org = user.org_units[0] if user.org_units else None
         codes = get_flat_permission_codes_for_user(self._db, user_id)
         role_names = sorted({r.name for r in user.roles})
         role_display = ", ".join(role_names) if role_names else None
+        plant_names = [ou.name for ou in (user.org_units or []) if (ou.name or "").strip()]
+        dept_labels = [
+            f"{d.code} — {d.name}" if (d.code or "").strip() else d.name
+            for d in (user.departments or [])
+            if (d.name or "").strip() or (d.code or "").strip()
+        ]
+        cc_labels = [
+            f"{c.code} — {c.name}" if (c.name or "").strip() else c.code
+            for c in (user.cost_centers or [])
+            if (c.code or "").strip()
+        ]
         return UserMe(
             id=user.id,
             full_name=user.full_name,
@@ -234,7 +249,9 @@ class AuthService:
             is_superuser=user.is_superuser,
             is_active=user.is_active,
             role=role_display,
-            org_unit=None if org is None else org.name,
+            org_unit=", ".join(plant_names) if plant_names else None,
+            department=", ".join(dept_labels) if dept_labels else None,
+            cost_center=", ".join(cc_labels) if cc_labels else None,
             permissions=codes,
         )
 

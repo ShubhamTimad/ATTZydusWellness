@@ -115,6 +115,7 @@ def update_asset_list_columns(
 @router.get("", response_model=AssetListResponse)
 def list_assets(
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     _: Annotated[object, Depends(require_permission("asset.view"))],
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
@@ -178,6 +179,7 @@ def list_assets(
             "cost_center": cost_center or "",
             "functional_location": functional_location or "",
         },
+        viewer_user_id=int(current.subject),
     )
 
 
@@ -224,6 +226,7 @@ def list_export_fields(
 @router.get("/export")
 def export_assets(
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     _: Annotated[object, Depends(require_permission("asset.view"))],
     fields: list[str] = Query(..., min_length=1),
     plant_id: int | None = Query(None),
@@ -254,6 +257,7 @@ def export_assets(
             asset_ids=asset_ids,
             sort_by=sort_by,
             sort_dir=sort_dir,
+            viewer_user_id=int(current.subject),
         )
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

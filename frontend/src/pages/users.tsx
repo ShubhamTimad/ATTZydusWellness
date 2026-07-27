@@ -32,9 +32,27 @@ type UserPublic = {
   is_active: boolean
   is_superuser: boolean
   role: { id: number; name: string } | null
+  org_units?: { id: number; name: string; type: string; code?: string | null }[]
+  departments?: { id: number; name: string; type: string; code?: string | null }[]
+  cost_centers?: { id: number; code: string; name: string }[]
   org_unit: { id: number; name: string; type: string } | null
+  department: { id: number; name: string; type: string; code?: string | null } | null
+  cost_center: { id: number; code: string; name: string } | null
   created_at: string
   updated_at: string
+}
+
+function joinNames(items: { name: string }[] | undefined, fallback: string | null | undefined): string {
+  if (items && items.length > 0) return items.map((i) => i.name).join(", ")
+  return fallback ?? "—"
+}
+
+function joinCostCenters(
+  items: { code: string; name: string }[] | undefined,
+  fallback: { code: string; name: string } | null | undefined,
+): string {
+  if (items && items.length > 0) return items.map((c) => `${c.code} — ${c.name}`).join(", ")
+  return fallback ? `${fallback.code} — ${fallback.name}` : "—"
 }
 
 export function UsersPage() {
@@ -63,7 +81,7 @@ export function UsersPage() {
   return (
     <AdminPage
       fullWidth
-      description="Manage accounts, roles, and plant assignments."
+      description="Manage accounts, roles, plant, department, and cost center assignments."
       actions={
         canCreate ? (
           <AdminPrimaryButton asChild className="h-9 px-4 font-semibold shadow-sm">
@@ -90,15 +108,17 @@ export function UsersPage() {
               <AdminTableHeadCell>Phone</AdminTableHeadCell>
               <AdminTableHeadCell>Role</AdminTableHeadCell>
               <AdminTableHeadCell>Plant</AdminTableHeadCell>
+              <AdminTableHeadCell>Department</AdminTableHeadCell>
+              <AdminTableHeadCell>Cost center</AdminTableHeadCell>
               <AdminTableHeadCell className="w-[110px]">Status</AdminTableHeadCell>
               <AdminTableHeadCell className="w-[150px] text-right">Actions</AdminTableHeadCell>
             </AdminTableHeaderRow>
           </TableHeader>
           <TableBody>
             {users === null ? (
-              <AdminTableEmptyRow colSpan={6}>Loading users…</AdminTableEmptyRow>
+              <AdminTableEmptyRow colSpan={8}>Loading users…</AdminTableEmptyRow>
             ) : users.length === 0 ? (
-              <AdminTableEmptyRow colSpan={6}>No users found.</AdminTableEmptyRow>
+              <AdminTableEmptyRow colSpan={8}>No users found.</AdminTableEmptyRow>
             ) : (
               users.map((u) => (
                 <AdminTableBodyRow key={u.id} interactive={false}>
@@ -111,7 +131,16 @@ export function UsersPage() {
                   </AdminTableCell>
                   <AdminTableCell className="text-muted-foreground">{u.phone ?? "—"}</AdminTableCell>
                   <AdminTableCell>{u.role?.name ?? "—"}</AdminTableCell>
-                  <AdminTableCell>{u.org_unit?.name ?? "—"}</AdminTableCell>
+                  <AdminTableCell>
+                    {joinNames(
+                      u.org_units,
+                      u.org_unit?.name ?? null,
+                    )}
+                  </AdminTableCell>
+                  <AdminTableCell>
+                    {joinNames(u.departments, u.department?.name ?? null)}
+                  </AdminTableCell>
+                  <AdminTableCell>{joinCostCenters(u.cost_centers, u.cost_center)}</AdminTableCell>
                   <AdminTableCell>
                     <AdminStatusBadge active={u.is_active} />
                   </AdminTableCell>

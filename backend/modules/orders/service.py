@@ -5,12 +5,14 @@ import threading
 from datetime import date, datetime, timezone
 from typing import Any, Callable
 
-from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import and_, false, func, or_, select
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from modules.asset_masters.model import CostCenterMaster
 from modules.assets.model import AssetFinancialInformation, AssetLocationInformation, AssetMaster
 from modules.errors import ConflictError, NotFoundError
+from modules.platform.org_units.model import OrgUnit
+from modules.platform.users.scope import load_viewer_org_scope
 from modules.orders.asset_order_audit import (
     log_asset_order_approved,
     log_asset_order_created,
@@ -361,8 +363,11 @@ class PhysicalOrderService:
             )
         return int(cc.id)
 
-    def validate_assets(self, asset_ids: list[int]) -> ValidateAssetsResponse:
+    def validate_assets(
+        self, asset_ids: list[int], *, viewer_user_id: int | None = None
+    ) -> ValidateAssetsResponse:
         assets = self._load_assets(asset_ids)
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
         active_conflicts: list[ActiveOrderConflict] = []
         missing_rfid: list[InvalidAssetRef] = []
         plant_mismatch: list[InvalidAssetRef] = []
@@ -431,6 +436,29 @@ class PhysicalOrderService:
             pid = int(loc.plant_id) if loc and loc.plant_id else None
             pname = loc.plant.name if loc and loc.plant else None
             cc = (fin.cost_center or "").strip() if fin else ""
+            if not scope.unrestricted:
+                out_of_scope = False
+                if scope.cost_center_keys is not None:
+                    out_of_scope = (
+                        pid is None
+                        or not cc
+                        or (pid, cc) not in scope.cost_center_keys
+                    )
+                elif scope.plant_ids is not None:
+                    out_of_scope = pid is None or pid not in scope.plant_ids
+                if out_of_scope:
+                    cc_mismatch.append(
+                        InvalidAssetRef(
+                            asset_id=int(a.id),
+                            asset_code=a.asset_code,
+                            asset_name=a.asset_name,
+                            plant_id=pid,
+                            plant_name=pname,
+                            cost_center_code=cc or None,
+                        )
+                    )
+                    blocked.add(int(a.id))
+                    continue
             if ref_plant is not None and pid != ref_plant:
                 plant_mismatch.append(
                     InvalidAssetRef(
@@ -707,7 +735,7 @@ class PhysicalOrderService:
         *,
         actor_user_id: int,
     ) -> PhysicalOrderDetail:
-        validation = self.validate_assets(body.asset_ids)
+        validation = self.validate_assets(body.asset_ids, viewer_user_id=actor_user_id)
         if not validation.eligible_asset_ids:
             if validation.missing_rfid and len(validation.missing_rfid) == len(body.asset_ids):
                 raise ConflictError(
@@ -726,6 +754,12 @@ class PhysicalOrderService:
         if not cc_code:
             raise ConflictError("Assets must have a cost center assigned.")
         cost_center_id = self._resolve_cost_center_id(plant_id, cc_code)
+        self._assert_cost_center_in_viewer_scope(
+            plant_id=plant_id,
+            cost_center_id=cost_center_id,
+            cost_center_code=cc_code,
+            viewer_user_id=actor_user_id,
+        )
 
         assignee: User | None = None
         assigned_to_id: int | None = body.assigned_to
@@ -905,6 +939,12 @@ class PhysicalOrderService:
         page: int,
         page_size: int,
         viewer_id: int,
+        search: str | None = None,
+        plant_id: int | None = None,
+        cost_center_id: int | None = None,
+        order_number: str | None = None,
+        assigned_to: str | None = None,
+        created_by: str | None = None,
     ) -> PhysicalOrderListResponse:
         base = select(PhysicalOrder).options(
             selectinload(PhysicalOrder.plant),
@@ -986,6 +1026,56 @@ class PhysicalOrderService:
         else:
             base = base.where(PhysicalOrder.status.in_(active_statuses))
 
+        base = self._apply_viewer_org_scope(base, viewer_user_id=viewer_id)
+
+        if plant_id is not None:
+            base = base.where(PhysicalOrder.plant_id == int(plant_id))
+        if cost_center_id is not None:
+            base = base.where(PhysicalOrder.cost_center_id == int(cost_center_id))
+
+        onum = (order_number or "").strip()
+        if onum:
+            base = base.where(PhysicalOrder.order_number.ilike(f"%{onum}%"))
+
+        assignee_q = (assigned_to or "").strip()
+        if assignee_q:
+            assignee_alias = aliased(User)
+            base = base.join(assignee_alias, assignee_alias.id == PhysicalOrder.assigned_to).where(
+                assignee_alias.full_name.ilike(f"%{assignee_q}%")
+            )
+
+        creator_q = (created_by or "").strip()
+        if creator_q:
+            creator_alias = aliased(User)
+            base = base.join(creator_alias, creator_alias.id == PhysicalOrder.created_by).where(
+                creator_alias.full_name.ilike(f"%{creator_q}%")
+            )
+
+        q = (search or "").strip()
+        if q:
+            pattern = f"%{q}%"
+            plant_alias = aliased(OrgUnit)
+            cc_alias = aliased(CostCenterMaster)
+            creator_s = aliased(User)
+            assignee_s = aliased(User)
+            base = (
+                base.outerjoin(plant_alias, plant_alias.id == PhysicalOrder.plant_id)
+                .outerjoin(cc_alias, cc_alias.id == PhysicalOrder.cost_center_id)
+                .outerjoin(creator_s, creator_s.id == PhysicalOrder.created_by)
+                .outerjoin(assignee_s, assignee_s.id == PhysicalOrder.assigned_to)
+                .where(
+                    or_(
+                        PhysicalOrder.order_number.ilike(pattern),
+                        plant_alias.name.ilike(pattern),
+                        plant_alias.code.ilike(pattern),
+                        cc_alias.code.ilike(pattern),
+                        cc_alias.name.ilike(pattern),
+                        creator_s.full_name.ilike(pattern),
+                        assignee_s.full_name.ilike(pattern),
+                    )
+                )
+            )
+
         total = int(self._db.scalar(select(func.count()).select_from(base.subquery())) or 0)
         rows = self._db.scalars(
             base.order_by(PhysicalOrder.created_at.desc())
@@ -1031,7 +1121,53 @@ class PhysicalOrderService:
             created_at=order.created_at,
         )
 
-    def _load_order(self, order_id: int) -> PhysicalOrder:
+    def _apply_viewer_org_scope(self, base: Any, *, viewer_user_id: int) -> Any:
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        if scope.unrestricted:
+            return base
+        if scope.cost_center_ids is not None:
+            if not scope.cost_center_ids:
+                return base.where(false())
+            return base.where(PhysicalOrder.cost_center_id.in_(scope.cost_center_ids))
+        if scope.plant_ids is not None:
+            return base.where(PhysicalOrder.plant_id.in_(scope.plant_ids))
+        return base
+
+    def _assert_order_in_viewer_scope(
+        self, order: PhysicalOrder, *, viewer_user_id: int
+    ) -> None:
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        if scope.unrestricted:
+            return
+        if scope.cost_center_ids is not None:
+            if int(order.cost_center_id) not in scope.cost_center_ids:
+                raise NotFoundError("PhysicalOrder", int(order.id))
+            return
+        if scope.plant_ids is not None and int(order.plant_id) not in scope.plant_ids:
+            raise NotFoundError("PhysicalOrder", int(order.id))
+
+    def _assert_cost_center_in_viewer_scope(
+        self,
+        *,
+        plant_id: int,
+        cost_center_id: int,
+        cost_center_code: str,
+        viewer_user_id: int,
+    ) -> None:
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        if scope.unrestricted:
+            return
+        if scope.cost_center_ids is not None:
+            if int(cost_center_id) not in scope.cost_center_ids:
+                raise ConflictError("Cost center is outside your assigned scope.")
+            return
+        if scope.plant_ids is not None and int(plant_id) not in scope.plant_ids:
+            raise ConflictError("Plant is outside your assigned scope.")
+        _ = cost_center_code
+
+    def _load_order(
+        self, order_id: int, *, viewer_user_id: int | None = None
+    ) -> PhysicalOrder:
         order = self._db.scalar(
             select(PhysicalOrder)
             .where(PhysicalOrder.id == order_id)
@@ -1047,6 +1183,8 @@ class PhysicalOrderService:
         )
         if order is None:
             raise NotFoundError("PhysicalOrder", order_id)
+        if viewer_user_id is not None:
+            self._assert_order_in_viewer_scope(order, viewer_user_id=viewer_user_id)
         return order
 
     def _to_item_public(
@@ -1073,10 +1211,10 @@ class PhysicalOrderService:
             last_verification_date=inv.last_verification_date if inv else None,
         )
 
-    def get_order(self, order_id: int) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+    def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=viewer_user_id)
         if self._promote_pending_closure_to_completed(order, commit=True):
-            order = self._load_order(order_id)
+            order = self._load_order(order_id, viewer_user_id=viewer_user_id)
         user_name_fn = self._cached_user_name_fn()
         physically_verified = self._physically_verified_count(order.items)
         pending_physical = self._pending_physical_count(order.items)
@@ -1143,7 +1281,7 @@ class PhysicalOrderService:
         remarks: str | None = None,
         asset_ids: list[int] | None = None,
     ) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
             raise ConflictError("Only draft or rejected orders can be edited.")
         if assigned_to is not None:
@@ -1190,7 +1328,7 @@ class PhysicalOrderService:
         actor_user_id: int,
         assigned_to: int,
     ) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.created_by != actor_user_id:
             raise ConflictError("Only the order creator can submit.")
         if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
@@ -1272,7 +1410,7 @@ class PhysicalOrderService:
         return None
 
     def approve_creation_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != ORDER_STATUS_PENDING_APPROVAL:
             raise ConflictError("Order is not pending approval.")
         for item in order.items:
@@ -1298,7 +1436,7 @@ class PhysicalOrderService:
         return self.get_order(order_id)
 
     def approve_all_items(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
             self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
             for item in order.items:
@@ -1327,7 +1465,7 @@ class PhysicalOrderService:
         return self.get_order(order_id)
 
     def approve_items(self, order_id: int, item_ids: list[int], *, actor_user_id: int) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         id_set = set(item_ids)
         if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
             self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
@@ -1375,7 +1513,7 @@ class PhysicalOrderService:
         rejection_reason: str,
         actor_user_id: int,
     ) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status == ORDER_STATUS_PENDING_APPROVAL:
             id_set = set(item_ids)
             for item in order.items:
@@ -1434,7 +1572,7 @@ class PhysicalOrderService:
         rejection_reason: str,
         actor_user_id: int,
     ) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != ORDER_STATUS_IN_PROGRESS:
             raise ConflictError("Order is not in progress.")
         if order.assigned_to != actor_user_id:
@@ -1467,7 +1605,7 @@ class PhysicalOrderService:
         return self.get_order(order_id)
 
     def reject_order(self, order_id: int, *, reason: str, actor_user_id: int) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status == ORDER_STATUS_PENDING_APPROVAL:
             pass
         elif order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
@@ -1497,7 +1635,7 @@ class PhysicalOrderService:
         assigned_to: int,
         actor_user_id: int,
     ) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status == ORDER_STATUS_APPROVED and order.completed_at is not None:
             raise ConflictError("Order can only be reassigned before work starts.")
         if order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
@@ -1530,7 +1668,7 @@ class PhysicalOrderService:
         return self.get_order(order_id)
 
     def close_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
         if has_closure_workflow:
             if order.status != ORDER_STATUS_APPROVED:
@@ -1549,7 +1687,7 @@ class PhysicalOrderService:
         return self.get_order(order_id)
 
     def start_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
             raise ConflictError("Order must be assigned before starting.")
         if order.assigned_to != actor_user_id:
@@ -1600,6 +1738,7 @@ class PhysicalOrderService:
         )
         if order is None:
             raise NotFoundError("PhysicalOrder", order_id)
+        self._assert_order_in_viewer_scope(order, viewer_user_id=actor_user_id)
         if order.status != ORDER_STATUS_IN_PROGRESS:
             raise ConflictError("Order is not in progress.")
         if order.assigned_to != actor_user_id:
@@ -1671,7 +1810,7 @@ class PhysicalOrderService:
             old_verified=old_verified,
         )
         self._db.commit()
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         physically_verified = self._physically_verified_count(order.items)
         return ScanAssetResponse(
             item=self._to_item_public(item),
@@ -1680,7 +1819,7 @@ class PhysicalOrderService:
         )
 
     def submit_closure(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != ORDER_STATUS_IN_PROGRESS:
             raise ConflictError("Order is not in progress.")
         if order.assigned_to != actor_user_id:
@@ -1747,7 +1886,7 @@ class PhysicalOrderService:
         return self.get_order(order_id)
 
     def approve_closure_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != ORDER_STATUS_COMPLETED or not self._awaiting_closure_approval(order):
             raise ConflictError("Order is not awaiting closure approval.")
         self._assert_closure_reviewer(order, actor_user_id=actor_user_id)

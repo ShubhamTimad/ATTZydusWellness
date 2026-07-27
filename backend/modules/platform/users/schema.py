@@ -18,6 +18,15 @@ class OrgUnitSummary(BaseModel):
     id: int
     name: str
     type: str
+    code: str | None = None
+
+
+class CostCenterSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
 
 
 class UserCreate(BaseModel):
@@ -26,13 +35,30 @@ class UserCreate(BaseModel):
     phone: str = Field(min_length=10, max_length=32)
     email: EmailStr
     role_id: int = Field(ge=1)
-    org_unit_id: int = Field(ge=1)
+    org_unit_ids: list[int] = Field(min_length=1)
+    department_ids: list[int] = Field(default_factory=list)
+    cost_center_ids: list[int] = Field(default_factory=list)
     is_active: bool = True
 
     @field_validator("phone")
     @classmethod
     def _validate_phone(cls, value: str) -> str:
         return normalize_phone(value)
+
+    @field_validator("org_unit_ids", "department_ids", "cost_center_ids", mode="before")
+    @classmethod
+    def _dedupe_ids(cls, value: object) -> object:
+        if not isinstance(value, list):
+            return value
+        seen: set[int] = set()
+        out: list[int] = []
+        for raw in value:
+            n = int(raw)
+            if n in seen:
+                continue
+            seen.add(n)
+            out.append(n)
+        return out
 
 
 class UserUpdate(BaseModel):
@@ -41,7 +67,9 @@ class UserUpdate(BaseModel):
     phone: str | None = Field(default=None, min_length=10, max_length=32)
     email: EmailStr | None = None
     role_id: int | None = Field(default=None, ge=1)
-    org_unit_id: int | None = Field(default=None, ge=1)
+    org_unit_ids: list[int] | None = None
+    department_ids: list[int] | None = None
+    cost_center_ids: list[int] | None = None
     is_active: bool | None = None
 
     @field_validator("phone")
@@ -50,6 +78,21 @@ class UserUpdate(BaseModel):
         if value is None:
             return None
         return normalize_phone(value)
+
+    @field_validator("org_unit_ids", "department_ids", "cost_center_ids", mode="before")
+    @classmethod
+    def _dedupe_ids(cls, value: object) -> object:
+        if value is None or not isinstance(value, list):
+            return value
+        seen: set[int] = set()
+        out: list[int] = []
+        for raw in value:
+            n = int(raw)
+            if n in seen:
+                continue
+            seen.add(n)
+            out.append(n)
+        return out
 
 
 class UserPublic(BaseModel):
@@ -65,21 +108,15 @@ class UserPublic(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    # Loaded from SQLAlchemy relationship; excluded to keep wire schema stable.
     mfa_record: object | None = Field(default=None, exclude=True)
-
-    # Loaded from SQLAlchemy relationships. Excluded so the API stays stable while
-    # computed fields expose a single primary role/org unit.
     roles: list[RoleSummary] = Field(default_factory=list, exclude=True)
-    org_units: list[OrgUnitSummary] = Field(default_factory=list, exclude=True)
+    org_units: list[OrgUnitSummary] = Field(default_factory=list)
+    departments: list[OrgUnitSummary] = Field(default_factory=list)
+    cost_centers: list[CostCenterSummary] = Field(default_factory=list)
 
     @computed_field  # type: ignore[misc]
     @property
     def mfa_setup_completed(self) -> bool:
-        """
-        True if the user has completed MFA enrollment (TOTP).
-        When the relationship isn't loaded, defaults to False.
-        """
         m = self.mfa_record
         try:
             return bool(getattr(m, "setup_completed"))
@@ -99,3 +136,17 @@ class UserPublic(BaseModel):
         if not self.org_units:
             return None
         return self.org_units[0]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def department(self) -> OrgUnitSummary | None:
+        if not self.departments:
+            return None
+        return self.departments[0]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def cost_center(self) -> CostCenterSummary | None:
+        if not self.cost_centers:
+            return None
+        return self.cost_centers[0]

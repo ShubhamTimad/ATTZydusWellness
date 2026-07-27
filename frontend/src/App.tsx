@@ -8,6 +8,7 @@ import { DashboardPage } from "@/pages/dashboard"
 import { LoginPage } from "@/pages/login"
 import { PermissionsPage } from "@/pages/permissions"
 import { PlantsPage } from "@/pages/plants"
+import { DepartmentsPage } from "@/pages/departments"
 import { RolesPage } from "@/pages/roles"
 import { SettingsPage } from "@/pages/settings"
 import { UsersPage } from "@/pages/users"
@@ -181,6 +182,14 @@ function App() {
             }
           />
           <Route
+            path="departments"
+            element={
+              <RequirePermission anyOf={["org_units.view", "org_units.create", "org_units.update", "org_units.delete"]}>
+                <DepartmentsPage />
+              </RequirePermission>
+            }
+          />
+          <Route
             path="roles"
             element={
               <RequirePermission anyOf={["roles.view", "roles.update", "roles.create"]}>
@@ -226,6 +235,14 @@ function App() {
             element={
               <RequirePermission anyOf={["org_units.view", "org_units.create", "org_units.update", "org_units.delete"]}>
                 <PlantsPage />
+              </RequirePermission>
+            }
+          />
+          <Route
+            path="departments"
+            element={
+              <RequirePermission anyOf={["org_units.view", "org_units.create", "org_units.update", "org_units.delete"]}>
+                <DepartmentsPage />
               </RequirePermission>
             }
           />
@@ -417,6 +434,7 @@ function AdminRoute() {
     | "overview"
     | "users"
     | "plants"
+    | "departments"
     | "roles"
     | "permissions"
     | "settings"
@@ -430,6 +448,7 @@ function AdminRoute() {
   React.useEffect(() => {
     const p = location.pathname
     if (p.startsWith("/admin/users")) setActiveId("users")
+    else if (p.startsWith("/admin/departments")) setActiveId("departments")
     else if (p.startsWith("/admin/plants")) setActiveId("plants")
     else if (p.startsWith("/admin/roles")) setActiveId("roles")
     else if (p.startsWith("/admin/permissions")) setActiveId("permissions")
@@ -501,6 +520,7 @@ function AdminRoute() {
           if (id === "overview") navigate("/admin")
           if (id === "users") navigate("/admin/users")
           if (id === "plants") navigate("/admin/plants")
+          if (id === "departments") navigate("/admin/departments")
           if (id === "roles") navigate("/admin/roles")
           if (id === "permissions") navigate("/admin/permissions")
           if (id === "workflow-assignment") navigate("/admin/workflow-assignment")

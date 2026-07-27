@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
@@ -24,6 +24,7 @@ from modules.assets.fy_verification import (
     resolve_verification_window,
 )
 from modules.platform.settings.financial_year import financial_year_period_for
+from modules.platform.users.scope import load_viewer_org_scope
 
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -52,16 +53,29 @@ def _no_rfid_condition():
     return or_(AssetMaster.rfid_code.is_(None), AssetMaster.rfid_code == "")
 
 
+def _apply_order_viewer_scope(stmt: Any, db: Session, viewer_user_id: int) -> Any:
+    scope = load_viewer_org_scope(db, viewer_user_id)
+    if scope.unrestricted:
+        return stmt
+    if scope.cost_center_ids is not None:
+        if not scope.cost_center_ids:
+            return stmt.where(false())
+        return stmt.where(PhysicalOrder.cost_center_id.in_(scope.cost_center_ids))
+    if scope.plant_ids is not None:
+        return stmt.where(PhysicalOrder.plant_id.in_(scope.plant_ids))
+    return stmt
+
+
 @router.get("/summary")
 def get_dashboard_summary(
     current: Annotated[CurrentUser, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, Any]:
     """
-    Org-wide dashboard summary. Same modules for every authenticated user:
-    physical verification orders, asset register, and financial-year tagging.
+    Dashboard summary for the authenticated user.
+    Order counts respect plant / cost-center assignment.
     """
-    _ = current
+    viewer_id = int(current.subject)
 
     asset_base = select(AssetMaster).where(AssetMaster.deleted_at.is_(None))
     total_assets = int(db.scalar(select(func.count()).select_from(asset_base.subquery())) or 0)
@@ -179,42 +193,54 @@ def get_dashboard_summary(
     ).all()
 
     status_rows = db.execute(
-        select(PhysicalOrder.status, func.count())
-        .select_from(PhysicalOrder)
-        .group_by(PhysicalOrder.status)
+        _apply_order_viewer_scope(
+            select(PhysicalOrder.status, func.count()).select_from(PhysicalOrder),
+            db,
+            viewer_id,
+        ).group_by(PhysicalOrder.status)
     ).all()
     by_status = {str(s): int(c) for s, c in status_rows if s}
     approved_count = int(
         db.scalar(
-            select(func.count())
-            .select_from(PhysicalOrder)
-            .where(
-                PhysicalOrder.status == ORDER_STATUS_APPROVED,
-                PhysicalOrder.completed_at.is_not(None),
+            _apply_order_viewer_scope(
+                select(func.count()).select_from(PhysicalOrder).where(
+                    PhysicalOrder.status == ORDER_STATUS_APPROVED,
+                    PhysicalOrder.completed_at.is_not(None),
+                ),
+                db,
+                viewer_id,
             )
         )
         or 0
     )
     assigned_count = int(
         db.scalar(
-            select(func.count())
-            .select_from(PhysicalOrder)
-            .where(
-                or_(
-                    PhysicalOrder.status == ORDER_STATUS_ASSIGNED,
-                    and_(
-                        PhysicalOrder.status == ORDER_STATUS_APPROVED,
-                        PhysicalOrder.completed_at.is_(None),
-                    ),
-                )
+            _apply_order_viewer_scope(
+                select(func.count())
+                .select_from(PhysicalOrder)
+                .where(
+                    or_(
+                        PhysicalOrder.status == ORDER_STATUS_ASSIGNED,
+                        and_(
+                            PhysicalOrder.status == ORDER_STATUS_APPROVED,
+                            PhysicalOrder.completed_at.is_(None),
+                        ),
+                    )
+                ),
+                db,
+                viewer_id,
             )
         )
         or 0
     )
     by_plant_order_rows = db.execute(
-        select(OrgUnit.name, func.count())
-        .select_from(PhysicalOrder)
-        .join(OrgUnit, OrgUnit.id == PhysicalOrder.plant_id, isouter=True)
+        _apply_order_viewer_scope(
+            select(OrgUnit.name, func.count())
+            .select_from(PhysicalOrder)
+            .join(OrgUnit, OrgUnit.id == PhysicalOrder.plant_id, isouter=True),
+            db,
+            viewer_id,
+        )
         .group_by(OrgUnit.name)
         .order_by(func.count().desc())
     ).all()

@@ -30,9 +30,37 @@ type UserPublic = {
   is_superuser: boolean
   mfa_setup_completed?: boolean
   role: { id: number; name: string } | null
+  org_units?: { id: number; name: string; type: string; code?: string | null }[]
+  departments?: { id: number; name: string; type: string; code?: string | null }[]
+  cost_centers?: { id: number; code: string; name: string }[]
   org_unit: { id: number; name: string; type: string } | null
+  department: { id: number; name: string; type: string; code?: string | null } | null
+  cost_center: { id: number; code: string; name: string } | null
   created_at: string
   updated_at: string
+}
+
+function formatOrgList(
+  items: { name: string; code?: string | null }[] | undefined,
+  fallback: { name: string; code?: string | null } | null,
+): string {
+  const list =
+    items && items.length > 0
+      ? items
+      : fallback
+        ? [fallback]
+        : []
+  if (list.length === 0) return "—"
+  return list.map((d) => (d.code ? `${d.code} — ${d.name}` : d.name)).join(", ")
+}
+
+function formatCostCenters(
+  items: { code: string; name: string }[] | undefined,
+  fallback: { code: string; name: string } | null,
+): string {
+  const list = items && items.length > 0 ? items : fallback ? [fallback] : []
+  if (list.length === 0) return "—"
+  return list.map((c) => `${c.code} — ${c.name}`).join(", ")
 }
 
 function formatDateTime(iso: string | undefined): string {
@@ -249,7 +277,18 @@ export function UserViewPage() {
                 <AdminDetailField label="Email" value={user.email ?? "—"} />
                 <AdminDetailField label="Phone" value={user.phone ?? "—"} />
                 <AdminDetailField label="Role" value={user.role?.name ?? "—"} />
-                <AdminDetailField label="Plant" value={user.org_unit?.name ?? "—"} />
+                <AdminDetailField
+                  label="Plants"
+                  value={formatOrgList(user.org_units, user.org_unit)}
+                />
+                <AdminDetailField
+                  label="Departments"
+                  value={formatOrgList(user.departments, user.department)}
+                />
+                <AdminDetailField
+                  label="Cost centers"
+                  value={formatCostCenters(user.cost_centers, user.cost_center)}
+                />
                 <AdminDetailField
                   label="Status"
                   value={

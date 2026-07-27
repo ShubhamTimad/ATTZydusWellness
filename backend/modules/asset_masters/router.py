@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from core.auth import CurrentUser, get_current_user
 from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.asset_masters.schema import (
@@ -43,6 +44,12 @@ from modules.errors import NotFoundError
 router = APIRouter(prefix="/asset-masters", tags=["admin", "asset-masters"])
 
 _MASTER_READ = require_any_permission("masters.view", "asset.view")
+_COST_CENTER_READ = require_any_permission(
+    "masters.view",
+    "asset.view",
+    "users.create",
+    "users.update",
+)
 _MASTER_WRITE_CREATE = require_permission("masters.create")
 _MASTER_WRITE_UPDATE = require_permission("masters.update")
 _MASTER_WRITE_DELETE = require_permission("masters.delete")
@@ -305,11 +312,16 @@ def delete_asset_class(
 @router.get("/cost-centers", response_model=list[CostCenterPublic])
 def list_cost_centers(
     svc: Annotated[AssetMastersService, Depends(get_svc)],
-    _: Annotated[object, Depends(_MASTER_READ)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[object, Depends(_COST_CENTER_READ)],
     plant_id: int | None = Query(None),
     active_only: bool = Query(True),
 ) -> list[CostCenterPublic]:
-    return svc.list_cost_centers(plant_id=plant_id, active_only=active_only)
+    return svc.list_cost_centers(
+        plant_id=plant_id,
+        active_only=active_only,
+        viewer_user_id=int(current.subject),
+    )
 
 
 @router.post("/cost-centers", response_model=CostCenterPublic, status_code=status.HTTP_201_CREATED)
@@ -356,13 +368,17 @@ def delete_cost_center(
 @router.get("/profit-centers", response_model=list[ProfitCenterPublic])
 def list_profit_centers(
     svc: Annotated[AssetMastersService, Depends(get_svc)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     _: Annotated[object, Depends(_MASTER_READ)],
     cost_center_id: int | None = Query(None),
     plant_id: int | None = Query(None),
     active_only: bool = Query(True),
 ) -> list[ProfitCenterPublic]:
     return svc.list_profit_centers(
-        cost_center_id=cost_center_id, plant_id=plant_id, active_only=active_only
+        cost_center_id=cost_center_id,
+        plant_id=plant_id,
+        active_only=active_only,
+        viewer_user_id=int(current.subject),
     )
 
 
@@ -410,11 +426,16 @@ def delete_profit_center(
 @router.get("/functional-locations", response_model=list[FunctionalLocationPublic])
 def list_functional_locations(
     svc: Annotated[AssetMastersService, Depends(get_svc)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     _: Annotated[object, Depends(_MASTER_READ)],
     plant_id: int | None = Query(None),
     active_only: bool = Query(True),
 ) -> list[FunctionalLocationPublic]:
-    return svc.list_functional_locations(plant_id=plant_id, active_only=active_only)
+    return svc.list_functional_locations(
+        plant_id=plant_id,
+        active_only=active_only,
+        viewer_user_id=int(current.subject),
+    )
 
 
 @router.post(
@@ -465,6 +486,7 @@ def delete_functional_location(
 @router.get("/actual-locations", response_model=list[ActualLocationPublic])
 def list_actual_locations(
     svc: Annotated[AssetMastersService, Depends(get_svc)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     _: Annotated[object, Depends(_MASTER_READ)],
     functional_location_id: int | None = Query(None),
     plant_id: int | None = Query(None),
@@ -474,6 +496,7 @@ def list_actual_locations(
         functional_location_id=functional_location_id,
         plant_id=plant_id,
         active_only=active_only,
+        viewer_user_id=int(current.subject),
     )
 
 
