@@ -164,7 +164,7 @@ ROLE_SPECS: list[dict[str, object]] = [
     },
     {
         "name": "Cost Center User",
-        "description": "Create and submit asset capitalization forms.",
+        "description": "Create and submit asset capitalization forms; create/receive asset transfers.",
         "permissions": [
             "capitalization.view",
             "capitalization.create",
@@ -172,6 +172,10 @@ ROLE_SPECS: list[dict[str, object]] = [
             "capitalization.submit",
             "capitalization.submit_with_engineering",
             "capitalization.reassign",
+            "transfer.view",
+            "transfer.create",
+            "transfer.update",
+            "transfer.receive",
             "asset.view",
             "task.view",
             "task.act",
@@ -204,10 +208,14 @@ ROLE_SPECS: list[dict[str, object]] = [
     },
     {
         "name": "Central Finance",
-        "description": "Final capitalization approval; may create assets from approved forms.",
+        "description": "Final capitalization approval; asset transfer CF approve/confirm; may create assets from approved forms.",
         "permissions": [
             "capitalization.view",
             "capitalization.reassign",
+            "transfer.view",
+            "transfer.approve",
+            "transfer.confirm",
+            "transfer.manage",
             "approval.view",
             "approval.act",
             "task.view",

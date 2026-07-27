@@ -166,6 +166,25 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
         ],
     },
     {
+        "key": "transfer",
+        "title": "Asset transfer orders",
+        "tabs": [
+            {
+                "key": "transfer",
+                "title": "Transfer orders",
+                "actions": [
+                    "view",
+                    "create",
+                    "update",
+                    "approve",
+                    "receive",
+                    "confirm",
+                    "manage",
+                ],
+            },
+        ],
+    },
+    {
         "key": "capitalization",
         "title": "Asset capitalization forms",
         "tabs": [

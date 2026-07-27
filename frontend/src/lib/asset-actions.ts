@@ -6,6 +6,7 @@ import {
   canSubmitForApproval,
 } from "@/lib/asset-lifecycle"
 import {
+  ArrowRightLeft,
   ClipboardList,
   ExternalLink,
   Pencil,
@@ -63,6 +64,7 @@ export function buildAssetListActionItems(opts: {
   canUpdate?: boolean
   canAttachRfid?: boolean
   canCreateOrder?: boolean
+  canCreateTransfer?: boolean
   canSubmitForApproval?: boolean
 }): AssetActionItem[] {
   const {
@@ -75,6 +77,7 @@ export function buildAssetListActionItems(opts: {
     canUpdate = false,
     canAttachRfid,
     canCreateOrder,
+    canCreateTransfer = false,
     canSubmitForApproval: canSubmit = false,
   } = opts
 
@@ -119,6 +122,16 @@ export function buildAssetListActionItems(opts: {
       hint: rfidHint,
       disabled: selectedCount === 0 || rfidTaggedCount === 0,
       icon: ClipboardList,
+    })
+  }
+
+  if (canCreateTransfer) {
+    actions.push({
+      id: "create-transfer-order",
+      label: "Create transfer order",
+      hint: selectedCount > 0 ? `${selectedCount} asset(s)` : undefined,
+      disabled: selectedCount === 0,
+      icon: ArrowRightLeft,
     })
   }
 

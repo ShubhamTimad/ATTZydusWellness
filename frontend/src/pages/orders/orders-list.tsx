@@ -41,7 +41,7 @@ function tabCount(
 
 export function OrdersListPage() {
   const navigate = useNavigate()
-  const [tab, setTab] = React.useState("pending_approval")
+  const [tab, setTab] = React.useState(ORDER_STATUS_TABS[0]?.key ?? "draft")
   const [page, setPage] = React.useState(1)
   const [data, setData] = React.useState<PhysicalOrderListResponse | null>(null)
   const [counts, setCounts] = React.useState<OrdersDashboardModule | null>(null)

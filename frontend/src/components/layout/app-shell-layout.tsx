@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   ClipboardList,
+  ArrowRightLeft,
   Database,
   Factory,
   KeyRound,
@@ -89,7 +90,7 @@ const shellNavGroups: ShellNavGroup[] = [
         id: "orders",
         label: "Order",
         icon: ClipboardList,
-        permission: "order.view",
+        permission: ["order.view", "transfer.view"],
         children: [
           {
             id: "physical-verification-orders",
@@ -97,6 +98,13 @@ const shellNavGroups: ShellNavGroup[] = [
             icon: ClipboardCheck,
             to: "/dashboard/orders",
             permission: "order.view",
+          },
+          {
+            id: "asset-transfer-orders",
+            label: "Asset transfer",
+            icon: ArrowRightLeft,
+            to: "/dashboard/transfer-orders",
+            permission: "transfer.view",
           },
         ],
       },

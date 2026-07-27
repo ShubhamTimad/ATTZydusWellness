@@ -452,6 +452,7 @@ export function AssetsListPage() {
   const canDecide = hasPermission("approval.act")
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const isFyTab = listTab === "fy"
+  const canCreateTransfer = hasPermission("transfer.create") && !isFyTab
   const showAttachRfid = canAttachRfid && !isFyTab
   const selectedFyStartYear =
     filters.fy_start_year || (currentFyStartYear != null ? String(currentFyStartYear) : "")
@@ -874,6 +875,7 @@ export function AssetsListPage() {
         canUpdate: canUpdate && !isFyTab,
         canAttachRfid: showAttachRfid,
         canCreateOrder,
+        canCreateTransfer,
         canSubmitForApproval,
       }),
     [
@@ -887,6 +889,7 @@ export function AssetsListPage() {
       isFyTab,
       showAttachRfid,
       canCreateOrder,
+      canCreateTransfer,
       canSubmitForApproval,
     ],
   )
@@ -1221,6 +1224,18 @@ export function AssetsListPage() {
     }
     if (actionId === "create-physical-order") {
       void beginCreatePhysicalOrder()
+      return
+    }
+    if (actionId === "create-transfer-order") {
+      const ids = [...selected]
+      if (ids.length === 0) {
+        toast.error("Select at least one asset.")
+        return
+      }
+      const q = new URLSearchParams({ asset_ids: ids.join(",") })
+      const plantId = selectedRows.find((r) => r.plant_id != null)?.plant_id
+      if (plantId != null) q.set("plant_id", String(plantId))
+      navigate(`/dashboard/transfer-orders/new?${q}`)
       return
     }
     if (actionId === "open") {

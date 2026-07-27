@@ -24,6 +24,11 @@ import { MfaSetupPage } from "@/pages/mfa-setup"
 import { AssetCreatePage, AssetDetailPage, AssetImportPage, AssetsListPage } from "@/pages/assets"
 import { MastersPage } from "@/pages/masters/masters-page"
 import { OrderDetailPage, OrdersListPage } from "@/pages/orders"
+import {
+  TransferOrderCreatePage,
+  TransferOrderDetailPage,
+  TransferOrdersListPage,
+} from "@/pages/transfers"
 import { CapexCreatePage, CapexDetailPage, CapexListPage } from "@/pages/capex"
 import { ReportsPage } from "@/pages/reports"
 import * as React from "react"
@@ -126,6 +131,26 @@ function App() {
           >
             <Route index element={<OrdersListPage />} />
             <Route path=":id" element={<OrderDetailPage />} />
+          </Route>
+
+          <Route
+            path="transfer-orders"
+            element={
+              <RequirePermission code="transfer.view">
+                <Outlet />
+              </RequirePermission>
+            }
+          >
+            <Route index element={<TransferOrdersListPage />} />
+            <Route
+              path="new"
+              element={
+                <RequirePermission code="transfer.create">
+                  <TransferOrderCreatePage />
+                </RequirePermission>
+              }
+            />
+            <Route path=":id" element={<TransferOrderDetailPage />} />
           </Route>
 
           <Route
