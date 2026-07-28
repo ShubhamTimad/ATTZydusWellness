@@ -333,7 +333,7 @@ export function OrdersListPage() {
                           ))}
                         </select>
                       </AdminTableHeadCell>
-                      <AdminTableHeadCell className="px-2 py-1.5" />
+                      <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
                       <AdminTableHeadCell className="px-2 py-1.5">
                         <select
                           className={cn(adminSelectClass, columnFilterControlClass)}
@@ -373,7 +373,7 @@ export function OrdersListPage() {
                           className={columnFilterControlClass}
                         />
                       </AdminTableHeadCell>
-                      <AdminTableHeadCell className="px-2 py-1.5" />
+                      <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
                     </AdminTableHeaderRow>
                   ) : null}
                 </TableHeader>

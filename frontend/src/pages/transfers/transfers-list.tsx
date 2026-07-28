@@ -34,7 +34,7 @@ import {
 
 export function TransferOrdersListPage() {
   const navigate = useNavigate()
-  const [tab, setTab] = React.useState(TRANSFER_STATUS_TABS[0]?.key ?? "draft")
+  const [tab, setTab] = React.useState<string>(TRANSFER_STATUS_TABS[0]?.key ?? "draft")
   const [page, setPage] = React.useState(1)
   const [data, setData] = React.useState<TransferOrderListResponse | null>(null)
   const [loading, setLoading] = React.useState(false)
