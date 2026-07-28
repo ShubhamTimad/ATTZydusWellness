@@ -1,7 +1,9 @@
 const LS_PERMISSIONS = "user_permissions"
 const LS_IS_SUPERUSER = "me_is_superuser"
+const LS_USER_ID = "me_user_id"
 
 export type MePermissionsPayload = {
+  id?: number
   is_superuser?: boolean
   permissions?: string[]
 }
@@ -10,6 +12,9 @@ export type MePermissionsPayload = {
 export function persistAuthFromMe(me: MePermissionsPayload): void {
   try {
     localStorage.setItem(LS_IS_SUPERUSER, me.is_superuser === true ? "1" : "0")
+    if (typeof me.id === "number" && Number.isFinite(me.id)) {
+      localStorage.setItem(LS_USER_ID, String(me.id))
+    }
     if (Array.isArray(me.permissions)) {
       localStorage.setItem(LS_PERMISSIONS, JSON.stringify(me.permissions))
     } else {
@@ -24,8 +29,21 @@ export function clearAuthProfile(): void {
   try {
     localStorage.removeItem(LS_PERMISSIONS)
     localStorage.removeItem(LS_IS_SUPERUSER)
+    localStorage.removeItem(LS_USER_ID)
   } catch {
     // ignore
+  }
+}
+
+/** Logged-in user id from the last ``GET /me`` snapshot, or null if unknown. */
+export function currentUserId(): number | null {
+  try {
+    const raw = localStorage.getItem(LS_USER_ID)
+    if (!raw) return null
+    const n = Number(raw)
+    return Number.isFinite(n) && n > 0 ? n : null
+  } catch {
+    return null
   }
 }
 

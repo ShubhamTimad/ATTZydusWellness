@@ -2,6 +2,7 @@ import * as React from "react"
 import type { LucideIcon } from "lucide-react"
 import {
   ChevronDown,
+  Database,
   Factory,
   KeyRound,
   LayoutDashboard,
@@ -41,6 +42,7 @@ export type AdminNavId =
   | "departments"
   | "roles"
   | "permissions"
+  | "masters"
   | "settings"
   | "workflow-assignment"
   | "email-templates"
@@ -78,6 +80,17 @@ const navGroups: NavGroup[] = [
         permission: ["org_units.view", "org_units.create", "org_units.update", "org_units.delete"],
       },
       { id: "users", label: "Users", icon: Users, permission: "users.view" },
+    ],
+  },
+  {
+    label: "Reference data",
+    items: [
+      {
+        id: "masters",
+        label: "Masters",
+        icon: Database,
+        permission: ["masters.view", "masters.create", "masters.update", "masters.delete"],
+      },
     ],
   },
   {

@@ -27,7 +27,7 @@ export function MultiCheckList({
     )
   }
   return (
-    <div className={cn("max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-border/70 p-2")}>
+    <div className={cn("max-h-56 space-y-1.5 overflow-y-auto rounded-md border border-border/70 p-2")}>
       {options.map((opt) => {
         const id = String(opt.id)
         const checked = selected.has(id)

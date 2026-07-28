@@ -21,6 +21,9 @@ class AssetTransferOrder(Base):
     to_cost_center_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("cost_center_masters.id", ondelete="RESTRICT"), nullable=False
     )
+    to_asset_custodian_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     to_functional_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     to_actual_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by: Mapped[int | None] = mapped_column(
@@ -45,6 +48,7 @@ class AssetTransferOrder(Base):
     plant = relationship("OrgUnit", foreign_keys=[plant_id])
     from_cost_center = relationship("CostCenterMaster", foreign_keys=[from_cost_center_id])
     to_cost_center = relationship("CostCenterMaster", foreign_keys=[to_cost_center_id])
+    to_asset_custodian = relationship("User", foreign_keys=[to_asset_custodian_id])
     creator = relationship("User", foreign_keys=[created_by])
     assignee = relationship("User", foreign_keys=[assigned_to])
     items = relationship(
@@ -68,6 +72,9 @@ class AssetTransferOrderItem(Base):
     from_cost_center_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     from_functional_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     from_actual_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    from_asset_custodian_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     order = relationship("AssetTransferOrder", back_populates="items")
     asset = relationship("AssetMaster")

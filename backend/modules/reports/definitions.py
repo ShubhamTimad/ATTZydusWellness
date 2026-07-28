@@ -41,7 +41,7 @@ REPORT_DEFINITIONS: tuple[ReportDefinition, ...] = (
     ReportDefinition(
         key="physical_orders_summary",
         title="Physical orders",
-        description="Physical verification orders with status, assignee, and asset counts.",
+        description="Physical Verification orders with status, assignee, and asset counts.",
         filters=(
             ReportFilterDef("plant_id", "Plant", "plant"),
             ReportFilterDef("status", "Order status", "order_status"),

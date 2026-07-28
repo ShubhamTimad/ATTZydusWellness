@@ -9,9 +9,11 @@ import {
   AdminBackLink,
   AdminPanel,
   AdminPrimaryButton,
+  adminSwitchRowClass,
   adminTextareaClass,
 } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, postJson } from "@/lib/api"
@@ -86,6 +88,8 @@ export function CapexCreatePage() {
   const [form, setForm] = React.useState<CapexFormWritePayload>(EMPTY)
   const [saving, setSaving] = React.useState(false)
   const [assignOpen, setAssignOpen] = React.useState(false)
+  const canSubmit = hasPermission("capitalization.submit")
+  const canSubmitWithEngineering = hasPermission("capitalization.submit_with_engineering")
 
   React.useEffect(() => {
     if (!hasPermission("capitalization.create")) {
@@ -102,8 +106,10 @@ export function CapexCreatePage() {
     }
     setSaving(true)
     try {
+      const payload = toPayload(form)
+      if (!canSubmitWithEngineering) payload.requires_engineering = false
       const created = await postJson<CapexFormDetail>("/admin/capitalization-forms", {
-        ...toPayload(form),
+        ...payload,
         submit: false,
       })
       toast.success("Draft saved.")
@@ -120,8 +126,12 @@ export function CapexCreatePage() {
       toast.error("Asset name is required.")
       return
     }
-    if (!hasPermission("capitalization.submit")) {
+    if (!canSubmit) {
       toast.error("You do not have permission to submit.")
+      return
+    }
+    if (form.requires_engineering && !canSubmitWithEngineering) {
+      toast.error("You do not have permission to submit with engineering approval.")
       return
     }
     setAssignOpen(true)
@@ -130,13 +140,19 @@ export function CapexCreatePage() {
   async function submitWithAssignee(userId: number) {
     setSaving(true)
     try {
+      const payload = toPayload(form)
+      if (!canSubmitWithEngineering) payload.requires_engineering = false
       const created = await postJson<CapexFormDetail>("/admin/capitalization-forms", {
-        ...toPayload(form),
+        ...payload,
         submit: true,
         assignee_user_id: userId,
       })
       setAssignOpen(false)
-      toast.success("Form submitted for approval.")
+      toast.success(
+        payload.requires_engineering
+          ? "Form submitted with engineering approval."
+          : "Form submitted for approval.",
+      )
       navigate(`/dashboard/capitalization/${created.id}`, { replace: true })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Submit failed.")
@@ -258,6 +274,23 @@ export function CapexCreatePage() {
                 rows={3}
               />
             </FormField>
+            {canSubmitWithEngineering ? (
+              <div className={cn(adminSwitchRowClass, "sm:col-span-2")}>
+                <div className="space-y-1">
+                  <Label htmlFor="requires_engineering" className="text-sm font-medium">
+                    Submit with engineering approval
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    When enabled, Engineering must approve after HOD before Central Finance.
+                  </p>
+                </div>
+                <Checkbox
+                  id="requires_engineering"
+                  checked={Boolean(form.requires_engineering)}
+                  onCheckedChange={(v) => patch({ requires_engineering: v === true })}
+                />
+              </div>
+            ) : null}
           </div>
         </AdminPanel>
 
@@ -280,9 +313,11 @@ export function CapexCreatePage() {
           >
             {saving ? "Saving…" : "Save draft"}
           </Button>
-          {hasPermission("capitalization.submit") ? (
+          {canSubmit ? (
             <AdminPrimaryButton type="submit" disabled={saving}>
-              Submit for approval
+              {form.requires_engineering && canSubmitWithEngineering
+                ? "Submit with engineering approval"
+                : "Submit for approval"}
             </AdminPrimaryButton>
           ) : null}
         </div>

@@ -167,7 +167,7 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
     },
     {
         "key": "transfer",
-        "title": "Asset transfer orders",
+        "title": "Asset Transfer Orders",
         "tabs": [
             {
                 "key": "transfer",

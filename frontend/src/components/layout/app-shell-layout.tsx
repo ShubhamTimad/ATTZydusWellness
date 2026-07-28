@@ -95,14 +95,14 @@ const shellNavGroups: ShellNavGroup[] = [
         children: [
           {
             id: "physical-verification-orders",
-            label: "Physical verification",
+            label: "Physical Verification",
             icon: ClipboardCheck,
             to: "/dashboard/orders",
             permission: "order.view",
           },
           {
             id: "asset-transfer-orders",
-            label: "Asset transfer",
+            label: "Asset Transfer",
             icon: ArrowRightLeft,
             to: "/dashboard/transfer-orders",
             permission: "transfer.view",
@@ -133,7 +133,7 @@ const shellNavGroups: ShellNavGroup[] = [
         label: "Master",
         icon: Database,
         to: "/dashboard/masters",
-        permission: "masters.view",
+        permission: ["masters.view", "masters.create", "masters.update", "masters.delete"],
       },
     ],
   },

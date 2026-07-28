@@ -1,4 +1,5 @@
 import * as React from "react"
+import { PlusIcon } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -16,12 +17,14 @@ import {
 } from "@/components/layout/list-page-ui"
 import {
   AdminPillBadge,
+  AdminPrimaryButton,
   AdminTableCell,
   AdminTableHeadCell,
   AdminTableHeaderRow,
 } from "@/components/layout/admin-ui"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { getJson } from "@/lib/api"
+import { hasPermission } from "@/lib/permissions"
 import {
   TRANSFER_STATUS_TABS,
   transferStatusLabel,
@@ -35,6 +38,7 @@ export function TransferOrdersListPage() {
   const [page, setPage] = React.useState(1)
   const [data, setData] = React.useState<TransferOrderListResponse | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const canCreate = hasPermission("transfer.create")
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -59,10 +63,21 @@ export function TransferOrdersListPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
-    <AdminPage fullWidth>
+    <AdminPage fullWidth dense className="w-full">
       <ListPageHeader
-        title="Asset transfer orders"
-        description="Create transfers from Assets → Actions. Workflow: CC1 → CF → CC2 → CF."
+        title="Asset Transfer Orders"
+        description=""
+        actions={
+          canCreate ? (
+            <AdminPrimaryButton
+              type="button"
+              onClick={() => navigate("/dashboard/transfer-orders/new")}
+            >
+              <PlusIcon className="h-4 w-4" />
+              Create transfer
+            </AdminPrimaryButton>
+          ) : null
+        }
       />
 
       <WorkspaceTabs

@@ -30,6 +30,7 @@ from modules.platform.settings.model import Setting
 from modules.platform.users.model import User
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    CostCenterAssetCustodian,
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
@@ -73,6 +74,7 @@ __all__ = [
     "CapitalizationForm",
     "CapitalizationFormAudit",
     "CostCenterMaster",
+    "CostCenterAssetCustodian",
     "FunctionalLocationMaster",
     "ActualLocationMaster",
     "ProfitCenterMaster",

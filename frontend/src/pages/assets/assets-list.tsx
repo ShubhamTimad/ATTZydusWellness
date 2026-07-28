@@ -81,7 +81,7 @@ import {
   assetStatusLabel,
   assetStatusPillTone,
 } from "@/lib/asset-lifecycle"
-import { hasPermission } from "@/lib/permissions"
+import { currentUserId, hasPermission, isSuperuser } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
 import { orderStatusLabel } from "@/lib/orders-types"
 import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
@@ -863,6 +863,18 @@ export function AssetsListPage() {
     () => eligibleReactivateAssets(selectedRows),
     [selectedRows],
   )
+  const viewerUserId = currentUserId()
+  const transferEligibleRows = React.useMemo(() => {
+    const approved = selectedRows.filter((r) => {
+      const approval = (r.approval_status ?? "").trim().toLowerCase()
+      const lifecycle = (r.lifecycle_status ?? "").trim().toLowerCase()
+      if (lifecycle && lifecycle !== "active") return false
+      return approval === "approved" || approval === "not_required"
+    })
+    if (isSuperuser()) return approved
+    if (viewerUserId == null) return []
+    return approved.filter((r) => r.asset_custodian_id === viewerUserId)
+  }, [selectedRows, viewerUserId])
   const listActions = React.useMemo(
     () =>
       buildAssetListActionItems({
@@ -871,6 +883,7 @@ export function AssetsListPage() {
         submitEligibleCount: submitEligibleRows.length,
         deactivateEligibleCount: deactivateEligibleRows.length,
         reactivateEligibleCount: reactivateEligibleRows.length,
+        transferEligibleCount: transferEligibleRows.length,
         canDelete,
         canUpdate: canUpdate && !isFyTab,
         canAttachRfid: showAttachRfid,
@@ -884,6 +897,7 @@ export function AssetsListPage() {
       submitEligibleRows.length,
       deactivateEligibleRows.length,
       reactivateEligibleRows.length,
+      transferEligibleRows.length,
       canDelete,
       canUpdate,
       isFyTab,
@@ -1227,14 +1241,62 @@ export function AssetsListPage() {
       return
     }
     if (actionId === "create-transfer-order") {
-      const ids = [...selected]
-      if (ids.length === 0) {
-        toast.error("Select at least one asset.")
+      if (transferEligibleRows.length === 0) {
+        toast.error("Only approved assets you custodiate can be transferred.")
         return
       }
-      const q = new URLSearchParams({ asset_ids: ids.join(",") })
-      const plantId = selectedRows.find((r) => r.plant_id != null)?.plant_id
-      if (plantId != null) q.set("plant_id", String(plantId))
+      if (transferEligibleRows.length < selectedRows.length) {
+        toast.error("Select only approved assets where you are the custodian.")
+        return
+      }
+      const plants = [
+        ...new Set(
+          transferEligibleRows.map((r) => r.plant_id).filter((id): id is number => id != null),
+        ),
+      ]
+      if (plants.length !== 1) {
+        toast.error("Select assets from the same plant.")
+        return
+      }
+      const costCenters = [
+        ...new Set(
+          transferEligibleRows
+            .map((r) => r.cost_center?.trim())
+            .filter((c): c is string => Boolean(c)),
+        ),
+      ]
+      if (costCenters.length !== 1) {
+        toast.error(
+          "Select assets from the same cost center. Create a separate transfer for each source cost center.",
+        )
+        return
+      }
+      try {
+        sessionStorage.setItem(
+          "transfer-order-draft-assets",
+          JSON.stringify(
+            transferEligibleRows.map((r) => ({
+              id: r.id,
+              asset_code: r.asset_code,
+              asset_name: r.asset_name,
+              plant_id: r.plant_id,
+              plant_name: r.plant_name,
+              cost_center: r.cost_center,
+              functional_location: r.functional_location,
+              actual_location: r.actual_location,
+              asset_custodian_id: r.asset_custodian_id ?? null,
+              approval_status: r.approval_status,
+              lifecycle_status: r.lifecycle_status,
+            })),
+          ),
+        )
+      } catch {
+        /* ignore quota */
+      }
+      const q = new URLSearchParams({
+        asset_ids: transferEligibleRows.map((r) => r.id).join(","),
+      })
+      q.set("plant_id", String(plants[0]))
       navigate(`/dashboard/transfer-orders/new?${q}`)
       return
     }
@@ -1552,14 +1614,14 @@ export function AssetsListPage() {
             </>
           ) : null}
 
-          {selected.size > 0 && canDecide ? (
+          {selected.size > 0 && canDecide && decisionEligibleRows.length > 0 ? (
             <>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 className={listToolbarBtnClass}
-                disabled={bulkActionBusy || decisionEligibleRows.length === 0}
+                disabled={bulkActionBusy}
                 onClick={() => openBulkDecision("reject")}
               >
                 Reject selected
@@ -1567,7 +1629,7 @@ export function AssetsListPage() {
               <AdminPrimaryButton
                 type="button"
                 className={listToolbarBtnClass}
-                disabled={bulkActionBusy || decisionEligibleRows.length === 0}
+                disabled={bulkActionBusy}
                 onClick={() => openBulkDecision("approve")}
               >
                 Approve selected
@@ -2064,7 +2126,7 @@ export function AssetsListPage() {
           <DialogHeader>
             <DialogTitle>RFID not attached</DialogTitle>
             <DialogDescription>
-              Physical verification orders can only include assets that have an RFID code attached.
+              Physical Verification orders can only include assets that have an RFID code attached.
               Attach RFID on the asset detail page, or continue with RFID-tagged assets only.
             </DialogDescription>
           </DialogHeader>

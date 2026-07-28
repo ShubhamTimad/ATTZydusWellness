@@ -524,22 +524,26 @@ export function CapexDetailPage() {
                 rows={3}
               />
             </FormField>
-            <div className={cn(adminSwitchRowClass, "sm:col-span-2")}>
-              <div className="space-y-1">
-                <Label htmlFor="requires_engineering" className="text-sm font-medium">
-                  Engineering department review required
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  When enabled, Engineering must approve after HOD before Central Finance.
-                </p>
+            {hasPermission("capitalization.submit_with_engineering") || form.requires_engineering ? (
+              <div className={cn(adminSwitchRowClass, "sm:col-span-2")}>
+                <div className="space-y-1">
+                  <Label htmlFor="requires_engineering" className="text-sm font-medium">
+                    Submit with engineering approval
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    When enabled, Engineering must approve after HOD before Central Finance.
+                  </p>
+                </div>
+                <Checkbox
+                  id="requires_engineering"
+                  checked={form.requires_engineering}
+                  disabled={
+                    readOnly || !hasPermission("capitalization.submit_with_engineering")
+                  }
+                  onCheckedChange={(v) => patch({ requires_engineering: v === true })}
+                />
               </div>
-              <Checkbox
-                id="requires_engineering"
-                checked={form.requires_engineering}
-                disabled={readOnly}
-                onCheckedChange={(v) => patch({ requires_engineering: v === true })}
-              />
-            </div>
+            ) : null}
           </div>
         </AdminPanel>
 

@@ -201,6 +201,7 @@ class AssetListItem(BaseModel):
     actual_location_description: str | None = None
     cost_center: str | None = None
     cost_center_description: str | None = None
+    asset_custodian_id: int | None = None
     inventory_count: int | None = None
     physical_count: int | None = None
     last_verification_date: date | None = None

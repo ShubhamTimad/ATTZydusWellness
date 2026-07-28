@@ -16,9 +16,21 @@ class TransferAssigneeListResponse(BaseModel):
     items: list[TransferAssigneeOption]
 
 
+class TransferDestinationCostCenter(BaseModel):
+    """Plant cost centers for transfer destination (not scoped to the viewer's CCs)."""
+
+    id: int
+    code: str
+    name: str
+    description: str
+    plant_id: int
+    is_active: bool
+
+
 class CreateTransferOrderRequest(BaseModel):
     asset_ids: list[int] = Field(min_length=1)
     to_cost_center_id: int
+    to_asset_custodian_id: int
     to_functional_location: str | None = None
     to_actual_location: str | None = None
     remarks: str | None = None
@@ -28,6 +40,7 @@ class CreateTransferOrderRequest(BaseModel):
 
 class UpdateTransferOrderRequest(BaseModel):
     to_cost_center_id: int | None = None
+    to_asset_custodian_id: int | None = None
     to_functional_location: str | None = None
     to_actual_location: str | None = None
     remarks: str | None = None
@@ -40,10 +53,10 @@ class SubmitTransferOrderRequest(BaseModel):
 
 
 class CfApproveTransferRequest(BaseModel):
-    assigned_to: int
+    """Approve and assign the order to the destination asset custodian for receive."""
+
+    assigned_to: int | None = None  # ignored; assignment goes to to_asset_custodian_id
     to_cost_center_id: int | None = None
-    to_functional_location: str | None = None
-    to_actual_location: str | None = None
     remarks: str | None = None
 
 
@@ -52,7 +65,11 @@ class CfRejectTransferRequest(BaseModel):
 
 
 class Cc2AssignTransferRequest(BaseModel):
+    """Destination custodian receives assets and sets locations, then assigns CF to confirm."""
+
     assigned_to: int
+    to_functional_location: str = Field(min_length=1)
+    to_actual_location: str = Field(min_length=1)
     remarks: str | None = None
 
 
@@ -106,6 +123,8 @@ class TransferOrderDetail(BaseModel):
     to_cost_center_id: int
     to_cost_center_code: str
     to_cost_center_description: str | None = None
+    to_asset_custodian_id: int | None = None
+    to_asset_custodian_name: str | None = None
     to_functional_location: str | None = None
     to_actual_location: str | None = None
     status: str
@@ -123,6 +142,8 @@ class TransferOrderDetail(BaseModel):
     audit: list[TransferOrderAuditPublic] = []
     can_submit: bool = False
     can_cf_decide: bool = False
+    can_cf_reject: bool = False
     can_cc2_assign: bool = False
     can_cf_confirm: bool = False
+    can_cf_close: bool = False
     can_edit: bool = False

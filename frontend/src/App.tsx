@@ -116,7 +116,9 @@ function App() {
           <Route
             path="masters"
             element={
-              <RequirePermission code="masters.view">
+              <RequirePermission
+                anyOf={["masters.view", "masters.create", "masters.update", "masters.delete"]}
+              >
                 <MastersPage />
               </RequirePermission>
             }
@@ -279,39 +281,49 @@ function App() {
               </RequirePermission>
             }
           />
-          <Route
-            path="permissions"
-            element={
+            <Route
+              path="permissions"
+              element={
               <RequirePermission anyOf={["permissions.view", "permissions.create"]}>
                 <PermissionsPage />
               </RequirePermission>
-            }
-          />
-          <Route
-            path="settings"
-            element={
+              }
+            />
+            <Route
+              path="masters"
+              element={
+                <RequirePermission
+                  anyOf={["masters.view", "masters.create", "masters.update", "masters.delete"]}
+                >
+                  <MastersPage />
+                </RequirePermission>
+              }
+            />
+            <Route
+              path="settings"
+              element={
               <RequirePermission anyOf={[...SETTINGS_ACCESS_PERMISSIONS]}>
                 <SettingsPage />
               </RequirePermission>
-            }
-          />
-          <Route
-            path="workflow-assignment"
-            element={
+              }
+            />
+            <Route
+              path="workflow-assignment"
+              element={
               <RequirePermission code="approval.manage">
                 <WorkflowAssignmentPage />
               </RequirePermission>
-            }
-          />
-          <Route
-            path="email-templates"
-            element={
+              }
+            />
+            <Route
+              path="email-templates"
+              element={
               <RequirePermission anyOf={["email_templates.view", "email_templates.create", "email_templates.update", "email_templates.delete"]}>
                 <EmailTemplatesPage />
               </RequirePermission>
-            }
-          />
-        </Route>
+              }
+            />
+          </Route>
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </>
@@ -414,10 +426,6 @@ function AppRoute() {
         }>("/me")
         if (cancelled) return
         persistAuthFromMe(me)
-        if (me?.is_superuser === true) {
-          navigate("/admin", { replace: true })
-          return
-        }
         setNavbarUser({
           fullName: typeof me.full_name === "string" ? me.full_name : null,
           email: typeof me.email === "string" ? me.email : null,
@@ -462,6 +470,7 @@ function AdminRoute() {
     | "departments"
     | "roles"
     | "permissions"
+    | "masters"
     | "settings"
     | "workflow-assignment"
     | "email-templates"
@@ -477,6 +486,7 @@ function AdminRoute() {
     else if (p.startsWith("/admin/plants")) setActiveId("plants")
     else if (p.startsWith("/admin/roles")) setActiveId("roles")
     else if (p.startsWith("/admin/permissions")) setActiveId("permissions")
+    else if (p.startsWith("/admin/masters")) setActiveId("masters")
     else if (p.startsWith("/admin/workflow-assignment")) setActiveId("workflow-assignment")
     else if (p.startsWith("/admin/email-templates")) setActiveId("email-templates")
     else if (p.startsWith("/admin/settings")) setActiveId("settings")
@@ -548,6 +558,7 @@ function AdminRoute() {
           if (id === "departments") navigate("/admin/departments")
           if (id === "roles") navigate("/admin/roles")
           if (id === "permissions") navigate("/admin/permissions")
+          if (id === "masters") navigate("/admin/masters")
           if (id === "workflow-assignment") navigate("/admin/workflow-assignment")
           if (id === "email-templates") navigate("/admin/email-templates")
           if (id === "settings") navigate("/admin/settings")

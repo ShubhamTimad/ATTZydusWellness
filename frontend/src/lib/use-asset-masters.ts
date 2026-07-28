@@ -54,10 +54,28 @@ export function useAssetMasterLookups(
 
   React.useEffect(() => {
     if (!canReadCustodianUsers) return
-    void getJson<AssetCustodianUser[]>("/admin/assets/custodian-users")
+    if (!costCenterCode) {
+      if (!plantId) {
+        // Unscoped (e.g. import): all users designated as custodians on any CC.
+        void getJson<AssetCustodianUser[]>("/admin/assets/custodian-users")
+          .then(setCustodianUsers)
+          .catch(() => setCustodianUsers([]))
+      } else {
+        setCustodianUsers([])
+      }
+      return
+    }
+    const cc = costCenters.find((c) => c.code === costCenterCode)
+    if (!cc) {
+      // Cost centers still loading for this plant.
+      if (plantId && costCenters.length === 0) return
+      setCustodianUsers([])
+      return
+    }
+    void getJson<AssetCustodianUser[]>(`/admin/assets/custodian-users?cost_center_id=${cc.id}`)
       .then(setCustodianUsers)
       .catch(() => setCustodianUsers([]))
-  }, [canReadCustodianUsers])
+  }, [canReadCustodianUsers, costCenterCode, costCenters, plantId])
 
   React.useEffect(() => {
     if (!canRead) return
@@ -187,7 +205,7 @@ export function masterDisplayName(name?: string | null, code?: string | null): s
   return code?.trim() || "—"
 }
 
-export function costCenterLabel(m: CostCenterMaster) {
+export function costCenterLabel(m: { name?: string | null; code?: string | null }) {
   return masterDisplayName(m.name, m.code)
 }
 

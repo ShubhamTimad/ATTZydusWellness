@@ -28,6 +28,8 @@ export type AssetListItem = {
   actual_location_description: string | null
   cost_center: string | null
   cost_center_description: string | null
+  /** User id of the asset custodian; only they may create a transfer for this asset. */
+  asset_custodian_id?: number | null
   inventory_count: number | null
   physical_count: number | null
   last_verification_date: string | null

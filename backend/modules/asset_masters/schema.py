@@ -362,3 +362,22 @@ class ActualLocationPublic(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class CostCenterCustodianUserPublic(BaseModel):
+    id: int
+    full_name: str
+    email: str | None = None
+    username: str | None = None
+
+
+class CostCenterCustodiansPublic(BaseModel):
+    cost_center_id: int
+    cost_center_code: str
+    cost_center_name: str
+    plant_id: int
+    items: list[CostCenterCustodianUserPublic]
+
+
+class CostCenterCustodiansReplaceRequest(BaseModel):
+    user_ids: list[int] = Field(default_factory=list)

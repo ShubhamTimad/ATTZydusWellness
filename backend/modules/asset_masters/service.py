@@ -10,6 +10,7 @@ from modules.asset_masters.model import (
     AssetClassMaster,
     AssetConditionMaster,
     AssetCustodianMaster,
+    CostCenterAssetCustodian,
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
@@ -32,6 +33,9 @@ from modules.asset_masters.schema import (
     CategoryPublic,
     CategoryUpdate,
     CostCenterCreate,
+    CostCenterCustodianUserPublic,
+    CostCenterCustodiansPublic,
+    CostCenterCustodiansReplaceRequest,
     CostCenterPublic,
     CostCenterUpdate,
     ProfitCenterCreate,
@@ -57,6 +61,7 @@ from modules.asset_masters.safety import (
 )
 from modules.errors import ConflictError, NotFoundError
 from modules.platform.org_units.model import OrgUnit
+from modules.platform.users.model import User
 from modules.platform.users.scope import load_viewer_org_scope
 
 
@@ -403,6 +408,98 @@ class AssetMastersService:
         assert_cost_center_deletable(self._db, row)
         self._db.delete(row)
         self._db.commit()
+
+    # --- Cost center asset custodians (CC → users) ---
+
+    def list_users_for_custodian_assignment(self) -> list[CostCenterCustodianUserPublic]:
+        users = list(
+            self._db.scalars(
+                select(User)
+                .where(User.is_active.is_(True))
+                .order_by(User.full_name.asc(), User.id.asc())
+            ).all()
+        )
+        return [
+            CostCenterCustodianUserPublic(
+                id=int(u.id),
+                full_name=u.full_name,
+                email=u.email,
+                username=u.username,
+            )
+            for u in users
+        ]
+
+    def list_cost_center_custodians(self, *, cost_center_id: int) -> CostCenterCustodiansPublic:
+        cc = self._db.get(CostCenterMaster, int(cost_center_id))
+        if cc is None:
+            raise NotFoundError("Cost center", cost_center_id)
+        users = list(
+            self._db.scalars(
+                select(User)
+                .join(
+                    CostCenterAssetCustodian,
+                    CostCenterAssetCustodian.user_id == User.id,
+                )
+                .where(
+                    CostCenterAssetCustodian.cost_center_id == int(cost_center_id),
+                    User.is_active.is_(True),
+                )
+                .order_by(User.full_name.asc(), User.id.asc())
+            ).all()
+        )
+        return CostCenterCustodiansPublic(
+            cost_center_id=int(cc.id),
+            cost_center_code=cc.code,
+            cost_center_name=cc.name,
+            plant_id=int(cc.plant_id),
+            items=[
+                CostCenterCustodianUserPublic(
+                    id=int(u.id),
+                    full_name=u.full_name,
+                    email=u.email,
+                    username=u.username,
+                )
+                for u in users
+            ],
+        )
+
+    def replace_cost_center_custodians(
+        self, cost_center_id: int, data: CostCenterCustodiansReplaceRequest
+    ) -> CostCenterCustodiansPublic:
+        cc = self._db.get(CostCenterMaster, int(cost_center_id))
+        if cc is None:
+            raise NotFoundError("Cost center", cost_center_id)
+        user_ids = list(dict.fromkeys(int(i) for i in data.user_ids))
+        users: list[User] = []
+        if user_ids:
+            users = list(
+                self._db.scalars(
+                    select(User).where(User.id.in_(user_ids), User.is_active.is_(True))
+                ).all()
+            )
+            found = {int(u.id) for u in users}
+            missing = [i for i in user_ids if i not in found]
+            if missing:
+                raise NotFoundError("User", missing[0])
+        existing = list(
+            self._db.scalars(
+                select(CostCenterAssetCustodian).where(
+                    CostCenterAssetCustodian.cost_center_id == int(cost_center_id)
+                )
+            ).all()
+        )
+        for row in existing:
+            self._db.delete(row)
+        self._db.flush()
+        for uid in user_ids:
+            self._db.add(
+                CostCenterAssetCustodian(
+                    cost_center_id=int(cost_center_id),
+                    user_id=int(uid),
+                )
+            )
+        self._db.commit()
+        return self.list_cost_center_custodians(cost_center_id=int(cost_center_id))
 
     # --- Profit centers (under cost center) ---
 

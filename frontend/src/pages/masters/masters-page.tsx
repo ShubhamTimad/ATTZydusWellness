@@ -3,6 +3,7 @@ import { toast } from "sonner"
 
 import { HierarchicalMasterPanel } from "@/components/masters/hierarchical-master-panel"
 import { MasterCrudPanel } from "@/components/masters/master-crud-panel"
+import { CostCenterCustodiansPanel } from "@/components/masters/cost-center-custodians-panel"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
   ListPageHeader,
@@ -43,6 +44,7 @@ export function MastersPage() {
           <WorkspaceTabsTrigger value="functional">Functional locations</WorkspaceTabsTrigger>
             <WorkspaceTabsTrigger value="actual">Actual locations</WorkspaceTabsTrigger>
             <WorkspaceTabsTrigger value="cost-centers">Cost centers</WorkspaceTabsTrigger>
+            <WorkspaceTabsTrigger value="cc-custodians">CC custodians</WorkspaceTabsTrigger>
             <WorkspaceTabsTrigger value="profit-centers">Profit centers</WorkspaceTabsTrigger>
             <WorkspaceTabsTrigger value="tag-colors">Tag colors</WorkspaceTabsTrigger>
             <WorkspaceTabsTrigger value="asset-conditions">Asset conditions</WorkspaceTabsTrigger>
@@ -78,6 +80,9 @@ export function MastersPage() {
           </WorkspaceTabsContent>
           <WorkspaceTabsContent value="cost-centers" className={TAB_PANEL}>
             <HierarchicalMasterPanel title="Cost center" kind="cost-center" plants={plants} />
+          </WorkspaceTabsContent>
+          <WorkspaceTabsContent value="cc-custodians" className={TAB_PANEL}>
+            <CostCenterCustodiansPanel plants={plants} />
           </WorkspaceTabsContent>
           <WorkspaceTabsContent value="profit-centers" className={TAB_PANEL}>
             <HierarchicalMasterPanel title="Profit center" kind="profit-center" plants={plants} />

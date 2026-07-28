@@ -29,6 +29,34 @@ class CostCenterMaster(Base):
     profit_centers = relationship("ProfitCenterMaster", back_populates="cost_center")
 
 
+class CostCenterAssetCustodian(Base):
+    """Users designated as asset custodians for a cost center."""
+
+    __tablename__ = "cost_center_asset_custodians"
+    __table_args__ = (
+        UniqueConstraint(
+            "cost_center_id",
+            "user_id",
+            name="uq_cost_center_asset_custodians_cc_user",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    cost_center_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("cost_center_masters.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    cost_center = relationship("CostCenterMaster")
+    user = relationship("User")
+
+
 class ProfitCenterMaster(Base):
     __tablename__ = "profit_center_masters"
     __table_args__ = (

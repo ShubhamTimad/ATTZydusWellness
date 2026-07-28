@@ -2,6 +2,7 @@ import * as React from "react"
 import { Link } from "react-router-dom"
 import {
   ArrowRight,
+  Database,
   Factory,
   KeyRound,
   Link2,
@@ -107,6 +108,16 @@ export function AdminOverviewPage() {
       to: "/admin/permissions",
       icon: KeyRound,
       show: hasPermission("permissions.view"),
+    },
+    {
+      label: "Masters",
+      description: "Cost centers, locations, and CC custodians",
+      to: "/admin/masters",
+      icon: Database,
+      show:
+        hasPermission("masters.view") ||
+        hasPermission("masters.create") ||
+        hasPermission("masters.update"),
     },
     {
       label: "Settings",

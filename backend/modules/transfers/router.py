@@ -16,6 +16,7 @@ from modules.transfers.schema import (
     CreateTransferOrderRequest,
     SubmitTransferOrderRequest,
     TransferAssigneeListResponse,
+    TransferDestinationCostCenter,
     TransferOrderDetail,
     TransferOrderListResponse,
     UpdateTransferOrderRequest,
@@ -55,6 +56,48 @@ def list_assignees(
 ) -> TransferAssigneeListResponse:
     try:
         return svc.list_assignees(level=level)
+    except Exception as e:
+        raise _http(e) from e
+
+
+@router.get("/cost-center-users", response_model=TransferAssigneeListResponse)
+def list_cost_center_users(
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "transfer.create",
+                "transfer.approve",
+                "transfer.manage",
+            )
+        ),
+    ],
+    cost_center_id: int = Query(..., ge=1),
+) -> TransferAssigneeListResponse:
+    try:
+        return svc.list_cost_center_users(cost_center_id=cost_center_id)
+    except Exception as e:
+        raise _http(e) from e
+
+
+@router.get("/destination-cost-centers", response_model=list[TransferDestinationCostCenter])
+def list_destination_cost_centers(
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "transfer.create",
+                "transfer.approve",
+                "transfer.manage",
+            )
+        ),
+    ],
+    plant_id: int = Query(..., ge=1),
+) -> list[TransferDestinationCostCenter]:
+    try:
+        return svc.list_destination_cost_centers(plant_id=plant_id)
     except Exception as e:
         raise _http(e) from e
 
@@ -175,5 +218,18 @@ def cf_confirm(
 ) -> TransferOrderDetail:
     try:
         return svc.cf_confirm(order_id, actor_user_id=int(current.subject))
+    except Exception as e:
+        raise _http(e) from e
+
+
+@router.post("/{order_id}/cf/close", response_model=TransferOrderDetail)
+def cf_close(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[object, Depends(require_any_permission("transfer.confirm", "transfer.manage"))],
+) -> TransferOrderDetail:
+    try:
+        return svc.cf_close(order_id, actor_user_id=int(current.subject))
     except Exception as e:
         raise _http(e) from e

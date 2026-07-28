@@ -31,6 +31,7 @@ import type { CostCenterMaster, PlantOption } from "@/lib/masters-types"
 import {
   ORDER_STATUS_TABS,
   orderStatusLabel,
+  orderStatusPillTone,
   type OrdersDashboardModule,
   type PhysicalOrderListResponse,
 } from "@/lib/orders-types"
@@ -165,7 +166,7 @@ export function OrdersListPage() {
 
   return (
     <AdminPage fullWidth dense className="w-full">
-      <ListPageHeader title="Physical verification orders" description="" />
+      <ListPageHeader title="Physical Verification Orders" description="" />
 
       <WorkspaceTabs
         value={tab}
@@ -399,7 +400,7 @@ export function OrdersListPage() {
                         </AdminTableCell>
                         <AdminTableCell className="tabular-nums">{row.asset_count}</AdminTableCell>
                         <AdminTableCell>
-                          <AdminPillBadge tone="neutral" className="font-normal">
+                          <AdminPillBadge tone={orderStatusPillTone(row.status)} className="font-normal">
                             {orderStatusLabel(row.status)}
                           </AdminPillBadge>
                         </AdminTableCell>

@@ -60,6 +60,7 @@ export function buildAssetListActionItems(opts: {
   submitEligibleCount?: number
   deactivateEligibleCount?: number
   reactivateEligibleCount?: number
+  transferEligibleCount?: number
   canDelete: boolean
   canUpdate?: boolean
   canAttachRfid?: boolean
@@ -73,6 +74,7 @@ export function buildAssetListActionItems(opts: {
     submitEligibleCount = 0,
     deactivateEligibleCount = 0,
     reactivateEligibleCount = 0,
+    transferEligibleCount = 0,
     canDelete,
     canUpdate = false,
     canAttachRfid,
@@ -126,11 +128,19 @@ export function buildAssetListActionItems(opts: {
   }
 
   if (canCreateTransfer) {
+    const hint =
+      selectedCount === 0
+        ? undefined
+        : transferEligibleCount === 0
+          ? "Only the asset custodian can create a transfer"
+          : transferEligibleCount < selectedCount
+            ? `${transferEligibleCount} of ${selectedCount} as custodian`
+            : `${transferEligibleCount} asset(s)`
     actions.push({
       id: "create-transfer-order",
-      label: "Create transfer order",
-      hint: selectedCount > 0 ? `${selectedCount} asset(s)` : undefined,
-      disabled: selectedCount === 0,
+      label: "Create transfer",
+      hint,
+      disabled: transferEligibleCount === 0,
       icon: ArrowRightLeft,
     })
   }

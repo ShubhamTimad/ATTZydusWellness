@@ -71,6 +71,7 @@ from modules.asset_masters.model import (
     ActualLocationMaster,
     AssetClassMaster,
     AssetConditionMaster,
+    CostCenterAssetCustodian,
     CostCenterMaster,
     FunctionalLocationMaster,
     ProfitCenterMaster,
@@ -315,10 +316,23 @@ class AssetMasterService:
             ).all()
         )
 
-    def list_custodian_users(self) -> list[User]:
+    def list_custodian_users(self, *, cost_center_id: int | None = None) -> list[User]:
+        """Users designated as asset custodians (optionally for one cost center)."""
+        # Distinct on User.id only — full-row DISTINCT fails on users.asset_list_columns (JSON).
+        id_stmt = (
+            select(User.id)
+            .join(
+                CostCenterAssetCustodian,
+                CostCenterAssetCustodian.user_id == User.id,
+            )
+            .where(User.is_active.is_(True))
+            .distinct()
+        )
+        if cost_center_id is not None:
+            id_stmt = id_stmt.where(CostCenterAssetCustodian.cost_center_id == int(cost_center_id))
         return list(
             self._db.scalars(
-                select(User).where(User.is_active.is_(True)).order_by(User.full_name, User.username)
+                select(User).where(User.id.in_(id_stmt)).order_by(User.full_name, User.username)
             ).all()
         )
 
@@ -1403,8 +1417,11 @@ class AssetMasterService:
             )
         if f.get("cost_center"):
             # Dropdown sends the exact code; name-contains kept for direct API use.
-            matching_cc = select(CostCenterMaster.code).where(
-                CostCenterMaster.name.ilike(_like("cost_center"))
+            # correlate(None): name subquery must not collapse against the outer asset query.
+            matching_cc = (
+                select(CostCenterMaster.code)
+                .where(CostCenterMaster.name.ilike(_like("cost_center")))
+                .correlate(None)
             )
             base = base.where(
                 select(AssetFinancialInformation.id)
@@ -1418,8 +1435,10 @@ class AssetMasterService:
                 .exists()
             )
         if f.get("functional_location"):
-            matching_fl = select(FunctionalLocationMaster.code).where(
-                FunctionalLocationMaster.name.ilike(_like("functional_location"))
+            matching_fl = (
+                select(FunctionalLocationMaster.code)
+                .where(FunctionalLocationMaster.name.ilike(_like("functional_location")))
+                .correlate(None)
             )
             base = base.where(
                 select(AssetLocationInformation.id)
@@ -1734,6 +1753,7 @@ class AssetMasterService:
                     actual_location_description=al_description,
                     cost_center=cc_code or None,
                     cost_center_description=cc_description,
+                    asset_custodian_id=int(a.asset_custodian_id) if a.asset_custodian_id else None,
                     inventory_count=inv.inventory_count if inv else None,
                     physical_count=inv.physical_count if inv else None,
                     last_verification_date=last_verified,

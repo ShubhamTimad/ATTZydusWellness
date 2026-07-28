@@ -80,10 +80,11 @@ def list_custodian_users(
         object,
         Depends(require_any_permission("asset.view", "asset.create", "asset.update")),
     ],
+    cost_center_id: int | None = Query(None, ge=1),
 ) -> list[AssetCustodianUserPublic]:
     return [
         AssetCustodianUserPublic.model_validate(user)
-        for user in svc.list_custodian_users()
+        for user in svc.list_custodian_users(cost_center_id=cost_center_id)
     ]
 
 

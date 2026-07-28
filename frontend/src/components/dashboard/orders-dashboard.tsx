@@ -15,7 +15,7 @@ export function OrdersDashboard({ data }: { data: OrdersDashboardModule }) {
 
   return (
     <DashboardPanel
-      title="Physical verification orders"
+      title="Physical Verification Orders"
       description={`${inPipeline} in workflow · ${finished} finished`}
       theme={theme}
     >

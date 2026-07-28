@@ -18,7 +18,7 @@ export function FinancialYearDashboard({ data }: { data: FinancialYearDashboardM
 
   return (
     <DashboardPanel
-      title={`Physical verification · ${data.label}`}
+      title={`Physical Verification · ${data.label}`}
       description={`Scan window ${periodLabel}`}
       theme={theme}
     >

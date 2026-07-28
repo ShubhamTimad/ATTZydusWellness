@@ -15,6 +15,9 @@ from modules.asset_masters.schema import (
     CostCenterCreate,
     CostCenterPublic,
     CostCenterUpdate,
+    CostCenterCustodiansPublic,
+    CostCenterCustodiansReplaceRequest,
+    CostCenterCustodianUserPublic,
     ProfitCenterCreate,
     ProfitCenterPublic,
     ProfitCenterUpdate,
@@ -363,6 +366,48 @@ def delete_cost_center(
         svc.delete_cost_center(row_id)
     except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
         _raise_master_errors(exc)
+
+
+@router.get(
+    "/cost-center-custodian-users",
+    response_model=list[CostCenterCustodianUserPublic],
+)
+def list_users_for_custodian_assignment(
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_READ)],
+) -> list[CostCenterCustodianUserPublic]:
+    return svc.list_users_for_custodian_assignment()
+
+
+@router.get(
+    "/cost-centers/{cost_center_id}/custodians",
+    response_model=CostCenterCustodiansPublic,
+)
+def list_cost_center_custodians(
+    cost_center_id: int,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_READ)],
+) -> CostCenterCustodiansPublic:
+    try:
+        return svc.list_cost_center_custodians(cost_center_id=cost_center_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.put(
+    "/cost-centers/{cost_center_id}/custodians",
+    response_model=CostCenterCustodiansPublic,
+)
+def replace_cost_center_custodians(
+    cost_center_id: int,
+    payload: CostCenterCustodiansReplaceRequest,
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_WRITE_UPDATE)],
+) -> CostCenterCustodiansPublic:
+    try:
+        return svc.replace_cost_center_custodians(cost_center_id, payload)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.get("/profit-centers", response_model=list[ProfitCenterPublic])

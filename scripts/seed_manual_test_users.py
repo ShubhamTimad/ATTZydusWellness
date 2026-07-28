@@ -50,6 +50,10 @@ DEMO_USERS: list[tuple[str, str, str, str]] = [
     ("executor2@demo.com", "+15552000012", "Sam Okonkwo", "Physical Order Executor"),
     ("executor3@demo.com", "+15552000013", "Priya Sharma", "Physical Order Executor"),
     ("executor4@demo.com", "+15552000014", "Jordan Lee", "Physical Order Executor"),
+    # Asset transfer / CapEx (CC1, CC2, CF)
+    ("cc1@demo.com", "+15552000021", "CC1 Transfer User", "Cost Center User"),
+    ("cc2@demo.com", "+15552000022", "CC2 Transfer User", "Cost Center User"),
+    ("cf@demo.com", "+15552000023", "Central Finance Demo", "Central Finance"),
 ]
 
 
@@ -81,6 +85,8 @@ def _upsert_user(
     now = datetime.now(timezone.utc)
     email_norm = email.strip().lower()
     existing = db.scalar(select(User).where(User.email == email_norm))
+    if existing is None:
+        existing = db.scalar(select(User).where(User.username == username))
 
     if existing is not None:
         changed = False
