@@ -1,4 +1,4 @@
-"""ponytail: assert transfer status ladder; upgrade when engine-backed workflows land."""
+"""ponytail: assert transfer status ladder for engine-backed approval."""
 
 from __future__ import annotations
 
@@ -6,22 +6,25 @@ from modules.transfers.constants import (
     EDITABLE_STATUSES,
     REJECTABLE_STATUSES,
     STATUS_APPROVED_BY_CF,
-    STATUS_ASSIGNED_TO_CF,
     STATUS_CLOSED,
     STATUS_CONFIRMED_BY_CF,
     STATUS_DRAFT,
+    STATUS_IN_REWORK,
+    STATUS_PENDING_APPROVAL,
     STATUS_RECEIVED_BY_CC2,
     STATUS_REJECTED,
+    SUBMITTABLE_STATUSES,
 )
 from modules.transfers.service import _strip_or_none
 
 
 def test_happy_path_statuses() -> None:
     assert STATUS_DRAFT in EDITABLE_STATUSES
-    assert STATUS_REJECTED in EDITABLE_STATUSES
+    assert STATUS_IN_REWORK in EDITABLE_STATUSES
+    assert STATUS_IN_REWORK in SUBMITTABLE_STATUSES
     path = [
         STATUS_DRAFT,
-        STATUS_ASSIGNED_TO_CF,
+        STATUS_PENDING_APPROVAL,
         STATUS_APPROVED_BY_CF,
         STATUS_RECEIVED_BY_CC2,
         STATUS_CONFIRMED_BY_CF,
@@ -29,19 +32,21 @@ def test_happy_path_statuses() -> None:
     ]
     assert path == [
         "draft",
-        "assigned_to_cf",
+        "pending_approval",
         "approved_by_cf",
         "received_by_cc2",
         "confirmed_by_cf",
         "closed",
     ]
-    assert STATUS_ASSIGNED_TO_CF in REJECTABLE_STATUSES
-    assert STATUS_APPROVED_BY_CF in REJECTABLE_STATUSES
-    assert STATUS_RECEIVED_BY_CC2 in REJECTABLE_STATUSES
-    assert STATUS_CONFIRMED_BY_CF in REJECTABLE_STATUSES
+    assert STATUS_PENDING_APPROVAL not in REJECTABLE_STATUSES
+    assert STATUS_APPROVED_BY_CF not in REJECTABLE_STATUSES
+    assert STATUS_RECEIVED_BY_CC2 not in REJECTABLE_STATUSES
+    assert STATUS_CONFIRMED_BY_CF not in REJECTABLE_STATUSES
     assert STATUS_CLOSED not in REJECTABLE_STATUSES
-    reject_branch = [STATUS_ASSIGNED_TO_CF, STATUS_REJECTED, STATUS_ASSIGNED_TO_CF]
-    assert reject_branch[1] == "rejected"
+    assert not REJECTABLE_STATUSES
+    reject_branch = [STATUS_PENDING_APPROVAL, STATUS_IN_REWORK]
+    assert reject_branch == ["pending_approval", "in_rework"]
+    assert STATUS_REJECTED in EDITABLE_STATUSES
     assert _strip_or_none("  x  ") == "x"
     assert _strip_or_none("   ") is None
 

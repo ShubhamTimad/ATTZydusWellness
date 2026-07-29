@@ -18,6 +18,7 @@ from modules.assets.router import router as assets_router
 from modules.asset_masters.router import router as asset_masters_router
 from modules.orders.router import router as physical_orders_router
 from modules.transfers.router import router as transfer_orders_router
+from modules.disposals.router import router as disposal_orders_router
 from modules.capex.router import router as capitalization_forms_router
 
 _admin_dependencies = []
@@ -39,5 +40,6 @@ router.include_router(assets_router)
 router.include_router(asset_masters_router)
 router.include_router(physical_orders_router)
 router.include_router(transfer_orders_router)
+router.include_router(disposal_orders_router)
 router.include_router(capitalization_forms_router)
 

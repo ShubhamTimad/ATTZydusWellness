@@ -446,6 +446,39 @@ def _build_workflow_steps_for_request(
                 pool_member_names=pool_member_names,
                 assigned_user_id=assigned_user_id,
                 assigned_user_name=assigned_user_name,
+                step_kind=str(getattr(step, "step_kind", None) or "approve"),
+            )
+        )
+    return out
+
+
+def build_workflow_preview_steps(
+    db: Session,
+    wf: ApprovalWorkflow,
+) -> list[TaskApprovalStepLinePublic]:
+    """Return all steps of a workflow as 'upcoming' — for showing the flow before submission."""
+    steps_sorted = sorted(wf.steps or [], key=lambda s: int(s.step_order))
+    total_steps = len(steps_sorted)
+    out: list[TaskApprovalStepLinePublic] = []
+    for step in steps_sorted:
+        s_order = int(step.step_order)
+        r = db.get(Role, int(step.approver_role_id))
+        approver_role_name = r.name if r is not None else "Approvers"
+        required = int(step.required_approvals)
+        pool_size, pool_member_names = _role_pool_summary(db, int(step.approver_role_id))
+        out.append(
+            TaskApprovalStepLinePublic(
+                step_order=s_order,
+                approver_role_name=approver_role_name,
+                required_approvals=required,
+                total_steps=total_steps,
+                phase="upcoming",
+                approved_count=0,
+                actions=[],
+                status_label=f"Not reached yet — {required} approval(s) will be required",
+                pool_size=pool_size,
+                pool_member_names=pool_member_names,
+                step_kind=str(getattr(step, "step_kind", None) or "approve"),
             )
         )
     return out

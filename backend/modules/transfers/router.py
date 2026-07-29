@@ -21,6 +21,7 @@ from modules.transfers.schema import (
     TransferOrderListResponse,
     UpdateTransferOrderRequest,
 )
+from modules.transfers.constants import ACTION_SUBMIT
 from modules.transfers.service import TransferOrderService
 
 router = APIRouter(prefix="/transfer-orders", tags=["admin", "transfer-orders"])
@@ -46,15 +47,25 @@ def list_assignees(
         Depends(
             require_any_permission(
                 "transfer.create",
+                "transfer.submit",
                 "transfer.approve",
                 "transfer.receive",
                 "transfer.manage",
             )
         ),
     ],
-    level: str = Query("central_finance", description="cost_center or central_finance"),
+    level: str | None = Query(
+        None,
+        description="hod | cost_center | central_finance — when set, users in that role",
+    ),
+    for_submit: bool = Query(
+        False,
+        description="When true (or level omitted), return first-step role of transfer.submit workflow",
+    ),
 ) -> TransferAssigneeListResponse:
     try:
+        if for_submit or level is None:
+            return svc.list_assignees_for_action(action_code=ACTION_SUBMIT)
         return svc.list_assignees(level=level)
     except Exception as e:
         raise _http(e) from e
@@ -159,7 +170,9 @@ def submit_order(
     body: SubmitTransferOrderRequest,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
-    _: Annotated[object, Depends(require_permission("transfer.create"))],
+    _: Annotated[
+        object, Depends(require_any_permission("transfer.create", "transfer.submit"))
+    ],
 ) -> TransferOrderDetail:
     try:
         return svc.submit_order(order_id, body, actor_user_id=int(current.subject))

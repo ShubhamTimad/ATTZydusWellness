@@ -25,6 +25,8 @@ type Props = {
   needsNextAssignee?: boolean
   nextAssigneeLevel?: string | null
   nextStepRoleName?: string | null
+  /** Assignees API path for the next-approver pool; defaults to the CapEx one. */
+  assigneesUrl?: string
   onConfirm: (payload: {
     comment: string | null
     nextAssignedUserId: number | null
@@ -42,6 +44,7 @@ export function CapexDecisionDialog({
   needsNextAssignee = false,
   nextAssigneeLevel = null,
   nextStepRoleName = null,
+  assigneesUrl,
   onConfirm,
 }: Props) {
   const [comment, setComment] = React.useState("")
@@ -68,7 +71,8 @@ export function CapexDecisionDialog({
     void (async () => {
       try {
         const res = await getJson<CapexAssigneeListResponse>(
-          `/admin/capitalization-forms/assignees?level=${encodeURIComponent(nextAssigneeLevel)}`,
+          assigneesUrl ??
+            `/admin/capitalization-forms/assignees?level=${encodeURIComponent(nextAssigneeLevel)}`,
         )
         if (!cancelled) setItems(res.items)
       } catch (e) {
@@ -83,7 +87,7 @@ export function CapexDecisionDialog({
     return () => {
       cancelled = true
     }
-  }, [open, showNextPicker, nextAssigneeLevel])
+  }, [open, showNextPicker, nextAssigneeLevel, assigneesUrl])
 
   async function confirm() {
     if (commentRequired && !comment.trim()) {

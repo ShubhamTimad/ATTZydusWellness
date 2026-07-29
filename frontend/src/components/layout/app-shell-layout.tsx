@@ -15,6 +15,7 @@ import {
   FileText,
   Menu,
   PanelLeft,
+  PackageX,
   Settings,
   Shield,
   User2,
@@ -91,7 +92,7 @@ const shellNavGroups: ShellNavGroup[] = [
         id: "orders",
         label: "Order",
         icon: ClipboardList,
-        permission: ["order.view", "transfer.view"],
+        permission: ["order.view", "transfer.view", "disposal.view"],
         children: [
           {
             id: "physical-verification-orders",
@@ -106,6 +107,13 @@ const shellNavGroups: ShellNavGroup[] = [
             icon: ArrowRightLeft,
             to: "/dashboard/transfer-orders",
             permission: "transfer.view",
+          },
+          {
+            id: "asset-disposal-orders",
+            label: "Asset Disposal",
+            icon: PackageX,
+            to: "/dashboard/disposal-orders",
+            permission: "disposal.view",
           },
         ],
       },

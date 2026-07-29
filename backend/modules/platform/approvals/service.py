@@ -16,7 +16,9 @@ from modules.platform.approvals.model import (
     TaskAuditLog,
     TaskComment,
 )
+from modules.disposals.constants import DISPOSAL_ENTITY_TYPES
 from modules.errors import ConflictError, NotFoundError
+from modules.transfers.constants import TRANSFER_ENTITY_TYPES
 from modules.rbac_association import user_role
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
@@ -36,6 +38,12 @@ class ApprovalError(Exception):
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _step_kind(step: ApprovalStep | None) -> str:
+    if step is None:
+        return "approve"
+    return str(getattr(step, "step_kind", None) or "approve").strip().lower() or "approve"
 
 
 class ApprovalWorkflowService:
@@ -92,6 +100,7 @@ class ApprovalWorkflowService:
         step_order: int,
         approver_role_id: int,
         required_approvals: int,
+        step_kind: str = "approve",
     ) -> ApprovalStep:
         wf = self.get_workflow(workflow_id)
         if wf.is_active:
@@ -103,6 +112,9 @@ class ApprovalWorkflowService:
             raise ConflictError("step_order must be >= 1.")
         if required_approvals < 1:
             raise ConflictError("required_approvals must be >= 1.")
+        kind = (step_kind or "approve").strip().lower()
+        if kind not in ("approve", "receive", "confirm", "close"):
+            raise ConflictError("step_kind must be one of: approve, receive, confirm, close.")
         existing_orders = [s.step_order for s in wf.steps]
         if step_order in existing_orders:
             raise ConflictError("That level number already exists.")
@@ -111,6 +123,7 @@ class ApprovalWorkflowService:
             step_order=step_order,
             approver_role_id=approver_role_id,
             required_approvals=required_approvals,
+            step_kind=kind,
         )
         self._db.add(step)
         self._db.commit()
@@ -139,6 +152,7 @@ class ApprovalWorkflowService:
         *,
         approver_role_id: int | None = None,
         required_approvals: int | None = None,
+        step_kind: str | None = None,
     ) -> ApprovalStep:
         step = self._db.get(ApprovalStep, step_id)
         if step is None:
@@ -155,6 +169,11 @@ class ApprovalWorkflowService:
             if required_approvals < 1:
                 raise ConflictError("required_approvals must be >= 1.")
             step.required_approvals = required_approvals
+        if step_kind is not None:
+            kind = step_kind.strip().lower()
+            if kind not in ("approve", "receive", "confirm", "close"):
+                raise ConflictError("step_kind must be one of: approve, receive, confirm, close.")
+            step.step_kind = kind
         self._db.commit()
         self._db.refresh(step)
         return step
@@ -511,9 +530,46 @@ class ApprovalEngineService:
                 req.payload[CAPEX_PRIOR_RUNS_KEY] = prior
             form.status = STATUS_PENDING_APPROVAL
             form.rejection_comment = None
+        elif entity_type in DISPOSAL_ENTITY_TYPES:
+            from modules.disposals.constants import (
+                STATUS_PENDING_APPROVAL as DISPOSAL_PENDING_APPROVAL,
+            )
+            from modules.disposals.model import AssetDisposalOrder
+            from modules.disposals.service import DisposalOrderService, action_and_entity_for_order
+
+            order = self._db.get(AssetDisposalOrder, int(req.entity_id))
+            if order is None:
+                raise NotFoundError("AssetDisposalOrder", int(req.entity_id))
+            svc = DisposalOrderService(self._db)
+            action_code, _entity = action_and_entity_for_order(
+                requires_engineering=bool(order.requires_engineering)
+            )
+            req.payload = svc._order_payload(
+                svc._load_order(int(order.id)), action_code=action_code
+            )
+            order.status = DISPOSAL_PENDING_APPROVAL
+            order.rejection_comment = None
+        elif entity_type in TRANSFER_ENTITY_TYPES:
+            from modules.transfers.constants import (
+                STATUS_PENDING_APPROVAL as TRANSFER_PENDING_APPROVAL,
+            )
+            from modules.transfers.model import AssetTransferOrder
+            from modules.transfers.service import TransferOrderService, action_and_entity_for_order
+
+            order = self._db.get(AssetTransferOrder, int(req.entity_id))
+            if order is None:
+                raise NotFoundError("AssetTransferOrder", int(req.entity_id))
+            svc = TransferOrderService(self._db)
+            action_code, _entity = action_and_entity_for_order()
+            req.payload = svc._order_payload(
+                svc._load_order(int(order.id)), action_code=action_code
+            )
+            order.status = TRANSFER_PENDING_APPROVAL
+            order.rejection_reason = None
         else:
             raise ApprovalError(
-                "Resubmit is only implemented for user creation, asset, physical order, and capitalization requests."
+                "Resubmit is only implemented for user creation, asset, physical order, "
+                "capitalization, disposal, and transfer requests."
             )
 
         now = _now_utc()
@@ -667,6 +723,8 @@ class ApprovalEngineService:
         action: str,
         comment: str | None,
         next_assigned_user_id: int | None = None,
+        to_functional_location: str | None = None,
+        to_actual_location: str | None = None,
     ) -> ApprovalRequest:
         task = self.get_task(task_id)
         role_ids = self._role_ids_for_user(actor_user_id)
@@ -735,6 +793,12 @@ class ApprovalEngineService:
         self._db.flush()
 
         if act == "reject":
+            # Transfer receive/confirm/close are operational — reject only on approve steps.
+            if str(req.entity_type) in TRANSFER_ENTITY_TYPES and _step_kind(task.step) != "approve":
+                raise ApprovalError(
+                    "Reject is only available on approval steps. "
+                    "Use the operational reject path for receive/confirm/close, or ask an approver to reject earlier."
+                )
             now = _now_utc()
             task.status = "rejected"
             task.acted_at = now
@@ -768,6 +832,34 @@ class ApprovalEngineService:
                 reject_capex_approval(
                     self._db,
                     form_id=int(req.entity_id),
+                    approver_user_id=actor_user_id,
+                    comment=comment,
+                    step_role_name=step_role,
+                )
+            elif str(req.entity_type) in DISPOSAL_ENTITY_TYPES:
+                from modules.disposals.service import reject_disposal_approval
+
+                step_role = None
+                if task.step is not None:
+                    role = self._db.get(Role, int(task.step.approver_role_id))
+                    step_role = role.name if role is not None else None
+                reject_disposal_approval(
+                    self._db,
+                    order_id=int(req.entity_id),
+                    approver_user_id=actor_user_id,
+                    comment=comment,
+                    step_role_name=step_role,
+                )
+            elif str(req.entity_type) in TRANSFER_ENTITY_TYPES:
+                from modules.transfers.service import reject_transfer_approval
+
+                step_role = None
+                if task.step is not None:
+                    role = self._db.get(Role, int(task.step.approver_role_id))
+                    step_role = role.name if role is not None else None
+                reject_transfer_approval(
+                    self._db,
+                    order_id=int(req.entity_id),
                     approver_user_id=actor_user_id,
                     comment=comment,
                     step_role_name=step_role,
@@ -810,6 +902,8 @@ class ApprovalEngineService:
                         "physical_order_closure",
                         "capitalization_request",
                         "capitalization_request_engineering",
+                        *DISPOSAL_ENTITY_TYPES,
+                        *TRANSFER_ENTITY_TYPES,
                     )
                     else "Rework required"
                 )
@@ -922,21 +1016,53 @@ class ApprovalEngineService:
         if idx is None:
             raise ApprovalError("Step not found in workflow.")
 
+        is_disposal = str(req.entity_type) in DISPOSAL_ENTITY_TYPES
+        is_transfer = str(req.entity_type) in TRANSFER_ENTITY_TYPES
+        kind = _step_kind(step)
+
+        if is_transfer:
+            return self._advance_transfer_after_step(
+                req,
+                step=step,
+                steps_sorted=steps_sorted,
+                idx=idx,
+                actor_user_id=actor_user_id,
+                comment=comment,
+                next_assigned_user_id=next_assigned_user_id,
+                to_functional_location=to_functional_location,
+                to_actual_location=to_actual_location,
+                kind=kind,
+            )
+
         if idx == len(steps_sorted) - 1:
-            # Final approval
+            # Final approval. Disposal orders hand off to the receiver, so the
+            # final approver (Store Person) must also name the receiving user.
+            if is_disposal and next_assigned_user_id is None:
+                raise ApprovalError(
+                    "Select the receiver before giving final approval."
+                )
             req.status = "approved"
-            self._finalize_request(req, comment=comment, step=step)
+            self._finalize_request(
+                req,
+                comment=comment,
+                step=step,
+                next_assigned_user_id=next_assigned_user_id,
+            )
             self._db.commit()
             return self.get_request(req.id)
 
         # Move to next step.
         next_step = steps_sorted[idx + 1]
         req.current_step = next_step.step_order
-        capex_handoff = str(req.entity_type) in (
-            "capitalization_request",
-            "capitalization_request_engineering",
+        needs_named_next_approver = (
+            is_disposal
+            or str(req.entity_type)
+            in (
+                "capitalization_request",
+                "capitalization_request_engineering",
+            )
         )
-        if capex_handoff:
+        if needs_named_next_approver:
             if next_assigned_user_id is None:
                 raise ApprovalError(
                     "Select the next approver before approving this step."
@@ -944,21 +1070,142 @@ class ApprovalEngineService:
             self._create_tasks_for_step(
                 req, next_step, assigned_user_id=int(next_assigned_user_id)
             )
-            from modules.capex.service import log_capex_step_approved
-
             cur_role = self._db.get(Role, int(step.approver_role_id))
             nxt_role = self._db.get(Role, int(next_step.approver_role_id))
-            log_capex_step_approved(
+            if is_disposal:
+                from modules.disposals.service import log_disposal_step_approved
+
+                log_disposal_step_approved(
+                    self._db,
+                    order_id=int(req.entity_id),
+                    actor_user_id=actor_user_id,
+                    step_role_name=cur_role.name if cur_role is not None else None,
+                    next_assignee_user_id=int(next_assigned_user_id),
+                    next_role_name=nxt_role.name if nxt_role is not None else None,
+                    comment=comment,
+                )
+            else:
+                from modules.capex.service import log_capex_step_approved
+
+                log_capex_step_approved(
+                    self._db,
+                    form_id=int(req.entity_id),
+                    actor_user_id=actor_user_id,
+                    step_role_name=cur_role.name if cur_role is not None else None,
+                    next_assignee_user_id=int(next_assigned_user_id),
+                    next_role_name=nxt_role.name if nxt_role is not None else None,
+                    comment=comment,
+                )
+        else:
+            self._create_tasks_for_step(req, next_step)
+        self._db.commit()
+        return self.get_request(req.id)
+
+    def _advance_transfer_after_step(
+        self,
+        req: ApprovalRequest,
+        *,
+        step: ApprovalStep,
+        steps_sorted: list[ApprovalStep],
+        idx: int,
+        actor_user_id: int,
+        comment: str | None,
+        next_assigned_user_id: int | None,
+        to_functional_location: str | None,
+        to_actual_location: str | None,
+        kind: str,
+    ) -> ApprovalRequest:
+        """Transfer workflow: approve/receive/confirm/close all run through the engine."""
+        from modules.transfers.service import (
+            apply_transfer_close,
+            apply_transfer_confirm,
+            apply_transfer_enter_receive,
+            apply_transfer_receive,
+            log_transfer_step_approved,
+        )
+
+        cur_role = self._db.get(Role, int(step.approver_role_id))
+        step_role_name = cur_role.name if cur_role is not None else None
+        is_last = idx == len(steps_sorted) - 1
+
+        if is_last:
+            # Last step closes the order (close kind preferred; any last step treated as close).
+            apply_transfer_close(
                 self._db,
-                form_id=int(req.entity_id),
+                order_id=int(req.entity_id),
                 actor_user_id=actor_user_id,
-                step_role_name=cur_role.name if cur_role is not None else None,
+                step_role_name=step_role_name,
+                comment=comment,
+            )
+            req.status = "approved"
+            self._db.commit()
+            return self.get_request(req.id)
+
+        next_step = steps_sorted[idx + 1]
+        next_kind = _step_kind(next_step)
+        nxt_role = self._db.get(Role, int(next_step.approver_role_id))
+        next_role_name = nxt_role.name if nxt_role is not None else None
+
+        # confirm → close with same role: same CF closes, no next-user picker
+        if (
+            next_assigned_user_id is None
+            and kind == "confirm"
+            and next_kind == "close"
+            and cur_role is not None
+            and nxt_role is not None
+            and int(cur_role.id) == int(nxt_role.id)
+        ):
+            next_assigned_user_id = actor_user_id
+
+        if next_assigned_user_id is None:
+            raise ApprovalError("Select the next assignee before completing this step.")
+
+        self._create_tasks_for_step(
+            req, next_step, assigned_user_id=int(next_assigned_user_id)
+        )
+        req.current_step = next_step.step_order
+
+        if kind == "receive":
+            apply_transfer_receive(
+                self._db,
+                order_id=int(req.entity_id),
+                actor_user_id=actor_user_id,
+                functional_location=to_functional_location,
+                actual_location=to_actual_location,
                 next_assignee_user_id=int(next_assigned_user_id),
-                next_role_name=nxt_role.name if nxt_role is not None else None,
+                step_role_name=step_role_name,
+                comment=comment,
+            )
+        elif kind == "confirm":
+            apply_transfer_confirm(
+                self._db,
+                order_id=int(req.entity_id),
+                actor_user_id=actor_user_id,
+                next_assignee_user_id=int(next_assigned_user_id),
+                step_role_name=step_role_name,
                 comment=comment,
             )
         else:
-            self._create_tasks_for_step(req, next_step)
+            # Completing an approve (or unknown) step.
+            log_transfer_step_approved(
+                self._db,
+                order_id=int(req.entity_id),
+                actor_user_id=actor_user_id,
+                step_role_name=step_role_name,
+                next_assignee_user_id=int(next_assigned_user_id),
+                next_role_name=next_role_name,
+                comment=comment,
+            )
+            if next_kind == "receive":
+                apply_transfer_enter_receive(
+                    self._db,
+                    order_id=int(req.entity_id),
+                    actor_user_id=actor_user_id,
+                    next_assignee_user_id=int(next_assigned_user_id),
+                    step_role_name=step_role_name,
+                    comment=comment,
+                )
+
         self._db.commit()
         return self.get_request(req.id)
 
@@ -981,6 +1228,7 @@ class ApprovalEngineService:
         *,
         comment: str | None = None,
         step: ApprovalStep | None = None,
+        next_assigned_user_id: int | None = None,
     ) -> None:
         if req.entity_type in ("asset_creation", "asset_import"):
             from modules.assets.service import activate_asset_after_approval
@@ -1025,6 +1273,39 @@ class ApprovalEngineService:
             finalize_capex_approval(
                 self._db,
                 form_id=int(req.entity_id),
+                approver_user_id=approver_id,
+                step_role_name=step_role,
+                comment=comment,
+            )
+            return
+        if req.entity_type in DISPOSAL_ENTITY_TYPES:
+            from modules.disposals.service import finalize_disposal_approval
+
+            approver_id = self._last_approve_user_id(req)
+            step_role = None
+            if step is not None:
+                role = self._db.get(Role, int(step.approver_role_id))
+                step_role = role.name if role is not None else None
+            finalize_disposal_approval(
+                self._db,
+                order_id=int(req.entity_id),
+                approver_user_id=approver_id,
+                step_role_name=step_role,
+                comment=comment,
+                scrapyard_user_id=next_assigned_user_id,
+            )
+            return
+        if req.entity_type in TRANSFER_ENTITY_TYPES:
+            from modules.transfers.service import finalize_transfer_approval
+
+            approver_id = self._last_approve_user_id(req)
+            step_role = None
+            if step is not None:
+                role = self._db.get(Role, int(step.approver_role_id))
+                step_role = role.name if role is not None else None
+            finalize_transfer_approval(
+                self._db,
+                order_id=int(req.entity_id),
                 approver_user_id=approver_id,
                 step_role_name=step_role,
                 comment=comment,

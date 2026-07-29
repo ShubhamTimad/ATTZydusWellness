@@ -29,6 +29,8 @@ export type TaskApprovalStepLine = {
   /** Explicit handoff assignee for this step (CapEx). */
   assigned_user_id?: number | null
   assigned_user_name?: string | null
+  /** approve | receive | confirm | close */
+  step_kind?: string
 }
 
 type CompactRun = {
@@ -65,9 +67,9 @@ function phaseStyles(phase: WorkflowStepPhase): { ring: string; fill: string; li
   switch (phase) {
     case "completed":
       return {
-        ring: "border-primary-500/80 bg-primary-50 text-primary-700 dark:bg-primary-950/50 dark:text-primary-200",
-        fill: "text-primary-600 dark:text-primary-400",
-        line: "bg-primary-200/80 dark:bg-primary-800/50",
+        ring: "border-emerald-500/80 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-200",
+        fill: "text-emerald-600 dark:text-emerald-400",
+        line: "bg-emerald-200/80 dark:bg-emerald-800/50",
       }
     case "current":
       return {
@@ -109,7 +111,7 @@ function phaseStateBadge(phase: WorkflowStepPhase) {
       return (
         <Badge
           variant="outline"
-          className="h-5 border-primary-300/80 bg-primary-50/90 font-semibold text-primary-800 dark:border-primary-800 dark:bg-primary-950/50 dark:text-primary-200"
+          className="h-5 border-emerald-300/80 bg-emerald-50/90 font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200"
         >
           Completed
         </Badge>
@@ -145,7 +147,7 @@ function phaseStateBadge(phase: WorkflowStepPhase) {
 function segmentClassForPhase(phase: WorkflowStepPhase): string {
   switch (phase) {
     case "completed":
-      return "bg-primary-300/90 dark:bg-primary-800/50"
+      return "bg-emerald-300/90 dark:bg-emerald-800/50"
     case "current":
       return "bg-amber-200/80 dark:bg-amber-800/50"
     case "rejected":
@@ -198,7 +200,7 @@ function CompactStepList({ steps }: { steps: TaskApprovalStepLine[] }) {
                   className={cn(
                     "size-3.5 shrink-0",
                     linkPhase === "completed"
-                      ? "text-primary-500 dark:text-primary-400"
+                      ? "text-emerald-500 dark:text-emerald-400"
                       : linkPhase === "current"
                         ? "text-amber-500 dark:text-amber-400"
                         : "text-muted-foreground/50",
@@ -344,7 +346,7 @@ export function ApprovalWorkflowTimeline({
         </p>
         <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
           {nCompleted > 0 ? (
-            <span className="inline-flex items-center gap-0.5 rounded-md bg-primary-50 px-1.5 py-0.5 text-primary-800 dark:bg-primary-950/50 dark:text-primary-200">
+            <span className="inline-flex items-center gap-0.5 rounded-md bg-emerald-50 px-1.5 py-0.5 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
               <Check className="size-2.5" />
               {nCompleted} completed
             </span>
@@ -399,7 +401,7 @@ export function ApprovalWorkflowTimeline({
                   </p>
                 </div>
                 {step.phase === "completed" ? (
-                  <p className="text-xs text-primary-800/90 dark:text-primary-200/90">
+                  <p className="text-xs text-emerald-800/90 dark:text-emerald-200/90">
                     This step is <strong>finished</strong>. {step.approved_count} of {step.required_approvals}{" "}
                     required approval(s) were recorded before the request moved on.
                   </p>
@@ -474,19 +476,19 @@ export function ApprovalWorkflowTimeline({
                             return (
                               <li
                                 key={`${step.step_order}-a-${a.actor_user_id}-${j}-${a.created_at ?? j}`}
-                                className="rounded-md border border-primary-200/60 bg-primary-50/50 px-2 py-1.5 dark:border-primary-900/50 dark:bg-primary-950/20"
+                                className="rounded-md border border-emerald-200/60 bg-emerald-50/50 px-2 py-1.5 dark:border-emerald-900/50 dark:bg-emerald-950/20"
                               >
                                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                                  <span className="inline-flex flex-wrap items-center gap-1.5 font-medium text-primary-900 dark:text-primary-100">
+                                  <span className="inline-flex flex-wrap items-center gap-1.5 font-medium text-emerald-900 dark:text-emerald-100">
                                     {showMulti ? (
-                                      <span className="rounded bg-primary-600/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary-800 dark:text-primary-200">
+                                      <span className="rounded bg-emerald-600/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800 dark:text-emerald-200">
                                         #{n}
                                       </span>
                                     ) : null}
                                     <User className="size-3 shrink-0 opacity-70" aria-hidden />
                                     {a.actor_display_name}
-                                    {isYou ? <span className="text-primary-700/80">(You)</span> : null}
-                                    <span className="rounded-sm bg-white/80 px-1.5 text-[10px] font-medium text-primary-800 dark:bg-primary-950/50 dark:text-primary-200">
+                                    {isYou ? <span className="text-emerald-700/80">(You)</span> : null}
+                                    <span className="rounded-sm bg-white/80 px-1.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
                                       approved
                                     </span>
                                   </span>
@@ -495,7 +497,7 @@ export function ApprovalWorkflowTimeline({
                                   </span>
                                 </div>
                                 {a.comment ? (
-                                  <div className="mt-1 flex gap-1.5 pl-0.5 text-xs text-primary-900/80 dark:text-primary-200/90">
+                                  <div className="mt-1 flex gap-1.5 pl-0.5 text-xs text-emerald-900/80 dark:text-emerald-200/90">
                                     <Mail className="mt-0.5 size-3 shrink-0 opacity-50" aria-hidden />
                                     <span className="whitespace-pre-wrap leading-snug">{a.comment}</span>
                                   </div>

@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from modules.platform.tasks.schema import TaskApprovalStepLinePublic
+
 
 class TransferAssigneeOption(BaseModel):
     id: int
@@ -48,14 +50,16 @@ class UpdateTransferOrderRequest(BaseModel):
 
 
 class SubmitTransferOrderRequest(BaseModel):
-    assigned_to: int
+    """``assigned_to`` is the first workflow-step approver (role from Workflow Assignment)."""
+
+    assigned_to: int = Field(ge=1)
     remarks: str | None = None
 
 
 class CfApproveTransferRequest(BaseModel):
-    """Approve and assign the order to the destination asset custodian for receive."""
+    """Deprecated: approvals go through the approval engine / My Tasks."""
 
-    assigned_to: int | None = None  # ignored; assignment goes to to_asset_custodian_id
+    assigned_to: int | None = None
     to_cost_center_id: int | None = None
     remarks: str | None = None
 
@@ -112,6 +116,34 @@ class TransferOrderListResponse(BaseModel):
     page_size: int
 
 
+class TransferWorkflowRunPublic(BaseModel):
+    attempt: int
+    request_id: int
+    request_status: str
+    is_current: bool = False
+    workflow_steps: list[TaskApprovalStepLinePublic] = Field(default_factory=list)
+
+
+class TransferApprovalPanel(BaseModel):
+    request_id: int
+    request_status: str
+    workflow_steps: list[TaskApprovalStepLinePublic] = Field(default_factory=list)
+    workflow_runs: list[TransferWorkflowRunPublic] = Field(default_factory=list)
+    my_pending_task_id: int | None = None
+    pending_task_id: int | None = None
+    current_assignee_user_id: int | None = None
+    current_assignee_name: str | None = None
+    current_step_role_name: str | None = None
+    current_assignee_level: str | None = None
+    current_step_kind: str = "approve"
+    is_final_step: bool = False
+    # Intermediate steps need a named next assignee; final close step does not.
+    needs_next_assignee: bool = False
+    next_step_role_name: str | None = None
+    next_assignee_level: str | None = None
+    next_step_kind: str | None = None
+
+
 class TransferOrderDetail(BaseModel):
     id: int
     order_number: str
@@ -130,6 +162,7 @@ class TransferOrderDetail(BaseModel):
     status: str
     remarks: str | None = None
     rejection_reason: str | None = None
+    approval_request_id: int | None = None
     created_by: int | None = None
     created_by_name: str | None = None
     assigned_to: int | None = None
@@ -140,8 +173,9 @@ class TransferOrderDetail(BaseModel):
     updated_at: datetime
     items: list[TransferOrderItemPublic]
     audit: list[TransferOrderAuditPublic] = []
+    approval_panel: TransferApprovalPanel | None = None
     can_submit: bool = False
-    can_cf_decide: bool = False
+    can_cf_decide: bool = False  # always False when engine-backed; kept for API compat
     can_cf_reject: bool = False
     can_cc2_assign: bool = False
     can_cf_confirm: bool = False

@@ -10,6 +10,7 @@ ApprovalEntityType = Literal["user_creation", "asset_creation", "asset_import"]
 ApprovalRequestStatus = Literal["pending", "approved", "rejected", "in_rework"]
 ApprovalTaskStatus = Literal["pending", "approved", "rejected", "open", "closed"]
 ApprovalActionType = Literal["approve", "reject"]
+ApprovalStepKind = Literal["approve", "receive", "confirm", "close"]
 
 
 class ApprovalWorkflowCreate(BaseModel):
@@ -26,6 +27,7 @@ class ApprovalWorkflowUpdate(BaseModel):
 class ApprovalStepUpdate(BaseModel):
     approver_role_id: int | None = Field(default=None, ge=1)
     required_approvals: int | None = Field(default=None, ge=1)
+    step_kind: ApprovalStepKind | None = None
 
 
 class ApprovalWorkflowPublic(BaseModel):
@@ -43,6 +45,7 @@ class ApprovalStepCreate(BaseModel):
     step_order: int = Field(ge=1)
     approver_role_id: int = Field(ge=1)
     required_approvals: int = Field(default=1, ge=1)
+    step_kind: ApprovalStepKind = "approve"
 
 
 class ApprovalStepPublic(BaseModel):
@@ -53,6 +56,7 @@ class ApprovalStepPublic(BaseModel):
     step_order: int
     approver_role_id: int
     required_approvals: int
+    step_kind: ApprovalStepKind = "approve"
 
 
 class ApprovalWorkflowDetail(ApprovalWorkflowPublic):
@@ -95,8 +99,11 @@ class ApprovalTaskPublic(BaseModel):
 class ApprovalTaskActionRequest(BaseModel):
     action: ApprovalActionType
     comment: str | None = Field(default=None, max_length=10_000)
-    # CapEx user-handoff: required when approving a non-final CapEx step.
+    # CapEx / transfer user-handoff: required when approving a non-final named-handoff step.
     next_assigned_user_id: int | None = Field(default=None, ge=1)
+    # Transfer receive step: destination locations applied to assets on approve.
+    to_functional_location: str | None = Field(default=None, max_length=255)
+    to_actual_location: str | None = Field(default=None, max_length=255)
 
 
 class WorkflowMappingCreate(BaseModel):

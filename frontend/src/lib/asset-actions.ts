@@ -12,6 +12,7 @@ import {
   Pencil,
   Power,
   PowerOff,
+  PackageX,
   Send,
   Trash2,
   ScanLine,
@@ -61,11 +62,13 @@ export function buildAssetListActionItems(opts: {
   deactivateEligibleCount?: number
   reactivateEligibleCount?: number
   transferEligibleCount?: number
+  disposalEligibleCount?: number
   canDelete: boolean
   canUpdate?: boolean
   canAttachRfid?: boolean
   canCreateOrder?: boolean
   canCreateTransfer?: boolean
+  canCreateDisposal?: boolean
   canSubmitForApproval?: boolean
 }): AssetActionItem[] {
   const {
@@ -75,11 +78,13 @@ export function buildAssetListActionItems(opts: {
     deactivateEligibleCount = 0,
     reactivateEligibleCount = 0,
     transferEligibleCount = 0,
+    disposalEligibleCount = 0,
     canDelete,
     canUpdate = false,
     canAttachRfid,
     canCreateOrder,
     canCreateTransfer = false,
+    canCreateDisposal = false,
     canSubmitForApproval: canSubmit = false,
   } = opts
 
@@ -142,6 +147,24 @@ export function buildAssetListActionItems(opts: {
       hint,
       disabled: transferEligibleCount === 0,
       icon: ArrowRightLeft,
+    })
+  }
+
+  if (canCreateDisposal) {
+    const hint =
+      selectedCount === 0
+        ? undefined
+        : disposalEligibleCount === 0
+          ? "Only the asset custodian can create a disposal"
+          : disposalEligibleCount < selectedCount
+            ? `${disposalEligibleCount} of ${selectedCount} as custodian`
+            : `${disposalEligibleCount} asset(s)`
+    actions.push({
+      id: "create-disposal-order",
+      label: "Create disposal",
+      hint,
+      disabled: disposalEligibleCount === 0,
+      icon: PackageX,
     })
   }
 

@@ -41,6 +41,19 @@ type StepRow = {
   step_order: number
   approver_role_id: number
   required_approvals: number
+  step_kind?: string
+}
+
+const STEP_KINDS: { value: string; label: string }[] = [
+  { value: "approve", label: "Approve" },
+  { value: "receive", label: "Receive" },
+  { value: "confirm", label: "Confirm" },
+  { value: "close", label: "Close" },
+]
+
+function stepKindLabel(kind: string | undefined): string {
+  const k = (kind || "approve").toLowerCase()
+  return STEP_KINDS.find((x) => x.value === k)?.label ?? k
 }
 
 type WorkflowDetail = {
@@ -60,6 +73,9 @@ const WORKFLOW_ENTITY_TYPES: { value: string; label: string }[] = [
   { value: "asset_import", label: "Asset import" },
   { value: "capitalization_request", label: "Capitalization (no Engineering)" },
   { value: "capitalization_request_engineering", label: "Capitalization (with Engineering)" },
+  { value: "disposal_order", label: "Asset disposal (no Engineering)" },
+  { value: "disposal_order_engineering", label: "Asset disposal (with Engineering)" },
+  { value: "transfer_order", label: "Asset transfer" },
   { value: "physical_order_creation", label: "Physical order assignment (executor role)" },
   { value: "physical_order_closure", label: "Physical order closure approval" },
 ]
@@ -114,7 +130,13 @@ function roleName(roles: RoleListItem[], roleId: number): string {
 function stepsSummary(wf: WorkflowDetail, roles: RoleListItem[]): string {
   const sorted = [...(wf.steps ?? [])].sort((a, b) => a.step_order - b.step_order)
   if (sorted.length === 0) return "—"
-  return sorted.map((s) => `L${s.step_order} ${roleName(roles, s.approver_role_id)}`).join(" → ")
+  return sorted
+    .map((s) => {
+      const kind = (s.step_kind || "approve").toLowerCase()
+      const suffix = kind !== "approve" ? ` (${kind})` : ""
+      return `L${s.step_order} ${roleName(roles, s.approver_role_id)}${suffix}`
+    })
+    .join(" → ")
 }
 
 export function WorkflowAssignmentPage() {
@@ -130,6 +152,7 @@ export function WorkflowAssignmentPage() {
   const [editEntityType, setEditEntityType] = React.useState("")
   const [newRoleId, setNewRoleId] = React.useState("")
   const [newRequired, setNewRequired] = React.useState("1")
+  const [newStepKind, setNewStepKind] = React.useState("approve")
 
   const [loading, setLoading] = React.useState(true)
   const [creatingWf, setCreatingWf] = React.useState(false)
@@ -275,10 +298,12 @@ export function WorkflowAssignmentPage() {
         step_order: nextStepOrder,
         approver_role_id: rid,
         required_approvals: req >= 1 ? req : 1,
+        step_kind: newStepKind || "approve",
       })
       toast.success("Level added.")
       setNewRoleId("")
       setNewRequired("1")
+      setNewStepKind("approve")
       await load()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not add level.")
@@ -287,7 +312,7 @@ export function WorkflowAssignmentPage() {
     }
   }
 
-  async function onSaveStep(step: StepRow, roleId: string, required: string) {
+  async function onSaveStep(step: StepRow, roleId: string, required: string, kind: string) {
     if (!canEditSteps) return
     const wid = Number(selectedId)
     setStepSavingId(step.id)
@@ -295,6 +320,7 @@ export function WorkflowAssignmentPage() {
       await patchJson(`/admin/approval-workflows/${wid}/steps/${step.id}`, {
         approver_role_id: Number(roleId),
         required_approvals: Math.max(1, Number(required) || 1),
+        step_kind: kind || "approve",
       })
       toast.success("Level saved.")
       await load()
@@ -438,6 +464,7 @@ export function WorkflowAssignmentPage() {
                   <TableRow>
                     <TableHead className="w-16">Level</TableHead>
                     <TableHead>Role</TableHead>
+                    <TableHead className="w-32">Kind</TableHead>
                     <TableHead className="w-28">Required</TableHead>
                     {canEditSteps ? <TableHead className="w-32 text-right">Actions</TableHead> : null}
                   </TableRow>
@@ -452,14 +479,14 @@ export function WorkflowAssignmentPage() {
                         roles={roles}
                         canEdit={canEditSteps}
                         saving={stepSavingId === s.id}
-                        onSave={(roleId, req) => void onSaveStep(s, roleId, req)}
+                        onSave={(roleId, req, kind) => void onSaveStep(s, roleId, req, kind)}
                         onDelete={() => void onDeleteStep(s.id)}
                       />
                     ))}
                   {(selectedWf.steps ?? []).length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={canEditSteps ? 4 : 3}
+                        colSpan={canEditSteps ? 5 : 4}
                         className="text-sm text-muted-foreground"
                       >
                         No levels yet.
@@ -483,6 +510,20 @@ export function WorkflowAssignmentPage() {
                     {roles.map((r) => (
                       <option key={r.id} value={String(r.id)}>
                         {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="w-36 space-y-1.5">
+                  <Label>Kind</Label>
+                  <select
+                    className={adminSelectClass}
+                    value={newStepKind}
+                    onChange={(e) => setNewStepKind(e.target.value)}
+                  >
+                    {STEP_KINDS.map((k) => (
+                      <option key={k.value} value={k.value}>
+                        {k.label}
                       </option>
                     ))}
                   </select>
@@ -657,22 +698,25 @@ function StepEditRow({
   roles: RoleListItem[]
   canEdit: boolean
   saving: boolean
-  onSave: (roleId: string, required: string) => void
+  onSave: (roleId: string, required: string, kind: string) => void
   onDelete: () => void
 }) {
   const [roleId, setRoleId] = React.useState(String(step.approver_role_id))
   const [required, setRequired] = React.useState(String(step.required_approvals))
+  const [kind, setKind] = React.useState(step.step_kind || "approve")
 
   React.useEffect(() => {
     setRoleId(String(step.approver_role_id))
     setRequired(String(step.required_approvals))
-  }, [step.id, step.approver_role_id, step.required_approvals])
+    setKind(step.step_kind || "approve")
+  }, [step.id, step.approver_role_id, step.required_approvals, step.step_kind])
 
   if (!canEdit) {
     return (
       <TableRow>
         <TableCell>{step.step_order}</TableCell>
         <TableCell>{roleName(roles, step.approver_role_id)}</TableCell>
+        <TableCell>{stepKindLabel(step.step_kind)}</TableCell>
         <TableCell>{step.required_approvals}</TableCell>
       </TableRow>
     )
@@ -695,6 +739,19 @@ function StepEditRow({
         </select>
       </TableCell>
       <TableCell>
+        <select
+          className={cn(adminSelectClass, "h-9")}
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+        >
+          {STEP_KINDS.map((k) => (
+            <option key={k.value} value={k.value}>
+              {k.label}
+            </option>
+          ))}
+        </select>
+      </TableCell>
+      <TableCell>
         <Input
           type="number"
           min={1}
@@ -704,7 +761,13 @@ function StepEditRow({
         />
       </TableCell>
       <TableCell className="text-right space-x-1">
-        <Button type="button" size="sm" variant="outline" disabled={saving} onClick={() => onSave(roleId, required)}>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={saving}
+          onClick={() => onSave(roleId, required, kind)}
+        >
           {saving ? "…" : "Save"}
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={onDelete}>

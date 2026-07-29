@@ -453,6 +453,7 @@ export function AssetsListPage() {
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const isFyTab = listTab === "fy"
   const canCreateTransfer = hasPermission("transfer.create") && !isFyTab
+  const canCreateDisposal = hasPermission("disposal.create") && !isFyTab
   const showAttachRfid = canAttachRfid && !isFyTab
   const selectedFyStartYear =
     filters.fy_start_year || (currentFyStartYear != null ? String(currentFyStartYear) : "")
@@ -884,11 +885,13 @@ export function AssetsListPage() {
         deactivateEligibleCount: deactivateEligibleRows.length,
         reactivateEligibleCount: reactivateEligibleRows.length,
         transferEligibleCount: transferEligibleRows.length,
+        disposalEligibleCount: transferEligibleRows.length,
         canDelete,
         canUpdate: canUpdate && !isFyTab,
         canAttachRfid: showAttachRfid,
         canCreateOrder,
         canCreateTransfer,
+        canCreateDisposal,
         canSubmitForApproval,
       }),
     [
@@ -904,6 +907,7 @@ export function AssetsListPage() {
       showAttachRfid,
       canCreateOrder,
       canCreateTransfer,
+      canCreateDisposal,
       canSubmitForApproval,
     ],
   )
@@ -1298,6 +1302,66 @@ export function AssetsListPage() {
       })
       q.set("plant_id", String(plants[0]))
       navigate(`/dashboard/transfer-orders/new?${q}`)
+      return
+    }
+    if (actionId === "create-disposal-order") {
+      if (transferEligibleRows.length === 0) {
+        toast.error("Only approved assets you custodiate can be disposed.")
+        return
+      }
+      if (transferEligibleRows.length < selectedRows.length) {
+        toast.error("Select only approved assets where you are the custodian.")
+        return
+      }
+      const plants = [
+        ...new Set(
+          transferEligibleRows.map((r) => r.plant_id).filter((id): id is number => id != null),
+        ),
+      ]
+      if (plants.length !== 1) {
+        toast.error("Select assets from the same plant.")
+        return
+      }
+      const costCenters = [
+        ...new Set(
+          transferEligibleRows
+            .map((r) => r.cost_center?.trim())
+            .filter((c): c is string => Boolean(c)),
+        ),
+      ]
+      if (costCenters.length !== 1) {
+        toast.error(
+          "Select assets from the same cost center. Create a separate disposal for each source cost center.",
+        )
+        return
+      }
+      try {
+        sessionStorage.setItem(
+          "disposal-order-draft-assets",
+          JSON.stringify(
+            transferEligibleRows.map((r) => ({
+              id: r.id,
+              asset_code: r.asset_code,
+              asset_name: r.asset_name,
+              plant_id: r.plant_id,
+              plant_name: r.plant_name,
+              cost_center: r.cost_center,
+              functional_location: r.functional_location,
+              actual_location: r.actual_location,
+              asset_custodian_id: r.asset_custodian_id ?? null,
+              approval_status: r.approval_status,
+              lifecycle_status: r.lifecycle_status,
+            })),
+          ),
+        )
+      } catch {
+        /* ignore quota */
+      }
+      const q = new URLSearchParams({
+        asset_ids: transferEligibleRows.map((r) => r.id).join(","),
+      })
+      q.set("plant_id", String(plants[0]))
+      navigate(`/dashboard/disposal-orders/new?${q}`)
       return
     }
     if (actionId === "open") {

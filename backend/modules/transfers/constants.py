@@ -1,49 +1,65 @@
 from __future__ import annotations
 
 STATUS_DRAFT = "draft"
+STATUS_PENDING_APPROVAL = "pending_approval"
+# Legacy status from pre-engine transfers; treat like pending_approval when present.
 STATUS_ASSIGNED_TO_CF = "assigned_to_cf"
 STATUS_REJECTED = "rejected"
-STATUS_APPROVED_BY_CF = "approved_by_cf"
+STATUS_IN_REWORK = "in_rework"
+STATUS_APPROVED_BY_CF = "approved_by_cf"  # approved → awaiting destination custodian receive
 STATUS_RECEIVED_BY_CC2 = "received_by_cc2"
 STATUS_CONFIRMED_BY_CF = "confirmed_by_cf"
 STATUS_CLOSED = "closed"
 STATUS_CANCELLED = "cancelled"
 
-EDITABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED})
-# CF may reject before close; assets are rolled back if receive already applied.
-REJECTABLE_STATUSES = frozenset(
-    {
-        STATUS_ASSIGNED_TO_CF,
-        STATUS_APPROVED_BY_CF,
-        STATUS_RECEIVED_BY_CC2,
-        STATUS_CONFIRMED_BY_CF,
-    }
-)
+ENTITY_TYPE = "transfer_order"
+TRANSFER_ENTITY_TYPES = frozenset({ENTITY_TYPE})
+
+ACTION_SUBMIT = "transfer.submit"
+
+EDITABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED, STATUS_IN_REWORK})
+SUBMITTABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED, STATUS_IN_REWORK})
+PENDING_APPROVAL_STATUSES = frozenset({STATUS_PENDING_APPROVAL, STATUS_ASSIGNED_TO_CF})
+
+# Post-approval stages are not rejectable — once approved, receive/confirm/close only.
+REJECTABLE_STATUSES: frozenset[str] = frozenset()
 ACTIVE_STATUSES = frozenset(
     {
         STATUS_DRAFT,
+        STATUS_PENDING_APPROVAL,
         STATUS_ASSIGNED_TO_CF,
         STATUS_REJECTED,
+        STATUS_IN_REWORK,
         STATUS_APPROVED_BY_CF,
         STATUS_RECEIVED_BY_CC2,
         STATUS_CONFIRMED_BY_CF,
     }
 )
 
-# Role names (must match seeded CapEx / org roles).
+# Role names must match seeded org roles. Workflow steps point at role IDs — rename in admin is OK.
+ROLE_HOD = "Department HOD"
 ROLE_COST_CENTER_USER = "Cost Center User"
 ROLE_CENTRAL_FINANCE = "Central Finance"
 
 ASSIGNEE_LEVEL_ROLES: dict[str, str] = {
+    "hod": ROLE_HOD,
     "cost_center": ROLE_COST_CENTER_USER,
     "central_finance": ROLE_CENTRAL_FINANCE,
 }
 
+ROLE_TO_ASSIGNEE_LEVEL: dict[str, str] = {
+    ROLE_HOD: "hod",
+    ROLE_COST_CENTER_USER: "cost_center",
+    ROLE_CENTRAL_FINANCE: "central_finance",
+}
+
 STATUS_LABELS: dict[str, str] = {
     STATUS_DRAFT: "Draft",
-    STATUS_ASSIGNED_TO_CF: "Assigned to CF",
+    STATUS_PENDING_APPROVAL: "Pending approval",
+    STATUS_ASSIGNED_TO_CF: "Pending approval",
     STATUS_REJECTED: "Rejected",
-    STATUS_APPROVED_BY_CF: "Approved by CF",
+    STATUS_IN_REWORK: "In rework",
+    STATUS_APPROVED_BY_CF: "Approved — pending receive",
     STATUS_RECEIVED_BY_CC2: "Received",
     STATUS_CONFIRMED_BY_CF: "Confirmed by CF",
     STATUS_CLOSED: "Closed",

@@ -89,6 +89,15 @@ def get_workflow_for_action(db: Session, action_code: str) -> ApprovalWorkflow |
         return wf_svc.get_active_workflow_for_entity("capitalization_request")
     if (canonical is not None and canonical in capex_eng_variants) or raw in capex_eng_variants:
         return wf_svc.get_active_workflow_for_entity("capitalization_request_engineering")
+    disposal_submit_variants = _permission_code_variants("disposal.submit")
+    disposal_eng_variants = _permission_code_variants("disposal.submit_with_engineering")
+    if (canonical is not None and canonical in disposal_submit_variants) or raw in disposal_submit_variants:
+        return wf_svc.get_active_workflow_for_entity("disposal_order")
+    if (canonical is not None and canonical in disposal_eng_variants) or raw in disposal_eng_variants:
+        return wf_svc.get_active_workflow_for_entity("disposal_order_engineering")
+    transfer_submit_variants = _permission_code_variants("transfer.submit")
+    if (canonical is not None and canonical in transfer_submit_variants) or raw in transfer_submit_variants:
+        return wf_svc.get_active_workflow_for_entity("transfer_order")
 
     return None
 

@@ -115,7 +115,14 @@ export function AdminTableCell({
   )
 }
 
-export type AdminPillTone = "primary" | "success" | "warning" | "danger" | "neutral" | "info"
+export type AdminPillTone =
+  | "primary"
+  | "success"
+  | "warning"
+  | "danger"
+  | "neutral"
+  | "info"
+  | "disposed"
 
 const pillToneClass: Record<AdminPillTone, string> = {
   primary: "border-primary/30 bg-primary/10 text-primary",
@@ -124,6 +131,8 @@ const pillToneClass: Record<AdminPillTone, string> = {
   danger: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300",
   neutral: "border-border/70 bg-muted/35 text-muted-foreground",
   info: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/40 dark:text-sky-300",
+  disposed:
+    "border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-900/40 dark:bg-violet-950/40 dark:text-violet-200",
 }
 
 /** Outline pill badge — reference-style status chips. */

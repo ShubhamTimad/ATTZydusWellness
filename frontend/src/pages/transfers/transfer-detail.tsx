@@ -3,6 +3,7 @@ import { ArrowRightLeft, Package } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import { ApprovalWorkflowTimeline } from "@/components/approval-workflow-timeline"
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
@@ -15,13 +16,13 @@ import {
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
-  adminTextareaClass,
 } from "@/components/layout/admin-ui"
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import {
   buildTransferProgress,
   transferStatusLabel,
@@ -39,10 +40,19 @@ import {
 } from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
+import { CapexDecisionDialog } from "@/pages/capex/capex-decision-dialog"
 import { CapexProcessFlow } from "@/pages/capex/capex-process-flow"
 import { TransferAuditLog } from "@/pages/transfers/transfer-audit-log"
 
 type PickerMode = "submit" | "cc2_assign" | null
+
+function formatWhen(iso: string | null | undefined): string {
+  if (!iso) return "—"
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+}
 
 function FormField({
   id,
@@ -75,9 +85,10 @@ export function TransferOrderDetailPage() {
   const [order, setOrder] = React.useState<TransferOrderDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
+  const [viewerUserId, setViewerUserId] = React.useState<number | null>(null)
   const [pickerMode, setPickerMode] = React.useState<PickerMode>(null)
-  const [rejectOpen, setRejectOpen] = React.useState(false)
-  const [rejectReason, setRejectReason] = React.useState("")
+  const [decisionOpen, setDecisionOpen] = React.useState(false)
+  const [decisionMode, setDecisionMode] = React.useState<"approve" | "reject">("approve")
   const [toCostCenterId, setToCostCenterId] = React.useState("")
   const [toAssetCustodianId, setToAssetCustodianId] = React.useState<number | null>(null)
   const [custodianOptions, setCustodianOptions] = React.useState<TransferAssigneeOption[]>([])
@@ -93,7 +104,22 @@ export function TransferOrderDetailPage() {
   )
 
   const draftEditable = Boolean(order?.can_edit)
-  const receiveEditable = Boolean(order?.can_cc2_assign)
+  const panel = order?.approval_panel
+  const stepKind = (panel?.current_step_kind || "approve").toLowerCase()
+  const canDecide = Boolean(panel?.my_pending_task_id) && hasPermission("approval.act")
+  const engineReceive = canDecide && stepKind === "receive"
+  const engineConfirm = canDecide && stepKind === "confirm"
+  const engineClose = canDecide && stepKind === "close"
+  const engineApprove = canDecide && stepKind === "approve"
+  // Legacy operational buttons when engine is not driving this phase
+  // (no approval_request, or request already approved / pre-step-kind orders).
+  const engineOwnsOps = Boolean(
+    order?.approval_request_id && panel?.request_status === "pending",
+  )
+  const legacyReceive = Boolean(order?.can_cc2_assign) && !engineOwnsOps
+  const legacyConfirm = Boolean(order?.can_cf_confirm) && !engineOwnsOps
+  const legacyClose = Boolean(order?.can_cf_close) && !engineOwnsOps
+  const receiveEditable = Boolean(order?.can_cc2_assign) || engineReceive
   const showLocations =
     receiveEditable ||
     Boolean(
@@ -103,23 +129,35 @@ export function TransferOrderDetailPage() {
           ["received_by_cc2", "confirmed_by_cf", "closed"].includes(order.status)),
     )
 
+  const applyOrder = React.useCallback((res: TransferOrderDetail) => {
+    setOrder(res)
+    setToCostCenterId(String(res.to_cost_center_id))
+    setToAssetCustodianId(res.to_asset_custodian_id)
+    setToFunctionalLocation(res.to_functional_location ?? "")
+    setToActualLocation(res.to_actual_location ?? "")
+  }, [])
+
   const load = React.useCallback(async () => {
     if (!Number.isFinite(orderId)) return
     setLoading(true)
     try {
-      const res = await getJson<TransferOrderDetail>(`/admin/transfer-orders/${orderId}`)
-      setOrder(res)
-      setToCostCenterId(String(res.to_cost_center_id))
-      setToAssetCustodianId(res.to_asset_custodian_id)
-      setToFunctionalLocation(res.to_functional_location ?? "")
-      setToActualLocation(res.to_actual_location ?? "")
+      try {
+        const me = await getJson<{ id: number; is_superuser?: boolean; permissions?: string[] }>(
+          "/me",
+        )
+        persistAuthFromMe(me)
+        setViewerUserId(typeof me.id === "number" ? me.id : null)
+      } catch {
+        /* keep cached permissions */
+      }
+      applyOrder(await getJson<TransferOrderDetail>(`/admin/transfer-orders/${orderId}`))
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to load transfer order")
       navigate("/dashboard/transfer-orders")
     } finally {
       setLoading(false)
     }
-  }, [orderId, navigate])
+  }, [orderId, navigate, applyOrder])
 
   React.useEffect(() => {
     void load()
@@ -179,18 +217,80 @@ export function TransferOrderDetailPage() {
   async function run(action: () => Promise<TransferOrderDetail>, okMessage: string) {
     setBusy(true)
     try {
-      const res = await action()
-      setOrder(res)
-      setToCostCenterId(String(res.to_cost_center_id))
-      setToAssetCustodianId(res.to_asset_custodian_id)
-      setToFunctionalLocation(res.to_functional_location ?? "")
-      setToActualLocation(res.to_actual_location ?? "")
+      applyOrder(await action())
       toast.success(okMessage)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed")
     } finally {
       setBusy(false)
       setPickerMode(null)
+    }
+  }
+
+  async function confirmDecision(payload: {
+    comment: string | null
+    nextAssignedUserId: number | null
+  }) {
+    const taskId = order?.approval_panel?.my_pending_task_id
+    if (!taskId) return
+    const kind = (order?.approval_panel?.current_step_kind || "approve").toLowerCase()
+    setBusy(true)
+    try {
+      await postJson(`/approvals/tasks/${taskId}/action`, {
+        action: decisionMode,
+        comment: payload.comment,
+        ...(decisionMode === "approve" && payload.nextAssignedUserId != null
+          ? { next_assigned_user_id: payload.nextAssignedUserId }
+          : {}),
+        ...(decisionMode === "approve" && kind === "receive"
+          ? {
+              to_functional_location: toFunctionalLocation.trim(),
+              to_actual_location: toActualLocation.trim(),
+            }
+          : {}),
+      })
+      setDecisionOpen(false)
+      const ok =
+        decisionMode === "reject"
+          ? "Rejected."
+          : kind === "receive"
+            ? "Assets received."
+            : kind === "confirm"
+              ? "Receive confirmed."
+              : kind === "close"
+                ? "Transfer order closed."
+                : "Approved."
+      toast.success(ok)
+      await load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Action failed.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmReceiveViaEngine(nextUserId: number) {
+    const taskId = order?.approval_panel?.my_pending_task_id
+    if (!taskId) return
+    if (!toFunctionalLocation.trim() || !toActualLocation.trim()) {
+      toast.error("Select Actual Location 1 and 2 before receiving.")
+      return
+    }
+    setBusy(true)
+    try {
+      await postJson(`/approvals/tasks/${taskId}/action`, {
+        action: "approve",
+        next_assigned_user_id: nextUserId,
+        to_functional_location: toFunctionalLocation.trim(),
+        to_actual_location: toActualLocation.trim(),
+      })
+      toast.success("Assets received. Assigned for confirmation.")
+      setPickerMode(null)
+      await load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Action failed.")
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -277,17 +377,15 @@ export function TransferOrderDetailPage() {
         }
       : null)
 
-  const pickerUrl = "/admin/transfer-orders/assignees?level=central_finance"
-
-  const pickerLabel = "Central Finance"
-
   const destinationDescription = receiveEditable
     ? "Set Actual Location 1 and 2, then receive the assets. Cost center, locations, and custodian update on receive."
     : draftEditable
       ? "Update destination cost center and asset custodian. Locations are set when the destination custodian receives."
       : "Destination details for this transfer order."
 
-  const progress = buildTransferProgress(order.status, order.assigned_to_name)
+  const progress = buildTransferProgress(order)
+  const decisionConfirmLabel =
+    stepKind === "confirm" ? "Confirm" : stepKind === "close" ? "Close" : "Approve"
 
   return (
     <AdminPage
@@ -327,39 +425,37 @@ export function TransferOrderDetailPage() {
                 setPickerMode("submit")
               }}
             >
-              Submit to Central Finance
+              Submit for approval
             </AdminPrimaryButton>
           ) : null}
-          {order.can_cf_reject ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9"
-              disabled={busy}
-              onClick={() => setRejectOpen(true)}
-            >
-              Reject
-            </Button>
+          {engineApprove ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                disabled={busy}
+                onClick={() => {
+                  setDecisionMode("reject")
+                  setDecisionOpen(true)
+                }}
+              >
+                Reject
+              </Button>
+              <AdminPrimaryButton
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setDecisionMode("approve")
+                  setDecisionOpen(true)
+                }}
+              >
+                Approve
+              </AdminPrimaryButton>
+            </>
           ) : null}
-          {order.can_cf_decide ? (
-            <AdminPrimaryButton
-              type="button"
-              disabled={busy}
-              onClick={() =>
-                void run(
-                  () =>
-                    postJson(`/admin/transfer-orders/${order.id}/cf/approve`, {
-                      to_cost_center_id: toCostCenterId ? Number(toCostCenterId) : null,
-                    }),
-                  "Approved. Assigned to the destination asset custodian for receive.",
-                )
-              }
-            >
-              Approve
-            </AdminPrimaryButton>
-          ) : null}
-          {order.can_cc2_assign ? (
+          {engineReceive ? (
             <AdminPrimaryButton
               type="button"
               disabled={busy}
@@ -374,7 +470,46 @@ export function TransferOrderDetailPage() {
               Receive
             </AdminPrimaryButton>
           ) : null}
-          {order.can_cf_confirm ? (
+          {engineConfirm ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setDecisionMode("approve")
+                setDecisionOpen(true)
+              }}
+            >
+              Confirm
+            </AdminPrimaryButton>
+          ) : null}
+          {engineClose ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setDecisionMode("approve")
+                setDecisionOpen(true)
+              }}
+            >
+              Close
+            </AdminPrimaryButton>
+          ) : null}
+          {legacyReceive ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (!toFunctionalLocation.trim() || !toActualLocation.trim()) {
+                  toast.error("Select Actual Location 1 and 2 before receiving.")
+                  return
+                }
+                setPickerMode("cc2_assign")
+              }}
+            >
+              Receive
+            </AdminPrimaryButton>
+          ) : null}
+          {legacyConfirm ? (
             <AdminPrimaryButton
               type="button"
               disabled={busy}
@@ -388,7 +523,7 @@ export function TransferOrderDetailPage() {
               Confirm
             </AdminPrimaryButton>
           ) : null}
-          {order.can_cf_close ? (
+          {legacyClose ? (
             <AdminPrimaryButton
               type="button"
               disabled={busy}
@@ -599,6 +734,37 @@ export function TransferOrderDetailPage() {
           </AdminPanel>
         </div>
 
+        {panel && (panel.workflow_runs?.length ?? 0) > 0 ? (
+          <ApprovalWorkflowTimeline
+            steps={panel.workflow_steps}
+            viewerUserId={viewerUserId}
+            formatWhen={formatWhen}
+            compact
+            compactRuns={panel.workflow_runs!.map((run) => {
+              const statusLabel =
+                run.request_status === "rejected" || run.request_status === "in_rework"
+                  ? "Rejected"
+                  : run.request_status === "pending"
+                    ? "In progress"
+                    : run.request_status === "approved"
+                      ? "Approved"
+                      : run.request_status
+              const label =
+                (panel.workflow_runs?.length ?? 0) > 1
+                  ? `Attempt ${run.attempt}${run.is_current ? " (current)" : ""} · ${statusLabel}`
+                  : undefined
+              return { label, steps: run.workflow_steps }
+            })}
+          />
+        ) : panel && panel.workflow_steps.length > 0 ? (
+          <ApprovalWorkflowTimeline
+            steps={panel.workflow_steps}
+            viewerUserId={viewerUserId}
+            formatWhen={formatWhen}
+            compact
+          />
+        ) : null}
+
         <TransferAuditLog events={order.audit} assetCodeById={assetCodeById} />
       </div>
 
@@ -607,9 +773,25 @@ export function TransferOrderDetailPage() {
         onOpenChange={(open) => {
           if (!open) setPickerMode(null)
         }}
-        assigneesUrl={pickerUrl}
-        roleLabel={pickerLabel}
-        confirmLabel={pickerMode === "submit" ? "Submit" : "Receive & assign CF"}
+        assigneesUrl={
+          pickerMode === "cc2_assign"
+            ? panel?.next_assignee_level
+              ? `/admin/transfer-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
+              : "/admin/transfer-orders/assignees?level=central_finance"
+            : "/admin/transfer-orders/assignees?for_submit=true"
+        }
+        roleLabel={
+          pickerMode === "cc2_assign"
+            ? (panel?.next_step_role_name ?? "Central Finance")
+            : "Approver"
+        }
+        confirmLabel={
+          pickerMode === "submit"
+            ? "Submit"
+            : engineReceive
+              ? "Receive & assign next"
+              : "Receive & assign CF"
+        }
         busy={busy}
         onConfirm={async (userId) => {
           if (pickerMode === "submit") {
@@ -633,9 +815,8 @@ export function TransferOrderDetailPage() {
                 `/admin/transfer-orders/${order.id}/submit`,
                 { assigned_to: userId },
               )
-              setOrder(res)
-              setToAssetCustodianId(res.to_asset_custodian_id)
-              toast.success("Submitted to Central Finance.")
+              applyOrder(res)
+              toast.success("Transfer order submitted for approval.")
             } catch (e) {
               toast.error(e instanceof ApiError ? e.message : "Action failed")
             } finally {
@@ -645,6 +826,10 @@ export function TransferOrderDetailPage() {
             return
           }
           if (pickerMode === "cc2_assign") {
+            if (engineReceive) {
+              await confirmReceiveViaEngine(userId)
+              return
+            }
             await run(
               () =>
                 postJson(`/admin/transfer-orders/${order.id}/cc2/assign`, {
@@ -658,44 +843,31 @@ export function TransferOrderDetailPage() {
         }}
       />
 
-      {rejectOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <AdminPanel
-            title="Reject transfer"
-            className="w-full max-w-md"
-            contentClassName="space-y-3 px-5 py-5"
-          >
-            <textarea
-              className={cn(adminTextareaClass, "min-h-24 w-full")}
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Rejection reason"
-            />
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setRejectOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={busy || !rejectReason.trim()}
-                onClick={() => {
-                  setRejectOpen(false)
-                  void run(
-                    () =>
-                      postJson(`/admin/transfer-orders/${order.id}/cf/reject`, {
-                        reason: rejectReason.trim(),
-                      }),
-                    "Transfer rejected. Creator can edit and submit again.",
-                  )
-                }}
-              >
-                Reject
-              </Button>
-            </div>
-          </AdminPanel>
-        </div>
-      ) : null}
+      <CapexDecisionDialog
+        open={decisionOpen}
+        onOpenChange={setDecisionOpen}
+        mode={decisionMode}
+        busy={busy}
+        title={
+          decisionMode === "reject"
+            ? "Reject"
+            : stepKind === "confirm"
+              ? "Confirm receive"
+              : stepKind === "close"
+                ? "Close transfer"
+                : "Approve"
+        }
+        confirmLabel={decisionMode === "reject" ? "Reject" : decisionConfirmLabel}
+        needsNextAssignee={Boolean(panel?.needs_next_assignee) && decisionMode === "approve"}
+        nextAssigneeLevel={panel?.next_assignee_level ?? null}
+        nextStepRoleName={panel?.next_step_role_name ?? null}
+        assigneesUrl={
+          panel?.next_assignee_level
+            ? `/admin/transfer-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
+            : undefined
+        }
+        onConfirm={confirmDecision}
+      />
     </AdminPage>
   )
 }

@@ -14,13 +14,23 @@ LIFECYCLE_ACTIVE = "active"
 LIFECYCLE_INACTIVE = "inactive"
 # Manually taken out of service (not the same as draft/pending inactive).
 LIFECYCLE_DEACTIVATED = "deactivated"
+# Reserved by an open disposal order draft / in-flight disposal.
+LIFECYCLE_PENDING_DISPOSAL = "pending_disposal"
+# Scrapped via a closed disposal order — terminal, never reactivated.
+LIFECYCLE_DISPOSED = "disposed"
 # Legacy rows may still use this until migrated; treat as inactive + pending approval.
 LIFECYCLE_PENDING_LEGACY = "pending_approval"
 
 LIFECYCLE_AWAITING_APPROVAL = frozenset({LIFECYCLE_INACTIVE, LIFECYCLE_PENDING_LEGACY})
-# List filter "Inactive" includes draft/pending inactive and manual deactivation.
+# List filter "Inactive" includes draft/pending inactive, manual deactivation, and disposal.
 LIFECYCLE_INACTIVE_FILTER = frozenset(
-    {LIFECYCLE_INACTIVE, LIFECYCLE_PENDING_LEGACY, LIFECYCLE_DEACTIVATED}
+    {
+        LIFECYCLE_INACTIVE,
+        LIFECYCLE_PENDING_LEGACY,
+        LIFECYCLE_DEACTIVATED,
+        LIFECYCLE_PENDING_DISPOSAL,
+        LIFECYCLE_DISPOSED,
+    }
 )
 
 # Not yet sent into an approval workflow (create/import only).
@@ -75,6 +85,45 @@ def can_deactivate(asset: AssetMaster) -> bool:
     return is_operational(asset.lifecycle_status) and (
         (asset.approval_status or "").strip().lower() != APPROVAL_PENDING
     )
+
+
+def is_disposed(lifecycle_status: str | None) -> bool:
+    return (lifecycle_status or "").strip().lower() == LIFECYCLE_DISPOSED
+
+
+def is_pending_disposal(lifecycle_status: str | None) -> bool:
+    return (lifecycle_status or "").strip().lower() == LIFECYCLE_PENDING_DISPOSAL
+
+
+def mark_pending_disposal(asset: AssetMaster) -> dict[str, Any]:
+    """Asset is locked for an open disposal order and cannot be reused elsewhere."""
+    before = {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status}
+    asset.lifecycle_status = LIFECYCLE_PENDING_DISPOSAL
+    return {
+        "before": before,
+        "after": {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status},
+    }
+
+
+def restore_from_pending_disposal(asset: AssetMaster) -> dict[str, Any]:
+    """Draft disposal removed/cancelled before completion — make the asset usable again."""
+    before = {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status}
+    asset.lifecycle_status = LIFECYCLE_ACTIVE
+    return {
+        "before": before,
+        "after": {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status},
+    }
+
+
+def mark_disposed(asset: AssetMaster) -> dict[str, Any]:
+    """Terminal state set when a disposal order is closed by Central Finance."""
+    before = {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status}
+    asset.lifecycle_status = LIFECYCLE_DISPOSED
+    asset.approval_status = "not_required"
+    return {
+        "before": before,
+        "after": {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status},
+    }
 
 
 def can_reactivate(asset: AssetMaster) -> bool:
@@ -191,6 +240,16 @@ def approval_task_title(entity_type: str, payload: dict[str, Any] | None) -> str
                 label = f"{label}: {aname.strip()}"
             return f"Approve capitalization form: {label}"
         return "Approve capitalization form"
+    if entity_type in ("disposal_order", "disposal_order_engineering"):
+        onum = p.get("order_number")
+        if isinstance(onum, str) and onum.strip():
+            return f"Approve asset disposal: {onum.strip()}"
+        return "Approve asset disposal"
+    if entity_type == "transfer_order":
+        onum = p.get("order_number")
+        if isinstance(onum, str) and onum.strip():
+            return f"Approve asset transfer: {onum.strip()}"
+        return "Approve asset transfer"
     return f"Approval: {entity_type.replace('_', ' ')}"
 
 
@@ -220,6 +279,14 @@ def entity_display_name(entity_type: str, payload: dict[str, Any] | None, entity
         aname = p.get("asset_name")
         if isinstance(aname, str) and aname.strip():
             return aname.strip()
+    if entity_type in ("disposal_order", "disposal_order_engineering"):
+        onum = p.get("order_number")
+        if isinstance(onum, str) and onum.strip():
+            return onum.strip()
+    if entity_type == "transfer_order":
+        onum = p.get("order_number")
+        if isinstance(onum, str) and onum.strip():
+            return onum.strip()
     return f"{entity_type}:{entity_id}"
 
 

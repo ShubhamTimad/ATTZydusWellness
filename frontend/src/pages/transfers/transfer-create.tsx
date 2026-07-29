@@ -479,7 +479,9 @@ export function TransferOrderCreatePage() {
         /* ignore */
       }
       toast.success(
-        submit ? `Transfer ${order.order_number} submitted to CF.` : `Draft ${order.order_number} saved.`,
+        submit
+          ? `Transfer ${order.order_number} submitted for approval.`
+          : `Draft ${order.order_number} saved.`,
       )
       navigate(`/dashboard/transfer-orders/${order.id}`, { replace: true })
     } catch (e) {
@@ -904,7 +906,7 @@ export function TransferOrderCreatePage() {
             {busy ? "Saving…" : "Save draft"}
           </Button>
           <AdminPrimaryButton type="submit" disabled={busy}>
-            Submit to Central Finance
+            Submit for approval
           </AdminPrimaryButton>
         </div>
       </form>
@@ -912,8 +914,8 @@ export function TransferOrderCreatePage() {
       <CapexAssigneePickerDialog
         open={pickerOpen}
         onOpenChange={setPickerOpen}
-        assigneesUrl="/admin/transfer-orders/assignees?level=central_finance"
-        roleLabel="Central Finance"
+        assigneesUrl="/admin/transfer-orders/assignees?for_submit=true"
+        roleLabel="Approver"
         confirmLabel="Submit"
         busy={busy}
         onConfirm={async (userId) => {

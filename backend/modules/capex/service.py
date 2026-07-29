@@ -48,6 +48,7 @@ from modules.platform.tasks.schema import TaskApprovalStepLinePublic
 from modules.platform.tasks.service import (
     _build_workflow_steps_for_request,
     _split_approval_task_runs,
+    build_workflow_preview_steps,
 )
 
 CAPEX_PRIOR_RUNS_KEY = "_capex_prior_runs"
@@ -188,7 +189,21 @@ class CapexFormService:
         self, form: CapitalizationForm, *, viewer_user_id: int | None
     ) -> CapexApprovalPanel | None:
         if form.approval_request_id is None:
-            return None
+            # Show a preview of the workflow steps even before submission.
+            action_code, _ = action_and_entity_for_form(
+                requires_engineering=bool(form.requires_engineering)
+            )
+            wf = get_workflow_for_action(self._db, action_code)
+            if wf is None or not wf.steps:
+                return None
+            preview_steps = build_workflow_preview_steps(self._db, wf)
+            if not preview_steps:
+                return None
+            return CapexApprovalPanel(
+                request_id=0,
+                request_status="preview",
+                workflow_steps=preview_steps,
+            )
         req = self._db.scalar(
             select(ApprovalRequest)
             .where(ApprovalRequest.id == int(form.approval_request_id))

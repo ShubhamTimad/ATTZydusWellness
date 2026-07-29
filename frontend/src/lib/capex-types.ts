@@ -36,6 +36,8 @@ export type CapexApprovalStepLine = {
   pool_member_names?: string[]
   assigned_user_id?: number | null
   assigned_user_name?: string | null
+  /** approve | receive | confirm | close */
+  step_kind?: string
 }
 
 export type CapexWorkflowRun = {
@@ -57,10 +59,12 @@ export type CapexApprovalPanel = {
   current_assignee_name?: string | null
   current_step_role_name?: string | null
   current_assignee_level?: "hod" | "engineering" | "central_finance" | string | null
+  current_step_kind?: string
   is_final_step?: boolean
   needs_next_assignee?: boolean
   next_step_role_name?: string | null
   next_assignee_level?: "hod" | "engineering" | "central_finance" | string | null
+  next_step_kind?: string | null
 }
 
 export type CapexAssigneeOption = {

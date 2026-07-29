@@ -30,6 +30,11 @@ import {
   TransferOrderDetailPage,
   TransferOrdersListPage,
 } from "@/pages/transfers"
+import {
+  DisposalOrderCreatePage,
+  DisposalOrderDetailPage,
+  DisposalOrdersListPage,
+} from "@/pages/disposals"
 import { CapexCreatePage, CapexDetailPage, CapexListPage } from "@/pages/capex"
 import { ReportsPage } from "@/pages/reports"
 import * as React from "react"
@@ -154,6 +159,26 @@ function App() {
               }
             />
             <Route path=":id" element={<TransferOrderDetailPage />} />
+          </Route>
+
+          <Route
+            path="disposal-orders"
+            element={
+              <RequirePermission code="disposal.view">
+                <Outlet />
+              </RequirePermission>
+            }
+          >
+            <Route index element={<DisposalOrdersListPage />} />
+            <Route
+              path="new"
+              element={
+                <RequirePermission code="disposal.create">
+                  <DisposalOrderCreatePage />
+                </RequirePermission>
+              }
+            />
+            <Route path=":id" element={<DisposalOrderDetailPage />} />
           </Route>
 
           <Route

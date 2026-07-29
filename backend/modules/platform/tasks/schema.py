@@ -102,6 +102,8 @@ class TaskApprovalStepLinePublic(BaseModel):
     # Explicit user handoff (CapEx): the one person assigned to this step, if any.
     assigned_user_id: int | None = None
     assigned_user_name: str | None = None
+    # approve | receive | confirm | close (transfer operational steps).
+    step_kind: str = "approve"
 
 
 class TaskApprovalContextPublic(BaseModel):

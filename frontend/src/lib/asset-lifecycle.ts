@@ -6,7 +6,16 @@ export function isAssetDeactivated(lifecycleStatus: string): boolean {
   return (lifecycleStatus || "").toLowerCase() === "deactivated"
 }
 
+export function isAssetDisposed(lifecycleStatus: string): boolean {
+  return (lifecycleStatus || "").toLowerCase() === "disposed"
+}
+
+export function isAssetPendingDisposal(lifecycleStatus: string): boolean {
+  return (lifecycleStatus || "").toLowerCase() === "pending_disposal"
+}
+
 export function canDeactivateAsset(lifecycleStatus: string, approvalStatus: string): boolean {
+  if (isAssetDisposed(lifecycleStatus) || isAssetPendingDisposal(lifecycleStatus)) return false
   return isAssetActive(lifecycleStatus, approvalStatus)
 }
 
@@ -17,6 +26,8 @@ export function canReactivateAsset(lifecycleStatus: string): boolean {
 /** List/detail badge from approval + lifecycle. */
 export function assetStatusLabel(lifecycleStatus: string, approvalStatus: string): string {
   const lifecycle = (lifecycleStatus || "").toLowerCase()
+  if (lifecycle === "disposed") return "Disposed"
+  if (lifecycle === "pending_disposal") return "Pending disposal"
   if (lifecycle === "deactivated") return "Inactive"
   const approval = (approvalStatus || "").toLowerCase()
   if (approval === "draft") return "Draft"
@@ -33,6 +44,8 @@ export function assetStatusVariant(
   lifecycleStatus: string,
   approvalStatus: string,
 ): "default" | "secondary" | "destructive" | "outline" {
+  if (isAssetDisposed(lifecycleStatus)) return "secondary"
+  if (isAssetPendingDisposal(lifecycleStatus)) return "outline"
   if (isAssetDeactivated(lifecycleStatus)) return "secondary"
   const approval = (approvalStatus || "").toLowerCase()
   if (approval === "rejected") return "destructive"
@@ -41,12 +54,21 @@ export function assetStatusVariant(
   return "secondary"
 }
 
-export type AssetStatusPillTone = "primary" | "success" | "warning" | "danger" | "neutral"
+export type AssetStatusPillTone =
+  | "primary"
+  | "success"
+  | "warning"
+  | "danger"
+  | "neutral"
+  | "info"
+  | "disposed"
 
 export function assetStatusPillTone(
   lifecycleStatus: string,
   approvalStatus: string,
 ): AssetStatusPillTone {
+  if (isAssetDisposed(lifecycleStatus)) return "disposed"
+  if (isAssetPendingDisposal(lifecycleStatus)) return "info"
   if (isAssetDeactivated(lifecycleStatus)) return "neutral"
   const approval = (approvalStatus || "").toLowerCase()
   if (approval === "rejected") return "danger"
@@ -57,7 +79,13 @@ export function assetStatusPillTone(
 }
 
 export function canSubmitForApproval(lifecycleStatus: string, approvalStatus: string): boolean {
-  if (isAssetDeactivated(lifecycleStatus)) return false
+  if (
+    isAssetDisposed(lifecycleStatus) ||
+    isAssetPendingDisposal(lifecycleStatus) ||
+    isAssetDeactivated(lifecycleStatus)
+  ) {
+    return false
+  }
   if (isAssetActive(lifecycleStatus, approvalStatus)) return false
   const approval = approvalStatus.toLowerCase()
   if (approval === "pending") return false

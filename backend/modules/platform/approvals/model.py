@@ -90,6 +90,8 @@ class ApprovalStep(Base):
         nullable=False,
     )
     required_approvals: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    # approve | receive | confirm | close — transfer (and similar) operational steps in the chain.
+    step_kind: Mapped[str] = mapped_column(String(32), nullable=False, server_default="approve")
 
     workflow = relationship("ApprovalWorkflow", back_populates="steps")
 
