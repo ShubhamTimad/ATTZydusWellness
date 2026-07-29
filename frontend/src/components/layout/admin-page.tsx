@@ -33,9 +33,12 @@ export function AdminPage({
         "app-page mx-auto w-full min-w-0",
         fullWidth ? "max-w-none" : "max-w-7xl",
         dense ? "gap-[var(--app-grid-gap)]" : "gap-[var(--app-section-gap)]",
+        // List pages: fill the shell and scroll inside the table.
+        // Form/detail pages: grow with content (shrink-0) so the layout main
+        // can scroll — nested flex-1 + .app-panel clipping hid Save buttons.
         viewportFill
           ? "flex min-h-0 flex-1 flex-col overflow-hidden"
-          : "min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
+          : "w-full min-w-0 shrink-0",
         className,
       )}
     >

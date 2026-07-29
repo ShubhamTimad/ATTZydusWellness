@@ -325,8 +325,10 @@ export function AdminLayout({
           </div>
         </header>
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-6 py-8">
-          {children}
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-6 py-8 [scrollbar-gutter:stable]">
+            {children}
+          </div>
         </main>
       </div>
     </div>

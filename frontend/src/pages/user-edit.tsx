@@ -375,7 +375,7 @@ export function UserEditPage() {
                 />
               </div>
             </div>
-            <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
+            <div className="sticky bottom-0 z-10 -mx-5 mt-1 flex justify-end gap-2 border-t border-border/60 bg-card/95 px-5 pt-4 pb-5 backdrop-blur supports-[backdrop-filter]:bg-card/90">
               <Button type="button" variant="outline" className="h-9 shadow-sm" onClick={() => navigate("..")}>
                 Cancel
               </Button>

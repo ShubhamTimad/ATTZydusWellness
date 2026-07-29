@@ -25,7 +25,14 @@ export function MultiCheckList({
     )
   }
   return (
-    <div className={cn("max-h-56 space-y-1.5 overflow-y-auto rounded-md border border-border/70 p-2")}>
+    <div
+      className={cn(
+        "space-y-1.5 rounded-md border border-border/70 p-2",
+        // Nested max-height scroll traps page scrolling on short viewports —
+        // only constrain the list from md up.
+        "md:max-h-56 md:overflow-y-auto",
+      )}
+    >
       {options.map((opt) => {
         const id = String(opt.id)
         const checked = selected.has(id)

@@ -113,7 +113,9 @@
   }
 
   .app-panel {
-    overflow: hidden;
+    /* visible so long form panels are not clipped inside flex scroll shells;
+       list/table cards that need clipping set overflow-hidden themselves. */
+    overflow: visible;
     border-radius: var(--app-radius-surface);
     border: 1px solid var(--border);
     background-color: var(--card);
