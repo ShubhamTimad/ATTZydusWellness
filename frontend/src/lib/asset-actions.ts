@@ -43,6 +43,23 @@ export function eligibleSubmitAssets(rows: AssetListItem[]): AssetListItem[] {
   return rows.filter((r) => canSubmitForApproval(r.lifecycle_status, r.approval_status))
 }
 
+/** Physical verification: approved + RFID attached only. */
+export function canCreatePhysicalVerificationOrder(row: {
+  approval_status?: string | null
+  lifecycle_status?: string | null
+  rfid_code?: string | null
+}): boolean {
+  const approval = (row.approval_status ?? "").trim().toLowerCase()
+  if (approval !== "approved") return false
+  const lifecycle = (row.lifecycle_status ?? "").trim().toLowerCase()
+  if (lifecycle && lifecycle !== "active") return false
+  return Boolean((row.rfid_code || "").trim())
+}
+
+export function eligiblePhysicalOrderAssets(rows: AssetListItem[]): AssetListItem[] {
+  return rows.filter((r) => canCreatePhysicalVerificationOrder(r))
+}
+
 export function eligibleDecisionAssets(rows: AssetListItem[]): AssetListItem[] {
   return rows.filter((r) => (r.approval_status || "").toLowerCase() === "pending")
 }
@@ -58,6 +75,7 @@ export function eligibleReactivateAssets(rows: AssetListItem[]): AssetListItem[]
 export function buildAssetListActionItems(opts: {
   selectedCount: number
   rfidTaggedCount?: number
+  physicalOrderEligibleCount?: number
   submitEligibleCount?: number
   deactivateEligibleCount?: number
   reactivateEligibleCount?: number
@@ -74,6 +92,7 @@ export function buildAssetListActionItems(opts: {
   const {
     selectedCount,
     rfidTaggedCount = 0,
+    physicalOrderEligibleCount = rfidTaggedCount,
     submitEligibleCount = 0,
     deactivateEligibleCount = 0,
     reactivateEligibleCount = 0,
@@ -117,17 +136,19 @@ export function buildAssetListActionItems(opts: {
   }
 
   if (canCreateOrder) {
-    const rfidHint =
-      selectedCount > 0
-        ? rfidTaggedCount > 0
-          ? `${rfidTaggedCount} of ${selectedCount} with RFID tagged`
-          : "Selected assets need an attached RFID"
-        : undefined
+    const hint =
+      selectedCount === 0
+        ? undefined
+        : physicalOrderEligibleCount === 0
+          ? "Only approved assets with RFID can be included"
+          : physicalOrderEligibleCount < selectedCount
+            ? `${physicalOrderEligibleCount} of ${selectedCount} approved with RFID`
+            : `${physicalOrderEligibleCount} asset(s)`
     actions.push({
       id: "create-physical-order",
-      label: "Create physical order",
-      hint: rfidHint,
-      disabled: selectedCount === 0 || rfidTaggedCount === 0,
+      label: "Create physical verification order",
+      hint,
+      disabled: selectedCount === 0 || physicalOrderEligibleCount === 0,
       icon: ClipboardList,
     })
   }
@@ -143,7 +164,7 @@ export function buildAssetListActionItems(opts: {
             : `${transferEligibleCount} asset(s)`
     actions.push({
       id: "create-transfer-order",
-      label: "Create transfer",
+      label: "Create transfer order",
       hint,
       disabled: transferEligibleCount === 0,
       icon: ArrowRightLeft,
@@ -161,7 +182,7 @@ export function buildAssetListActionItems(opts: {
             : `${disposalEligibleCount} asset(s)`
     actions.push({
       id: "create-disposal-order",
-      label: "Create disposal",
+      label: "Create disposal order",
       hint,
       disabled: disposalEligibleCount === 0,
       icon: PackageX,

@@ -40,6 +40,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -55,6 +56,7 @@ import {
   buildAssetListActionItems,
   eligibleDeactivateAssets,
   eligibleDecisionAssets,
+  eligiblePhysicalOrderAssets,
   eligibleReactivateAssets,
   eligibleSubmitAssets,
   selectedAssetsFromList,
@@ -67,6 +69,7 @@ import type {
   FinancialYearOption,
   SubmitForApprovalResult,
 } from "@/lib/assets-types"
+import { formatSubmitForApprovalSuccess } from "@/lib/assets-types"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 import { CapexDecisionDialog } from "@/pages/capex/capex-decision-dialog"
 import type { CostCenterMaster, FunctionalLocationMaster } from "@/lib/masters-types"
@@ -78,6 +81,9 @@ import {
 } from "@/lib/use-asset-masters"
 import {
   ASSET_APPROVAL_STATUS_TABS,
+  ASSET_STATUS_FILTER_OPTIONS,
+  assetStatusFilterOption,
+  assetStatusFilterValue,
   assetStatusLabel,
   assetStatusPillTone,
 } from "@/lib/asset-lifecycle"
@@ -310,8 +316,7 @@ function countActiveFilters(
     if (f.fy_scan_from && f.fy_scan_from !== defaultScanFrom) n += 1
     if (f.fy_scan_to && f.fy_scan_to !== defaultScanTo) n += 1
   } else {
-    if (f.lifecycle_status) n += 1
-    if (f.approval_status) n += 1
+    if (assetStatusFilterValue(f.lifecycle_status, f.approval_status)) n += 1
     if (f.rfid_status) n += 1
   }
   return n
@@ -410,6 +415,7 @@ export function AssetsListPage() {
   const [plantMismatchOpen, setPlantMismatchOpen] = React.useState(false)
   const [ccMismatchOpen, setCcMismatchOpen] = React.useState(false)
   const [missingRfidOpen, setMissingRfidOpen] = React.useState(false)
+  const [notApprovedOpen, setNotApprovedOpen] = React.useState(false)
   const [validationResult, setValidationResult] = React.useState<ValidateAssetsResponse | null>(null)
   const [createOrderOpen, setCreateOrderOpen] = React.useState(false)
   const [eligibleForOrder, setEligibleForOrder] = React.useState<number[]>([])
@@ -474,7 +480,7 @@ export function AssetsListPage() {
   const activeColumnFilterCount =
     Object.values(columnFilters).filter((value) => value.trim()).length +
     (filters.category_id ? 1 : 0) +
-    (filters.lifecycle_status ? 1 : 0)
+    (assetStatusFilterValue(filters.lifecycle_status, filters.approval_status) ? 1 : 0)
 
   const visibleColumns = React.useMemo(() => {
     const selected = new Set(visibleColumnKeys)
@@ -584,6 +590,20 @@ export function AssetsListPage() {
     setPage(1)
   }
 
+  /** Status column filter — matches badge labels (Draft / Active / …). */
+  function setStatusColumnFilter(value: string) {
+    const opt = value ? assetStatusFilterOption(value) : null
+    const lifecycle_status = opt?.lifecycle_status ?? ""
+    const approval_status = opt?.approval_status ?? ""
+    setFilters((f) => ({ ...f, lifecycle_status, approval_status }))
+    setDraftFilters((f) => ({ ...f, lifecycle_status, approval_status }))
+    const matchingTab = ASSET_APPROVAL_STATUS_TABS.find(
+      (t) => t.key !== "all" && t.approval_status === approval_status,
+    )
+    setListTab(matchingTab?.key ?? "all")
+    setPage(1)
+  }
+
   function columnFilterControl(key: AssetListColumnKey): React.ReactNode {
     if (
       key === "asset_code" ||
@@ -666,13 +686,16 @@ export function AssetsListPage() {
       return (
         <select
           className={cn(adminSelectClass, columnFilterControlClass)}
-          value={filters.lifecycle_status}
+          value={assetStatusFilterValue(filters.lifecycle_status, filters.approval_status)}
           aria-label="Filter status"
-          onChange={(e) => setColumnPanelFilter("lifecycle_status", e.target.value)}
+          onChange={(e) => setStatusColumnFilter(e.target.value)}
         >
           <option value="">Status</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
+          {ASSET_STATUS_FILTER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </select>
       )
     }
@@ -848,6 +871,10 @@ export function AssetsListPage() {
     }
     return count
   }, [selected, selectedHasRfid, items])
+  const physicalOrderEligibleRows = React.useMemo(
+    () => eligiblePhysicalOrderAssets(selectedRows),
+    [selectedRows],
+  )
   const submitEligibleRows = React.useMemo(
     () => eligibleSubmitAssets(selectedRows),
     [selectedRows],
@@ -881,6 +908,7 @@ export function AssetsListPage() {
       buildAssetListActionItems({
         selectedCount: selected.size,
         rfidTaggedCount,
+        physicalOrderEligibleCount: physicalOrderEligibleRows.length,
         submitEligibleCount: submitEligibleRows.length,
         deactivateEligibleCount: deactivateEligibleRows.length,
         reactivateEligibleCount: reactivateEligibleRows.length,
@@ -897,6 +925,7 @@ export function AssetsListPage() {
     [
       selected.size,
       rfidTaggedCount,
+      physicalOrderEligibleRows.length,
       submitEligibleRows.length,
       deactivateEligibleRows.length,
       reactivateEligibleRows.length,
@@ -989,7 +1018,9 @@ export function AssetsListPage() {
 
   function openBulkSubmit() {
     if (submitEligibleRows.length === 0) {
-      toast.error("No draft or rejected assets in the selection.")
+      toast.error(
+        "Select at least one draft or rejected asset to submit for approval.",
+      )
       return
     }
     setSubmitAssignOpen(true)
@@ -1004,22 +1035,27 @@ export function AssetsListPage() {
         asset_ids: ids,
         assignee_user_id: userId,
       })
-      const parts: string[] = []
-      if (res.submitted_count > 0) parts.push(`${res.submitted_count} submitted`)
-      if (res.activated_count > 0) parts.push(`${res.activated_count} activated`)
+      const success = formatSubmitForApprovalSuccess(res)
       if (res.errors?.length) {
-        toast.error(res.errors[0] ?? "Some assets could not be submitted.")
+        toast.error(
+          res.errors[0] ??
+            "Some assets could not be submitted for approval. Check their status and try again.",
+        )
       }
-      if (parts.length > 0) {
-        toast.success(parts.join(", ") + ".")
+      if (success) {
+        toast.success(success)
         setSubmitAssignOpen(false)
         clearSelection()
         await load()
       } else if (!res.errors?.length) {
-        toast.error("No assets were submitted.")
+        toast.error("No assets were submitted for approval.")
       }
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Submit failed.")
+      toast.error(
+        e instanceof ApiError
+          ? e.message
+          : "Could not submit assets for approval. Please try again.",
+      )
     } finally {
       setBulkActionBusy(false)
     }
@@ -1172,6 +1208,10 @@ export function AssetsListPage() {
         setActiveConflictOpen(true)
         return
       }
+      if ((res.not_approved?.length ?? 0) > 0) {
+        setNotApprovedOpen(true)
+        return
+      }
       if (res.missing_rfid.length > 0) {
         setMissingRfidOpen(true)
         return
@@ -1217,6 +1257,7 @@ export function AssetsListPage() {
     setSelectedHasRfid(new Map(eligible.map((id) => [id, true])))
     setActiveConflictOpen(false)
     setMissingRfidOpen(false)
+    setNotApprovedOpen(false)
     setPlantMismatchOpen(false)
     setCcMismatchOpen(false)
     setFyVerifiedOpen(false)
@@ -1790,31 +1831,27 @@ export function AssetsListPage() {
                     <Label className="app-form-label text-muted-foreground">Asset status</Label>
                     <select
                       className={adminSelectClass}
-                      value={draftFilters.lifecycle_status}
-                      onChange={(e) =>
-                        setDraftFilters((f) => ({ ...f, lifecycle_status: e.target.value }))
-                      }
+                      value={assetStatusFilterValue(
+                        draftFilters.lifecycle_status,
+                        draftFilters.approval_status,
+                      )}
+                      onChange={(e) => {
+                        const opt = e.target.value
+                          ? assetStatusFilterOption(e.target.value)
+                          : null
+                        setDraftFilters((f) => ({
+                          ...f,
+                          lifecycle_status: opt?.lifecycle_status ?? "",
+                          approval_status: opt?.approval_status ?? "",
+                        }))
+                      }}
                     >
                       <option value="">All</option>
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                    </select>
-                  </div>
-                  <div className="app-form-field">
-                    <Label className="app-form-label text-muted-foreground">Approval</Label>
-                    <select
-                      className={adminSelectClass}
-                      value={draftFilters.approval_status}
-                      onChange={(e) =>
-                        setDraftFilters((f) => ({ ...f, approval_status: e.target.value }))
-                      }
-                    >
-                      <option value="">All</option>
-                      <option value="draft">Draft (not submitted)</option>
-                      <option value="pending">Pending approval</option>
-                      <option value="approved">Approved</option>
-                      <option value="rejected">Rejected</option>
-                      <option value="not_required">Not required</option>
+                      {ASSET_STATUS_FILTER_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
                   <div className="app-form-field">
@@ -1926,23 +1963,18 @@ export function AssetsListPage() {
                 }}
               />
             ) : null}
-            {!isFyTab && filters.lifecycle_status ? (
+            {!isFyTab &&
+            assetStatusFilterValue(filters.lifecycle_status, filters.approval_status) ? (
               <FilterChip
-                label={`Status: ${filters.lifecycle_status === "active" ? "Active" : "Inactive"}`}
-                onRemove={() => {
-                  setFilters((f) => ({ ...f, lifecycle_status: "" }))
-                  setDraftFilters((f) => ({ ...f, lifecycle_status: "" }))
-                  setPage(1)
-                }}
-              />
-            ) : null}
-            {!isFyTab && filters.approval_status ? (
-              <FilterChip
-                label={`Approval: ${filters.approval_status.replace(/_/g, " ")}`}
+                label={`Status: ${
+                  assetStatusFilterOption(
+                    assetStatusFilterValue(filters.lifecycle_status, filters.approval_status),
+                  )?.label ?? ""
+                }`}
                 onRemove={() => {
                   setListTab("all")
-                  setFilters((f) => ({ ...f, approval_status: "" }))
-                  setDraftFilters((f) => ({ ...f, approval_status: "" }))
+                  setFilters((f) => ({ ...f, lifecycle_status: "", approval_status: "" }))
+                  setDraftFilters((f) => ({ ...f, lifecycle_status: "", approval_status: "" }))
                   setPage(1)
                 }}
               />
@@ -2186,29 +2218,62 @@ export function AssetsListPage() {
       </Dialog>
 
       <Dialog open={missingRfidOpen} onOpenChange={setMissingRfidOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>RFID not attached</DialogTitle>
+            <DialogTitle>RFID required</DialogTitle>
             <DialogDescription>
-              Physical Verification orders can only include assets that have an RFID code attached.
-              Attach RFID on the asset detail page, or continue with RFID-tagged assets only.
+              Attach RFID before creating a physical verification order.
             </DialogDescription>
           </DialogHeader>
-          <ul className="dialog-body max-h-64 list-disc space-y-1 overflow-auto pl-5 text-sm">
+          <ul className="dialog-body max-h-48 list-disc space-y-1 overflow-auto pl-5 text-sm">
             {validationResult?.missing_rfid.map((a) => (
               <li key={a.asset_id}>
-                {a.asset_code} — {a.asset_name}
+                <span className="font-mono text-xs">{a.asset_code}</span>
+                {" — "}
+                {a.asset_name}
               </li>
             ))}
           </ul>
-          <div className="flex justify-end gap-2 border-t pt-3">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setMissingRfidOpen(false)}>
               Cancel
             </Button>
-            <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly()}>
-              Continue with RFID-tagged only
-            </AdminPrimaryButton>
-          </div>
+            {(validationResult?.eligible_asset_ids.length ?? 0) > 0 ? (
+              <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly()}>
+                Continue
+              </AdminPrimaryButton>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={notApprovedOpen} onOpenChange={setNotApprovedOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Not approved</DialogTitle>
+            <DialogDescription>
+              Only approved assets with RFID can be included.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="dialog-body max-h-48 list-disc space-y-1 overflow-auto pl-5 text-sm">
+            {(validationResult?.not_approved ?? []).map((a) => (
+              <li key={a.asset_id}>
+                <span className="font-mono text-xs">{a.asset_code}</span>
+                {" — "}
+                {a.asset_name}
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setNotApprovedOpen(false)}>
+              Cancel
+            </Button>
+            {(validationResult?.eligible_asset_ids.length ?? 0) > 0 ? (
+              <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly()}>
+                Continue
+              </AdminPrimaryButton>
+            ) : null}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

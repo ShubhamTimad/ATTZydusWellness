@@ -63,6 +63,7 @@ export type CapexApprovalPanel = {
   is_final_step?: boolean
   needs_next_assignee?: boolean
   next_step_role_name?: string | null
+  next_assignee_role_id?: number | null
   next_assignee_level?: "hod" | "engineering" | "central_finance" | string | null
   next_step_kind?: string | null
 }

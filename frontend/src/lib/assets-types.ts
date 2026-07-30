@@ -61,6 +61,26 @@ export type SubmitForApprovalResult = {
   errors: string[]
 }
 
+/** User-facing success toast for submit-for-approval API results. */
+export function formatSubmitForApprovalSuccess(res: SubmitForApprovalResult): string | null {
+  const parts: string[] = []
+  if (res.submitted_count > 0) {
+    parts.push(
+      res.submitted_count === 1
+        ? "1 asset submitted for approval"
+        : `${res.submitted_count} assets submitted for approval`,
+    )
+  }
+  if (res.activated_count > 0) {
+    parts.push(
+      res.activated_count === 1
+        ? "1 asset activated (no approval workflow is configured)"
+        : `${res.activated_count} assets activated (no approval workflow is configured)`,
+    )
+  }
+  return parts.length > 0 ? `${parts.join(". ")}.` : null
+}
+
 export type AssetListResponse = {
   items: AssetListItem[]
   total: number

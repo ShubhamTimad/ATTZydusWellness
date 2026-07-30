@@ -5,6 +5,7 @@ export type AssetFieldSection = "root" | "location" | "financial" | "inventory"
 
 export type AssetMasterFieldKind =
   | "text"
+  | "textarea"
   | "date"
   | "number"
   | "category"
@@ -29,9 +30,9 @@ export const ASSET_MASTER_FIELDS: AssetMasterFieldDef[] = [
   { key: "asset_class_id", label: "Asset Class", section: "root", kind: "text" },
   { key: "asset_type", label: "Asset Type", section: "root", kind: "text" },
   { key: "asset_condition_id", label: "Asset Physical Condition", section: "root", kind: "text" },
-  { key: "remark", label: "Remark", section: "root", kind: "text" },
-  { key: "asset_description", label: "Asset Description", section: "root", kind: "text" },
   { key: "asset_custodian_id", label: "Asset Custodian", section: "root", kind: "text" },
+  { key: "remark", label: "Asset Remark", section: "root", kind: "textarea" },
+  { key: "asset_description", label: "Asset Description", section: "root", kind: "textarea" },
   { key: "rfid_code", label: "RFID Code", section: "root", kind: "text" },
   { key: "tag_color_id", label: "Tag color", section: "root", kind: "text" },
   { key: "sub_location", label: "Sub location", section: "location", kind: "text" },
@@ -92,9 +93,9 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "category_code", label: "Asset Category", required: true },
   { key: "combined_asset_number", label: "Combined Asset No", required: true },
   { key: "asset_code", label: "Asset Number" },
-  { key: "remark", label: "Remark" },
   { key: "sub_no", label: "Sub-No" },
   { key: "asset_description", label: "Asset Description" },
+  { key: "remark", label: "Asset Remark" },
   { key: "rfid_code", label: "RFID Code" },
   { key: "tag_color_code", label: "Tag color", kind: "select" },
   { key: "asset_custodian_code", label: "Asset Custodian", kind: "select" },
@@ -193,7 +194,7 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   asset_category_id: "Asset Category",
   asset_code: "Asset Number",
   combined_asset_number: "Combined Asset No",
-  remark: "Remark",
+  remark: "Asset Remark",
   sub_no: "Sub-No",
   asset_description: "Asset Description",
   tag_color_id: "Tag color",
@@ -261,9 +262,9 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
       "asset_class_id",
       "asset_type",
       "asset_condition_id",
+      "asset_custodian_id",
       "remark",
       "asset_description",
-      "asset_custodian_id",
     ],
     fieldStorage: {
       asset_description: "information",

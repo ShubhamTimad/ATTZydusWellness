@@ -39,6 +39,7 @@ class ValidateAssetsResponse(BaseModel):
     eligible_asset_ids: list[int]
     active_order_conflicts: list[ActiveOrderConflict]
     missing_rfid: list[InvalidAssetRef]
+    not_approved: list[InvalidAssetRef] = Field(default_factory=list)
     plant_mismatch: list[InvalidAssetRef]
     cost_center_mismatch: list[InvalidAssetRef]
     financial_year_label: str | None = None

@@ -13,6 +13,7 @@ import {
   AdminPanel,
   AdminPrimaryButton,
   adminSelectClass,
+  adminTextareaClass,
 } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -514,29 +515,6 @@ export function AssetCreatePage() {
                 </FormField>,
               )}
               {field(
-                "remark",
-                <FormField id="remark" labelText={fc.getLabel("remark", "Remark")}>
-                  <Input
-                    id="remark"
-                    value={form.remark}
-                    onChange={(e) => patch({ remark: e.target.value })}
-                  />
-                </FormField>,
-              )}
-              {field(
-                "asset_description",
-                <FormField
-                  id="asset_description"
-                  labelText={fc.getLabel("asset_description", "Asset Description")}
-                >
-                  <Input
-                    id="asset_description"
-                    value={form.asset_description}
-                    onChange={(e) => patch({ asset_description: e.target.value })}
-                  />
-                </FormField>,
-              )}
-              {field(
                 "asset_custodian_id",
                 <FormField
                   id="asset_custodian_id"
@@ -577,6 +555,38 @@ export function AssetCreatePage() {
                   tagColors={masters.tagColors}
                 />
               ) : null}
+              {field(
+                "remark",
+                <FormField
+                  id="remark"
+                  labelText={fc.getLabel("remark", "Asset Remark")}
+                >
+                  <textarea
+                    id="remark"
+                    className={adminTextareaClass}
+                    rows={4}
+                    value={form.remark}
+                    onChange={(e) => patch({ remark: e.target.value })}
+                    placeholder="Detailed remarks about this asset…"
+                  />
+                </FormField>,
+              )}
+              {field(
+                "asset_description",
+                <FormField
+                  id="asset_description"
+                  labelText={fc.getLabel("asset_description", "Asset Description")}
+                >
+                  <textarea
+                    id="asset_description"
+                    className={adminTextareaClass}
+                    rows={4}
+                    value={form.asset_description}
+                    onChange={(e) => patch({ asset_description: e.target.value })}
+                    placeholder="Detailed description of this asset…"
+                  />
+                </FormField>,
+              )}
             </div>
           </AdminPanel>
 

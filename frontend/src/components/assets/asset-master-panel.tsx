@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Package } from "lucide-react"
 
-import { AdminPanel, adminSelectClass } from "@/components/layout/admin-ui"
+import { AdminPanel, adminSelectClass, adminTextareaClass } from "@/components/layout/admin-ui"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
@@ -219,6 +219,27 @@ function FieldEditor({
 
   const val = sectionValue()
   const dateField = def.kind === "date" || isAssetMasterDateField(def.key)
+
+  if (def.kind === "textarea") {
+    return (
+      <div className="space-y-1.5">
+        <Label className="text-xs">{def.label}</Label>
+        <textarea
+          className={adminTextareaClass}
+          rows={4}
+          value={val}
+          placeholder={
+            def.key === "asset_description"
+              ? "Detailed description of this asset…"
+              : def.key === "remark"
+                ? "Detailed remarks about this asset…"
+                : undefined
+          }
+          onChange={(e) => setValue(e.target.value || null)}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-1.5">

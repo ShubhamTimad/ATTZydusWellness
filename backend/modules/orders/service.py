@@ -9,6 +9,7 @@ from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from modules.asset_masters.model import CostCenterMaster
+from modules.assets.lifecycle import LIFECYCLE_ACTIVE
 from modules.assets.model import AssetFinancialInformation, AssetLocationInformation, AssetMaster
 from modules.errors import ConflictError, NotFoundError
 from modules.platform.org_units.model import OrgUnit
@@ -370,6 +371,7 @@ class PhysicalOrderService:
         scope = load_viewer_org_scope(self._db, viewer_user_id)
         active_conflicts: list[ActiveOrderConflict] = []
         missing_rfid: list[InvalidAssetRef] = []
+        not_approved: list[InvalidAssetRef] = []
         plant_mismatch: list[InvalidAssetRef] = []
         cc_mismatch: list[InvalidAssetRef] = []
         blocked: set[int] = set()
@@ -420,6 +422,18 @@ class PhysicalOrderService:
 
         for a in assets:
             if int(a.id) in blocked:
+                continue
+            approval = (a.approval_status or "").strip().lower()
+            lifecycle = (a.lifecycle_status or "").strip().lower()
+            if approval != "approved" or (lifecycle and lifecycle != LIFECYCLE_ACTIVE):
+                not_approved.append(
+                    InvalidAssetRef(
+                        asset_id=int(a.id),
+                        asset_code=a.asset_code,
+                        asset_name=a.asset_name,
+                    )
+                )
+                blocked.add(int(a.id))
                 continue
             if not (a.rfid_code or "").strip():
                 missing_rfid.append(
@@ -525,6 +539,7 @@ class PhysicalOrderService:
             eligible_asset_ids=eligible,
             active_order_conflicts=active_conflicts,
             missing_rfid=missing_rfid,
+            not_approved=not_approved,
             plant_mismatch=plant_mismatch,
             cost_center_mismatch=cc_mismatch,
             financial_year_label=period.label,

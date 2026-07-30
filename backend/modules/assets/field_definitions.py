@@ -38,7 +38,7 @@ IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
         "combined asset no.",
         "can",
     ],
-    "remark": ["remark", "remarks", "notes"],
+    "remark": ["remark", "remarks", "notes", "asset remark", "asset remarks"],
     "sub_no": ["sub-no", "sub no", "sub_no", "sub number", "sub-number"],
     "asset_description": [
         "asset description",
@@ -125,7 +125,7 @@ ASSET_FIELD_LABELS: dict[str, str] = {
     "asset_category_id": "Asset category",
     "asset_code": "Asset Number",
     "combined_asset_number": "Combined Asset No",
-    "remark": "Remark",
+    "remark": "Asset Remark",
     "sub_no": "Sub-No",
     "rfid_code": "RFID Code",
     "tag_color_code": "Tag color",

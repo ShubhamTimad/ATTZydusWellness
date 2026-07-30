@@ -21,11 +21,11 @@ type Props = {
   requireComment?: boolean
   title?: string
   confirmLabel?: string
-  /** When approving and another step follows, pick next user from this role. */
+  /** When approving and another step follows, pick next user (via assigneesUrl or level). */
   needsNextAssignee?: boolean
   nextAssigneeLevel?: string | null
   nextStepRoleName?: string | null
-  /** Assignees API path for the next-approver pool; defaults to the CapEx one. */
+  /** Assignees API path for the next-approver pool (prefer role_id from workflow). */
   assigneesUrl?: string
   onConfirm: (payload: {
     comment: string | null
@@ -52,7 +52,8 @@ export function CapexDecisionDialog({
   const [loadingUsers, setLoadingUsers] = React.useState(false)
   const [selectedId, setSelectedId] = React.useState("")
 
-  const showNextPicker = mode === "approve" && needsNextAssignee && Boolean(nextAssigneeLevel)
+  const showNextPicker =
+    mode === "approve" && needsNextAssignee && Boolean(assigneesUrl || nextAssigneeLevel)
   const commentRequired = requireComment || mode === "reject"
 
   React.useEffect(() => {
@@ -62,7 +63,16 @@ export function CapexDecisionDialog({
   }, [open, mode])
 
   React.useEffect(() => {
-    if (!open || !showNextPicker || !nextAssigneeLevel) {
+    if (!open || !showNextPicker) {
+      setItems([])
+      return
+    }
+    const url =
+      assigneesUrl ??
+      (nextAssigneeLevel
+        ? `/admin/capitalization-forms/assignees?level=${encodeURIComponent(nextAssigneeLevel)}`
+        : null)
+    if (!url) {
       setItems([])
       return
     }
@@ -70,10 +80,7 @@ export function CapexDecisionDialog({
     setLoadingUsers(true)
     void (async () => {
       try {
-        const res = await getJson<CapexAssigneeListResponse>(
-          assigneesUrl ??
-            `/admin/capitalization-forms/assignees?level=${encodeURIComponent(nextAssigneeLevel)}`,
-        )
+        const res = await getJson<CapexAssigneeListResponse>(url)
         if (!cancelled) setItems(res.items)
       } catch (e) {
         if (!cancelled) {

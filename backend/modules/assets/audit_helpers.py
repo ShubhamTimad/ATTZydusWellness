@@ -16,7 +16,7 @@ AUDIT_FIELD_LABELS: dict[str, str] = {
     "asset_category_id": "Asset category",
     "serial_no": "Serial no.",
     "combined_asset_number": "Combined Asset No",
-    "remark": "Remark",
+    "remark": "Asset Remark",
     "sub_no": "Sub-No",
     "ownership_type": "Ownership",
     "inventory_no": "Inventory no.",

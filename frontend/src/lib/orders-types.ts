@@ -13,6 +13,11 @@ export type ValidateAssetsResponse = {
     asset_code: string
     asset_name: string
   }[]
+  not_approved?: {
+    asset_id: number
+    asset_code: string
+    asset_name: string
+  }[]
   plant_mismatch: {
     asset_id: number
     asset_code: string

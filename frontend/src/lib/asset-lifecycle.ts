@@ -40,6 +40,82 @@ export function assetStatusLabel(lifecycleStatus: string, approvalStatus: string
   return "Inactive"
 }
 
+/** Column / filter options — same labels as {@link assetStatusLabel}. */
+export const ASSET_STATUS_FILTER_OPTIONS = [
+  {
+    value: "draft",
+    label: "Draft",
+    approval_status: "draft",
+    lifecycle_status: "",
+  },
+  {
+    value: "pending",
+    label: "Pending approval",
+    approval_status: "pending",
+    lifecycle_status: "",
+  },
+  {
+    value: "rejected",
+    label: "Rejected",
+    approval_status: "rejected",
+    lifecycle_status: "",
+  },
+  {
+    value: "approved",
+    label: "Approved",
+    approval_status: "approved",
+    lifecycle_status: "",
+  },
+  {
+    value: "active",
+    label: "Active",
+    approval_status: "",
+    lifecycle_status: "active",
+  },
+  {
+    value: "deactivated",
+    label: "Inactive",
+    approval_status: "",
+    lifecycle_status: "deactivated",
+  },
+  {
+    value: "pending_disposal",
+    label: "Pending disposal",
+    approval_status: "",
+    lifecycle_status: "pending_disposal",
+  },
+  {
+    value: "disposed",
+    label: "Disposed",
+    approval_status: "",
+    lifecycle_status: "disposed",
+  },
+] as const
+
+export type AssetStatusFilterValue = (typeof ASSET_STATUS_FILTER_OPTIONS)[number]["value"]
+
+/** Resolve current list filters to a Status dropdown value. */
+export function assetStatusFilterValue(
+  lifecycleStatus: string,
+  approvalStatus: string,
+): AssetStatusFilterValue | "" {
+  const lifecycle = (lifecycleStatus || "").toLowerCase()
+  const approval = (approvalStatus || "").toLowerCase()
+  if (lifecycle === "disposed") return "disposed"
+  if (lifecycle === "pending_disposal") return "pending_disposal"
+  if (lifecycle === "deactivated") return "deactivated"
+  if (approval === "draft") return "draft"
+  if (approval === "pending") return "pending"
+  if (approval === "rejected") return "rejected"
+  if (approval === "approved") return "approved"
+  if (lifecycle === "active") return "active"
+  return ""
+}
+
+export function assetStatusFilterOption(value: string) {
+  return ASSET_STATUS_FILTER_OPTIONS.find((o) => o.value === value) ?? null
+}
+
 export function assetStatusVariant(
   lifecycleStatus: string,
   approvalStatus: string,

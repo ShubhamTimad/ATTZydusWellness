@@ -2,7 +2,7 @@ import * as React from "react"
 import type { LucideIcon } from "lucide-react"
 
 import { TagColorPicker, TagColorSwatch } from "@/components/assets/tag-color-select"
-import { AdminPanel, adminSelectClass } from "@/components/layout/admin-ui"
+import { AdminPanel, adminSelectClass, adminTextareaClass } from "@/components/layout/admin-ui"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
@@ -11,6 +11,7 @@ import type { TagColorMaster } from "@/lib/masters-types"
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import {
   ASSET_FIELD_LABELS,
+  ASSET_MASTER_FIELDS,
   ASSET_VIEW_PANEL_MIN_HEIGHT,
   isAssetMasterDateField,
 } from "@/lib/asset-master-fields"
@@ -33,6 +34,7 @@ export function AssetDetailSectionPanel({
   onSection,
   extra,
   extraAfterFirst,
+  extraAfterKeys,
   extraEnd,
   plantCode,
   plantName,
@@ -53,7 +55,9 @@ export function AssetDetailSectionPanel({
   onSection: (field: string, value: string | number | null) => void
   extra?: React.ReactNode
   extraAfterFirst?: React.ReactNode
-  /** Rendered after all section fields (e.g. CapEx form). */
+  /** Inserted immediately after the named field (e.g. CapEx after custodian). */
+  extraAfterKeys?: Record<string, React.ReactNode>
+  /** Rendered after all section fields. */
   extraEnd?: React.ReactNode
   plantCode?: string | null
   plantName?: string | null
@@ -74,6 +78,13 @@ export function AssetDetailSectionPanel({
   const dateFields = config.dateFields ?? []
   const readOnlyKeys = config.readOnlyKeys ?? []
   const keys = filterVisibleKeys(config.keys)
+  const textareaKeys = React.useMemo(
+    () =>
+      new Set(
+        ASSET_MASTER_FIELDS.filter((f) => f.kind === "textarea").map((f) => f.key),
+      ),
+    [],
+  )
 
   function formatFieldLabel(key: string) {
     return getLabel(key, ASSET_FIELD_LABELS[key] ?? key.replace(/_/g, " "))
@@ -184,86 +195,98 @@ export function AssetDetailSectionPanel({
         <div className="grid gap-[var(--app-form-gap)] p-[var(--app-card-padding)] sm:grid-cols-2 sm:content-start">
           {extra}
           {keys.map((k, index) => {
-            const opts = selectOptions[k]
-            const hasSelect = Object.prototype.hasOwnProperty.call(selectOptions, k)
-            const readonly = readOnlyKeys.includes(k)
-            const rawVal = fieldValue(k)
-            const val = readonly
-              ? readOnlyDisplay(k)
-              : k === "asset_category_id"
-                ? String(asset.asset_category_id ?? "")
-                : k === "tag_color_id"
-                  ? String(asset.tag_color_id ?? "")
-                  : k === "asset_custodian_id"
-                    ? String(asset.asset_custodian_id ?? "")
-                    : k === "asset_condition_id"
-                      ? String(asset.asset_condition_id ?? "")
-                      : k === "asset_class_id"
-                        ? String(asset.asset_class_id ?? "")
-                      : k === "cost_center_name" && hasSelect
-                        ? String(asset.financial?.cost_center ?? "")
-                        : String(rawVal ?? "")
-            const mono = k === "asset_code" || k === "combined_asset_number" || k === "rfid_code"
+            const multiline = textareaKeys.has(k)
+            // Pair consecutive textareas on one full row (Remark | Description).
+            if (multiline && index > 0 && textareaKeys.has(keys[index - 1])) {
+              return null
+            }
+            if (multiline) {
+              const group: string[] = []
+              for (let i = index; i < keys.length && textareaKeys.has(keys[i]); i++) {
+                group.push(keys[i])
+              }
+              return (
+                <div
+                  key={group.join("-")}
+                  className="grid gap-[var(--app-form-gap)] sm:col-span-2 sm:grid-cols-2"
+                >
+                  {group.map((gk) => (
+                    <EditFieldCell
+                      key={gk}
+                      fieldKey={gk}
+                      asset={asset}
+                      formatFieldLabel={formatFieldLabel}
+                      isRequired={isRequired}
+                      readOnlyKeys={readOnlyKeys}
+                      dateFields={dateFields}
+                      selectOptions={selectOptions}
+                      selectPlaceholders={selectPlaceholders}
+                      selectDisabled={selectDisabled}
+                      tagColors={tagColors}
+                      inventoryDisplay={inventoryDisplay}
+                      configId={config.id}
+                      fieldValue={fieldValue}
+                      readOnlyDisplay={readOnlyDisplay}
+                      onSection={onSection}
+                      textareaKeys={textareaKeys}
+                    />
+                  ))}
+                </div>
+              )
+            }
+
+            const after = extraAfterKeys?.[k]
+            // CapEx (etc.) beside this field on one full row — not pushed to the next row.
+            if (after) {
+              return (
+                <div
+                  key={k}
+                  className="grid gap-[var(--app-form-gap)] sm:col-span-2 sm:grid-cols-2"
+                >
+                  <EditFieldCell
+                    fieldKey={k}
+                    asset={asset}
+                    formatFieldLabel={formatFieldLabel}
+                    isRequired={isRequired}
+                    readOnlyKeys={readOnlyKeys}
+                    dateFields={dateFields}
+                    selectOptions={selectOptions}
+                    selectPlaceholders={selectPlaceholders}
+                    selectDisabled={selectDisabled}
+                    tagColors={tagColors}
+                    inventoryDisplay={inventoryDisplay}
+                    configId={config.id}
+                    fieldValue={fieldValue}
+                    readOnlyDisplay={readOnlyDisplay}
+                    onSection={onSection}
+                    textareaKeys={textareaKeys}
+                  />
+                  {after}
+                </div>
+              )
+            }
+
             return (
               <React.Fragment key={k}>
-              <div className="app-form-field">
-                <Label className="app-form-label">
-                  {formatFieldLabel(k)}
-                  {isRequired(k) ? <RequiredFieldMark /> : null}
-                </Label>
-                {readonly ? (
-                  inventoryDisplay && config.id === "inventory" ? (
-                    <div className="flex min-h-9 items-center rounded-md border border-input bg-muted/40 px-3 py-2 text-sm">
-                      {inventoryDisplay(k, asset)}
-                    </div>
-                  ) : (
-                    <Input className="bg-muted/40" value={val} readOnly disabled />
-                  )
-                ) : k === "tag_color_id" && tagColors.length > 0 ? (
-                  <TagColorPicker
-                    id={`asset-field-${k}`}
-                    value={val}
-                    tagColors={tagColors}
-                    onChange={(next) => onSection(k, next ? Number(next) : null)}
-                  />
-                ) : hasSelect ? (
-                  <select
-                    className={adminSelectClass}
-                    value={val}
-                    disabled={Boolean(selectDisabled[k])}
-                    onChange={(e) =>
-                      onSection(
-                        k,
-                        k === "asset_category_id" || k === "tag_color_id" || k === "asset_custodian_id" || k === "asset_condition_id" || k === "asset_class_id"
-                          ? e.target.value
-                            ? Number(e.target.value)
-                            : null
-                          : e.target.value || null,
-                      )
-                    }
-                  >
-                    <option value="">{selectPlaceholders[k] ?? "—"}</option>
-                    {(opts ?? []).map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                ) : dateFields.includes(k) || isAssetMasterDateField(k) ? (
-                  <Input
-                    type="date"
-                    value={val ? val.slice(0, 10) : ""}
-                    onChange={(e) => onSection(k, e.target.value || null)}
-                  />
-                ) : (
-                  <Input
-                    className={cn(mono && "font-mono")}
-                    value={val}
-                    onChange={(e) => onSection(k, e.target.value || null)}
-                  />
-                )}
-              </div>
-              {index === 0 ? extraAfterFirst : null}
+                <EditFieldCell
+                  fieldKey={k}
+                  asset={asset}
+                  formatFieldLabel={formatFieldLabel}
+                  isRequired={isRequired}
+                  readOnlyKeys={readOnlyKeys}
+                  dateFields={dateFields}
+                  selectOptions={selectOptions}
+                  selectPlaceholders={selectPlaceholders}
+                  selectDisabled={selectDisabled}
+                  tagColors={tagColors}
+                  inventoryDisplay={inventoryDisplay}
+                  configId={config.id}
+                  fieldValue={fieldValue}
+                  readOnlyDisplay={readOnlyDisplay}
+                  onSection={onSection}
+                  textareaKeys={textareaKeys}
+                />
+                {index === 0 ? extraAfterFirst : null}
               </React.Fragment>
             )
           })}
@@ -291,6 +314,7 @@ export function AssetDetailSectionPanel({
             const raw = fieldValue(k)
             const isCount = k === "inventory_count" || k === "physical_count"
             const mono = k === "asset_code" || k === "combined_asset_number" || k === "rfid_code"
+            const multiline = textareaKeys.has(k)
             const display = displayValue(k, raw)
             return (
               <React.Fragment key={k}>
@@ -303,6 +327,7 @@ export function AssetDetailSectionPanel({
                       "mt-1 text-sm font-normal leading-snug break-words text-foreground",
                       mono && "font-mono text-xs",
                       isCount && "tabular-nums",
+                      multiline && "whitespace-pre-wrap",
                       highlightMismatch && isCount && k === "physical_count" && "text-primary",
                     )}
                   >
@@ -321,6 +346,7 @@ export function AssetDetailSectionPanel({
                     </p>
                   </div>
                 ) : null}
+                {extraAfterKeys?.[k] ?? null}
               </React.Fragment>
             )
           })}
@@ -328,5 +354,143 @@ export function AssetDetailSectionPanel({
         </div>
       )}
     </AdminPanel>
+  )
+}
+
+function EditFieldCell({
+  fieldKey: k,
+  asset,
+  formatFieldLabel,
+  isRequired,
+  readOnlyKeys,
+  dateFields,
+  selectOptions,
+  selectPlaceholders,
+  selectDisabled,
+  tagColors,
+  inventoryDisplay,
+  configId,
+  fieldValue,
+  readOnlyDisplay,
+  onSection,
+  textareaKeys,
+}: {
+  fieldKey: string
+  asset: AssetDetail
+  formatFieldLabel: (key: string) => string
+  isRequired: (key: string) => boolean
+  readOnlyKeys: string[]
+  dateFields: string[]
+  selectOptions: Record<string, { value: string; label: string }[]>
+  selectPlaceholders: Record<string, string>
+  selectDisabled: Record<string, boolean>
+  tagColors: TagColorMaster[]
+  inventoryDisplay?: (key: string, asset: AssetDetail) => React.ReactNode
+  configId: string
+  fieldValue: (k: string) => unknown
+  readOnlyDisplay: (k: string) => string
+  onSection: (field: string, value: string | number | null) => void
+  textareaKeys: Set<string>
+}) {
+  const opts = selectOptions[k]
+  const hasSelect = Object.prototype.hasOwnProperty.call(selectOptions, k)
+  const readonly = readOnlyKeys.includes(k)
+  const rawVal = fieldValue(k)
+  const val = readonly
+    ? readOnlyDisplay(k)
+    : k === "asset_category_id"
+      ? String(asset.asset_category_id ?? "")
+      : k === "tag_color_id"
+        ? String(asset.tag_color_id ?? "")
+        : k === "asset_custodian_id"
+          ? String(asset.asset_custodian_id ?? "")
+          : k === "asset_condition_id"
+            ? String(asset.asset_condition_id ?? "")
+            : k === "asset_class_id"
+              ? String(asset.asset_class_id ?? "")
+              : k === "cost_center_name" && hasSelect
+                ? String(asset.financial?.cost_center ?? "")
+                : String(rawVal ?? "")
+  const mono = k === "asset_code" || k === "combined_asset_number" || k === "rfid_code"
+  const multiline = textareaKeys.has(k)
+  const fullWidth = k === "asset_name"
+
+  return (
+    <div className={cn("app-form-field", fullWidth && "sm:col-span-2")}>
+      <Label className="app-form-label">
+        {formatFieldLabel(k)}
+        {isRequired(k) ? <RequiredFieldMark /> : null}
+      </Label>
+      {readonly ? (
+        inventoryDisplay && configId === "inventory" ? (
+          <div className="flex min-h-9 items-center rounded-md border border-input bg-muted/40 px-3 py-2 text-sm">
+            {inventoryDisplay(k, asset)}
+          </div>
+        ) : (
+          <Input className="bg-muted/40" value={val} readOnly disabled />
+        )
+      ) : k === "tag_color_id" && tagColors.length > 0 ? (
+        <TagColorPicker
+          id={`asset-field-${k}`}
+          value={val}
+          tagColors={tagColors}
+          onChange={(next) => onSection(k, next ? Number(next) : null)}
+        />
+      ) : hasSelect ? (
+        <select
+          className={adminSelectClass}
+          value={val}
+          disabled={Boolean(selectDisabled[k])}
+          onChange={(e) =>
+            onSection(
+              k,
+              k === "asset_category_id" ||
+                k === "tag_color_id" ||
+                k === "asset_custodian_id" ||
+                k === "asset_condition_id" ||
+                k === "asset_class_id"
+                ? e.target.value
+                  ? Number(e.target.value)
+                  : null
+                : e.target.value || null,
+            )
+          }
+        >
+          <option value="">{selectPlaceholders[k] ?? "—"}</option>
+          {(opts ?? []).map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      ) : dateFields.includes(k) || isAssetMasterDateField(k) ? (
+        <Input
+          type="date"
+          value={val ? val.slice(0, 10) : ""}
+          onChange={(e) => onSection(k, e.target.value || null)}
+        />
+      ) : multiline ? (
+        <textarea
+          id={`asset-field-${k}`}
+          className={adminTextareaClass}
+          rows={4}
+          value={val}
+          placeholder={
+            k === "asset_description"
+              ? "Detailed description of this asset…"
+              : k === "remark"
+                ? "Detailed remarks about this asset…"
+                : undefined
+          }
+          onChange={(e) => onSection(k, e.target.value || null)}
+        />
+      ) : (
+        <Input
+          className={cn(mono && "font-mono")}
+          value={val}
+          onChange={(e) => onSection(k, e.target.value || null)}
+        />
+      )}
+    </div>
   )
 }

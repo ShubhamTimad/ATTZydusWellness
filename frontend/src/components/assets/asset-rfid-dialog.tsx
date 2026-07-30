@@ -45,7 +45,9 @@ export function AssetRfidDialog({
   tagColors = [],
 }: AssetRfidDialogProps) {
   const showAssetCode = onAssetCodeChange != null
-  const showTagColor = value.trim().length > 0 && onTagColorChange != null
+  // Tag color picker hidden for now — restore when product wants it back.
+  const showTagColor = false
+  // const showTagColor = value.trim().length > 0 && onTagColorChange != null
   const canSave =
     value.trim().length > 0 && (!showAssetCode || (assetCode?.trim().length ?? 0) > 0)
 

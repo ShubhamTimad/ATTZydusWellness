@@ -57,12 +57,19 @@ def list_assignees(
         None,
         description="hod | engineering | central_finance | cfm | md | cost_center | scrapyard",
     ),
+    role_id: int | None = Query(
+        None,
+        ge=1,
+        description="Workflow step role id — preferred over level (rename-safe)",
+    ),
     requires_engineering: bool | None = Query(
         None,
         description="When set, return users in the mapped disposal workflow's first-step role.",
     ),
 ) -> DisposalAssigneeListResponse:
     try:
+        if role_id is not None:
+            return svc.list_assignees_by_role_id(role_id=role_id)
         if requires_engineering is not None:
             action_code, _entity = action_and_entity_for_order(
                 requires_engineering=bool(requires_engineering)

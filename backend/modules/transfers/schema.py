@@ -140,6 +140,9 @@ class TransferApprovalPanel(BaseModel):
     # Intermediate steps need a named next assignee; final close step does not.
     needs_next_assignee: bool = False
     next_step_role_name: str | None = None
+    # Stable workflow key for the next-step assignee pool (prefer over next_assignee_level).
+    next_assignee_role_id: int | None = None
+    # Optional legacy slug when the role name matches ASSIGNEE_LEVEL_ROLES; may be null.
     next_assignee_level: str | None = None
     next_step_kind: str | None = None
 

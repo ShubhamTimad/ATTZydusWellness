@@ -58,12 +58,19 @@ def list_assignees(
         None,
         description="hod | cost_center | central_finance — when set, users in that role",
     ),
+    role_id: int | None = Query(
+        None,
+        ge=1,
+        description="Workflow step role id — preferred over level (rename-safe)",
+    ),
     for_submit: bool = Query(
         False,
-        description="When true (or level omitted), return first-step role of transfer.submit workflow",
+        description="When true (or level/role_id omitted), return first-step role of transfer.submit workflow",
     ),
 ) -> TransferAssigneeListResponse:
     try:
+        if role_id is not None:
+            return svc.list_assignees_by_role_id(role_id=role_id)
         if for_submit or level is None:
             return svc.list_assignees_for_action(action_code=ACTION_SUBMIT)
         return svc.list_assignees(level=level)

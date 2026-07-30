@@ -45,6 +45,7 @@ from modules.transfers.constants import (
     STATUS_RECEIVED_BY_CC2,
     STATUS_REJECTED,
     SUBMITTABLE_STATUSES,
+    transfer_needs_next_assignee,
 )
 from modules.transfers.model import AssetTransferOrder, AssetTransferOrderAudit, AssetTransferOrderItem
 from modules.transfers.schema import (
@@ -247,6 +248,20 @@ class TransferOrderService:
         users = _users_in_role(self._db, int(role.id))
         return TransferAssigneeListResponse(
             role_name=role_name,
+            items=[
+                TransferAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
+                for u in users
+            ],
+        )
+
+    def list_assignees_by_role_id(self, *, role_id: int) -> TransferAssigneeListResponse:
+        """Users in a workflow step role — keyed by role id so renames do not break the picker."""
+        role = self._db.get(Role, int(role_id))
+        if role is None:
+            raise NotFoundError("Role", role_id)
+        users = _users_in_role(self._db, int(role.id))
+        return TransferAssigneeListResponse(
+            role_name=str(role.name),
             items=[
                 TransferAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
                 for u in users
@@ -1048,30 +1063,45 @@ class TransferOrderService:
         is_final = True
         needs_next = False
         next_role: str | None = None
+        next_role_id: int | None = None
         next_level: str | None = None
         next_kind: str | None = None
+        current_role_id: int | None = (
+            int(pending_task.step.approver_role_id)
+            if pending_task is not None and pending_task.step is not None
+            else None
+        )
+        wf_steps = sorted(
+            (req.workflow.steps or []) if req.workflow is not None else [],
+            key=lambda s: int(s.step_order),
+        )
         if str(req.status) == "pending" and steps:
             current = next((s for s in steps if s.phase == "current"), None)
             if current is not None:
                 is_final = int(current.step_order) >= int(current.total_steps)
                 current_kind = str(getattr(current, "step_kind", None) or current_kind)
                 if not is_final:
-                    nxt = next(
-                        (s for s in steps if int(s.step_order) == int(current.step_order) + 1),
+                    nxt_row = next(
+                        (
+                            s
+                            for s in wf_steps
+                            if int(s.step_order) == int(current.step_order) + 1
+                        ),
                         None,
                     )
-                    if nxt is not None:
-                        next_role = nxt.approver_role_name or None
-                        if next_role:
-                            next_level = ROLE_TO_ASSIGNEE_LEVEL.get(next_role)
-                        next_kind = str(getattr(nxt, "step_kind", None) or "approve")
-                        # confirm → close with same role: same CF closes, no next-user picker
-                        same_role_confirm_to_close = (
-                            current_kind == "confirm"
-                            and next_kind == "close"
-                            and (current_role or "") == (next_role or "")
+                    if nxt_row is not None:
+                        next_role_id = int(nxt_row.approver_role_id)
+                        role = self._db.get(Role, next_role_id)
+                        if role is not None:
+                            next_role = role.name
+                            next_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
+                        next_kind = str(getattr(nxt_row, "step_kind", None) or "approve")
+                        needs_next = transfer_needs_next_assignee(
+                            current_kind=current_kind,
+                            next_kind=next_kind,
+                            current_role_id=current_role_id,
+                            next_role_id=next_role_id,
                         )
-                        needs_next = not same_role_confirm_to_close
         return TransferApprovalPanel(
             request_id=int(req.id),
             request_status=str(req.status),
@@ -1087,6 +1117,7 @@ class TransferOrderService:
             is_final_step=is_final,
             needs_next_assignee=needs_next,
             next_step_role_name=next_role,
+            next_assignee_role_id=next_role_id,
             next_assignee_level=next_level,
             next_step_kind=next_kind,
         )

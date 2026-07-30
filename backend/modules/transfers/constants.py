@@ -53,6 +53,30 @@ ROLE_TO_ASSIGNEE_LEVEL: dict[str, str] = {
     ROLE_CENTRAL_FINANCE: "central_finance",
 }
 
+
+def transfer_needs_next_assignee(
+    *,
+    current_kind: str,
+    next_kind: str,
+    current_role_id: int | None,
+    next_role_id: int | None,
+) -> bool:
+    """Whether completing the current step requires picking a user for the next step.
+
+    Derived from workflow step kinds + role ids (not role display names).
+    confirm → close with the same role: same person closes, no picker.
+    """
+    if next_role_id is None:
+        return False
+    if (
+        current_kind == "confirm"
+        and next_kind == "close"
+        and current_role_id is not None
+        and int(current_role_id) == int(next_role_id)
+    ):
+        return False
+    return True
+
 STATUS_LABELS: dict[str, str] = {
     STATUS_DRAFT: "Draft",
     STATUS_PENDING_APPROVAL: "Pending approval",

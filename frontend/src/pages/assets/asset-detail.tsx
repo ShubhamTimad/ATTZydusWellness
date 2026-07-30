@@ -39,6 +39,7 @@ import type {
   AssetRfidAttachResult,
   SubmitForApprovalResult,
 } from "@/lib/assets-types"
+import { formatSubmitForApprovalSuccess } from "@/lib/assets-types"
 import {
   ASSET_VIEW_SECTIONS,
   type AssetViewSectionConfig,
@@ -257,8 +258,8 @@ export function AssetDetailPage() {
         combined_asset_number: asset.combined_asset_number,
         remark: asset.remark ?? null,
         sub_no: asset.sub_no ?? null,
-        rfid_code: asset.rfid_code,
-        tag_color_id: asset.tag_color_id,
+        rfid_code: (asset.rfid_code ?? "").trim() || null,
+        tag_color_id: (asset.rfid_code ?? "").trim() ? asset.tag_color_id : null,
         asset_custodian_id: asset.asset_custodian_id,
         asset_condition_id: asset.asset_condition_id,
         serial_no: asset.serial_no,
@@ -427,10 +428,10 @@ export function AssetDetailPage() {
       return
     }
     if (field === "rfid_code") {
-      const rfid = value as string | null
-      if (!rfid?.trim()) {
+      const rfid = ((value as string | null) ?? "").trim() || null
+      if (!rfid) {
         set({
-          rfid_code: rfid,
+          rfid_code: null,
           tag_color_id: null,
           tag_color_code: null,
           tag_color_name: null,
@@ -554,19 +555,28 @@ export function AssetDetailPage() {
         { assignee_user_id: userId },
       )
       if (res.errors?.length) {
-        toast.error(res.errors[0] ?? "Submit failed.")
+        toast.error(
+          res.errors[0] ??
+            "This asset could not be submitted for approval. Check its status and try again.",
+        )
         return
       }
       setSubmitAssignOpen(false)
-      if (res.activated_count > 0) {
-        toast.success("Asset activated (no approval workflow mapped).")
-      } else {
-        toast.success("Submitted for approval.")
-      }
+      const success = formatSubmitForApprovalSuccess(res)
+      toast.success(
+        success ??
+          (res.activated_count > 0
+            ? "Asset activated (no approval workflow is configured)."
+            : "Asset submitted for approval."),
+      )
       await load()
       if (asset.id) void loadAudit(asset.id)
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Submit failed.")
+      toast.error(
+        e instanceof ApiError
+          ? e.message
+          : "Could not submit this asset for approval. Please try again.",
+      )
     } finally {
       setSaving(false)
     }
@@ -871,60 +881,63 @@ export function AssetDetailPage() {
           asset={a}
           onSection={onInformationSection}
           {...panelCommon}
-          extraEnd={
-            canViewCapex ? (
-              editing && canUpdate ? (
-                <div className="app-form-field">
-                  <Label htmlFor="asset_capex_form" className="app-form-label">
-                    CapEx form number
-                  </Label>
-                  <CapexFormSearchSelect
-                    id="asset_capex_form"
-                    value={a.capitalization_form_id ? String(a.capitalization_form_id) : ""}
-                    forAssetId={a.id}
-                    disabled={saving}
-                    onChange={(formId, option) =>
-                      setAsset((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              capitalization_form_id: formId ? Number(formId) : null,
-                              capitalization_form_number: option?.form_number ?? null,
-                              capitalization_form_asset_name: option?.asset_name ?? null,
-                            }
-                          : prev,
-                      )
-                    }
-                  />
-                </div>
-              ) : (
-                <div className="min-w-0 border-b border-border/60 py-3">
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
-                    CapEx form number
-                  </p>
-                  <p className="mt-1 text-sm font-normal leading-snug break-words text-foreground">
-                    {a.capitalization_form_id && a.capitalization_form_number ? (
-                      <>
-                        <Link
-                          className="font-medium text-primary hover:underline"
-                          to={`/dashboard/capitalization/${a.capitalization_form_id}`}
-                        >
-                          {a.capitalization_form_number}
-                        </Link>
-                        {a.capitalization_form_asset_name ? (
-                          <span className="text-muted-foreground">
-                            {" "}
-                            — {a.capitalization_form_asset_name}
-                          </span>
-                        ) : null}
-                      </>
+          extraAfterKeys={
+            canViewCapex
+              ? {
+                  asset_custodian_id:
+                    editing && canUpdate ? (
+                      <div className="app-form-field">
+                        <Label htmlFor="asset_capex_form" className="app-form-label">
+                          CapEx form number
+                        </Label>
+                        <CapexFormSearchSelect
+                          id="asset_capex_form"
+                          value={a.capitalization_form_id ? String(a.capitalization_form_id) : ""}
+                          forAssetId={a.id}
+                          disabled={saving}
+                          onChange={(formId, option) =>
+                            setAsset((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    capitalization_form_id: formId ? Number(formId) : null,
+                                    capitalization_form_number: option?.form_number ?? null,
+                                    capitalization_form_asset_name: option?.asset_name ?? null,
+                                  }
+                                : prev,
+                            )
+                          }
+                        />
+                      </div>
                     ) : (
-                      "—"
-                    )}
-                  </p>
-                </div>
-              )
-            ) : null
+                      <div className="min-w-0 border-b border-border/60 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
+                          CapEx form number
+                        </p>
+                        <p className="mt-1 text-sm font-normal leading-snug break-words text-foreground">
+                          {a.capitalization_form_id && a.capitalization_form_number ? (
+                            <>
+                              <Link
+                                className="font-medium text-primary hover:underline"
+                                to={`/dashboard/capitalization/${a.capitalization_form_id}`}
+                              >
+                                {a.capitalization_form_number}
+                              </Link>
+                              {a.capitalization_form_asset_name ? (
+                                <span className="text-muted-foreground">
+                                  {" "}
+                                  — {a.capitalization_form_asset_name}
+                                </span>
+                              ) : null}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </p>
+                      </div>
+                    ),
+                }
+              : undefined
           }
           selectOptions={{
             asset_category_id: masters.categories.map((c) => ({

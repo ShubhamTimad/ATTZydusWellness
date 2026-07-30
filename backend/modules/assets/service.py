@@ -2371,8 +2371,8 @@ class AssetMasterService:
             asset.remark = (data.remark.strip() if data.remark and data.remark.strip() else None)
         if "sub_no" in data.model_dump(exclude_unset=True):
             asset.sub_no = (data.sub_no.strip() if data.sub_no and data.sub_no.strip() else None)
-        if data.rfid_code is not None:
-            rfid = _normalize_rfid(data.rfid_code) or None
+        if "rfid_code" in data.model_dump(exclude_unset=True):
+            rfid = _normalize_rfid(data.rfid_code or "") or None
             if rfid:
                 _assert_rfid_available(self._db, rfid=rfid, exclude_asset_id=asset.id)
             asset.rfid_code = rfid
@@ -2996,6 +2996,7 @@ def activate_asset_after_approval(
         return
     transition = set_asset_approved_active(asset, approver_user_id=approver_user_id)
     note = (comment or "").strip() or None
+    # Single audit entry: approval also activates the asset — no separate "activated" row.
     log_asset_event(
         db,
         asset_id=asset.id,
@@ -3007,14 +3008,6 @@ def activate_asset_after_approval(
             **transition["after"],
             **({"comment": note} if note else {}),
         },
-    )
-    log_asset_event(
-        db,
-        asset_id=asset.id,
-        actor_user_id=approver_user_id,
-        action="activated",
-        old_value=transition["before"],
-        new_value=transition["after"],
     )
 
 

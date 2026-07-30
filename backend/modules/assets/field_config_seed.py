@@ -50,7 +50,7 @@ ASSET_FIELD_CONFIG_SEED: list[FieldConfigSeed] = [
     _row("category_code", "Asset category"),
     _row("asset_code", "Asset Number"),
     _row("combined_asset_number", "Combined Asset No"),
-    _row("remark", "Remark"),
+    _row("remark", "Asset Remark"),
     _row("sub_no", "Sub-No"),
     _row("rfid_code", "RFID Code"),
     _row("tag_color_id", "Tag color", is_visible=False),

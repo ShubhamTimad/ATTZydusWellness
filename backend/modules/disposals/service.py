@@ -359,6 +359,18 @@ class DisposalOrderService:
             ],
         )
 
+    def list_assignees_by_role_id(self, *, role_id: int) -> DisposalAssigneeListResponse:
+        role = self._db.get(Role, int(role_id))
+        if role is None:
+            raise NotFoundError("Role", role_id)
+        return DisposalAssigneeListResponse(
+            role_name=str(role.name),
+            items=[
+                DisposalAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
+                for u in _users_in_role(self._db, int(role.id))
+            ],
+        )
+
     def list_assignees_for_action(self, *, action_code: str) -> DisposalAssigneeListResponse:
         """Users in the first step role of the workflow mapped to this disposal action."""
         wf = get_workflow_for_action(self._db, action_code)
@@ -916,7 +928,12 @@ class DisposalOrderService:
         is_final = True
         needs_next = False
         next_role: str | None = None
+        next_role_id: int | None = None
         next_level: str | None = None
+        wf_steps = sorted(
+            (req.workflow.steps or []) if req.workflow is not None else [],
+            key=lambda s: int(s.step_order),
+        )
         if str(req.status) == "pending" and steps:
             current = next((s for s in steps if s.phase == "current"), None)
             if current is not None:
@@ -925,17 +942,29 @@ class DisposalOrderService:
                     # Store Person names the receiver who will take the assets.
                     needs_next = True
                     next_level = RECEIVER_ASSIGNEE_LEVEL
-                    next_role = "Receiver"
+                    next_role = ASSIGNEE_LEVEL_ROLES.get(RECEIVER_ASSIGNEE_LEVEL, "Receiver")
+                    receiver = self._db.scalar(
+                        select(Role).where(Role.name == next_role)
+                    )
+                    if receiver is not None:
+                        next_role_id = int(receiver.id)
+                        next_role = receiver.name
                 else:
-                    nxt = next(
-                        (s for s in steps if int(s.step_order) == int(current.step_order) + 1),
+                    nxt_row = next(
+                        (
+                            s
+                            for s in wf_steps
+                            if int(s.step_order) == int(current.step_order) + 1
+                        ),
                         None,
                     )
-                    if nxt is not None:
+                    if nxt_row is not None:
                         needs_next = True
-                        next_role = nxt.approver_role_name or None
-                        if next_role:
-                            next_level = ROLE_TO_ASSIGNEE_LEVEL.get(next_role)
+                        next_role_id = int(nxt_row.approver_role_id)
+                        role = self._db.get(Role, next_role_id)
+                        if role is not None:
+                            next_role = role.name
+                            next_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
         return DisposalApprovalPanel(
             request_id=int(req.id),
             request_status=str(req.status),
@@ -950,6 +979,7 @@ class DisposalOrderService:
             is_final_step=is_final,
             needs_next_assignee=needs_next,
             next_step_role_name=next_role,
+            next_assignee_role_id=next_role_id,
             next_assignee_level=next_level,
         )
 

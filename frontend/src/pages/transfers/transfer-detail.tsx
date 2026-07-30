@@ -775,9 +775,11 @@ export function TransferOrderDetailPage() {
         }}
         assigneesUrl={
           pickerMode === "cc2_assign"
-            ? panel?.next_assignee_level
-              ? `/admin/transfer-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
-              : "/admin/transfer-orders/assignees?level=central_finance"
+            ? panel?.next_assignee_role_id
+              ? `/admin/transfer-orders/assignees?role_id=${panel.next_assignee_role_id}`
+              : panel?.next_assignee_level
+                ? `/admin/transfer-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
+                : "/admin/transfer-orders/assignees?level=central_finance"
             : "/admin/transfer-orders/assignees?for_submit=true"
         }
         roleLabel={
@@ -862,9 +864,11 @@ export function TransferOrderDetailPage() {
         nextAssigneeLevel={panel?.next_assignee_level ?? null}
         nextStepRoleName={panel?.next_step_role_name ?? null}
         assigneesUrl={
-          panel?.next_assignee_level
-            ? `/admin/transfer-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
-            : undefined
+          panel?.next_assignee_role_id
+            ? `/admin/transfer-orders/assignees?role_id=${panel.next_assignee_role_id}`
+            : panel?.next_assignee_level
+              ? `/admin/transfer-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
+              : undefined
         }
         onConfirm={confirmDecision}
       />

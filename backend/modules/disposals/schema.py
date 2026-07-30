@@ -128,6 +128,7 @@ class DisposalApprovalPanel(BaseModel):
     # cost center user who will receive the assets.
     needs_next_assignee: bool = False
     next_step_role_name: str | None = None
+    next_assignee_role_id: int | None = None
     next_assignee_level: str | None = None
 
 

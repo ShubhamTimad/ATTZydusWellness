@@ -603,9 +603,11 @@ export function DisposalOrderDetailPage() {
         nextAssigneeLevel={panel?.next_assignee_level ?? null}
         nextStepRoleName={panel?.next_step_role_name ?? null}
         assigneesUrl={
-          panel?.next_assignee_level
-            ? `/admin/disposal-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
-            : undefined
+          panel?.next_assignee_role_id
+            ? `/admin/disposal-orders/assignees?role_id=${panel.next_assignee_role_id}`
+            : panel?.next_assignee_level
+              ? `/admin/disposal-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
+              : undefined
         }
         onConfirm={confirmDecision}
       />
