@@ -109,7 +109,7 @@ export function AssetRfidDialog({
             </p>
           </div>
 
-          {showTagColor ? (
+          {showTagColor && onTagColorChange ? (
             <TagColorSelect
               value={tagColorId}
               onChange={onTagColorChange}
