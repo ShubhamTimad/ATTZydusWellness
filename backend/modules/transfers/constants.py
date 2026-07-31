@@ -64,13 +64,14 @@ def transfer_needs_next_assignee(
     """Whether completing the current step requires picking a user for the next step.
 
     Derived from workflow step kinds + role ids (not role display names).
-    confirm → close with the same role: same person closes, no picker.
+    Next step is close with the same role → same person continues, no picker.
+    ``current_kind`` is accepted for call-site symmetry; the rule keys off next kind + roles.
     """
+    _ = current_kind
     if next_role_id is None:
         return False
     if (
-        current_kind == "confirm"
-        and next_kind == "close"
+        next_kind == "close"
         and current_role_id is not None
         and int(current_role_id) == int(next_role_id)
     ):

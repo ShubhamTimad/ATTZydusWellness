@@ -27,6 +27,7 @@ from modules.disposals.schema import (
 )
 from modules.disposals.service import (
     DisposalOrderService,
+    _can_disposal_operational_flag,
     action_and_entity_for_order,
     finalize_disposal_approval,
     reject_disposal_approval,
@@ -149,6 +150,28 @@ def test_update_restores_removed_assets_and_marks_added_pending_disposal():
     assert asset2.lifecycle_status == LIFECYCLE_PENDING_DISPOSAL
 
 
+def test_update_moves_order_plant_when_assets_change_plant():
+    asset1 = _asset(1)
+    asset1.lifecycle_status = LIFECYCLE_PENDING_DISPOSAL
+    asset2 = _asset(2)
+    asset2.location.plant_id = 9
+    order = _order(STATUS_DRAFT, assets=[asset1], assigned_to=None)
+    assert order.plant_id == 3
+    svc = DisposalOrderService(MagicMock())
+    with patch.object(svc, "_load_order", return_value=order):
+        with patch.object(svc, "_load_assets", return_value=[asset2]):
+            with patch.object(svc, "_resolve_from_cost_center", return_value=None):
+                with patch.object(svc, "get_order", return_value="detail"):
+                    svc.update_order(
+                        1,
+                        UpdateDisposalOrderRequest(asset_ids=[2]),
+                        actor_user_id=2,
+                    )
+    assert order.plant_id == 9
+    assert asset1.lifecycle_status == "active"
+    assert asset2.lifecycle_status == LIFECYCLE_PENDING_DISPOSAL
+
+
 def test_final_approval_hands_order_to_scrapyard_user():
     order = _order("pending_approval", assets=[_asset()], assigned_to=None)
     receiver = SimpleNamespace(id=42, is_active=True, full_name="Yard User")
@@ -266,3 +289,30 @@ def test_close_requires_pending_cf_close():
     with patch.object(svc, "_load_order", return_value=order):
         with pytest.raises(ConflictError, match="have been received"):
             svc.close_order(1, CloseDisposalRequest(), actor_user_id=11)
+
+
+def test_actor_may_act_denies_permission_holder_when_someone_else_assigned():
+    order = _order(STATUS_PENDING_CF_CLOSE, assets=[_asset()], assigned_to=42)
+    other = SimpleNamespace(id=7, is_superuser=False)
+    db = MagicMock()
+    db.get.return_value = other
+    svc = DisposalOrderService(db)
+    with patch(
+        "modules.disposals.service.get_flat_permission_codes_for_user",
+        return_value=["disposal.close"],
+    ):
+        assert not svc._actor_may_act(order, actor_user_id=7, permission="disposal.close")
+    assert svc._actor_may_act(order, actor_user_id=42, permission="disposal.close")
+
+
+def test_legacy_close_hidden_while_approval_request_pending_for_other_user():
+    order = _order(STATUS_PENDING_CF_CLOSE, assets=[_asset()], assigned_to=42)
+    order.approval_request_id = 99
+    panel = SimpleNamespace(
+        my_pending_task_id=None,
+        current_step_kind="approve",
+        request_status="pending",
+    )
+    assert not _can_disposal_operational_flag(
+        order, panel=panel, legacy_ok=True, step_kind="close"
+    )

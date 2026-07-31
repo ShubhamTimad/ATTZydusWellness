@@ -61,9 +61,14 @@ def list_forms(
 def list_assignees(
     svc: Annotated[CapexFormService, Depends(get_capex_service)],
     _: Annotated[object, Depends(require_permission("capitalization.view"))],
+    role_id: int | None = Query(
+        None,
+        ge=1,
+        description="Preferred: workflow step role id (stable across role renames).",
+    ),
     level: str | None = Query(
         None,
-        description="hod | engineering | central_finance (next-step / reassign pools)",
+        description="Legacy: hod | engineering | central_finance (name-mapped pools)",
     ),
     requires_engineering: bool | None = Query(
         None,
@@ -71,6 +76,8 @@ def list_assignees(
     ),
 ) -> CapexAssigneeListResponse:
     try:
+        if role_id is not None:
+            return svc.list_assignees_by_role_id(role_id=role_id)
         if requires_engineering is not None:
             action_code, _ = action_and_entity_for_form(
                 requires_engineering=bool(requires_engineering)
@@ -79,6 +86,8 @@ def list_assignees(
         return svc.list_assignees(level=level or "hod")
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.post("", response_model=CapexFormDetail, status_code=status.HTTP_201_CREATED)

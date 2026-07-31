@@ -28,7 +28,6 @@ from modules.disposals.constants import (
     ENTITY_TYPE,
     ENTITY_TYPE_WITH_ENGINEERING,
     ROLE_TO_ASSIGNEE_LEVEL,
-    RECEIVER_ASSIGNEE_LEVEL,
     STATUS_CANCELLED,
     STATUS_CLOSED,
     STATUS_DRAFT,
@@ -39,6 +38,7 @@ from modules.disposals.constants import (
     STATUS_PENDING_RECEIPT,
     STATUS_REJECTED,
     SUBMITTABLE_STATUSES,
+    disposal_needs_next_assignee,
 )
 from modules.disposals.model import (
     AssetDisposalOrder,
@@ -154,6 +154,22 @@ def _first_step_role(db: Session, workflow: ApprovalWorkflow) -> Role:
     if role is None:
         raise ConflictError("Workflow approver role is missing.")
     return role
+
+
+def _role_with_permission(db: Session, permission_code: str) -> Role | None:
+    """First role that grants permission_code (rename-safe when seeded names drift)."""
+    from modules.platform.permissions.model import Permission
+    from modules.rbac_association import role_permission
+
+    return db.scalar(
+        select(Role)
+        .select_from(role_permission)
+        .join(Role, Role.id == role_permission.c.role_id)
+        .join(Permission, Permission.id == role_permission.c.permission_id)
+        .where(Permission.code == permission_code)
+        .order_by(Role.id.asc())
+        .limit(1)
+    )
 
 
 def _user_display_name(db: Session, user_id: int | None) -> str | None:
@@ -458,8 +474,10 @@ class DisposalOrderService:
             old_ids = {int(a.id) for a in previous_assets}
             self._assert_assets_match_order_reservation(assets, reserved_asset_ids=old_ids)
             plant_id = _asset_plant_id(assets[0])
-            if plant_id is None or int(plant_id) != int(order.plant_id):
-                raise ConflictError("Assets must remain on the same plant as the disposal order.")
+            if plant_id is None:
+                raise ConflictError("Selected assets must have a plant.")
+            # Rework/draft may move the order to another plant the actor can access.
+            order.plant_id = int(plant_id)
             from_cc = self._resolve_from_cost_center(assets)
             new_ids = {int(a.id) for a in assets}
             removed_assets = [a for a in previous_assets if int(a.id) not in new_ids]
@@ -725,12 +743,15 @@ class DisposalOrderService:
     # ------------------------------------------------------- receive / close
 
     def _actor_may_act(self, order: AssetDisposalOrder, *, actor_user_id: int, permission: str) -> bool:
-        """Assigned user, a holder of the stage permission, or a superuser."""
+        """Assigned user, or superuser; permission alone only when nobody is assigned."""
         if order.assigned_to is not None and int(order.assigned_to) == int(actor_user_id):
             return True
         actor = self._db.get(User, actor_user_id)
         if actor is not None and actor.is_superuser:
             return True
+        # Someone else is the assignee — permission holders must not act for them.
+        if order.assigned_to is not None:
+            return False
         codes = set(get_flat_permission_codes_for_user(self._db, actor_user_id))
         return permission in codes or permission.replace(".", ":", 1) in codes
 
@@ -915,41 +936,48 @@ class DisposalOrderService:
         current_assignee_name: str | None = None
         current_role: str | None = None
         current_level: str | None = None
+        current_kind = "approve"
+        current_role_id: int | None = None
         if pending_task is not None:
             if pending_task.assigned_user_id is not None:
                 current_assignee_id = int(pending_task.assigned_user_id)
                 current_assignee_name = _user_display_name(self._db, current_assignee_id)
             if pending_task.step is not None:
-                role = self._db.get(Role, int(pending_task.step.approver_role_id))
+                current_role_id = int(pending_task.step.approver_role_id)
+                role = self._db.get(Role, current_role_id)
                 if role is not None:
                     current_role = role.name
                     current_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
+                current_kind = str(getattr(pending_task.step, "step_kind", None) or "approve")
 
         is_final = True
         needs_next = False
         next_role: str | None = None
         next_role_id: int | None = None
         next_level: str | None = None
+        next_kind: str | None = None
         wf_steps = sorted(
             (req.workflow.steps or []) if req.workflow is not None else [],
             key=lambda s: int(s.step_order),
+        )
+        has_ops = any(
+            str(getattr(s, "step_kind", None) or "approve") in ("receive", "confirm", "close")
+            for s in wf_steps
         )
         if str(req.status) == "pending" and steps:
             current = next((s for s in steps if s.phase == "current"), None)
             if current is not None:
                 is_final = int(current.step_order) >= int(current.total_steps)
-                if is_final:
-                    # Store Person names the receiver who will take the assets.
+                current_kind = str(getattr(current, "step_kind", None) or current_kind)
+                if is_final and not has_ops:
+                    # Legacy post-approval receiver: role that grants disposal.receive
+                    # (rename-safe — not looked up by display name).
                     needs_next = True
-                    next_level = RECEIVER_ASSIGNEE_LEVEL
-                    next_role = ASSIGNEE_LEVEL_ROLES.get(RECEIVER_ASSIGNEE_LEVEL, "Receiver")
-                    receiver = self._db.scalar(
-                        select(Role).where(Role.name == next_role)
-                    )
+                    receiver = _role_with_permission(self._db, "disposal.receive")
                     if receiver is not None:
                         next_role_id = int(receiver.id)
                         next_role = receiver.name
-                else:
+                elif not is_final:
                     nxt_row = next(
                         (
                             s
@@ -959,12 +987,18 @@ class DisposalOrderService:
                         None,
                     )
                     if nxt_row is not None:
-                        needs_next = True
                         next_role_id = int(nxt_row.approver_role_id)
+                        next_kind = str(getattr(nxt_row, "step_kind", None) or "approve")
                         role = self._db.get(Role, next_role_id)
                         if role is not None:
                             next_role = role.name
                             next_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
+                        needs_next = disposal_needs_next_assignee(
+                            current_kind=current_kind,
+                            next_kind=next_kind,
+                            current_role_id=current_role_id,
+                            next_role_id=next_role_id,
+                        )
         return DisposalApprovalPanel(
             request_id=int(req.id),
             request_status=str(req.status),
@@ -976,11 +1010,13 @@ class DisposalOrderService:
             current_assignee_name=current_assignee_name,
             current_step_role_name=current_role,
             current_assignee_level=current_level,
+            current_step_kind=current_kind,
             is_final_step=is_final,
             needs_next_assignee=needs_next,
             next_step_role_name=next_role,
             next_assignee_role_id=next_role_id,
             next_assignee_level=next_level,
+            next_step_kind=next_kind,
         )
 
     # ------------------------------------------------------------------ reads
@@ -1067,6 +1103,22 @@ class DisposalOrderService:
         if isinstance(plant, OrgUnit):
             plant_name = plant.name or plant.code or ""
 
+        panel = self._approval_panel(order, viewer_user_id=viewer_user_id)
+        legacy_receive = (
+            order.status == STATUS_PENDING_RECEIPT
+            and viewer_user_id is not None
+            and self._actor_may_act(
+                order, actor_user_id=int(viewer_user_id), permission=PERMISSION_RECEIVE
+            )
+        )
+        legacy_close = (
+            order.status == STATUS_PENDING_CF_CLOSE
+            and viewer_user_id is not None
+            and self._actor_may_act(
+                order, actor_user_id=int(viewer_user_id), permission=PERMISSION_CLOSE
+            )
+        )
+
         return DisposalOrderDetail(
             id=int(order.id),
             order_number=order.order_number,
@@ -1107,27 +1159,186 @@ class DisposalOrderService:
                 for i in order.items
             ],
             audit=self.list_audit(int(order.id)),
-            approval_panel=self._approval_panel(order, viewer_user_id=viewer_user_id),
+            approval_panel=panel,
             can_submit=(order.status in SUBMITTABLE_STATUSES) and (is_creator or is_super),
             can_edit=(order.status in EDITABLE_STATUSES) and (is_creator or is_super),
-            can_receive=(
-                order.status == STATUS_PENDING_RECEIPT
-                and viewer_user_id is not None
-                and self._actor_may_act(
-                    order, actor_user_id=int(viewer_user_id), permission=PERMISSION_RECEIVE
-                )
+            can_receive=_can_disposal_operational_flag(
+                order, panel=panel, legacy_ok=legacy_receive, step_kind="receive"
             ),
-            can_close=(
-                order.status == STATUS_PENDING_CF_CLOSE
-                and viewer_user_id is not None
-                and self._actor_may_act(
-                    order, actor_user_id=int(viewer_user_id), permission=PERMISSION_CLOSE
-                )
+            can_close=_can_disposal_operational_flag(
+                order, panel=panel, legacy_ok=legacy_close, step_kind="close"
             ),
         )
 
 
+def _can_disposal_operational_flag(
+    order: AssetDisposalOrder,
+    *,
+    panel: DisposalApprovalPanel | None,
+    legacy_ok: bool,
+    step_kind: str,
+) -> bool:
+    """Engine pending task wins; while the approval request is open, hide legacy-only gates."""
+    if (
+        panel is not None
+        and panel.my_pending_task_id is not None
+        and (panel.current_step_kind or "approve") == step_kind
+    ):
+        return True
+    if (
+        order.approval_request_id is not None
+        and panel is not None
+        and str(panel.request_status) == "pending"
+    ):
+        return False
+    return legacy_ok
+
+
 # ------------------------------------------------- approval engine callbacks
+
+
+def apply_disposal_enter_receive(
+    db: Session,
+    *,
+    order_id: int,
+    actor_user_id: int | None,
+    next_assignee_user_id: int,
+    step_role_name: str | None = None,
+    comment: str | None = None,
+) -> None:
+    """After last approve before a receive step: order awaits Cost Center User receive."""
+    order = db.get(AssetDisposalOrder, order_id)
+    if order is None:
+        return
+    old_status = order.status
+    order.status = STATUS_PENDING_RECEIPT
+    order.rejection_comment = None
+    order.assigned_to = int(next_assignee_user_id)
+    order.assigned_by = actor_user_id
+    order.assigned_at = datetime.now(timezone.utc)
+    log_disposal_event(
+        db,
+        order_id=int(order.id),
+        action="approved",
+        actor_user_id=actor_user_id,
+        old_value={"status": old_status},
+        new_value={
+            "status": order.status,
+            "step_role_name": step_role_name,
+            "assigned_to": int(next_assignee_user_id),
+            "comment": (comment or "").strip() or None,
+        },
+    )
+
+
+def apply_disposal_receive(
+    db: Session,
+    *,
+    order_id: int,
+    actor_user_id: int,
+    cost_center_id: int | None,
+    functional_location: str | None,
+    actual_location: str | None,
+    next_assignee_user_id: int,
+    step_role_name: str | None = None,
+    comment: str | None = None,
+) -> None:
+    """Receive step: set destination CC + Actual Location 1/2, hand to CF."""
+    order = db.scalar(
+        select(AssetDisposalOrder)
+        .where(AssetDisposalOrder.id == int(order_id))
+        .options(
+            selectinload(AssetDisposalOrder.items).selectinload(AssetDisposalOrderItem.asset),
+        )
+    )
+    if order is None:
+        return
+    if cost_center_id is None:
+        raise ConflictError("Select the destination cost center when receiving.")
+    cc = db.get(CostCenterMaster, int(cost_center_id))
+    if cc is None:
+        raise NotFoundError("Cost center", cost_center_id)
+    if int(cc.plant_id) != int(order.plant_id):
+        raise ConflictError(
+            "Receive cost center must belong to the same plant as the assets."
+        )
+    fl = (functional_location or "").strip()
+    al = (actual_location or "").strip()
+    if not fl or not al:
+        raise ConflictError("Actual Location 1 and Actual Location 2 are required.")
+
+    for item in order.items:
+        asset = item.asset
+        if asset is None:
+            continue
+        loc = _ensure_location(asset)
+        loc.functional_location = fl
+        loc.actual_location = al
+        _ensure_financial(asset).cost_center = cc.code
+
+    old_status = order.status
+    order.status = STATUS_PENDING_CF_CLOSE
+    order.assigned_to = int(next_assignee_user_id)
+    order.assigned_by = actor_user_id
+    order.assigned_at = datetime.now(timezone.utc)
+    log_disposal_event(
+        db,
+        order_id=int(order.id),
+        action="received",
+        actor_user_id=actor_user_id,
+        old_value={"status": old_status},
+        new_value={
+            "status": order.status,
+            "step_role_name": step_role_name,
+            "assigned_to": int(next_assignee_user_id),
+            "cost_center": cc.code,
+            "functional_location": fl,
+            "actual_location": al,
+            "comment": (comment or "").strip() or None,
+        },
+    )
+
+
+def apply_disposal_close(
+    db: Session,
+    *,
+    order_id: int,
+    actor_user_id: int,
+    step_role_name: str | None = None,
+    comment: str | None = None,
+) -> None:
+    order = db.scalar(
+        select(AssetDisposalOrder)
+        .where(AssetDisposalOrder.id == int(order_id))
+        .options(
+            selectinload(AssetDisposalOrder.items).selectinload(AssetDisposalOrderItem.asset),
+        )
+    )
+    if order is None:
+        return
+    disposed: list[str] = []
+    for item in order.items:
+        asset = item.asset
+        if asset is None:
+            continue
+        mark_disposed(asset)
+        disposed.append(asset.asset_code or str(asset.id))
+    old_status = order.status
+    order.status = STATUS_CLOSED
+    order.closed_at = datetime.now(timezone.utc)
+    log_disposal_event(
+        db,
+        order_id=int(order.id),
+        action="closed",
+        actor_user_id=actor_user_id,
+        old_value={"status": old_status},
+        new_value={
+            "status": order.status,
+            "step_role_name": step_role_name,
+            "disposed_assets": disposed,
+            "comment": (comment or "").strip() or None,
+        },
+    )
 
 
 def finalize_disposal_approval(
@@ -1194,6 +1405,7 @@ def reject_disposal_approval(
             "status": order.status,
             "comment": order.rejection_comment,
             "step_role_name": step_role_name,
+            "assigned_to": int(order.assigned_to) if order.assigned_to is not None else None,
         },
     )
     db.commit()

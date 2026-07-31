@@ -238,13 +238,15 @@ class CapexFormService:
         current_assignee_name: str | None = None
         current_role: str | None = None
         current_level: str | None = None
+        current_role_id: int | None = None
         if pending_task is not None:
             if pending_task.assigned_user_id is not None:
                 current_assignee_id = int(pending_task.assigned_user_id)
                 current_assignee_name = _user_display(self._db, current_assignee_id)
             step = pending_task.step
             if step is not None:
-                role = self._db.get(Role, int(step.approver_role_id))
+                current_role_id = int(step.approver_role_id)
+                role = self._db.get(Role, current_role_id)
                 if role is not None:
                     current_role = role.name
                     current_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
@@ -252,21 +254,32 @@ class CapexFormService:
         is_final = True
         needs_next = False
         next_role: str | None = None
+        next_role_id: int | None = None
         next_level: str | None = None
+        wf_steps = sorted(
+            (req.workflow.steps or []) if req.workflow is not None else [],
+            key=lambda s: int(s.step_order),
+        )
         if str(req.status) == "pending" and steps:
             current = next((s for s in steps if s.phase == "current"), None)
             if current is not None:
                 is_final = int(current.step_order) >= int(current.total_steps)
                 if not is_final:
-                    nxt = next(
-                        (s for s in steps if int(s.step_order) == int(current.step_order) + 1),
+                    nxt_row = next(
+                        (
+                            s
+                            for s in wf_steps
+                            if int(s.step_order) == int(current.step_order) + 1
+                        ),
                         None,
                     )
-                    if nxt is not None:
+                    if nxt_row is not None:
                         needs_next = True
-                        next_role = nxt.approver_role_name or None
-                        if next_role:
-                            next_level = ROLE_TO_ASSIGNEE_LEVEL.get(next_role)
+                        next_role_id = int(nxt_row.approver_role_id)
+                        role = self._db.get(Role, next_role_id)
+                        if role is not None:
+                            next_role = role.name
+                            next_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
         return CapexApprovalPanel(
             request_id=int(req.id),
             request_status=str(req.status),
@@ -278,9 +291,11 @@ class CapexFormService:
             current_assignee_name=current_assignee_name,
             current_step_role_name=current_role,
             current_assignee_level=current_level,
+            current_assignee_role_id=current_role_id,
             is_final_step=is_final,
             needs_next_assignee=needs_next,
             next_step_role_name=next_role,
+            next_assignee_role_id=next_role_id,
             next_assignee_level=next_level,
         )
 
@@ -590,12 +605,26 @@ class CapexFormService:
             ],
         )
 
-    def list_assignees_for_action(self, *, action_code: str) -> CapexAssigneeListResponse:
-        """Users in the first step role of the workflow mapped to this CapEx action.
+    def list_assignees_by_role_id(self, *, role_id: int) -> CapexAssigneeListResponse:
+        """Users in a workflow step role — keyed by role id so renames do not break the picker."""
+        role = self._db.get(Role, int(role_id))
+        if role is None:
+            raise NotFoundError("Role", role_id)
+        users = _users_in_role(self._db, int(role.id))
+        return CapexAssigneeListResponse(
+            role_name=str(role.name),
+            items=[
+                CapexAssigneeOption(
+                    id=int(u.id),
+                    full_name=u.full_name,
+                    email=u.email,
+                )
+                for u in users
+            ],
+        )
 
-        ponytail: next-step pools still use level=hod|engineering|central_finance via
-        seeded role names; upgrade by resolving role_id from the live workflow step.
-        """
+    def list_assignees_for_action(self, *, action_code: str) -> CapexAssigneeListResponse:
+        """Users in the first step role of the workflow mapped to this CapEx action."""
         wf = get_workflow_for_action(self._db, action_code)
         if wf is None or not wf.steps:
             raise ConflictError(

@@ -1646,6 +1646,7 @@ export function AssetsListPage() {
               onClick={() => {
                 setDraftFilters(filters)
                 setFiltersOpen((o) => !o)
+                setColumnFiltersOpen(false)
               }}
             >
               <SlidersHorizontal className="size-4" aria-hidden />
@@ -1656,27 +1657,27 @@ export function AssetsListPage() {
                 </Badge>
               ) : null}
             </Button>
-          ) : null}
-
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={cn(
-              listToolbarBtnClass,
-              columnFiltersOpen && "border-primary/40 bg-primary/5",
-            )}
-            aria-expanded={columnFiltersOpen}
-            onClick={() => setColumnFiltersOpen((open) => !open)}
-          >
-            <ListFilter className="size-4" aria-hidden />
-            Filter
-            {activeColumnFilterCount > 0 ? (
-              <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
-                {activeColumnFilterCount}
-              </Badge>
-            ) : null}
-          </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={cn(
+                listToolbarBtnClass,
+                columnFiltersOpen && "border-primary/40 bg-primary/5",
+              )}
+              aria-expanded={columnFiltersOpen}
+              onClick={() => setColumnFiltersOpen((open) => !open)}
+            >
+              <ListFilter className="size-4" aria-hidden />
+              Filter
+              {activeColumnFilterCount > 0 ? (
+                <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
+                  {activeColumnFilterCount}
+                </Badge>
+              ) : null}
+            </Button>
+          )}
 
           {isFyTab ? (
             <>
@@ -2032,7 +2033,7 @@ export function AssetsListPage() {
                   </AdminTableHeadCell>
                 ))}
               </AdminTableHeaderRow>
-              {columnFiltersOpen ? (
+              {columnFiltersOpen && !isFyTab ? (
                 <AdminTableHeaderRow>
                   <AdminTableHeadCell className="w-10 px-3 py-1.5">
                     <span className="sr-only">Column filters</span>

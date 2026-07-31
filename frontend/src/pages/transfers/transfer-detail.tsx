@@ -777,14 +777,12 @@ export function TransferOrderDetailPage() {
           pickerMode === "cc2_assign"
             ? panel?.next_assignee_role_id
               ? `/admin/transfer-orders/assignees?role_id=${panel.next_assignee_role_id}`
-              : panel?.next_assignee_level
-                ? `/admin/transfer-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
-                : "/admin/transfer-orders/assignees?level=central_finance"
+              : undefined
             : "/admin/transfer-orders/assignees?for_submit=true"
         }
         roleLabel={
           pickerMode === "cc2_assign"
-            ? (panel?.next_step_role_name ?? "Central Finance")
+            ? (panel?.next_step_role_name ?? "Next approver")
             : "Approver"
         }
         confirmLabel={
@@ -861,14 +859,12 @@ export function TransferOrderDetailPage() {
         }
         confirmLabel={decisionMode === "reject" ? "Reject" : decisionConfirmLabel}
         needsNextAssignee={Boolean(panel?.needs_next_assignee) && decisionMode === "approve"}
-        nextAssigneeLevel={panel?.next_assignee_level ?? null}
+        nextAssigneeLevel={null}
         nextStepRoleName={panel?.next_step_role_name ?? null}
         assigneesUrl={
           panel?.next_assignee_role_id
             ? `/admin/transfer-orders/assignees?role_id=${panel.next_assignee_role_id}`
-            : panel?.next_assignee_level
-              ? `/admin/transfer-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
-              : undefined
+            : undefined
         }
         onConfirm={confirmDecision}
       />

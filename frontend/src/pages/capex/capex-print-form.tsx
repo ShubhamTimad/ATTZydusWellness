@@ -60,12 +60,12 @@ function stepsForPrint(detail: CapexFormDetail): CapexApprovalStepLine[] {
   return detail.approval_panel?.workflow_steps ?? []
 }
 
-function approveFromRole(steps: CapexApprovalStepLine[], roleName: string): SignBlock {
-  const step = steps.find((s) => s.approver_role_name === roleName)
+function approveFromStep(step: CapexApprovalStepLine | undefined): SignBlock {
   const action = step?.actions.find((a) => {
     const x = a.action.toLowerCase()
     return x === "approve" || x === "approved"
   })
+  const roleName = step?.approver_role_name?.trim() || "Approver"
   return {
     roleLabel: roleName,
     name: action?.actor_display_name?.trim() || step?.assigned_user_name?.trim() || null,
@@ -75,7 +75,9 @@ function approveFromRole(steps: CapexApprovalStepLine[], roleName: string): Sign
 }
 
 function buildSignBlocks(detail: CapexFormDetail): SignBlock[] {
-  const steps = stepsForPrint(detail)
+  const steps = stepsForPrint(detail).filter(
+    (s) => (s.step_kind || "approve").toLowerCase() === "approve",
+  )
   const blocks: SignBlock[] = [
     {
       roleLabel: "Signature of User",
@@ -83,20 +85,14 @@ function buildSignBlocks(detail: CapexFormDetail): SignBlock[] {
       signedAt: detail.created_at,
       signed: Boolean(detail.created_by_name),
     },
-    {
-      ...approveFromRole(steps, "Department HOD"),
-      roleLabel: "Signature of HOD",
-    },
   ]
-
-  const engStep = steps.find((s) => s.approver_role_name === "Engineering")
-  if (detail.requires_engineering || engStep) {
+  for (const step of steps) {
+    const base = approveFromStep(step)
     blocks.push({
-      ...approveFromRole(steps, "Engineering"),
-      roleLabel: "Signature of Engineering (if Applicable)",
+      ...base,
+      roleLabel: `Signature of ${base.roleLabel}`,
     })
   }
-
   return blocks
 }
 

@@ -175,15 +175,15 @@ export function CapexDetailPage() {
   const pendingTaskId = detail?.approval_panel?.my_pending_task_id ?? null
   const canActOnForm = Boolean(pendingTaskId && canApprovalAct)
   const needsNextAssignee = Boolean(detail?.approval_panel?.needs_next_assignee)
-  const nextAssigneeLevel = detail?.approval_panel?.next_assignee_level ?? "central_finance"
+  const nextAssigneeRoleId = detail?.approval_panel?.next_assignee_role_id ?? null
   const nextStepRoleName = detail?.approval_panel?.next_step_role_name ?? "next approver"
   const canReassign = Boolean(
     detail?.status === "pending_approval" &&
       detail.approval_panel?.pending_task_id &&
-      detail.approval_panel?.current_assignee_level &&
+      detail.approval_panel?.current_assignee_role_id &&
       hasPermission("capitalization.reassign"),
   )
-  const reassignLevel = detail?.approval_panel?.current_assignee_level ?? "hod"
+  const reassignRoleId = detail?.approval_panel?.current_assignee_role_id ?? null
   const reassignRoleName = detail?.approval_panel?.current_step_role_name ?? "Approver"
 
   const toolbarActions = React.useMemo(() => {
@@ -616,15 +616,24 @@ export function CapexDetailPage() {
         mode={decisionMode}
         busy={acting}
         needsNextAssignee={needsNextAssignee}
-        nextAssigneeLevel={nextAssigneeLevel}
+        nextAssigneeLevel={null}
         nextStepRoleName={nextStepRoleName}
+        assigneesUrl={
+          nextAssigneeRoleId
+            ? `/admin/capitalization-forms/assignees?role_id=${nextAssigneeRoleId}`
+            : undefined
+        }
         onConfirm={confirmDecision}
       />
 
       <CapexAssigneePickerDialog
         open={reassignOpen}
         onOpenChange={setReassignOpen}
-        level={reassignLevel}
+        assigneesUrl={
+          reassignRoleId
+            ? `/admin/capitalization-forms/assignees?role_id=${reassignRoleId}`
+            : undefined
+        }
         roleLabel={reassignRoleName}
         confirmLabel="Reassign"
         busy={reassigning}

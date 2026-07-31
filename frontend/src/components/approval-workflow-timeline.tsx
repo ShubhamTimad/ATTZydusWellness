@@ -176,9 +176,18 @@ function personForStep(step: TaskApprovalStepLine): string | null {
   return acted?.actor_display_name?.trim() || null
 }
 
+/** After a reject, hide later "not started" steps — show the path only through rejection. */
+function stepsThroughRejection(steps: TaskApprovalStepLine[]): TaskApprovalStepLine[] {
+  const rejectIdx = steps.findIndex((s) => s.phase === "rejected")
+  if (rejectIdx < 0) return steps
+  return steps.slice(0, rejectIdx + 1)
+}
+
 function CompactStepList({ steps }: { steps: TaskApprovalStepLine[] }) {
+  // After reject, hide later not-started steps.
+  const visible = stepsThroughRejection(steps)
   // Latest step first (highest step_order on top); earlier steps below.
-  const ordered = steps.length > 1 ? [...steps].reverse() : steps
+  const ordered = visible.length > 1 ? [...visible].reverse() : visible
   return (
     <ol className="relative">
       {ordered.map((step, i) => {
@@ -332,17 +341,21 @@ export function ApprovalWorkflowTimeline({
   }
   if (steps.length === 0) return null
 
-  const nCompleted = steps.filter((s) => s.phase === "completed").length
-  const nCurrent = steps.filter((s) => s.phase === "current").length
-  const nUpcoming = steps.filter((s) => s.phase === "upcoming").length
-  const nRejected = steps.filter((s) => s.phase === "rejected").length
+  const visibleSteps = stepsThroughRejection(steps)
+  const nCompleted = visibleSteps.filter((s) => s.phase === "completed").length
+  const nCurrent = visibleSteps.filter((s) => s.phase === "current").length
+  const nUpcoming = visibleSteps.filter((s) => s.phase === "upcoming").length
+  const nRejected = visibleSteps.filter((s) => s.phase === "rejected").length
 
   return (
     <div className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
       <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5">
         <h3 className="text-sm font-semibold">{title ?? "Approval progress"}</h3>
         <p className="text-xs text-muted-foreground">
-          {steps[0].total_steps} {steps[0].total_steps === 1 ? "level" : "levels"} in this workflow
+          {visibleSteps[0]?.total_steps ?? steps[0].total_steps}{" "}
+          {(visibleSteps[0]?.total_steps ?? steps[0].total_steps) === 1 ? "level" : "levels"} in this
+          workflow
+          {nRejected > 0 ? " · stopped at rejection" : ""}
         </p>
         <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
           {nCompleted > 0 ? (
@@ -370,9 +383,9 @@ export function ApprovalWorkflowTimeline({
         </p>
       </div>
       <ol className="relative px-4 py-3">
-        {steps.map((step, i) => {
+        {visibleSteps.map((step, i) => {
           const st = phaseStyles(step.phase)
-          const isLast = i === steps.length - 1
+          const isLast = i === visibleSteps.length - 1
           const segClass = segmentClassForPhase(step.phase)
           const approvals = step.actions.filter((a) => a.action === "approve" || a.action === "approved")
           const rejections = step.actions.filter((a) => a.action === "reject" || a.action === "rejected")

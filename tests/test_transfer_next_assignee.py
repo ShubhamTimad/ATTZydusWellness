@@ -32,6 +32,15 @@ def test_confirm_to_close_same_role_skips_picker() -> None:
     )
 
 
+def test_approve_to_close_same_role_skips_picker() -> None:
+    assert not transfer_needs_next_assignee(
+        current_kind="approve",
+        next_kind="close",
+        current_role_id=5,
+        next_role_id=5,
+    )
+
+
 def test_confirm_to_close_different_role_needs_picker() -> None:
     assert transfer_needs_next_assignee(
         current_kind="confirm",

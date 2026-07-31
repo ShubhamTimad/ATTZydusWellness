@@ -119,6 +119,7 @@ def act_on_task(
             next_assigned_user_id=payload.next_assigned_user_id,
             to_functional_location=payload.to_functional_location,
             to_actual_location=payload.to_actual_location,
+            to_cost_center_id=payload.to_cost_center_id,
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

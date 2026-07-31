@@ -59,6 +59,7 @@ export type CapexApprovalPanel = {
   current_assignee_name?: string | null
   current_step_role_name?: string | null
   current_assignee_level?: "hod" | "engineering" | "central_finance" | string | null
+  current_assignee_role_id?: number | null
   current_step_kind?: string
   is_final_step?: boolean
   needs_next_assignee?: boolean
@@ -232,24 +233,22 @@ export function buildCapexProgress(detail: CapexFormDetail): {
     }
 
     if (isRejected) {
-      // Rejected sits where the process stopped; later levels stay visible as unreached.
-      if (!insertedRejected && (rejectAtOrder == null || s.step_order === rejectAtOrder)) {
-        steps.push({
-          key: "rejected",
-          label: "Rejected",
-          status: "rejected",
-          approver_slots: [],
-        })
-        insertedRejected = true
+      // Stop at rejection — do not paint later not-started steps.
+      if (s.phase === "upcoming") continue
+      if (
+        s.phase === "rejected" ||
+        (rejectAtOrder != null && s.step_order === rejectAtOrder)
+      ) {
+        if (!insertedRejected) {
+          steps.push({
+            key: "rejected",
+            label: "Rejected",
+            status: "rejected",
+            approver_slots: [],
+          })
+          insertedRejected = true
+        }
       }
-      if (rejectAtOrder != null && s.step_order <= rejectAtOrder) continue
-      steps.push({
-        key,
-        label: role,
-        status: "upcoming",
-        detail: s.assigned_user_name ?? null,
-        approver_slots: [],
-      })
       continue
     }
 
@@ -299,26 +298,11 @@ function currentCapexWorkflowSteps(detail: CapexFormDetail): CapexApprovalStepLi
   return defaultCapexApprovalSteps(detail.requires_engineering)
 }
 
-function defaultCapexApprovalSteps(requiresEngineering: boolean): CapexApprovalStepLine[] {
-  const roles = requiresEngineering
-    ? ["Department HOD", "Engineering", "Central Finance"]
-    : ["Department HOD", "Central Finance"]
-  return roles.map((approver_role_name, i) => ({
-    step_order: i + 1,
-    approver_role_name,
-    required_approvals: 1,
-    total_steps: roles.length,
-    phase: "upcoming" as const,
-    approved_count: 0,
-    actions: [],
-    status_label: "",
-  }))
+function defaultCapexApprovalSteps(_requiresEngineering: boolean): CapexApprovalStepLine[] {
+  // No hardcoded role names — wait for the live workflow / preview from the API.
+  return []
 }
 
 function shortCapexRoleLabel(roleName: string): string {
-  const n = roleName.trim().toLowerCase()
-  if (n.includes("hod")) return "HOD"
-  if (n.includes("engineering")) return "Engineering"
-  if (n.includes("finance")) return "Central Finance"
-  return roleName
+  return roleName.trim() || "Approver"
 }

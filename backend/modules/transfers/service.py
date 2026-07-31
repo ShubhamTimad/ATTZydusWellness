@@ -33,7 +33,6 @@ from modules.transfers.constants import (
     ENTITY_TYPE,
     PENDING_APPROVAL_STATUSES,
     REJECTABLE_STATUSES,
-    ROLE_CENTRAL_FINANCE,
     ROLE_TO_ASSIGNEE_LEVEL,
     STATUS_APPROVED_BY_CF,
     STATUS_CLOSED,
@@ -238,6 +237,36 @@ class TransferOrderService:
         if int(user_id) not in pool_ids and not user.is_superuser:
             raise ConflictError(f"Selected user is not in the {role_name!r} role.")
         return user
+
+    def _assert_user_in_role_id(self, user_id: int, role_id: int) -> User:
+        user = self._db.get(User, user_id)
+        if user is None or not user.is_active:
+            raise NotFoundError("User", user_id)
+        role = self._db.get(Role, int(role_id))
+        if role is None:
+            raise NotFoundError("Role", role_id)
+        pool_ids = {int(u.id) for u in _users_in_role(self._db, int(role.id))}
+        if int(user_id) not in pool_ids and not user.is_superuser:
+            raise ConflictError(f"Selected user is not in the {role.name!r} role.")
+        return user
+
+    def _workflow_step_role_id(
+        self, order: AssetTransferOrder, *, step_kind: str
+    ) -> int | None:
+        """Role id for a step_kind on the order's live workflow (rename-safe)."""
+        if order.approval_request_id is None:
+            return None
+        req = self._db.scalar(
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == int(order.approval_request_id))
+            .options(selectinload(ApprovalRequest.workflow).selectinload(ApprovalWorkflow.steps))
+        )
+        if req is None or req.workflow is None:
+            return None
+        for step in sorted(req.workflow.steps or [], key=lambda s: int(s.step_order)):
+            if str(getattr(step, "step_kind", None) or "approve") == step_kind:
+                return int(step.approver_role_id)
+        return None
 
     def list_assignees(self, *, level: str) -> TransferAssigneeListResponse:
         role_name = ASSIGNEE_LEVEL_ROLES.get(level.strip().lower())
@@ -767,11 +796,10 @@ class TransferOrderService:
         actor = self._db.get(User, actor_user_id)
         if actor is not None and actor.is_superuser:
             return True
-        try:
-            self._assert_user_in_role(actor_user_id, ROLE_CENTRAL_FINANCE)
-            return True
-        except ConflictError:
-            return False
+        from core.permissions import get_flat_permission_codes_for_user
+
+        codes = set(get_flat_permission_codes_for_user(self._db, actor_user_id))
+        return bool(codes & {"transfer.approve", "transfer.manage", "transfer:approve", "transfer:manage"})
 
     def _revert_assets_after_receive(self, order: AssetTransferOrder) -> None:
         """Restore cost center / locations / custodian from line-item snapshots."""
@@ -836,7 +864,14 @@ class TransferOrderService:
             raise ConflictError(
                 "Only the selected destination asset custodian can receive this transfer."
             )
-        self._assert_user_in_role(int(data.assigned_to), ROLE_CENTRAL_FINANCE)
+        confirm_role_id = self._workflow_step_role_id(order, step_kind="confirm")
+        if confirm_role_id is None:
+            confirm_role_id = self._workflow_step_role_id(order, step_kind="close")
+        if confirm_role_id is None:
+            raise ConflictError(
+                "Transfer workflow has no confirm/close step — cannot assign next user by role name."
+            )
+        self._assert_user_in_role_id(int(data.assigned_to), confirm_role_id)
 
         if data.remarks is not None:
             order.remarks = _strip_or_none(data.remarks)

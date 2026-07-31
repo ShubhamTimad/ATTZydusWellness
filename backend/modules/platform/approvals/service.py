@@ -725,6 +725,7 @@ class ApprovalEngineService:
         next_assigned_user_id: int | None = None,
         to_functional_location: str | None = None,
         to_actual_location: str | None = None,
+        to_cost_center_id: int | None = None,
     ) -> ApprovalRequest:
         task = self.get_task(task_id)
         role_ids = self._role_ids_for_user(actor_user_id)
@@ -1034,6 +1035,24 @@ class ApprovalEngineService:
                 kind=kind,
             )
 
+        has_disposal_ops = is_disposal and any(
+            _step_kind(s) in ("receive", "confirm", "close") for s in steps_sorted
+        )
+        if has_disposal_ops:
+            return self._advance_disposal_after_step(
+                req,
+                step=step,
+                steps_sorted=steps_sorted,
+                idx=idx,
+                actor_user_id=actor_user_id,
+                comment=comment,
+                next_assigned_user_id=next_assigned_user_id,
+                to_functional_location=to_functional_location,
+                to_actual_location=to_actual_location,
+                to_cost_center_id=to_cost_center_id,
+                kind=kind,
+            )
+
         if idx == len(steps_sorted) - 1:
             # Final approval. Disposal orders hand off to the receiver, so the
             # final approver (Store Person) must also name the receiving user.
@@ -1146,10 +1165,9 @@ class ApprovalEngineService:
         nxt_role = self._db.get(Role, int(next_step.approver_role_id))
         next_role_name = nxt_role.name if nxt_role is not None else None
 
-        # confirm → close with same role: same CF closes, no next-user picker
+        # Same role on close: actor continues — no next-user picker.
         if (
             next_assigned_user_id is None
-            and kind == "confirm"
             and next_kind == "close"
             and cur_role is not None
             and nxt_role is not None
@@ -1198,6 +1216,103 @@ class ApprovalEngineService:
             )
             if next_kind == "receive":
                 apply_transfer_enter_receive(
+                    self._db,
+                    order_id=int(req.entity_id),
+                    actor_user_id=actor_user_id,
+                    next_assignee_user_id=int(next_assigned_user_id),
+                    step_role_name=step_role_name,
+                    comment=comment,
+                )
+
+        self._db.commit()
+        return self.get_request(req.id)
+
+    def _advance_disposal_after_step(
+        self,
+        req: ApprovalRequest,
+        *,
+        step: ApprovalStep,
+        steps_sorted: list[ApprovalStep],
+        idx: int,
+        actor_user_id: int,
+        comment: str | None,
+        next_assigned_user_id: int | None,
+        to_functional_location: str | None,
+        to_actual_location: str | None,
+        to_cost_center_id: int | None,
+        kind: str,
+    ) -> ApprovalRequest:
+        """Disposal workflow with receive/confirm/close kinds (mirrors transfer)."""
+        from modules.disposals.service import (
+            apply_disposal_close,
+            apply_disposal_enter_receive,
+            apply_disposal_receive,
+            log_disposal_step_approved,
+        )
+
+        cur_role = self._db.get(Role, int(step.approver_role_id))
+        step_role_name = cur_role.name if cur_role is not None else None
+        is_last = idx == len(steps_sorted) - 1
+
+        if is_last:
+            apply_disposal_close(
+                self._db,
+                order_id=int(req.entity_id),
+                actor_user_id=actor_user_id,
+                step_role_name=step_role_name,
+                comment=comment,
+            )
+            req.status = "approved"
+            self._db.commit()
+            return self.get_request(req.id)
+
+        next_step = steps_sorted[idx + 1]
+        next_kind = _step_kind(next_step)
+        nxt_role = self._db.get(Role, int(next_step.approver_role_id))
+        next_role_name = nxt_role.name if nxt_role is not None else None
+
+        # Same role on close: actor continues — no next-user picker.
+        if (
+            next_assigned_user_id is None
+            and next_kind == "close"
+            and cur_role is not None
+            and nxt_role is not None
+            and int(cur_role.id) == int(nxt_role.id)
+        ):
+            next_assigned_user_id = actor_user_id
+
+        if next_assigned_user_id is None:
+            raise ApprovalError("Select the next assignee before completing this step.")
+
+        self._create_tasks_for_step(
+            req, next_step, assigned_user_id=int(next_assigned_user_id)
+        )
+        req.current_step = next_step.step_order
+
+        if kind == "receive":
+            apply_disposal_receive(
+                self._db,
+                order_id=int(req.entity_id),
+                actor_user_id=actor_user_id,
+                cost_center_id=to_cost_center_id,
+                functional_location=to_functional_location,
+                actual_location=to_actual_location,
+                next_assignee_user_id=int(next_assigned_user_id),
+                step_role_name=step_role_name,
+                comment=comment,
+            )
+        else:
+            log_disposal_step_approved(
+                self._db,
+                order_id=int(req.entity_id),
+                actor_user_id=actor_user_id,
+                step_role_name=step_role_name,
+                next_assignee_user_id=int(next_assigned_user_id),
+                next_role_name=next_role_name,
+                comment=comment,
+            )
+            if next_kind == "receive":
+                apply_disposal_enter_receive(
                     self._db,
                     order_id=int(req.entity_id),
                     actor_user_id=actor_user_id,

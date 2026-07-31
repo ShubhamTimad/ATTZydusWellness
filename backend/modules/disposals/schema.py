@@ -123,13 +123,14 @@ class DisposalApprovalPanel(BaseModel):
     current_assignee_name: str | None = None
     current_step_role_name: str | None = None
     current_assignee_level: str | None = None
+    current_step_kind: str = "approve"
     is_final_step: bool = False
-    # True on every step, including the final one: the final approver must name the scrapyard
-    # cost center user who will receive the assets.
+    # True when the actor must name the next step's user (or legacy final receiver).
     needs_next_assignee: bool = False
     next_step_role_name: str | None = None
     next_assignee_role_id: int | None = None
     next_assignee_level: str | None = None
+    next_step_kind: str | None = None
 
 
 class DisposalOrderDetail(BaseModel):

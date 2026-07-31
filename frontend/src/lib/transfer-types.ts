@@ -170,11 +170,7 @@ function progressLabelForStep(s: {
   approver_role_name: string
   phase: string
 }): string {
-  const kind = stepKindOf(s)
   const role = shortTransferRoleLabel(s.approver_role_name)
-  if (kind === "receive") return s.phase === "completed" ? `Received (${role})` : `${role} receive`
-  if (kind === "confirm") return s.phase === "completed" ? `Confirmed (${role})` : `${role} confirm`
-  if (kind === "close") return "Closed"
   if (s.phase === "completed") return `Approved by ${role}`
   return role
 }
@@ -231,24 +227,28 @@ export function buildTransferProgress(detail: TransferOrderDetail): {
               : `approved_by_${s.step_order}`
 
       if (isRejected) {
-        if (!insertedRejected && (rejectAtOrder == null || s.step_order === rejectAtOrder)) {
+        if (s.phase === "upcoming") continue
+        if (s.phase === "completed") {
           steps.push({
-            key: "rejected",
-            label: "Rejected",
-            status: "rejected",
+            key,
+            label: progressLabelForStep({ ...s, phase: "completed" }),
+            status: "completed",
+            detail: s.assigned_user_name ?? null,
             approver_slots: [],
           })
-          insertedRejected = true
+          continue
         }
-        if (rejectAtOrder != null && s.step_order <= rejectAtOrder) continue
-        if (kind === "approve" && s.phase === "rejected") continue
-        steps.push({
-          key,
-          label: progressLabelForStep(s),
-          status: "upcoming",
-          detail: s.assigned_user_name ?? null,
-          approver_slots: [],
-        })
+        if (s.phase === "rejected" || (rejectAtOrder != null && s.step_order === rejectAtOrder)) {
+          if (!insertedRejected) {
+            steps.push({
+              key: "rejected",
+              label: "Rejected",
+              status: "rejected",
+              approver_slots: [],
+            })
+            insertedRejected = true
+          }
+        }
         continue
       }
 
@@ -340,23 +340,21 @@ export function buildTransferProgress(detail: TransferOrderDetail): {
     }
 
     if (isRejected) {
-      if (!insertedRejected && (rejectAtOrder == null || s.step_order === rejectAtOrder)) {
-        steps.push({
-          key: "rejected",
-          label: "Rejected",
-          status: "rejected",
-          approver_slots: [],
-        })
-        insertedRejected = true
+      if (s.phase === "upcoming") continue
+      if (
+        s.phase === "rejected" ||
+        (rejectAtOrder != null && s.step_order === rejectAtOrder)
+      ) {
+        if (!insertedRejected) {
+          steps.push({
+            key: "rejected",
+            label: "Rejected",
+            status: "rejected",
+            approver_slots: [],
+          })
+          insertedRejected = true
+        }
       }
-      if (rejectAtOrder != null && s.step_order <= rejectAtOrder) continue
-      steps.push({
-        key,
-        label: role,
-        status: "upcoming",
-        detail: s.assigned_user_name ?? null,
-        approver_slots: [],
-      })
       continue
     }
 
@@ -378,21 +376,6 @@ export function buildTransferProgress(detail: TransferOrderDetail): {
         approver_slots: [],
       })
     }
-    steps.push(
-      {
-        key: "approved_by_cf",
-        label: "Destination receive",
-        status: "upcoming",
-        approver_slots: [],
-      },
-      {
-        key: "received_by_cc2",
-        label: "CF confirm",
-        status: "upcoming",
-        approver_slots: [],
-      },
-      { key: "closed", label: "Closed", status: "upcoming", approver_slots: [] },
-    )
     return { steps, currentStepKey: "rejected" }
   }
 
@@ -470,33 +453,10 @@ function currentTransferWorkflowSteps(
 }
 
 function defaultTransferApprovalSteps(): NonNullable<TransferApprovalPanel["workflow_steps"]> {
-  const roles: { name: string; kind: string }[] = [
-    { name: "Department HOD", kind: "approve" },
-    { name: "Central Finance", kind: "approve" },
-    { name: "Cost Center User", kind: "receive" },
-    { name: "Central Finance", kind: "confirm" },
-    { name: "Central Finance", kind: "close" },
-  ]
-  return roles.map((r, i) => ({
-    step_order: i + 1,
-    approver_role_name: r.name,
-    required_approvals: 1,
-    total_steps: roles.length,
-    phase: "upcoming" as const,
-    approved_count: 0,
-    actions: [],
-    status_label: "",
-    step_kind: r.kind,
-  }))
+  // No hardcoded role names — wait for the live workflow / preview from the API.
+  return []
 }
 
 function shortTransferRoleLabel(roleName: string): string {
-  const n = roleName.trim().toLowerCase()
-  if (n.includes("hod")) return "HOD"
-  if (n.includes("engineering")) return "Engineering"
-  if (n === "cfm" || n.includes("finance manager")) return "CFM"
-  if (n === "md" || n.includes("managing director")) return "MD"
-  if (n.includes("cost center")) return "CC"
-  if (n.includes("finance") || n.includes("central finance")) return "CF"
-  return roleName
+  return roleName.trim() || "Approver"
 }

@@ -101,9 +101,11 @@ class ApprovalTaskActionRequest(BaseModel):
     comment: str | None = Field(default=None, max_length=10_000)
     # CapEx / transfer user-handoff: required when approving a non-final named-handoff step.
     next_assigned_user_id: int | None = Field(default=None, ge=1)
-    # Transfer receive step: destination locations applied to assets on approve.
+    # Transfer / disposal receive step: destination locations applied to assets on approve.
     to_functional_location: str | None = Field(default=None, max_length=255)
     to_actual_location: str | None = Field(default=None, max_length=255)
+    # Disposal receive step: scrapyard / destination cost center.
+    to_cost_center_id: int | None = Field(default=None, ge=1)
 
 
 class WorkflowMappingCreate(BaseModel):

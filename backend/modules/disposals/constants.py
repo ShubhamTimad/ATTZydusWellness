@@ -71,3 +71,28 @@ STATUS_LABELS: dict[str, str] = {
     STATUS_CLOSED: "Closed",
     STATUS_CANCELLED: "Archived",
 }
+
+
+def disposal_needs_next_assignee(
+    *,
+    current_kind: str,
+    next_kind: str,
+    current_role_id: int | None,
+    next_role_id: int | None,
+) -> bool:
+    """Whether completing the current step requires picking a user for the next step.
+
+    Next step is close with the same role → same person continues (no picker).
+    Different close role (or any other next step) → picker required.
+    ``current_kind`` is accepted for call-site symmetry; the rule keys off next kind + roles.
+    """
+    _ = current_kind
+    if next_role_id is None:
+        return False
+    if (
+        next_kind == "close"
+        and current_role_id is not None
+        and int(current_role_id) == int(next_role_id)
+    ):
+        return False
+    return True

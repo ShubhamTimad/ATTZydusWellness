@@ -53,7 +53,7 @@ export function CapexDecisionDialog({
   const [selectedId, setSelectedId] = React.useState("")
 
   const showNextPicker =
-    mode === "approve" && needsNextAssignee && Boolean(assigneesUrl || nextAssigneeLevel)
+    mode === "approve" && needsNextAssignee && Boolean(assigneesUrl)
   const commentRequired = requireComment || mode === "reject"
 
   React.useEffect(() => {

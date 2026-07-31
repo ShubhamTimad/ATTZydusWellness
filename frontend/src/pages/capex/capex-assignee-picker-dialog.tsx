@@ -10,9 +10,9 @@ import { toast } from "sonner"
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Assignee pool level: hod | engineering | central_finance (CapEx). Ignored when assigneesUrl is set. */
+  /** Assignee pool level (legacy name map). Prefer assigneesUrl with role_id. */
   level?: string
-  /** Full assignees API path (e.g. /admin/assets/12/assignees). */
+  /** Full assignees API path (e.g. /admin/.../assignees?role_id=12). */
   assigneesUrl?: string
   roleLabel: string
   confirmLabel?: string
@@ -23,7 +23,7 @@ type Props = {
 export function CapexAssigneePickerDialog({
   open,
   onOpenChange,
-  level = "hod",
+  level,
   assigneesUrl,
   roleLabel,
   confirmLabel = "Continue",
@@ -37,12 +37,20 @@ export function CapexAssigneePickerDialog({
 
   const fetchUrl =
     assigneesUrl ??
-    `/admin/capitalization-forms/assignees?level=${encodeURIComponent(level)}`
+    (level
+      ? `/admin/capitalization-forms/assignees?level=${encodeURIComponent(level)}`
+      : null)
 
   React.useEffect(() => {
     if (!open) return
     setSelectedId("")
     setResolvedRole(roleLabel)
+    if (!fetchUrl) {
+      setItems([])
+      setLoading(false)
+      toast.error("No assignee role is configured for this step.")
+      return
+    }
     let cancelled = false
     setLoading(true)
     void (async () => {

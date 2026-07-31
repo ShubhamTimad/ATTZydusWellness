@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Package, PackageX } from "lucide-react"
+import { Package, PackageX, Search, Trash2 } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -22,21 +22,25 @@ import {
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import {
   buildDisposalProgress,
   disposalStatusLabel,
   disposalStatusPillTone,
   withDisposalPostApprovalTimelineSteps,
   type DisposalOrderDetail,
+  type DisposalOrderItem,
 } from "@/lib/disposal-types"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import {
   actualLocationLabel,
   costCenterLabel,
   functionalLocationLabel,
+  plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
@@ -46,6 +50,32 @@ import { CapexProcessFlow } from "@/pages/capex/capex-process-flow"
 import { DisposalAuditLog } from "@/pages/disposals/disposal-audit-log"
 
 type PickerMode = "submit" | "receive" | null
+
+/** Backend rule: only active assets with approval approved/not_required can be disposed. */
+function isApprovedForDisposal(asset: { approval_status?: string | null }): boolean {
+  const approval = (asset.approval_status ?? "").trim().toLowerCase()
+  return approval === "approved" || approval === "not_required"
+}
+
+/**
+ * Assets already on this disposal stay pending_disposal until save restores removals.
+ * Keep them selectable so rework can remove and re-add without waiting for save.
+ */
+function isSelectableOnThisOrder(
+  asset: {
+    id: number
+    approval_status?: string | null
+    lifecycle_status?: string | null
+  },
+  reservedAssetIds: Set<number>,
+): boolean {
+  if (!isApprovedForDisposal(asset)) return false
+  const lifecycle = (asset.lifecycle_status ?? "").trim().toLowerCase()
+  if (reservedAssetIds.has(asset.id)) {
+    return !lifecycle || lifecycle === "active" || lifecycle === "pending_disposal"
+  }
+  return !lifecycle || lifecycle === "active"
+}
 
 function formatWhen(iso: string | null | undefined): string {
   if (!iso) return "—"
@@ -77,6 +107,10 @@ function FormField({
   )
 }
 
+function itemsToEditAssets(items: DisposalOrderItem[]): DisposalOrderItem[] {
+  return items.map((i) => ({ ...i }))
+}
+
 export function DisposalOrderDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -93,13 +127,23 @@ export function DisposalOrderDetailPage() {
   const [costCenterId, setCostCenterId] = React.useState("")
   const [functionalLocation, setFunctionalLocation] = React.useState("")
   const [actualLocation, setActualLocation] = React.useState("")
+  const [editAssets, setEditAssets] = React.useState<DisposalOrderItem[]>([])
+  const [editPlantId, setEditPlantId] = React.useState<number | null>(null)
+  const [assetSearch, setAssetSearch] = React.useState("")
+  const [filterCostCenter, setFilterCostCenter] = React.useState("")
+  const [catalog, setCatalog] = React.useState<AssetListItem[]>([])
+  const [catalogLoading, setCatalogLoading] = React.useState(false)
 
-  const masters = useAssetMasterLookups(order?.plant_id ?? null, null, functionalLocation || null)
+  const lookupPlantId = order?.can_edit ? editPlantId : (order?.plant_id ?? null)
+  const masters = useAssetMasterLookups(lookupPlantId ?? null, null, functionalLocation || null)
 
   const applyOrder = React.useCallback((res: DisposalOrderDetail) => {
     setOrder(res)
     setRequiresEngineering(res.requires_engineering)
     setRemarks(res.remarks ?? "")
+    setEditAssets(itemsToEditAssets(res.items))
+    setEditPlantId(res.plant_id)
+    setFilterCostCenter("")
   }, [])
 
   const load = React.useCallback(async () => {
@@ -128,6 +172,125 @@ export function DisposalOrderDetailPage() {
     void load()
   }, [load])
 
+  const selectedIds = React.useMemo(() => new Set(editAssets.map((a) => a.asset_id)), [editAssets])
+
+  const reservedAssetIds = React.useMemo(
+    () => new Set((order?.items ?? []).map((i) => i.asset_id)),
+    [order?.items],
+  )
+
+  const derivedFromCc = React.useMemo(() => {
+    const codes = [
+      ...new Set(
+        editAssets
+          .map((a) => (a.from_cost_center_code ?? "").trim())
+          .filter(Boolean),
+      ),
+    ]
+    if (codes.length === 1) {
+      const cc = masters.costCenters.find((c) => c.code === codes[0])
+      return {
+        code: codes[0],
+        description: cc?.description ?? null,
+      }
+    }
+    if (codes.length === 0) return null
+    return {
+      code: "Multiple",
+      description: "Selected assets are from more than one cost center",
+    }
+  }, [editAssets, masters.costCenters])
+
+  React.useEffect(() => {
+    if (!order?.can_edit || editPlantId == null) {
+      setCatalog([])
+      return
+    }
+    let cancelled = false
+    setCatalogLoading(true)
+    const handle = window.setTimeout(() => {
+      const params = new URLSearchParams({
+        page: "1",
+        page_size: "100",
+        plant_id: String(editPlantId),
+        sort_by: "asset_code",
+        sort_dir: "asc",
+      })
+      const q = assetSearch.trim()
+      if (q) params.set("search", q)
+      void getJson<AssetListResponse>(`/admin/assets?${params}`)
+        .then((res) => {
+          if (!cancelled) {
+            setCatalog(res.items.filter((a) => isSelectableOnThisOrder(a, reservedAssetIds)))
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setCatalog([])
+        })
+        .finally(() => {
+          if (!cancelled) setCatalogLoading(false)
+        })
+    }, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(handle)
+    }
+  }, [order?.can_edit, editPlantId, assetSearch, reservedAssetIds])
+
+  const filteredCatalog = React.useMemo(() => {
+    const cc = filterCostCenter.trim()
+    if (!cc) return catalog
+    return catalog.filter((a) => (a.cost_center ?? "").trim() === cc)
+  }, [catalog, filterCostCenter])
+
+  function toggleCatalogAsset(a: AssetListItem) {
+    if (selectedIds.has(a.id)) {
+      setEditAssets((prev) => prev.filter((x) => x.asset_id !== a.id))
+      return
+    }
+    if (!isSelectableOnThisOrder(a, reservedAssetIds)) {
+      toast.error("Only active, approved assets can be disposed.")
+      return
+    }
+    setEditAssets((prev) => [
+      ...prev,
+      {
+        id: -a.id,
+        asset_id: a.id,
+        asset_code: a.asset_code,
+        asset_name: a.asset_name ?? "",
+        from_cost_center_code: a.cost_center ?? null,
+        from_functional_location: a.functional_location ?? null,
+        from_actual_location: a.actual_location ?? null,
+      },
+    ])
+  }
+
+  function removeEditAsset(assetId: number) {
+    setEditAssets((prev) => prev.filter((a) => a.asset_id !== assetId))
+  }
+
+  function clearEditAssets() {
+    setEditAssets([])
+  }
+
+  async function saveEdits() {
+    if (!order) return
+    if (editAssets.length === 0) {
+      toast.error("Keep at least one asset on the disposal order.")
+      return
+    }
+    await run(
+      () =>
+        patchJson(`/admin/disposal-orders/${order.id}`, {
+          remarks: remarks.trim() || null,
+          requires_engineering: requiresEngineering,
+          asset_ids: editAssets.map((a) => a.asset_id),
+        }),
+      "Disposal order saved.",
+    )
+  }
+
   async function run(action: () => Promise<DisposalOrderDetail>, okMessage: string) {
     setBusy(true)
     try {
@@ -147,6 +310,13 @@ export function DisposalOrderDetailPage() {
   }) {
     const taskId = order?.approval_panel?.my_pending_task_id
     if (!taskId) return
+    const kind = (order?.approval_panel?.current_step_kind || "approve").toLowerCase()
+    if (decisionMode === "approve" && kind === "receive") {
+      if (!costCenterId || !functionalLocation.trim() || !actualLocation.trim()) {
+        toast.error("Select cost center and Actual Location 1 / 2 before receiving.")
+        return
+      }
+    }
     setBusy(true)
     try {
       await postJson(`/approvals/tasks/${taskId}/action`, {
@@ -155,9 +325,24 @@ export function DisposalOrderDetailPage() {
         ...(decisionMode === "approve" && payload.nextAssignedUserId != null
           ? { next_assigned_user_id: payload.nextAssignedUserId }
           : {}),
+        ...(decisionMode === "approve" && kind === "receive"
+          ? {
+              to_cost_center_id: Number(costCenterId),
+              to_functional_location: functionalLocation.trim(),
+              to_actual_location: actualLocation.trim(),
+            }
+          : {}),
       })
       setDecisionOpen(false)
-      toast.success(decisionMode === "approve" ? "Approved." : "Rejected.")
+      const ok =
+        decisionMode === "reject"
+          ? "Rejected."
+          : kind === "receive"
+            ? "Assets received."
+            : kind === "close"
+              ? "Disposal order closed."
+              : "Approved."
+      toast.success(ok)
       await load()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
@@ -176,8 +361,14 @@ export function DisposalOrderDetailPage() {
 
   const panel = order.approval_panel
   const canDecide = Boolean(panel?.my_pending_task_id) && hasPermission("approval.act")
+  const stepKind = (panel?.current_step_kind || "approve").toLowerCase()
+  const engineReceive = canDecide && stepKind === "receive"
+  const engineClose = canDecide && stepKind === "close"
   const canEditEngineering = order.can_edit && hasPermission("disposal.submit_with_engineering")
   const progress = buildDisposalProgress(order)
+  const receiveEditable = Boolean(order.can_receive) || engineReceive
+  const decisionConfirmLabel =
+    stepKind === "receive" ? "Receive & assign next" : stepKind === "close" ? "Close" : "Approve"
 
   return (
     <AdminPage
@@ -200,16 +391,7 @@ export function DisposalOrderDetailPage() {
               size="sm"
               className="h-9"
               disabled={busy}
-              onClick={() =>
-                void run(
-                  () =>
-                    patchJson(`/admin/disposal-orders/${order.id}`, {
-                      remarks: remarks.trim() || null,
-                      requires_engineering: requiresEngineering,
-                    }),
-                  "Disposal order saved.",
-                )
-              }
+              onClick={() => void saveEdits()}
             >
               {busy ? "Saving…" : "Save changes"}
             </Button>
@@ -249,32 +431,44 @@ export function DisposalOrderDetailPage() {
           ) : null}
           {canDecide ? (
             <>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9"
-                disabled={busy}
-                onClick={() => {
-                  setDecisionMode("reject")
-                  setDecisionOpen(true)
-                }}
-              >
-                Reject
-              </Button>
+              {!engineClose ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  disabled={busy}
+                  onClick={() => {
+                    setDecisionMode("reject")
+                    setDecisionOpen(true)
+                  }}
+                >
+                  Reject
+                </Button>
+              ) : null}
               <AdminPrimaryButton
                 type="button"
                 disabled={busy}
                 onClick={() => {
+                  if (engineReceive) {
+                    if (!costCenterId || !functionalLocation.trim() || !actualLocation.trim()) {
+                      toast.error("Select cost center and Actual Location 1 / 2 first.")
+                      return
+                    }
+                    if (panel?.needs_next_assignee) {
+                      setPickerMode("receive")
+                      return
+                    }
+                  }
                   setDecisionMode("approve")
                   setDecisionOpen(true)
                 }}
               >
-                Approve
+                {engineReceive ? "Receive & assign next" : engineClose ? "Close" : "Approve"}
               </AdminPrimaryButton>
             </>
           ) : null}
-          {order.can_receive ? (
+          {order.can_receive && !canDecide ? (
             <AdminPrimaryButton
               type="button"
               disabled={busy}
@@ -289,7 +483,7 @@ export function DisposalOrderDetailPage() {
               Receive
             </AdminPrimaryButton>
           ) : null}
-          {order.can_close ? (
+          {order.can_close && !canDecide ? (
             <AdminPrimaryButton
               type="button"
               disabled={busy}
@@ -359,11 +553,24 @@ export function DisposalOrderDetailPage() {
             <div className="grid grid-cols-1 gap-4">
               <FormField labelText="From cost center">
                 <p className="text-sm">
-                  {order.from_cost_center_code ?? "—"}
-                  {order.from_cost_center_description
-                    ? ` — ${order.from_cost_center_description}`
-                    : ""}
+                  {order.can_edit
+                    ? derivedFromCc
+                      ? `${derivedFromCc.code}${
+                          derivedFromCc.description ? ` — ${derivedFromCc.description}` : ""
+                        }`
+                      : "—"
+                    : `${order.from_cost_center_code ?? "—"}${
+                        order.from_cost_center_description
+                          ? ` — ${order.from_cost_center_description}`
+                          : ""
+                      }`}
                 </p>
+                {order.can_edit ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Updates from the assets you select (same plant). Change plant if needed, filter
+                    by your cost centers, then pick a new set.
+                  </p>
+                ) : null}
               </FormField>
 
               <div className={adminSwitchRowClass}>
@@ -411,26 +618,54 @@ export function DisposalOrderDetailPage() {
           </AdminPanel>
 
           <AdminPanel
-            title={`Assets (${order.items.length})`}
-            description="Assets included on this disposal order."
-            headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
+            title={`Assets (${editAssets.length})`}
+            description={
+              order.can_edit
+                ? "Change plant if allowed, then pick active approved assets from your cost centers."
+                : "Assets included on this disposal order."
+            }
+            headerActions={
+              order.can_edit ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  disabled={busy || editAssets.length === 0}
+                  onClick={clearEditAssets}
+                >
+                  Clear all
+                </Button>
+              ) : (
+                <Package className="size-4 text-muted-foreground" aria-hidden />
+              )
+            }
             contentClassName="px-5 py-5"
           >
-            <div className="-mx-5 -mb-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto">
               <Table>
                 <TableHeader>
                   <AdminTableHeaderRow>
                     <AdminTableHeadCell>Asset</AdminTableHeadCell>
                     <AdminTableHeadCell>From CC</AdminTableHeadCell>
                     <AdminTableHeadCell>From Loc 1</AdminTableHeadCell>
+                    {order.can_edit ? (
+                      <AdminTableHeadCell className="w-16">
+                        <span className="sr-only">Remove</span>
+                      </AdminTableHeadCell>
+                    ) : null}
                   </AdminTableHeaderRow>
                 </TableHeader>
                 <TableBody>
-                  {order.items.length === 0 ? (
-                    <AdminTableEmptyRow colSpan={3}>No assets</AdminTableEmptyRow>
+                  {editAssets.length === 0 ? (
+                    <AdminTableEmptyRow colSpan={order.can_edit ? 4 : 3}>
+                      {order.can_edit
+                        ? "No assets selected — choose from the list below."
+                        : "No assets"}
+                    </AdminTableEmptyRow>
                   ) : (
-                    order.items.map((item) => (
-                      <AdminTableBodyRow key={item.id} interactive={false}>
+                    editAssets.map((item) => (
+                      <AdminTableBodyRow key={item.asset_id} interactive={false}>
                         <AdminTableCell>
                           <div className="font-medium">{item.asset_code}</div>
                           <div className="text-xs text-muted-foreground">
@@ -439,19 +674,148 @@ export function DisposalOrderDetailPage() {
                         </AdminTableCell>
                         <AdminTableCell>{item.from_cost_center_code ?? "—"}</AdminTableCell>
                         <AdminTableCell>{item.from_functional_location ?? "—"}</AdminTableCell>
+                        {order.can_edit ? (
+                          <AdminTableCell>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                              disabled={busy}
+                              aria-label={`Remove ${item.asset_code}`}
+                              onClick={() => removeEditAsset(item.asset_id)}
+                            >
+                              <Trash2 className="size-4" aria-hidden />
+                            </Button>
+                          </AdminTableCell>
+                        ) : null}
                       </AdminTableBodyRow>
                     ))
                   )}
                 </TableBody>
               </Table>
             </div>
+
+            {order.can_edit ? (
+              <div className="mt-4 space-y-3 border-t border-border/60 pt-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <FormField id="edit_plant" labelText="Plant" required>
+                    <select
+                      id="edit_plant"
+                      className={adminSelectClass}
+                      value={editPlantId != null ? String(editPlantId) : ""}
+                      disabled={busy}
+                      onChange={(e) => {
+                        const next = e.target.value ? Number(e.target.value) : null
+                        setEditPlantId(next)
+                        setEditAssets([])
+                        setFilterCostCenter("")
+                        setAssetSearch("")
+                      }}
+                    >
+                      <option value="">Select plant</option>
+                      {masters.plants.map((p) => (
+                        <option key={p.id} value={String(p.id)}>
+                          {plantLabel(p)}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField id="filter_cc" labelText="Filter by cost center">
+                    <select
+                      id="filter_cc"
+                      className={adminSelectClass}
+                      value={filterCostCenter}
+                      disabled={busy || editPlantId == null}
+                      onChange={(e) => setFilterCostCenter(e.target.value)}
+                    >
+                      <option value="">All cost centers (this plant)</option>
+                      {masters.costCenters.map((cc) => (
+                        <option key={cc.id} value={cc.code}>
+                          {costCenterLabel(cc)}
+                          {cc.code ? ` (${cc.code})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </FormField>
+                  <FormField id="asset_search_edit" labelText="Search assets">
+                    <div className="relative">
+                      <Search
+                        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                        aria-hidden
+                      />
+                      <Input
+                        id="asset_search_edit"
+                        value={assetSearch}
+                        disabled={editPlantId == null}
+                        onChange={(e) => setAssetSearch(e.target.value)}
+                        placeholder={
+                          editPlantId == null ? "Select a plant first" : "Asset code or name…"
+                        }
+                        className="pl-9"
+                        autoComplete="off"
+                      />
+                    </div>
+                  </FormField>
+                </div>
+                <div className="-mx-5 max-h-72 overflow-auto border-t border-border/40">
+                  <Table>
+                    <TableHeader>
+                      <AdminTableHeaderRow>
+                        <AdminTableHeadCell className="w-10">
+                          <span className="sr-only">Select</span>
+                        </AdminTableHeadCell>
+                        <AdminTableHeadCell>Asset</AdminTableHeadCell>
+                        <AdminTableHeadCell>Cost center</AdminTableHeadCell>
+                      </AdminTableHeaderRow>
+                    </TableHeader>
+                    <TableBody>
+                      {editPlantId == null ? (
+                        <AdminTableEmptyRow colSpan={3}>
+                          Select a plant to list assets.
+                        </AdminTableEmptyRow>
+                      ) : catalogLoading ? (
+                        <AdminTableEmptyRow colSpan={3}>Loading assets…</AdminTableEmptyRow>
+                      ) : filteredCatalog.length === 0 ? (
+                        <AdminTableEmptyRow colSpan={3}>
+                          No active, approved assets match this filter.
+                        </AdminTableEmptyRow>
+                      ) : (
+                        filteredCatalog.map((a) => {
+                          const checked = selectedIds.has(a.id)
+                          return (
+                            <AdminTableBodyRow key={a.id} interactive={false}>
+                              <AdminTableCell>
+                                <Checkbox
+                                  checked={checked}
+                                  disabled={busy}
+                                  aria-label={`Select ${a.asset_code}`}
+                                  onCheckedChange={() => toggleCatalogAsset(a)}
+                                />
+                              </AdminTableCell>
+                              <AdminTableCell>
+                                <div className="font-medium">{a.asset_code}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {a.asset_name || "—"}
+                                </div>
+                              </AdminTableCell>
+                              <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
+                            </AdminTableBodyRow>
+                          )
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ) : null}
           </AdminPanel>
         </div>
 
-        {order.can_receive ? (
+        {receiveEditable ? (
           <AdminPanel
             title="Receive"
-            description="Set the cost center and Actual Location 1 / 2, then choose the Central Finance user who will approve and close this order."
+            description="Set the cost center and Actual Location 1 / 2, then choose the next approver (usually Central Finance) who will close this order."
             contentClassName="px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -562,14 +926,48 @@ export function DisposalOrderDetailPage() {
         }}
         assigneesUrl={
           pickerMode === "receive"
-            ? "/admin/disposal-orders/assignees?level=central_finance"
+            ? panel?.next_assignee_role_id
+              ? `/admin/disposal-orders/assignees?role_id=${panel.next_assignee_role_id}`
+              : undefined
             : `/admin/disposal-orders/assignees?requires_engineering=${requiresEngineering ? "true" : "false"}`
         }
-        roleLabel={pickerMode === "receive" ? "Central Finance" : "Approver"}
-        confirmLabel={pickerMode === "receive" ? "Receive & assign CF" : "Submit"}
+        roleLabel={
+          pickerMode === "receive"
+            ? (panel?.next_step_role_name ?? "Next approver")
+            : "Approver"
+        }
+        confirmLabel={
+          pickerMode === "receive"
+            ? engineReceive
+              ? "Receive & assign next"
+              : "Receive & assign CF"
+            : "Submit"
+        }
         busy={busy}
         onConfirm={async (userId) => {
           if (pickerMode === "receive") {
+            if (engineReceive) {
+              const taskId = panel?.my_pending_task_id
+              if (!taskId) return
+              setBusy(true)
+              try {
+                await postJson(`/approvals/tasks/${taskId}/action`, {
+                  action: "approve",
+                  next_assigned_user_id: userId,
+                  to_cost_center_id: Number(costCenterId),
+                  to_functional_location: functionalLocation.trim(),
+                  to_actual_location: actualLocation.trim(),
+                })
+                toast.success("Assets received.")
+                setPickerMode(null)
+                await load()
+              } catch (e) {
+                toast.error(e instanceof ApiError ? e.message : "Action failed")
+              } finally {
+                setBusy(false)
+              }
+              return
+            }
             await run(
               () =>
                 postJson(`/admin/disposal-orders/${order.id}/receive`, {
@@ -599,15 +997,23 @@ export function DisposalOrderDetailPage() {
         onOpenChange={setDecisionOpen}
         mode={decisionMode}
         busy={busy}
-        needsNextAssignee={Boolean(panel?.needs_next_assignee)}
-        nextAssigneeLevel={panel?.next_assignee_level ?? null}
+        title={
+          decisionMode === "reject"
+            ? "Reject"
+            : stepKind === "close"
+              ? "Close disposal"
+              : stepKind === "receive"
+                ? "Receive assets"
+                : "Approve"
+        }
+        confirmLabel={decisionMode === "reject" ? "Reject" : decisionConfirmLabel}
+        needsNextAssignee={Boolean(panel?.needs_next_assignee) && decisionMode === "approve"}
+        nextAssigneeLevel={null}
         nextStepRoleName={panel?.next_step_role_name ?? null}
         assigneesUrl={
           panel?.next_assignee_role_id
             ? `/admin/disposal-orders/assignees?role_id=${panel.next_assignee_role_id}`
-            : panel?.next_assignee_level
-              ? `/admin/disposal-orders/assignees?level=${encodeURIComponent(panel.next_assignee_level)}`
-              : undefined
+            : undefined
         }
         onConfirm={confirmDecision}
       />

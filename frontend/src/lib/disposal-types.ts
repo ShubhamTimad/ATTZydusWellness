@@ -121,12 +121,35 @@ export type DisposalProgressStep = {
   approver_slots: []
 }
 
+function stepKindOf(s: { step_kind?: string }): string {
+  return (s.step_kind || "approve").toLowerCase()
+}
+
+function progressLabelForStep(s: {
+  step_kind?: string
+  approver_role_name: string
+  phase: string
+}): string {
+  const kind = stepKindOf(s)
+  const role = shortDisposalRoleLabel(s.approver_role_name)
+  if (kind === "close") {
+    return s.phase === "completed" ? "Closed" : "Close"
+  }
+  if (kind === "receive") {
+    return s.phase === "completed" ? `Received by ${role}` : role
+  }
+  if (kind === "confirm") {
+    return s.phase === "completed" ? `Confirmed by ${role}` : role
+  }
+  if (s.phase === "completed") return `Approved by ${role}`
+  return role
+}
+
 /**
- * Disposal process path (one active node per action):
- * Draft → workflow roles → CC Received → CF approval/close
- *
- * "Pending for approval" is not a separate step — after submit, the current
- * approver role is the active node (same as Transfer: Draft → Assigned to CF).
+ * Disposal process path.
+ * When the workflow includes receive/confirm/close kinds, the ladder is driven only
+ * from those steps (no synthetic CC Received / CF trailers).
+ * Legacy approve-only workflows append post-approval trailers only after approval ends.
  */
 export function buildDisposalProgress(detail: DisposalOrderDetail): {
   steps: DisposalProgressStep[]
@@ -137,17 +160,11 @@ export function buildDisposalProgress(detail: DisposalOrderDetail): {
   const postApproval =
     status === "pending_receipt" || status === "pending_cf_close" || status === "closed"
   const workflowSteps = currentDisposalWorkflowSteps(detail)
-  const approvedRoleNames = approvedDisposalRoleNames(detail)
-  const auditNextRole = nextPendingDisposalRoleName(detail)
+  const hasOperationalKinds = workflowSteps.some((s) => stepKindOf(s) !== "approve")
   const currentApproval =
     workflowSteps.find((s) => s.phase === "current") ??
-    (status === "pending_approval" && auditNextRole
-      ? workflowSteps.find((s) => roleMatches(s.approver_role_name, auditNextRole))
-      : undefined) ??
-    (status === "pending_approval"
-      ? workflowSteps.find(
-          (s) => s.phase === "upcoming" && !approvedRoleNames.has(normalizeRoleName(s.approver_role_name)),
-        )
+    (status === "pending_approval" || postApproval
+      ? workflowSteps.find((s) => s.phase === "upcoming")
       : undefined)
   const rejectAtOrder = workflowSteps.find((s) => s.phase === "rejected")?.step_order
 
@@ -160,14 +177,146 @@ export function buildDisposalProgress(detail: DisposalOrderDetail): {
     },
   ]
 
+  if (status === "cancelled") {
+    return {
+      steps: [
+        { key: "draft", label: "Draft", status: "completed", approver_slots: [] },
+        { key: "cancelled", label: "Archived", status: "rejected", approver_slots: [] },
+      ],
+      currentStepKey: "cancelled",
+    }
+  }
+
+  // Operational workflow: drive the whole path from configured step kinds + phase.
+  if (hasOperationalKinds) {
+    let insertedRejected = false
+    let currentStepKey = "draft"
+    if (status === "draft") currentStepKey = "draft"
+    else if (status === "closed") currentStepKey = "closed"
+    else if (isRejected) currentStepKey = "rejected"
+
+    for (const s of workflowSteps) {
+      const kind = stepKindOf(s)
+      const key =
+        kind === "close"
+          ? "closed"
+          : kind === "receive"
+            ? "pending_receipt"
+            : kind === "confirm"
+              ? "pending_cf_close"
+              : `approved_by_${s.step_order}`
+
+      if (isRejected) {
+        // Stop at rejection — do not paint later not-started steps.
+        if (s.phase === "upcoming") continue
+        if (s.phase === "completed") {
+          steps.push({
+            key,
+            label: progressLabelForStep({ ...s, phase: "completed" }),
+            status: "completed",
+            detail: s.assigned_user_name ?? null,
+            approver_slots: [],
+          })
+          continue
+        }
+        if (s.phase === "rejected" || (rejectAtOrder != null && s.step_order === rejectAtOrder)) {
+          if (!insertedRejected) {
+            steps.push({
+              key: "rejected",
+              label: "Rejected",
+              status: "rejected",
+              approver_slots: [],
+            })
+            insertedRejected = true
+          }
+        }
+        continue
+      }
+
+      // Complete only by this step's phase / order — never by shared role name.
+      let stepStatus: string = "upcoming"
+      if (s.phase === "completed" || status === "closed") stepStatus = "completed"
+      else if (s.phase === "current") {
+        stepStatus = "active"
+        currentStepKey = key
+      } else if (
+        currentApproval != null &&
+        Number(s.step_order) === Number(currentApproval.step_order)
+      ) {
+        stepStatus = "active"
+        currentStepKey = key
+      }
+
+      if (stepStatus === "upcoming") {
+        if (kind === "receive" && status === "pending_receipt") {
+          stepStatus = "active"
+          currentStepKey = key
+        } else if (kind === "confirm" && status === "pending_cf_close") {
+          const earlierIncomplete = workflowSteps.some(
+            (x) =>
+              Number(x.step_order) < Number(s.step_order) &&
+              x.phase !== "completed" &&
+              x.phase !== "rejected",
+          )
+          if (!earlierIncomplete) {
+            stepStatus = "active"
+            currentStepKey = key
+          }
+        } else if (kind === "close" && status === "pending_cf_close") {
+          // Don't light Close while an earlier CF approve (or other) step is still open.
+          const earlierIncomplete = workflowSteps.some(
+            (x) =>
+              Number(x.step_order) < Number(s.step_order) &&
+              x.phase !== "completed" &&
+              x.phase !== "rejected",
+          )
+          if (!earlierIncomplete) {
+            stepStatus = "active"
+            currentStepKey = key
+          }
+        } else if (
+          kind === "receive" &&
+          (status === "pending_cf_close" || status === "closed")
+        ) {
+          stepStatus = "completed"
+        } else if (
+          (kind === "confirm" || kind === "close") &&
+          status === "closed"
+        ) {
+          stepStatus = "completed"
+        }
+      }
+
+      steps.push({
+        key,
+        label: progressLabelForStep({
+          ...s,
+          phase: stepStatus === "completed" ? "completed" : s.phase,
+        }),
+        status: stepStatus,
+        detail: s.assigned_user_name ?? null,
+        approver_slots: [],
+      })
+    }
+
+    if (isRejected && !insertedRejected) {
+      steps.push({
+        key: "rejected",
+        label: "Rejected",
+        status: "rejected",
+        approver_slots: [],
+      })
+    }
+
+    return { steps, currentStepKey }
+  }
+
+  // Legacy approve-only workflow: one node per step_order (phase-based, not role-name).
   let insertedRejected = false
   for (const s of workflowSteps) {
     const role = shortDisposalRoleLabel(s.approver_role_name)
     const key = `approved_by_${s.step_order}`
-    const isCompletedRole =
-      postApproval ||
-      s.phase === "completed" ||
-      approvedRoleNames.has(normalizeRoleName(s.approver_role_name))
+    const isCompletedRole = postApproval || s.phase === "completed"
     const isCurrentRole =
       !postApproval &&
       !isRejected &&
@@ -186,23 +335,22 @@ export function buildDisposalProgress(detail: DisposalOrderDetail): {
     }
 
     if (isRejected) {
-      if (!insertedRejected && (rejectAtOrder == null || s.step_order === rejectAtOrder)) {
-        steps.push({
-          key: "rejected",
-          label: "Rejected",
-          status: "rejected",
-          approver_slots: [],
-        })
-        insertedRejected = true
+      // Stop at rejection — do not paint later not-started steps.
+      if (s.phase === "upcoming") continue
+      if (
+        s.phase === "rejected" ||
+        (rejectAtOrder != null && s.step_order === rejectAtOrder)
+      ) {
+        if (!insertedRejected) {
+          steps.push({
+            key: "rejected",
+            label: "Rejected",
+            status: "rejected",
+            approver_slots: [],
+          })
+          insertedRejected = true
+        }
       }
-      if (rejectAtOrder != null && s.step_order <= rejectAtOrder) continue
-      steps.push({
-        key,
-        label: role,
-        status: "upcoming",
-        detail: s.assigned_user_name ?? null,
-        approver_slots: [],
-      })
       continue
     }
 
@@ -224,67 +372,47 @@ export function buildDisposalProgress(detail: DisposalOrderDetail): {
         approver_slots: [],
       })
     }
+    return { steps, currentStepKey: "rejected" }
+  }
+
+  // Synthetic post-approval trailers only for legacy approve-only chains after approval ends.
+  if (postApproval) {
+    const receiptStatus =
+      status === "pending_receipt"
+        ? "active"
+        : status === "pending_cf_close" || status === "closed"
+          ? "completed"
+          : "upcoming"
+    const cfCloseStatus =
+      status === "pending_cf_close"
+        ? "active"
+        : status === "closed"
+          ? "completed"
+          : "upcoming"
     steps.push(
       {
         key: "pending_receipt",
         label: "CC Received",
-        status: "upcoming",
+        status: receiptStatus,
+        detail: status === "pending_receipt" ? (detail.assigned_to_name ?? null) : null,
         approver_slots: [],
       },
       {
         key: "pending_cf_close",
-        label: "CF approval",
-        status: "upcoming",
+        label: cfCloseStatus === "completed" ? "Approved by CF" : "CF approval",
+        status: cfCloseStatus,
+        detail: status === "pending_cf_close" ? (detail.assigned_to_name ?? null) : null,
         approver_slots: [],
       },
     )
-    return { steps, currentStepKey: "rejected" }
   }
-
-  if (status === "cancelled") {
-    return {
-      steps: [
-        { key: "draft", label: "Draft", status: "completed", approver_slots: [] },
-        { key: "cancelled", label: "Archived", status: "rejected", approver_slots: [] },
-      ],
-      currentStepKey: "cancelled",
-    }
-  }
-
-  const receiptStatus =
-    status === "pending_receipt"
-      ? "active"
-      : status === "pending_cf_close" || status === "closed"
-        ? "completed"
-        : "upcoming"
-  const cfCloseStatus =
-    status === "pending_cf_close" ? "active" : status === "closed" ? "completed" : "upcoming"
-
-  steps.push(
-    {
-      key: "pending_receipt",
-      label: "CC Received",
-      status: receiptStatus,
-      detail: status === "pending_receipt" ? (detail.assigned_to_name ?? null) : null,
-      approver_slots: [],
-    },
-    {
-      key: "pending_cf_close",
-      label: cfCloseStatus === "completed" ? "Approved by CF" : "CF approval",
-      status: cfCloseStatus,
-      detail: status === "pending_cf_close" ? (detail.assigned_to_name ?? null) : null,
-      approver_slots: [],
-    },
-  )
 
   let currentStepKey = "draft"
   if (status === "draft") {
     currentStepKey = "draft"
   } else if (status === "pending_receipt") {
     currentStepKey = "pending_receipt"
-  } else if (status === "pending_cf_close") {
-    currentStepKey = "pending_cf_close"
-  } else if (status === "closed") {
+  } else if (status === "pending_cf_close" || status === "closed") {
     currentStepKey = "pending_cf_close"
   } else if (currentApproval) {
     currentStepKey = `approved_by_${currentApproval.step_order}`
@@ -306,80 +434,43 @@ function currentDisposalWorkflowSteps(
 }
 
 function defaultDisposalApprovalSteps(
-  requiresEngineering: boolean,
+  _requiresEngineering: boolean,
 ): NonNullable<DisposalApprovalPanel["workflow_steps"]> {
-  const roles = requiresEngineering
-    ? ["Department HOD", "Engineering", "Central Finance", "CFM", "MD", "Store Person"]
-    : ["Department HOD", "Central Finance", "CFM", "MD", "Store Person"]
-  return roles.map((approver_role_name, i) => ({
-    step_order: i + 1,
-    approver_role_name,
-    required_approvals: 1,
-    total_steps: roles.length,
-    phase: "upcoming" as const,
-    approved_count: 0,
-    actions: [],
-    status_label: "",
-  }))
+  // No hardcoded role names — wait for the live workflow / preview from the API.
+  return []
 }
 
 function shortDisposalRoleLabel(roleName: string): string {
-  const n = roleName.trim().toLowerCase()
-  if (n.includes("hod")) return "HOD"
-  if (n.includes("engineering")) return "Engineering"
-  if (n === "cfm" || n.includes("finance manager")) return "CFM"
-  if (n === "md" || n.includes("managing director")) return "MD"
-  if (n.includes("store")) return "Store"
-  if (n.includes("finance") || n.includes("central finance")) return "CF"
-  return roleName
-}
-
-function normalizeRoleName(roleName: string | null | undefined): string {
-  return (roleName ?? "").trim().toLowerCase()
-}
-
-function roleMatches(a: string | null | undefined, b: string | null | undefined): boolean {
-  return normalizeRoleName(a) === normalizeRoleName(b)
-}
-
-function approvedDisposalRoleNames(detail: DisposalOrderDetail): Set<string> {
-  const out = new Set<string>()
-  for (const ev of detail.audit ?? []) {
-    if (ev.action !== "step_approved" && ev.action !== "approved") continue
-    const role = readAuditString(ev.new_value, "step_role_name")
-    if (role) out.add(normalizeRoleName(role))
-  }
-  return out
-}
-
-function nextPendingDisposalRoleName(detail: DisposalOrderDetail): string | null {
-  for (const ev of detail.audit ?? []) {
-    if (ev.action !== "step_approved") continue
-    const role = readAuditString(ev.new_value, "next_role_name")
-    if (role) return role
-  }
-  return null
-}
-
-function readAuditString(
-  payload: Record<string, unknown> | null | undefined,
-  key: string,
-): string | null {
-  const value = payload?.[key]
-  return typeof value === "string" && value.trim() ? value.trim() : null
+  // Always use the live workflow role name — never map by hardcoded synonyms.
+  return roleName.trim() || "Approver"
 }
 
 type TimelineStep = NonNullable<DisposalApprovalPanel["workflow_steps"]>[number]
 
 /**
- * Append Receiver + CF approval after the configured workflow roles
- * so Approval progress mirrors the full disposal path.
+ * Append Receiver + CF approval after configured approve-only roles.
+ * Skipped when the workflow already defines receive/confirm/close kinds.
  */
 export function withDisposalPostApprovalTimelineSteps(
   steps: TimelineStep[],
   detail: Pick<DisposalOrderDetail, "status" | "assigned_to" | "assigned_to_name">,
 ): TimelineStep[] {
+  if (steps.some((s) => stepKindOf(s) !== "approve")) {
+    return steps
+  }
+
   const status = detail.status
+  // Don't paint synthetic trailers while approvals are still in flight, or after reject.
+  if (
+    status === "rejected" ||
+    status === "in_rework" ||
+    (status !== "pending_receipt" &&
+      status !== "pending_cf_close" &&
+      status !== "closed")
+  ) {
+    return steps
+  }
+
   const baseOrder = steps.length > 0 ? Math.max(...steps.map((s) => s.step_order)) : 0
   const total = baseOrder + 2
 
@@ -393,9 +484,6 @@ export function withDisposalPostApprovalTimelineSteps(
   } else if (status === "closed") {
     receivePhase = "completed"
     cfPhase = "completed"
-  } else if (status === "rejected" || status === "in_rework" || status === "cancelled") {
-    receivePhase = "upcoming"
-    cfPhase = "upcoming"
   }
 
   const receiveAssigned =
@@ -441,13 +529,12 @@ export function withDisposalPostApprovalTimelineSteps(
           : "Not started",
     assigned_user_id: cfAssigned.id,
     assigned_user_name: cfAssigned.name,
-    step_kind: "approve",
+    step_kind: "close",
   }
 
   const normalized = steps.map((s) => ({
     ...s,
     total_steps: total,
-    // Once post-approval starts, every workflow role is done.
     phase:
       status === "pending_receipt" || status === "pending_cf_close" || status === "closed"
         ? ("completed" as const)

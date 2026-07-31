@@ -3,91 +3,186 @@ import * as React from "react"
 import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import type { DisposalOrderAudit } from "@/lib/disposal-types"
 
-const ACTION_LABELS: Record<string, string> = {
-  created: "Created",
-  updated: "Updated",
-  submitted: "Submitted for approval",
-  resubmitted: "Resubmitted for approval",
-  reassigned: "Approver reassigned",
-  step_approved: "Approved a step",
-  approved: "Final approval — sent to scrapyard",
-  rejected: "Rejected",
-  received: "Received at scrapyard",
-  closed: "Closed",
-  archived: "Archived",
-}
-
-const FIELD_LABELS: Record<string, string> = {
-  status: "Status",
-  order_number: "Order number",
-  assets: "Assets",
-  asset_count: "Asset count",
-  disposed_assets: "Disposed assets",
-  reactivated_assets: "Reactivated assets",
-  requires_engineering: "Engineering approval",
-  remarks: "Remarks",
-  comment: "Comment",
-  assignee_name: "Assignee",
-  assigned_to_name: "Assigned to",
-  next_assignee_name: "Next assignee",
-  next_role_name: "Next role",
-  role_name: "Role",
-  step_role_name: "Step",
-  cost_center: "Cost center",
-  functional_location: "Location 1",
-  actual_location: "Location 2",
-}
-
-function label(map: Record<string, string>, key: string): string {
-  return map[key] ?? key.replaceAll("_", " ")
-}
-
-function formatValue(value: unknown): string {
-  if (value == null || value === "") return "—"
+function text(value: unknown): string | null {
+  if (value == null) return null
   if (typeof value === "boolean") return value ? "Yes" : "No"
-  if (Array.isArray(value)) return value.length === 0 ? "—" : value.map(String).join(", ")
-  if (typeof value === "object") return JSON.stringify(value)
-  return String(value)
+  if (Array.isArray(value)) {
+    const parts = value.map(String).map((s) => s.trim()).filter(Boolean)
+    return parts.length ? parts.join(", ") : null
+  }
+  if (typeof value === "object") return null
+  const s = String(value).trim()
+  return s || null
 }
 
-function changesForEvent(ev: DisposalOrderAudit) {
+function fromNew(ev: DisposalOrderAudit, key: string): string | null {
+  return text(ev.new_value?.[key])
+}
+
+function fromOld(ev: DisposalOrderAudit, key: string): string | null {
+  return text(ev.old_value?.[key])
+}
+
+function nextAssigneeLine(ev: DisposalOrderAudit): string | null {
+  const name =
+    fromNew(ev, "next_assignee_name") ||
+    fromNew(ev, "assigned_to_name") ||
+    fromNew(ev, "assignee_name")
+  const role = fromNew(ev, "next_role_name")
+  if (name && role) return `Next: ${name} (${role})`
+  if (name) return `Next: ${name}`
+  if (role) return `Next role: ${role}`
+  return null
+}
+
+/** Short headline: decision + step role when present. */
+export function disposalAuditHeadline(ev: DisposalOrderAudit): string {
+  const step = fromNew(ev, "step_role_name") || fromNew(ev, "role_name")
+  switch (ev.action) {
+    case "created":
+      return "Created"
+    case "updated":
+      return "Updated"
+    case "submitted":
+      return "Submitted for approval"
+    case "resubmitted":
+      return "Resubmitted for approval"
+    case "reassigned":
+      return step ? `Reassigned — ${step}` : "Reassigned"
+    case "step_approved":
+      return step ? `Approved — ${step}` : "Approved"
+    case "approved":
+      return step ? `Final approval — ${step}` : "Final approval — sent to receive"
+    case "rejected":
+      return step ? `Rejected — ${step}` : "Rejected"
+    case "received":
+      return step ? `Received — ${step}` : "Received"
+    case "closed":
+      return step ? `Closed — ${step}` : "Closed"
+    case "archived":
+      return "Archived"
+    default:
+      return ev.action.replaceAll("_", " ")
+  }
+}
+
+/**
+ * Compact facts under the headline (no empty "— →" rows).
+ * Workflow actions: next assignee, comment, receive destinations.
+ * Edits: only fields that actually changed, "set to" when there was no prior value.
+ */
+export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
+  const lines: string[] = []
+  const action = ev.action
+
+  if (
+    action === "step_approved" ||
+    action === "approved" ||
+    action === "rejected" ||
+    action === "received" ||
+    action === "closed" ||
+    action === "submitted" ||
+    action === "resubmitted" ||
+    action === "reassigned"
+  ) {
+    const next = nextAssigneeLine(ev)
+    if (next) {
+      lines.push(action === "rejected" ? next.replace(/^Next:/, "Returned to:") : next)
+    }
+
+    const comment = fromNew(ev, "comment")
+    if (comment) lines.push(`Comment: ${comment}`)
+
+    if (action === "received") {
+      const cc = fromNew(ev, "cost_center")
+      const loc1 = fromNew(ev, "functional_location")
+      const loc2 = fromNew(ev, "actual_location")
+      if (cc) lines.push(`Cost center: ${cc}`)
+      if (loc1) lines.push(`Location 1: ${loc1}`)
+      if (loc2) lines.push(`Location 2: ${loc2}`)
+    }
+
+    if (action === "closed") {
+      const disposed = fromNew(ev, "disposed_assets")
+      if (disposed) lines.push(`Disposed: ${disposed}`)
+    }
+
+    const statusTo = fromNew(ev, "status")
+    const statusFrom = fromOld(ev, "status")
+    if (statusTo && statusFrom && statusTo !== statusFrom) {
+      lines.push(`Status: ${statusFrom} → ${statusTo}`)
+    } else if (statusTo && (action === "rejected" || action === "approved" || action === "received")) {
+      lines.push(`Status: ${statusTo}`)
+    }
+
+    return lines
+  }
+
+  // created / updated / archived — field-level changes, skip empties
   const oldV = ev.old_value ?? {}
   const newV = ev.new_value ?? {}
-  const out: { field: string; from_value: string; to_value: string }[] = []
-  for (const key of [...new Set([...Object.keys(oldV), ...Object.keys(newV)])]) {
-    if (JSON.stringify(oldV[key]) === JSON.stringify(newV[key])) continue
-    out.push({
-      field: label(FIELD_LABELS, key),
-      from_value: formatValue(oldV[key]),
-      to_value: formatValue(newV[key]),
-    })
+  const skip = new Set([
+    "assigned_to",
+    "assignee_user_id",
+    "next_assignee_user_id",
+  ])
+  const preferName: [string, string][] = [
+    ["assigned_to", "assigned_to_name"],
+    ["assignee_user_id", "assignee_name"],
+    ["next_assignee_user_id", "next_assignee_name"],
+  ]
+  for (const [idKey, nameKey] of preferName) {
+    if (nameKey in newV || nameKey in oldV) skip.add(idKey)
   }
-  return out
+
+  const labels: Record<string, string> = {
+    status: "Status",
+    order_number: "Order number",
+    assets: "Assets",
+    asset_count: "Asset count",
+    disposed_assets: "Disposed assets",
+    reactivated_assets: "Reactivated assets",
+    requires_engineering: "Engineering approval",
+    remarks: "Remarks",
+    comment: "Comment",
+    assignee_name: "Assignee",
+    assigned_to_name: "Assigned to",
+    next_assignee_name: "Next assignee",
+    next_role_name: "Next role",
+    role_name: "Role",
+    step_role_name: "Step",
+    cost_center: "Cost center",
+    functional_location: "Location 1",
+    actual_location: "Location 2",
+  }
+
+  for (const key of [...new Set([...Object.keys(oldV), ...Object.keys(newV)])]) {
+    if (skip.has(key)) continue
+    const from = text(oldV[key])
+    const to = text(newV[key])
+    if (from === to) continue
+    if (!from && !to) continue
+    const label = labels[key] ?? key.replaceAll("_", " ")
+    if (!from && to) lines.push(`${label}: ${to}`)
+    else if (from && !to) lines.push(`${label}: cleared (was ${from})`)
+    else lines.push(`${label}: ${from} → ${to}`)
+  }
+  return lines
 }
 
 function activityForEvent(ev: DisposalOrderAudit): React.ReactNode {
-  const changes = changesForEvent(ev)
+  const details = disposalAuditDetailLines(ev)
   return (
-    <div className="space-y-1">
-      <p className="font-medium">{label(ACTION_LABELS, ev.action)}</p>
-      {changes.length > 0 ? (
-        <dl className="mt-0.5 space-y-0.5 rounded-md border border-border/40 bg-muted/15 px-2.5 py-1.5">
-          {changes.map((c) => (
-            <div
-              key={c.field}
-              className="grid grid-cols-1 gap-0.5 text-[11px] leading-relaxed sm:grid-cols-[minmax(0,12.5rem)_minmax(0,1fr)] sm:items-baseline sm:gap-x-3"
-            >
-              <dt className="break-words text-muted-foreground">{c.field}</dt>
-              <dd className="min-w-0 break-words tabular-nums text-foreground">
-                <span>{c.from_value}</span>
-                <span className="mx-1 text-muted-foreground" aria-hidden>
-                  →
-                </span>
-                <span className="font-medium">{c.to_value}</span>
-              </dd>
-            </div>
+    <div className="space-y-0.5">
+      <p className="font-medium">{disposalAuditHeadline(ev)}</p>
+      {details.length > 0 ? (
+        <ul className="space-y-0.5 text-[11px] leading-relaxed text-muted-foreground">
+          {details.map((line, i) => (
+            <li key={`${i}-${line}`} className="break-words">
+              {line}
+            </li>
           ))}
-        </dl>
+        </ul>
       ) : null}
     </div>
   )

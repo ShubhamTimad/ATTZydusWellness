@@ -113,7 +113,9 @@ class CapexApprovalPanel(BaseModel):
     is_final_step: bool = False
     needs_next_assignee: bool = False
     next_step_role_name: str | None = None
+    next_assignee_role_id: int | None = None
     next_assignee_level: str | None = None
+    current_assignee_role_id: int | None = None
 
 
 class CapexFormDetail(BaseModel):
