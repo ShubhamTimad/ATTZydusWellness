@@ -1,0 +1,111 @@
+name: Deploy develop
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-develop
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Frontend typecheck + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+
+  deploy:
+    name: Deploy to server
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+
+            PREVIOUS_SHA="$(git rev-parse HEAD)"
+
+            git fetch origin
+            git checkout develop
+            git pull origin develop
+            NEW_SHA="$(git rev-parse HEAD)"
+
+            echo "Deploying $NEW_SHA (previous was $PREVIOUS_SHA)"
+
+            docker compose --env-file .env.docker down
+            docker compose --env-file .env.docker build
+            docker compose --env-file .env.docker up -d
+
+            echo "Waiting for containers..."
+            sleep 25
+
+            echo "===== docker compose ps ====="
+            docker compose --env-file .env.docker ps
+
+            FAILED=0
+
+            if docker compose --env-file .env.docker ps | grep -Eiq 'Exit|exited|Restarting|unhealthy|dead'; then
+              echo "STATUS CHECK FAILED"
+              FAILED=1
+            fi
+
+            echo "===== recent logs ====="
+            docker compose --env-file .env.docker logs --tail=100 || true
+
+            if docker compose --env-file .env.docker logs --tail=300 2>&1 | grep -Eiq 'Traceback|FATAL|panic|Error response from daemon|npm ERR'; then
+              echo "LOG CHECK found serious errors"
+              FAILED=1
+            fi
+
+            if ! curl -fsS -o /dev/null --max-time 15 http://127.0.0.1:8083/; then
+              echo "Frontend HTTP check failed"
+              FAILED=1
+            fi
+            if ! curl -fsS -o /dev/null --max-time 15 http://127.0.0.1:8083/api/docs; then
+              echo "API docs HTTP check failed"
+              FAILED=1
+            fi
+
+            if [ "$FAILED" -ne 0 ]; then
+              echo "Deploy unhealthy — reverting to $PREVIOUS_SHA"
+              if [ "$PREVIOUS_SHA" = "$NEW_SHA" ]; then
+                echo "No previous distinct commit to revert to"
+                exit 1
+              fi
+
+              git checkout "$PREVIOUS_SHA"
+              docker compose --env-file .env.docker down
+              docker compose --env-file .env.docker build
+              docker compose --env-file .env.docker up -d
+              sleep 20
+              docker compose --env-file .env.docker ps
+
+              echo "Reverted to $PREVIOUS_SHA because new deploy failed"
+              exit 1
+            fi
+
+            echo "Deploy OK: $NEW_SHA"
+            git checkout develop
+            git reset --hard origin/develop
