@@ -109,6 +109,8 @@ class TransferOrderListItem(BaseModel):
     created_at: datetime
     can_delete: bool = False
     can_archive: bool = False
+    needs_my_action: bool = False
+    my_action_label: str | None = None
 
 
 class TransferOrderListResponse(BaseModel):
@@ -116,6 +118,7 @@ class TransferOrderListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    tab_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class TransferWorkflowRunPublic(BaseModel):

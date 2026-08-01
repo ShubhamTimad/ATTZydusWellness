@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from core.permissions import get_flat_permission_codes_for_user
@@ -63,6 +63,7 @@ from modules.disposals.schema import (
 )
 from modules.errors import ConflictError, NotFoundError
 from modules.platform.approvals.assignment_service import get_workflow_for_action
+from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow
 from modules.platform.approvals.service import ApprovalEngineService, ApprovalError
 from modules.platform.org_units.model import OrgUnit
@@ -80,6 +81,10 @@ PERMISSION_CLOSE = "disposal.close"
 
 _TAB_STATUSES: dict[str, frozenset[str] | None] = {
     "all": None,
+    # needs_action is viewer-scoped (not a status set) — handled in list_orders.
+    "needs_action": None,
+    "done": frozenset({STATUS_CLOSED, STATUS_CANCELLED}),
+    # Legacy status tabs (bookmarks / API).
     "draft": EDITABLE_STATUSES,
     "pending": frozenset({STATUS_PENDING_APPROVAL}),
     "receipt": frozenset({STATUS_PENDING_RECEIPT, STATUS_PENDING_CF_CLOSE}),
@@ -1082,9 +1087,36 @@ class DisposalOrderService:
 
     # ------------------------------------------------------------------ reads
 
-    def list_orders(self, *, tab: str, page: int, page_size: int) -> DisposalOrderListResponse:
-        statuses = _TAB_STATUSES.get(tab, None)
-        where = [AssetDisposalOrder.status.in_(statuses)] if statuses is not None else []
+    def list_orders(
+        self,
+        *,
+        tab: str,
+        page: int,
+        page_size: int,
+        viewer_user_id: int | None = None,
+        search: str | None = None,
+        order_number: str | None = None,
+        plant_id: int | None = None,
+        from_cost_center_id: int | None = None,
+        status: str | None = None,
+        asset_count: int | None = None,
+        assigned_to: str | None = None,
+        created_on: date | None = None,
+    ) -> DisposalOrderListResponse:
+        tab_key = (tab or "needs_action").strip().lower()
+        where = self._list_orders_where(tab_key, viewer_user_id=viewer_user_id)
+        where.extend(
+            self._list_filter_clauses(
+                search=search,
+                order_number=order_number,
+                plant_id=plant_id,
+                from_cost_center_id=from_cost_center_id,
+                status=status,
+                asset_count=asset_count,
+                assigned_to=assigned_to,
+                created_on=created_on,
+            )
+        )
         total = int(
             self._db.scalar(select(func.count()).select_from(AssetDisposalOrder).where(*where)) or 0
         )
@@ -1117,13 +1149,152 @@ class DisposalOrderService:
                     assigned_to_name=r.assignee.full_name if r.assignee else None,
                     created_by_name=r.creator.full_name if r.creator else None,
                     created_at=r.created_at,
+                    needs_my_action=self._row_needs_action(r, viewer_user_id),
+                    my_action_label=self._row_action_label(r, viewer_user_id),
                 )
                 for r in rows
             ],
             total=total,
             page=page,
             page_size=page_size,
+            tab_counts=self._list_tab_counts(viewer_user_id=viewer_user_id),
         )
+
+    def _list_filter_clauses(
+        self,
+        *,
+        search: str | None = None,
+        order_number: str | None = None,
+        plant_id: int | None = None,
+        from_cost_center_id: int | None = None,
+        status: str | None = None,
+        asset_count: int | None = None,
+        assigned_to: str | None = None,
+        created_on: date | None = None,
+    ) -> list:
+        clauses: list = []
+        if plant_id is not None:
+            clauses.append(AssetDisposalOrder.plant_id == int(plant_id))
+        if from_cost_center_id is not None:
+            clauses.append(AssetDisposalOrder.from_cost_center_id == int(from_cost_center_id))
+        status_q = (status or "").strip().lower()
+        if status_q:
+            clauses.append(AssetDisposalOrder.status == status_q)
+        if asset_count is not None:
+            item_count = (
+                select(func.count(AssetDisposalOrderItem.id))
+                .where(AssetDisposalOrderItem.order_id == AssetDisposalOrder.id)
+                .correlate(AssetDisposalOrder)
+                .scalar_subquery()
+            )
+            clauses.append(item_count == int(asset_count))
+        if created_on is not None:
+            clauses.append(func.date(AssetDisposalOrder.created_at) == created_on)
+        onum = (order_number or "").strip()
+        if onum:
+            clauses.append(AssetDisposalOrder.order_number.ilike(f"%{onum}%"))
+        assignee_q = (assigned_to or "").strip()
+        if assignee_q:
+            clauses.append(
+                AssetDisposalOrder.assignee.has(User.full_name.ilike(f"%{assignee_q}%"))
+            )
+        q = (search or "").strip()
+        if q:
+            pattern = f"%{q}%"
+            clauses.append(
+                or_(
+                    AssetDisposalOrder.order_number.ilike(pattern),
+                    AssetDisposalOrder.plant.has(
+                        or_(OrgUnit.name.ilike(pattern), OrgUnit.code.ilike(pattern))
+                    ),
+                    AssetDisposalOrder.from_cost_center.has(
+                        CostCenterMaster.code.ilike(pattern)
+                    ),
+                    AssetDisposalOrder.assignee.has(User.full_name.ilike(pattern)),
+                    AssetDisposalOrder.creator.has(User.full_name.ilike(pattern)),
+                )
+            )
+        return clauses
+
+    def _list_orders_where(self, tab: str, *, viewer_user_id: int | None) -> list:
+        if tab == "needs_action":
+            if viewer_user_id is None:
+                return [AssetDisposalOrder.id < 0]
+            return self._needs_action_clauses(int(viewer_user_id))
+        if tab in ("done", "closed"):
+            return [AssetDisposalOrder.status.in_((STATUS_CLOSED, STATUS_CANCELLED))]
+        if tab == "all":
+            return []
+        statuses = _TAB_STATUSES.get(tab)
+        if statuses is None and tab in _TAB_STATUSES:
+            return []
+        if statuses is None:
+            return []
+        return [AssetDisposalOrder.status.in_(statuses)]
+
+    def _needs_action_clauses(self, viewer_user_id: int) -> list:
+        uid = int(viewer_user_id)
+        pending_req_ids = pending_approval_request_ids_for_viewer(self._db, uid)
+        return [
+            or_(
+                and_(
+                    AssetDisposalOrder.approval_request_id.is_not(None),
+                    AssetDisposalOrder.approval_request_id.in_(pending_req_ids),
+                ),
+                and_(
+                    AssetDisposalOrder.created_by == uid,
+                    AssetDisposalOrder.status.in_(EDITABLE_STATUSES),
+                ),
+                and_(
+                    AssetDisposalOrder.assigned_to == uid,
+                    AssetDisposalOrder.status.in_(
+                        (STATUS_PENDING_RECEIPT, STATUS_PENDING_CF_CLOSE, STATUS_IN_REWORK)
+                    ),
+                ),
+            ),
+            AssetDisposalOrder.status != STATUS_CANCELLED,
+            AssetDisposalOrder.status != STATUS_CLOSED,
+        ]
+
+    def _list_tab_counts(self, *, viewer_user_id: int | None) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for key in ("all", "needs_action", "done"):
+            where = self._list_orders_where(key, viewer_user_id=viewer_user_id)
+            counts[key] = int(
+                self._db.scalar(
+                    select(func.count()).select_from(AssetDisposalOrder).where(*where)
+                )
+                or 0
+            )
+        return counts
+
+    def _row_needs_action(
+        self, order: AssetDisposalOrder, viewer_user_id: int | None
+    ) -> bool:
+        return self._row_action_label(order, viewer_user_id) is not None
+
+    def _row_action_label(
+        self, order: AssetDisposalOrder, viewer_user_id: int | None
+    ) -> str | None:
+        if viewer_user_id is None:
+            return None
+        uid = int(viewer_user_id)
+        if order.status in EDITABLE_STATUSES and order.created_by is not None and int(order.created_by) == uid:
+            return "Submit" if order.status == STATUS_DRAFT else "Resubmit"
+        if order.assigned_to is not None and int(order.assigned_to) == uid:
+            if order.status == STATUS_PENDING_RECEIPT:
+                return "Receive"
+            if order.status == STATUS_PENDING_CF_CLOSE:
+                return "Close"
+        if order.approval_request_id is not None and order.status == STATUS_PENDING_APPROVAL:
+            pending_ids = {
+                int(x)
+                for x in self._db.scalars(pending_approval_request_ids_for_viewer(self._db, uid)).all()
+                if x is not None
+            }
+            if int(order.approval_request_id) in pending_ids:
+                return "Approve"
+        return None
 
     def list_audit(self, order_id: int) -> list[DisposalOrderAuditPublic]:
         if self._db.get(AssetDisposalOrder, order_id) is None:

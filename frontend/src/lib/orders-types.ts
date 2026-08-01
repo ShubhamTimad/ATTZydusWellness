@@ -74,6 +74,7 @@ export type PhysicalOrderListResponse = {
   total: number
   page: number
   page_size: number
+  tab_counts?: Record<string, number>
 }
 
 export type PhysicalOrderItem = {
@@ -226,16 +227,32 @@ export const ASSET_PHYSICAL_ORDER_STATUS_FILTERS: { value: string; label: string
   { value: "rejected", label: "Rejected" },
 ]
 
-/** Status tabs aligned with the physical order lifecycle (same order as the progress bar). */
-export const ORDER_STATUS_TABS: OrderListTab[] = [
-  { key: "draft", label: "Draft", countKey: "draft" },
-  { key: "assigned", label: "Assigned", countKey: "assigned" },
-  { key: "in_progress", label: "In progress", countKey: "in_progress" },
-  { key: "completed", label: "Completed", countKey: "completed" },
-  { key: "approved", label: "Approved", countKey: "approved" },
-  { key: "closed", label: "Closed", countKey: "closed" },
-  { key: "rejected", label: "Rejected", countKey: "rejected" },
+/** Lifecycle status filter for the orders list Status column (not inbox tabs). */
+export const ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: "draft", label: "Draft" },
+  { value: "pending_approval", label: "Pending approval" },
+  { value: "approved", label: "Approved" },
+  { value: "assigned", label: "Assigned" },
+  { value: "in_progress", label: "In progress" },
+  { value: "pending_closure_approval", label: "Pending closure" },
+  { value: "completed", label: "Completed" },
+  { value: "closed", label: "Closed" },
+  { value: "rejected", label: "Rejected" },
+  { value: "cancelled", label: "Archived" },
 ]
+
+/** Inbox-style list tabs (All / Needs my action / Done). */
+export const ORDER_STATUS_TABS: OrderListTab[] = [
+  { key: "all", label: "All" },
+  { key: "needs_action", label: "Needs my action" },
+  { key: "done", label: "Done" },
+]
+
+export function orderTabEmptyMessage(tab: string): string {
+  if (tab === "needs_action") return "Nothing waiting on you right now."
+  if (tab === "done") return "No closed or archived orders."
+  return "No physical orders."
+}
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",

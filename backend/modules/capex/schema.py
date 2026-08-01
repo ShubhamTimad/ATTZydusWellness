@@ -75,6 +75,8 @@ class CapexFormListItem(BaseModel):
     asset_id: int | None
     created_by_name: str | None
     created_at: datetime
+    needs_my_action: bool = False
+    my_action_label: str | None = None
 
 
 class CapexFormListResponse(BaseModel):
@@ -82,6 +84,7 @@ class CapexFormListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    tab_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class CapexWorkflowRunPublic(BaseModel):

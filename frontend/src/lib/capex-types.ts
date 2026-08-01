@@ -8,6 +8,8 @@ export type CapexFormListItem = {
   asset_id: number | null
   created_by_name: string | null
   created_at: string
+  needs_my_action?: boolean
+  my_action_label?: string | null
 }
 
 export type CapexFormListResponse = {
@@ -15,6 +17,7 @@ export type CapexFormListResponse = {
   total: number
   page: number
   page_size: number
+  tab_counts?: Record<string, number>
 }
 
 export type CapexApprovalStepLine = {
@@ -142,11 +145,25 @@ export type CapexFormWritePayload = {
 
 export const CAPEX_STATUS_TABS = [
   { key: "all", label: "All" },
-  { key: "draft", label: "Draft" },
-  { key: "pending_approval", label: "Pending approval" },
-  { key: "in_rework", label: "Rejected" },
-  { key: "approved", label: "Approved" },
+  { key: "needs_action", label: "Needs my action" },
+  { key: "done", label: "Done" },
 ] as const
+
+/** Lifecycle status filter for the CapEx list Status column (not inbox tabs). */
+export const CAPEX_STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: "draft", label: "Draft" },
+  { value: "pending_approval", label: "Pending approval" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+  { value: "in_rework", label: "Rejected" },
+  { value: "cancelled", label: "Archived" },
+]
+
+export function capexTabEmptyMessage(tab: string): string {
+  if (tab === "needs_action") return "Nothing waiting on you right now."
+  if (tab === "done") return "No approved or archived forms."
+  return "No capitalization forms."
+}
 
 export function capexStatusLabel(status: string): string {
   const map: Record<string, string> = {

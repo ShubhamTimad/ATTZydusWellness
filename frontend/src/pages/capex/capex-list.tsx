@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { getJson } from "@/lib/api"
 import {
+  CAPEX_STATUS_FILTERS,
   CAPEX_STATUS_TABS,
   capexStatusLabel,
   capexStatusPillTone,
@@ -44,6 +45,7 @@ type CapexColumnFilters = {
   form_number: string
   asset_name: string
   department: string
+  status: string
   created_by: string
 }
 
@@ -51,12 +53,13 @@ const DEFAULT_COLUMN_FILTERS: CapexColumnFilters = {
   form_number: "",
   asset_name: "",
   department: "",
+  status: "",
   created_by: "",
 }
 
 export function CapexListPage() {
   const navigate = useNavigate()
-  const [tab, setTab] = React.useState("all")
+  const [tab, setTab] = React.useState("needs_action")
   const [page, setPage] = React.useState(1)
   const [data, setData] = React.useState<CapexFormListResponse | null>(null)
   const [loading, setLoading] = React.useState(false)
@@ -70,7 +73,7 @@ export function CapexListPage() {
   const canCreate = hasPermission("capitalization.create")
 
   const activeColumnFilterCount =
-    Object.values(columnFilters).filter((value) => value.trim()).length + (tab !== "all" ? 1 : 0)
+    Object.values(columnFilters).filter((value) => value.trim()).length
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -120,7 +123,7 @@ export function CapexListPage() {
     setSearch("")
     setColumnFilterInputs({ ...DEFAULT_COLUMN_FILTERS })
     setColumnFilters({ ...DEFAULT_COLUMN_FILTERS })
-    setTab("all")
+    setTab("needs_action")
     setPage(1)
   }
 
@@ -151,11 +154,29 @@ export function CapexListPage() {
         }}
       >
         <WorkspaceTabsList>
-          {CAPEX_STATUS_TABS.map((t) => (
-            <WorkspaceTabsTrigger key={t.key} value={t.key}>
-              {t.label}
-            </WorkspaceTabsTrigger>
-          ))}
+          {CAPEX_STATUS_TABS.map((t) => {
+            const count = data?.tab_counts?.[t.key]
+            const highlight = t.key === "needs_action" && typeof count === "number" && count > 0
+            return (
+              <WorkspaceTabsTrigger key={t.key} value={t.key}>
+                <span className="inline-flex items-center gap-1.5">
+                  {t.label}
+                  {typeof count === "number" ? (
+                    <span
+                      className={cn(
+                        "rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                        highlight
+                          ? "bg-primary/15 text-primary"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {count}
+                    </span>
+                  ) : null}
+                </span>
+              </WorkspaceTabsTrigger>
+            )
+          })}
         </WorkspaceTabsList>
 
         {CAPEX_STATUS_TABS.map((t) => (
@@ -279,16 +300,16 @@ export function CapexListPage() {
                       <AdminTableHeadCell className="px-2 py-1.5">
                         <select
                           className={cn(adminSelectClass, columnFilterControlClass)}
-                          value={tab}
+                          value={columnFilterInputs.status}
                           aria-label="Filter status"
-                          onChange={(e) => {
-                            setTab(e.target.value)
-                            setPage(1)
-                          }}
+                          onChange={(e) =>
+                            setColumnFilterInputs((f) => ({ ...f, status: e.target.value }))
+                          }
                         >
-                          {CAPEX_STATUS_TABS.map((statusTab) => (
-                            <option key={statusTab.key} value={statusTab.key}>
-                              {statusTab.label}
+                          <option value="">All statuses</option>
+                          {CAPEX_STATUS_FILTERS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
                             </option>
                           ))}
                         </select>

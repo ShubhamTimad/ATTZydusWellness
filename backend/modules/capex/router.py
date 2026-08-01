@@ -30,9 +30,10 @@ def get_capex_service(db: Session = Depends(get_db)) -> CapexFormService:
 
 @router.get("", response_model=CapexFormListResponse)
 def list_forms(
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[CapexFormService, Depends(get_capex_service)],
     _: Annotated[object, Depends(require_permission("capitalization.view"))],
-    tab: str = Query("all"),
+    tab: str = Query("needs_action"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     available_for_asset: bool = Query(False),
@@ -41,6 +42,7 @@ def list_forms(
     form_number: str | None = Query(None),
     asset_name: str | None = Query(None),
     department: str | None = Query(None),
+    status: str | None = Query(None),
     created_by: str | None = Query(None),
 ) -> CapexFormListResponse:
     return svc.list_forms(
@@ -53,7 +55,9 @@ def list_forms(
         form_number=form_number,
         asset_name=asset_name,
         department=department,
+        status=status,
         created_by=created_by,
+        viewer_user_id=int(current.subject),
     )
 
 

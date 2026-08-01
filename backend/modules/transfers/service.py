@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from modules.asset_masters.model import CostCenterAssetCustodian, CostCenterMaster
@@ -14,7 +14,12 @@ from modules.assets.model import (
 )
 from modules.errors import ConflictError, NotFoundError
 from modules.platform.approvals.assignment_service import get_workflow_for_action
-from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow
+from modules.platform.approvals.model import (
+    ApprovalRequest,
+    ApprovalStep,
+    ApprovalTask,
+    ApprovalWorkflow,
+)
 from modules.platform.approvals.service import ApprovalEngineService, ApprovalError
 from modules.platform.org_units.model import OrgUnit
 from modules.platform.roles.model import Role
@@ -146,6 +151,42 @@ def _is_destination_actor(order: AssetTransferOrder, viewer_user_id: int | None)
     if order.assigned_to is not None and int(order.assigned_to) == uid:
         return True
     return False
+
+
+def _list_action_label(
+    order: AssetTransferOrder,
+    viewer_user_id: int | None,
+    pending_kinds: dict[int, str],
+) -> str | None:
+    """Short label for what the viewer should do next on this order, if anything."""
+    if viewer_user_id is None:
+        return None
+    uid = int(viewer_user_id)
+    status = order.status
+    if status in EDITABLE_STATUSES and (
+        (order.created_by is not None and int(order.created_by) == uid)
+        or (status == STATUS_IN_REWORK and _is_destination_actor(order, uid))
+    ):
+        return "Transfer" if status in (STATUS_IN_REWORK, STATUS_REJECTED) else "Submit"
+    req_id = int(order.approval_request_id) if order.approval_request_id is not None else None
+    if req_id is not None and req_id in pending_kinds:
+        kind = pending_kinds[req_id]
+        return {
+            "receive": "Receive",
+            "confirm": "Confirm",
+            "close": "Close",
+        }.get(kind, "Approve")
+    is_assignee = order.assigned_to is not None and int(order.assigned_to) == uid
+    is_custodian = (
+        order.to_asset_custodian_id is not None and int(order.to_asset_custodian_id) == uid
+    )
+    if status == STATUS_APPROVED_BY_CF and (is_assignee or is_custodian):
+        return "Receive"
+    if status == STATUS_RECEIVED_BY_CC2 and is_assignee:
+        return "Confirm"
+    if status == STATUS_CONFIRMED_BY_CF and is_assignee:
+        return "Close"
+    return None
 
 
 def _restore_destination_locations_from_audit(db: Session, order: AssetTransferOrder) -> bool:
@@ -1149,12 +1190,37 @@ class TransferOrderService:
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
     def list_orders(
-        self, *, tab: str, page: int, page_size: int, viewer_user_id: int | None = None
+        self,
+        *,
+        tab: str,
+        page: int,
+        page_size: int,
+        viewer_user_id: int | None = None,
+        search: str | None = None,
+        order_number: str | None = None,
+        plant_id: int | None = None,
+        from_cost_center_id: int | None = None,
+        to_cost_center_id: int | None = None,
+        status: str | None = None,
+        asset_count: int | None = None,
+        assigned_to: str | None = None,
+        created_on: date | None = None,
     ) -> TransferOrderListResponse:
-        statuses = _TAB_STATUSES.get(tab, ACTIVE_STATUSES)
-        where = []
-        if statuses is not None:
-            where.append(AssetTransferOrder.status.in_(statuses))
+        tab_key = (tab or "needs_action").strip().lower()
+        where = self._list_orders_where(tab_key, viewer_user_id=viewer_user_id)
+        where.extend(
+            self._list_filter_clauses(
+                search=search,
+                order_number=order_number,
+                plant_id=plant_id,
+                from_cost_center_id=from_cost_center_id,
+                to_cost_center_id=to_cost_center_id,
+                status=status,
+                asset_count=asset_count,
+                assigned_to=assigned_to,
+                created_on=created_on,
+            )
+        )
         total = int(
             self._db.scalar(
                 select(func.count()).select_from(AssetTransferOrder).where(*where)
@@ -1178,6 +1244,7 @@ class TransferOrderService:
                 .limit(page_size)
             ).all()
         )
+        pending_kinds = self._pending_step_kinds_for_viewer(viewer_user_id)
         items = []
         for r in rows:
             may_discard = (
@@ -1187,6 +1254,7 @@ class TransferOrderService:
                 )
             )
             plain = _is_plain_transfer_draft(self._db, r)
+            action_label = _list_action_label(r, viewer_user_id, pending_kinds)
             items.append(
                 TransferOrderListItem(
                     id=int(r.id),
@@ -1203,9 +1271,202 @@ class TransferOrderService:
                     can_archive=bool(
                         may_discard and r.status in EDITABLE_STATUSES and not plain
                     ),
+                    needs_my_action=action_label is not None,
+                    my_action_label=action_label,
                 )
             )
-        return TransferOrderListResponse(items=items, total=total, page=page, page_size=page_size)
+        return TransferOrderListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            tab_counts=self._list_tab_counts(viewer_user_id=viewer_user_id),
+        )
+
+    def _list_filter_clauses(
+        self,
+        *,
+        search: str | None = None,
+        order_number: str | None = None,
+        plant_id: int | None = None,
+        from_cost_center_id: int | None = None,
+        to_cost_center_id: int | None = None,
+        status: str | None = None,
+        asset_count: int | None = None,
+        assigned_to: str | None = None,
+        created_on: date | None = None,
+    ) -> list:
+        clauses: list = []
+        if plant_id is not None:
+            clauses.append(AssetTransferOrder.plant_id == int(plant_id))
+        if from_cost_center_id is not None:
+            clauses.append(AssetTransferOrder.from_cost_center_id == int(from_cost_center_id))
+        if to_cost_center_id is not None:
+            clauses.append(AssetTransferOrder.to_cost_center_id == int(to_cost_center_id))
+        status_q = (status or "").strip().lower()
+        if status_q:
+            clauses.append(AssetTransferOrder.status == status_q)
+        if asset_count is not None:
+            item_count = (
+                select(func.count(AssetTransferOrderItem.id))
+                .where(AssetTransferOrderItem.order_id == AssetTransferOrder.id)
+                .correlate(AssetTransferOrder)
+                .scalar_subquery()
+            )
+            clauses.append(item_count == int(asset_count))
+        if created_on is not None:
+            clauses.append(func.date(AssetTransferOrder.created_at) == created_on)
+        onum = (order_number or "").strip()
+        if onum:
+            clauses.append(AssetTransferOrder.order_number.ilike(f"%{onum}%"))
+        assignee_q = (assigned_to or "").strip()
+        if assignee_q:
+            clauses.append(
+                AssetTransferOrder.assignee.has(User.full_name.ilike(f"%{assignee_q}%"))
+            )
+        q = (search or "").strip()
+        if q:
+            pattern = f"%{q}%"
+            clauses.append(
+                or_(
+                    AssetTransferOrder.order_number.ilike(pattern),
+                    AssetTransferOrder.plant.has(
+                        or_(OrgUnit.name.ilike(pattern), OrgUnit.code.ilike(pattern))
+                    ),
+                    AssetTransferOrder.from_cost_center.has(
+                        CostCenterMaster.code.ilike(pattern)
+                    ),
+                    AssetTransferOrder.to_cost_center.has(
+                        CostCenterMaster.code.ilike(pattern)
+                    ),
+                    AssetTransferOrder.assignee.has(User.full_name.ilike(pattern)),
+                    AssetTransferOrder.creator.has(User.full_name.ilike(pattern)),
+                )
+            )
+        return clauses
+
+    def _pending_approval_request_ids(self, viewer_user_id: int):
+        """Pending approval/rework request ids assigned to this viewer (user or role)."""
+        uid = int(viewer_user_id)
+        role_ids = select(user_role.c.role_id).where(user_role.c.user_id == uid)
+        approval_ids = select(ApprovalTask.request_id).where(
+            ApprovalTask.request_id.is_not(None),
+            ApprovalTask.task_type == "approval",
+            ApprovalTask.status == "pending",
+            or_(
+                ApprovalTask.assigned_user_id == uid,
+                and_(
+                    ApprovalTask.assigned_user_id.is_(None),
+                    ApprovalTask.assigned_role_id.in_(role_ids),
+                ),
+            ),
+        )
+        rework_ids = select(ApprovalTask.request_id).where(
+            ApprovalTask.request_id.is_not(None),
+            ApprovalTask.task_type == "rework",
+            ApprovalTask.status.in_(("open", "pending")),
+            or_(
+                ApprovalTask.assigned_user_id == uid,
+                ApprovalTask.assigned_to_user_id == uid,
+            ),
+        )
+        return approval_ids.union(rework_ids)
+
+    def _pending_step_kinds_for_viewer(self, viewer_user_id: int | None) -> dict[int, str]:
+        if viewer_user_id is None:
+            return {}
+        uid = int(viewer_user_id)
+        role_ids = select(user_role.c.role_id).where(user_role.c.user_id == uid)
+        rows = self._db.execute(
+            select(ApprovalTask.request_id, ApprovalStep.step_kind)
+            .join(ApprovalStep, ApprovalStep.id == ApprovalTask.step_id)
+            .where(
+                ApprovalTask.request_id.is_not(None),
+                ApprovalTask.task_type == "approval",
+                ApprovalTask.status == "pending",
+                or_(
+                    ApprovalTask.assigned_user_id == uid,
+                    and_(
+                        ApprovalTask.assigned_user_id.is_(None),
+                        ApprovalTask.assigned_role_id.in_(role_ids),
+                    ),
+                ),
+            )
+        ).all()
+        out: dict[int, str] = {}
+        for request_id, kind in rows:
+            if request_id is None:
+                continue
+            out[int(request_id)] = str(kind or "approve").lower()
+        return out
+
+    def _needs_action_clauses(self, viewer_user_id: int) -> list:
+        uid = int(viewer_user_id)
+        pending_req_ids = self._pending_approval_request_ids(uid)
+        return [
+            or_(
+                and_(
+                    AssetTransferOrder.approval_request_id.is_not(None),
+                    AssetTransferOrder.approval_request_id.in_(pending_req_ids),
+                ),
+                and_(
+                    AssetTransferOrder.created_by == uid,
+                    AssetTransferOrder.status.in_(EDITABLE_STATUSES),
+                ),
+                and_(
+                    AssetTransferOrder.assigned_to == uid,
+                    AssetTransferOrder.status.in_(
+                        (
+                            STATUS_APPROVED_BY_CF,
+                            STATUS_RECEIVED_BY_CC2,
+                            STATUS_CONFIRMED_BY_CF,
+                            STATUS_IN_REWORK,
+                            STATUS_REJECTED,
+                        )
+                    ),
+                ),
+                and_(
+                    AssetTransferOrder.to_asset_custodian_id == uid,
+                    AssetTransferOrder.status == STATUS_APPROVED_BY_CF,
+                ),
+            ),
+            AssetTransferOrder.status != STATUS_CANCELLED,
+            AssetTransferOrder.status != STATUS_CLOSED,
+        ]
+
+    def _list_orders_where(self, tab: str, *, viewer_user_id: int | None) -> list:
+        if tab == "needs_action":
+            if viewer_user_id is None:
+                return [AssetTransferOrder.id < 0]
+            return self._needs_action_clauses(int(viewer_user_id))
+        if tab in ("done", "closed"):
+            return [
+                AssetTransferOrder.status.in_((STATUS_CLOSED, STATUS_CANCELLED)),
+            ]
+        if tab == "all":
+            return []
+        # Legacy status tabs still work for bookmarks / API clients.
+        statuses = _TAB_STATUSES.get(tab)
+        if statuses is None and tab in _TAB_STATUSES:
+            return []
+        if statuses is None:
+            # Unknown tab → same as needs_action when viewer known, else active open set.
+            if viewer_user_id is not None:
+                return self._needs_action_clauses(int(viewer_user_id))
+            return [AssetTransferOrder.status.in_(ACTIVE_STATUSES)]
+        return [AssetTransferOrder.status.in_(statuses)]
+
+    def _list_tab_counts(self, *, viewer_user_id: int | None) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for key in ("needs_action", "done", "all"):
+            where = self._list_orders_where(key, viewer_user_id=viewer_user_id)
+            counts[key] = int(
+                self._db.scalar(
+                    select(func.count()).select_from(AssetTransferOrder).where(*where)
+                )
+                or 0
+            )
+        return counts
 
     # -------------------------------------------------------- approval panel
 

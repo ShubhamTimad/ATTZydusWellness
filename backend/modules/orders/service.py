@@ -1040,6 +1040,9 @@ class PhysicalOrderService:
         plant_id: int | None = None,
         cost_center_id: int | None = None,
         order_number: str | None = None,
+        status: str | None = None,
+        asset_count: int | None = None,
+        created_on: date | None = None,
         assigned_to: str | None = None,
         created_by: str | None = None,
     ) -> PhysicalOrderListResponse:
@@ -1058,7 +1061,41 @@ class PhysicalOrderService:
             ORDER_STATUS_IN_PROGRESS,
             ORDER_STATUS_PENDING_CLOSURE,
         )
-        if tab == "needs_approval":
+        if tab == "needs_action":
+            from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
+
+            pending_req_ids = pending_approval_request_ids_for_viewer(self._db, int(viewer_id))
+            base = base.where(
+                or_(
+                    and_(
+                        PhysicalOrder.approval_request_id.is_not(None),
+                        PhysicalOrder.approval_request_id.in_(pending_req_ids),
+                    ),
+                    and_(
+                        PhysicalOrder.created_by == int(viewer_id),
+                        PhysicalOrder.status.in_(_EDITABLE_PHYSICAL_STATUSES),
+                    ),
+                    and_(
+                        PhysicalOrder.assigned_to == int(viewer_id),
+                        PhysicalOrder.status.in_(
+                            (
+                                ORDER_STATUS_ASSIGNED,
+                                ORDER_STATUS_APPROVED,
+                                ORDER_STATUS_IN_PROGRESS,
+                                ORDER_STATUS_COMPLETED,
+                                ORDER_STATUS_PENDING_CLOSURE,
+                            )
+                        ),
+                    ),
+                ),
+                PhysicalOrder.status != ORDER_STATUS_CLOSED,
+                PhysicalOrder.status != ORDER_STATUS_CANCELLED,
+            )
+        elif tab == "done":
+            base = base.where(
+                PhysicalOrder.status.in_((ORDER_STATUS_CLOSED, ORDER_STATUS_CANCELLED))
+            )
+        elif tab == "needs_approval":
             base = base.where(
                 PhysicalOrder.status.in_(
                     (ORDER_STATUS_PENDING_APPROVAL, ORDER_STATUS_PENDING_CLOSURE)
@@ -1130,6 +1167,22 @@ class PhysicalOrderService:
         if cost_center_id is not None:
             base = base.where(PhysicalOrder.cost_center_id == int(cost_center_id))
 
+        status_q = (status or "").strip().lower()
+        if status_q:
+            base = base.where(PhysicalOrder.status == status_q)
+
+        if asset_count is not None:
+            item_count = (
+                select(func.count(PhysicalOrderItem.id))
+                .where(PhysicalOrderItem.order_id == PhysicalOrder.id)
+                .correlate(PhysicalOrder)
+                .scalar_subquery()
+            )
+            base = base.where(item_count == int(asset_count))
+
+        if created_on is not None:
+            base = base.where(func.date(PhysicalOrder.created_at) == created_on)
+
         onum = (order_number or "").strip()
         if onum:
             base = base.where(PhysicalOrder.order_number.ilike(f"%{onum}%"))
@@ -1192,7 +1245,65 @@ class PhysicalOrderService:
             ).all()
         has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
         items = [self._to_list_item(o, has_closure_workflow=has_closure_workflow) for o in rows]
-        return PhysicalOrderListResponse(items=items, total=total, page=page, page_size=page_size)
+        tab_counts = {
+            key: int(
+                self._db.scalar(
+                    select(func.count()).select_from(
+                        self._list_orders_base_for_tab(key, viewer_id=viewer_id).subquery()
+                    )
+                )
+                or 0
+            )
+            for key in ("all", "needs_action", "done")
+        }
+        return PhysicalOrderListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            tab_counts=tab_counts,
+        )
+
+    def _list_orders_base_for_tab(self, tab: str, *, viewer_id: int):
+        """Minimal count query for inbox tabs (org-scoped)."""
+        base = select(PhysicalOrder.id)
+        tab = tab.strip().lower()
+        if tab == "needs_action":
+            from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
+
+            pending_req_ids = pending_approval_request_ids_for_viewer(self._db, int(viewer_id))
+            base = base.where(
+                or_(
+                    and_(
+                        PhysicalOrder.approval_request_id.is_not(None),
+                        PhysicalOrder.approval_request_id.in_(pending_req_ids),
+                    ),
+                    and_(
+                        PhysicalOrder.created_by == int(viewer_id),
+                        PhysicalOrder.status.in_(_EDITABLE_PHYSICAL_STATUSES),
+                    ),
+                    and_(
+                        PhysicalOrder.assigned_to == int(viewer_id),
+                        PhysicalOrder.status.in_(
+                            (
+                                ORDER_STATUS_ASSIGNED,
+                                ORDER_STATUS_APPROVED,
+                                ORDER_STATUS_IN_PROGRESS,
+                                ORDER_STATUS_COMPLETED,
+                                ORDER_STATUS_PENDING_CLOSURE,
+                            )
+                        ),
+                    ),
+                ),
+                PhysicalOrder.status != ORDER_STATUS_CLOSED,
+                PhysicalOrder.status != ORDER_STATUS_CANCELLED,
+            )
+        elif tab == "done":
+            base = base.where(
+                PhysicalOrder.status.in_((ORDER_STATUS_CLOSED, ORDER_STATUS_CANCELLED))
+            )
+        base = self._apply_viewer_org_scope(base, viewer_user_id=viewer_id)
+        return base
 
     def _to_list_item(
         self,

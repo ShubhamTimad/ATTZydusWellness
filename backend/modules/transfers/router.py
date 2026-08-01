@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -125,15 +126,33 @@ def list_orders(
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
     _: Annotated[object, Depends(require_permission("transfer.view"))],
-    tab: str = Query("active"),
+    tab: str = Query("needs_action"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
+    search: str | None = Query(None),
+    order_number: str | None = Query(None),
+    plant_id: int | None = Query(None),
+    from_cost_center_id: int | None = Query(None),
+    to_cost_center_id: int | None = Query(None),
+    status: str | None = Query(None),
+    asset_count: int | None = Query(None, ge=0),
+    assigned_to: str | None = Query(None),
+    created_on: date | None = Query(None),
 ) -> TransferOrderListResponse:
     return svc.list_orders(
         tab=tab,
         page=page,
         page_size=page_size,
         viewer_user_id=int(current.subject),
+        search=search,
+        order_number=order_number,
+        plant_id=plant_id,
+        from_cost_center_id=from_cost_center_id,
+        to_cost_center_id=to_cost_center_id,
+        status=status,
+        asset_count=asset_count,
+        assigned_to=assigned_to,
+        created_on=created_on,
     )
 
 

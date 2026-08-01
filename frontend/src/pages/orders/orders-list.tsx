@@ -29,41 +29,46 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { getJson } from "@/lib/api"
 import type { CostCenterMaster, PlantOption } from "@/lib/masters-types"
 import {
+  ORDER_STATUS_FILTERS,
   ORDER_STATUS_TABS,
   orderStatusLabel,
   orderStatusPillTone,
-  type OrdersDashboardModule,
   type PhysicalOrderListResponse,
 } from "@/lib/orders-types"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
 const columnFilterControlClass = "h-8 w-full min-w-[6rem] text-xs"
-const DEFAULT_TAB = ORDER_STATUS_TABS[0]?.key ?? "draft"
+const DEFAULT_TAB = "needs_action"
 
 type OrderColumnFilters = {
   order_number: string
   plant_id: string
   cost_center_id: string
+  asset_count: string
+  status: string
   assigned_to: string
   created_by: string
+  created_on: string
 }
 
 const DEFAULT_COLUMN_FILTERS: OrderColumnFilters = {
   order_number: "",
   plant_id: "",
   cost_center_id: "",
+  asset_count: "",
+  status: "",
   assigned_to: "",
   created_by: "",
+  created_on: "",
 }
 
 function tabCount(
-  module: OrdersDashboardModule | null,
+  counts: Record<string, number> | null | undefined,
   tab: (typeof ORDER_STATUS_TABS)[number],
 ): number {
-  if (!module) return 0
-  if (!tab.countKey) return 0
-  const value = module[tab.countKey]
+  if (!counts) return 0
+  const value = counts[tab.key]
   return typeof value === "number" ? value : 0
 }
 
@@ -72,7 +77,6 @@ export function OrdersListPage() {
   const [tab, setTab] = React.useState(DEFAULT_TAB)
   const [page, setPage] = React.useState(1)
   const [data, setData] = React.useState<PhysicalOrderListResponse | null>(null)
-  const [counts, setCounts] = React.useState<OrdersDashboardModule | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
@@ -105,8 +109,11 @@ export function OrdersListPage() {
       if (columnFilters.cost_center_id.trim()) {
         q.set("cost_center_id", columnFilters.cost_center_id.trim())
       }
+      if (columnFilters.asset_count.trim()) q.set("asset_count", columnFilters.asset_count.trim())
+      if (columnFilters.status.trim()) q.set("status", columnFilters.status.trim())
       if (columnFilters.assigned_to.trim()) q.set("assigned_to", columnFilters.assigned_to.trim())
       if (columnFilters.created_by.trim()) q.set("created_by", columnFilters.created_by.trim())
+      if (columnFilters.created_on.trim()) q.set("created_on", columnFilters.created_on.trim())
       const res = await getJson<PhysicalOrderListResponse>(`/admin/physical-orders?${q}`)
       setData(res)
     } catch (e) {
@@ -142,12 +149,6 @@ export function OrdersListPage() {
     void load()
   }, [load])
 
-  React.useEffect(() => {
-    void getJson<{ modules: { orders?: OrdersDashboardModule } }>("/dashboard/summary")
-      .then((res) => setCounts(res.modules.orders ?? null))
-      .catch(() => setCounts(null))
-  }, [tab, data?.total])
-
   function clearFilters() {
     setSearchInput("")
     setSearch("")
@@ -177,11 +178,11 @@ export function OrdersListPage() {
       >
         <WorkspaceTabsList>
           {ORDER_STATUS_TABS.map((t) => {
-            const count = tabCount(counts, t)
+            const count = tabCount(data?.tab_counts, t)
             return (
               <WorkspaceTabsTrigger key={t.key} value={t.key}>
                 {t.label}
-                {count > 0 ? (
+                {typeof count === "number" ? (
                   <span className="ml-1.5 tabular-nums text-muted-foreground">({count})</span>
                 ) : null}
               </WorkspaceTabsTrigger>
@@ -333,20 +334,33 @@ export function OrdersListPage() {
                           ))}
                         </select>
                       </AdminTableHeadCell>
-                      <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
+                      <AdminTableHeadCell className="px-2 py-1.5">
+                        <Input
+                          type="number"
+                          min={0}
+                          inputMode="numeric"
+                          value={columnFilterInputs.asset_count}
+                          onChange={(e) =>
+                            setColumnFilterInputs((f) => ({ ...f, asset_count: e.target.value }))
+                          }
+                          aria-label="Filter asset count"
+                          placeholder="Assets"
+                          className={columnFilterControlClass}
+                        />
+                      </AdminTableHeadCell>
                       <AdminTableHeadCell className="px-2 py-1.5">
                         <select
                           className={cn(adminSelectClass, columnFilterControlClass)}
-                          value={tab}
+                          value={columnFilterInputs.status}
                           aria-label="Filter status"
-                          onChange={(e) => {
-                            setTab(e.target.value)
-                            setPage(1)
-                          }}
+                          onChange={(e) =>
+                            setColumnFilterInputs((f) => ({ ...f, status: e.target.value }))
+                          }
                         >
-                          {ORDER_STATUS_TABS.map((statusTab) => (
-                            <option key={statusTab.key} value={statusTab.key}>
-                              {statusTab.label}
+                          <option value="">All statuses</option>
+                          {ORDER_STATUS_FILTERS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
                             </option>
                           ))}
                         </select>
@@ -373,7 +387,17 @@ export function OrdersListPage() {
                           className={columnFilterControlClass}
                         />
                       </AdminTableHeadCell>
-                      <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
+                      <AdminTableHeadCell className="px-2 py-1.5">
+                        <Input
+                          type="date"
+                          value={columnFilterInputs.created_on}
+                          onChange={(e) =>
+                            setColumnFilterInputs((f) => ({ ...f, created_on: e.target.value }))
+                          }
+                          aria-label="Filter created date"
+                          className={columnFilterControlClass}
+                        />
+                      </AdminTableHeadCell>
                     </AdminTableHeaderRow>
                   ) : null}
                 </TableHeader>

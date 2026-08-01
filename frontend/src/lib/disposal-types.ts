@@ -20,6 +20,8 @@ export type DisposalOrderListItem = {
   assigned_to_name: string | null
   created_by_name: string | null
   created_at: string
+  needs_my_action?: boolean
+  my_action_label?: string | null
 }
 
 export type DisposalOrderListResponse = {
@@ -27,6 +29,7 @@ export type DisposalOrderListResponse = {
   total: number
   page: number
   page_size: number
+  tab_counts?: Record<string, number>
 }
 
 export type DisposalOrderItem = {
@@ -80,14 +83,30 @@ export type DisposalOrderDetail = {
   can_archive: boolean
 }
 
-/** Tab keys must match _TAB_STATUSES in backend/modules/disposals/service.py. */
+/** Primary list tabs (must match _TAB_STATUSES UI keys in backend). */
 export const DISPOSAL_STATUS_TABS = [
   { key: "all", label: "All" },
-  { key: "draft", label: "Draft" },
-  { key: "pending", label: "Pending approval" },
-  { key: "receipt", label: "Receipt & approval" },
-  { key: "closed", label: "Closed / archived" },
+  { key: "needs_action", label: "Needs my action" },
+  { key: "done", label: "Done" },
 ] as const
+
+/** Lifecycle status filter for the disposal list Status column (not inbox tabs). */
+export const DISPOSAL_STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: "draft", label: "Draft" },
+  { value: "pending_approval", label: "Pending approval" },
+  { value: "in_rework", label: "In rework" },
+  { value: "pending_receipt", label: "Pending receive" },
+  { value: "pending_cf_close", label: "Pending CF approval" },
+  { value: "closed", label: "Closed" },
+  { value: "rejected", label: "Rejected" },
+  { value: "cancelled", label: "Archived" },
+]
+
+export function disposalTabEmptyMessage(tab: string): string {
+  if (tab === "needs_action") return "Nothing waiting on you right now."
+  if (tab === "done") return "No completed or archived disposals."
+  return "No disposal orders."
+}
 
 export function disposalStatusLabel(status: string): string {
   const map: Record<string, string> = {

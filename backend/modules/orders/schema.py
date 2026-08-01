@@ -101,6 +101,7 @@ class PhysicalOrderListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    tab_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class PhysicalOrderAuditVerifiedAsset(BaseModel):

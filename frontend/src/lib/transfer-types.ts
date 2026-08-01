@@ -44,6 +44,8 @@ export type TransferOrderListItem = {
   created_at: string
   can_delete?: boolean
   can_archive?: boolean
+  needs_my_action?: boolean
+  my_action_label?: string | null
 }
 
 export type TransferOrderListResponse = {
@@ -51,6 +53,7 @@ export type TransferOrderListResponse = {
   total: number
   page: number
   page_size: number
+  tab_counts?: Record<string, number>
 }
 
 export type TransferOrderItem = {
@@ -115,15 +118,29 @@ export type TransferOrderDetail = {
 }
 
 export const TRANSFER_STATUS_TABS = [
-  { key: "draft", label: "Draft / rework" },
-  { key: "pending", label: "Pending approval" },
-  { key: "rejected", label: "Rejected" },
-  { key: "approved_by_cf", label: "Pending receive" },
-  { key: "received_by_cc2", label: "Received" },
-  { key: "confirmed_by_cf", label: "Confirmed by CF" },
-  { key: "closed", label: "Closed" },
+  { key: "all", label: "All" },
+  { key: "needs_action", label: "Needs my action" },
+  { key: "done", label: "Done" },
 ] as const
 
+/** Lifecycle status filter for the transfer list Status column (not inbox tabs). */
+export const TRANSFER_STATUS_FILTERS: { value: string; label: string }[] = [
+  { value: "draft", label: "Draft" },
+  { value: "pending_approval", label: "Pending approval" },
+  { value: "in_rework", label: "In rework" },
+  { value: "approved_by_cf", label: "Approved — pending receive" },
+  { value: "received_by_cc2", label: "Received" },
+  { value: "confirmed_by_cf", label: "Confirmed by CF" },
+  { value: "closed", label: "Closed" },
+  { value: "rejected", label: "Rejected" },
+  { value: "cancelled", label: "Cancelled" },
+]
+
+export function transferTabEmptyMessage(tab: string): string {
+  if (tab === "needs_action") return "Nothing waiting on you right now."
+  if (tab === "done") return "No completed or cancelled transfers."
+  return "No transfer orders."
+}
 export function transferStatusLabel(status: string): string {
   const map: Record<string, string> = {
     draft: "Draft",

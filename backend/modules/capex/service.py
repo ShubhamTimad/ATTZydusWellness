@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from modules.capex.constants import (
@@ -40,6 +40,7 @@ from modules.capex.schema import (
 )
 from modules.errors import ConflictError, NotFoundError
 from modules.platform.approvals.assignment_service import get_workflow_for_action
+from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow
 from modules.platform.approvals.service import ApprovalEngineService, ApprovalError
 from modules.platform.roles.model import Role
@@ -60,6 +61,26 @@ ASSIGNEE_LEVEL_ROLES: dict[str, str] = {
     "central_finance": ROLE_CENTRAL_FINANCE,
 }
 ROLE_TO_ASSIGNEE_LEVEL: dict[str, str] = {v: k for k, v in ASSIGNEE_LEVEL_ROLES.items()}
+
+
+def _capex_action_label(
+    form: CapitalizationForm,
+    viewer_user_id: int | None,
+    pending_req_ids: set[int],
+) -> str | None:
+    if viewer_user_id is None:
+        return None
+    uid = int(viewer_user_id)
+    if form.status in EDITABLE_STATUSES and form.created_by is not None and int(form.created_by) == uid:
+        return "Submit" if form.status == STATUS_DRAFT else "Resubmit"
+    if (
+        form.approval_request_id is not None
+        and form.status == STATUS_PENDING_APPROVAL
+        and int(form.approval_request_id) in pending_req_ids
+    ):
+        return "Approve"
+    return None
+
 
 def action_and_entity_for_form(*, requires_engineering: bool) -> tuple[str, str]:
     if requires_engineering:
@@ -538,7 +559,7 @@ class CapexFormService:
     def list_forms(
         self,
         *,
-        tab: str = "all",
+        tab: str = "needs_action",
         page: int = 1,
         page_size: int = 25,
         available_for_asset: bool = False,
@@ -547,10 +568,13 @@ class CapexFormService:
         form_number: str | None = None,
         asset_name: str | None = None,
         department: str | None = None,
+        status: str | None = None,
         created_by: str | None = None,
+        viewer_user_id: int | None = None,
     ) -> CapexFormListResponse:
         stmt = select(CapitalizationForm).options(selectinload(CapitalizationForm.creator))
         count_stmt = select(func.count()).select_from(CapitalizationForm)
+        tab_key = (tab or "needs_action").strip().lower()
 
         if available_for_asset:
             unused = CapitalizationForm.asset_id.is_(None)
@@ -558,14 +582,11 @@ class CapexFormService:
                 unused = or_(unused, CapitalizationForm.asset_id == int(for_asset_id))
             stmt = stmt.where(CapitalizationForm.status == STATUS_APPROVED, unused)
             count_stmt = count_stmt.where(CapitalizationForm.status == STATUS_APPROVED, unused)
-        elif tab and tab != "all":
-            if tab == STATUS_IN_REWORK:
-                rejected_statuses = (STATUS_IN_REWORK, STATUS_REJECTED)
-                stmt = stmt.where(CapitalizationForm.status.in_(rejected_statuses))
-                count_stmt = count_stmt.where(CapitalizationForm.status.in_(rejected_statuses))
-            else:
-                stmt = stmt.where(CapitalizationForm.status == tab)
-                count_stmt = count_stmt.where(CapitalizationForm.status == tab)
+        else:
+            tab_where = self._list_forms_where(tab_key, viewer_user_id=viewer_user_id)
+            if tab_where:
+                stmt = stmt.where(*tab_where)
+                count_stmt = count_stmt.where(*tab_where)
 
         def _like(value: str) -> str:
             return f"%{value.strip()}%"
@@ -593,6 +614,11 @@ class CapexFormService:
             clause = CapitalizationForm.department.ilike(_like(department))
             stmt = stmt.where(clause)
             count_stmt = count_stmt.where(clause)
+        status_q = (status or "").strip().lower()
+        if status_q:
+            clause = CapitalizationForm.status == status_q
+            stmt = stmt.where(clause)
+            count_stmt = count_stmt.where(clause)
         if created_by and created_by.strip():
             clause = CapitalizationForm.creator.has(User.full_name.ilike(_like(created_by)))
             stmt = stmt.where(clause)
@@ -606,6 +632,15 @@ class CapexFormService:
                 .limit(page_size)
             ).all()
         )
+        pending_ids: set[int] = set()
+        if viewer_user_id is not None and not available_for_asset:
+            pending_ids = {
+                int(x)
+                for x in self._db.scalars(
+                    pending_approval_request_ids_for_viewer(self._db, int(viewer_user_id))
+                ).all()
+                if x is not None
+            }
         items = [
             CapexFormListItem(
                 id=int(r.id),
@@ -617,10 +652,54 @@ class CapexFormService:
                 asset_id=r.asset_id,
                 created_by_name=r.creator.full_name if r.creator is not None else None,
                 created_at=r.created_at,
+                needs_my_action=_capex_action_label(r, viewer_user_id, pending_ids) is not None,
+                my_action_label=_capex_action_label(r, viewer_user_id, pending_ids),
             )
             for r in rows
         ]
-        return CapexFormListResponse(items=items, total=total, page=page, page_size=page_size)
+        tab_counts: dict[str, int] = {}
+        if not available_for_asset:
+            for key in ("all", "needs_action", "done"):
+                w = self._list_forms_where(key, viewer_user_id=viewer_user_id)
+                tab_counts[key] = int(
+                    self._db.scalar(select(func.count()).select_from(CapitalizationForm).where(*w))
+                    or 0
+                )
+        return CapexFormListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            tab_counts=tab_counts,
+        )
+
+    def _list_forms_where(self, tab: str, *, viewer_user_id: int | None) -> list:
+        if tab == "needs_action":
+            if viewer_user_id is None:
+                return [CapitalizationForm.id < 0]
+            uid = int(viewer_user_id)
+            pending_req_ids = pending_approval_request_ids_for_viewer(self._db, uid)
+            return [
+                or_(
+                    and_(
+                        CapitalizationForm.approval_request_id.is_not(None),
+                        CapitalizationForm.approval_request_id.in_(pending_req_ids),
+                    ),
+                    and_(
+                        CapitalizationForm.created_by == uid,
+                        CapitalizationForm.status.in_(EDITABLE_STATUSES),
+                    ),
+                ),
+                CapitalizationForm.status != STATUS_APPROVED,
+                CapitalizationForm.status != STATUS_CANCELLED,
+            ]
+        if tab == "done":
+            return [CapitalizationForm.status.in_((STATUS_APPROVED, STATUS_CANCELLED))]
+        if tab == "all" or not tab:
+            return []
+        if tab == STATUS_IN_REWORK:
+            return [CapitalizationForm.status.in_((STATUS_IN_REWORK, STATUS_REJECTED))]
+        return [CapitalizationForm.status == tab]
 
     def get_form(self, form_id: int, *, viewer_user_id: int | None = None) -> CapexFormDetail:
         return self._to_detail(self._load(form_id), viewer_user_id=viewer_user_id)

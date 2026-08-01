@@ -88,6 +88,8 @@ class DisposalOrderListItem(BaseModel):
     assigned_to_name: str | None = None
     created_by_name: str | None = None
     created_at: datetime
+    needs_my_action: bool = False
+    my_action_label: str | None = None
 
 
 class DisposalOrderListResponse(BaseModel):
@@ -95,6 +97,7 @@ class DisposalOrderListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+    tab_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class DisposalWorkflowRunPublic(BaseModel):
