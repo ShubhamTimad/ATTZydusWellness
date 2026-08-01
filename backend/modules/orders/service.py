@@ -23,7 +23,6 @@ from modules.orders.asset_order_audit import (
 from modules.orders.audit import log_order_event
 from modules.orders.constants import (
     ACTION_COMPLETE,
-    ACTION_CREATE,
     ACTIVE_ORDER_STATUSES,
     ENTITY_TYPE_CLOSURE,
     ENTITY_TYPE_CREATION,
@@ -64,11 +63,14 @@ from modules.assets.model import AssetInventoryInformation
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.settings.financial_year import financial_year_period_for, is_verified_in_financial_year
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow, TaskAuditLog
-from modules.platform.approvals.service import ApprovalEngineService
-from modules.platform.permissions.model import Permission
+from modules.platform.approvals.service import (
+    ApprovalEngineService,
+    assignment_step_for_workflow,
+    first_approval_step,
+)
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
-from modules.rbac_association import role_org_unit, role_permission, user_role, user_org_unit
+from modules.rbac_association import user_role
 
 
 def _now_utc() -> datetime:
@@ -392,8 +394,8 @@ class PhysicalOrderService:
                 PhysicalOrder.status.in_(tuple(ACTIVE_ORDER_STATUSES)),
             )
         ).all()
+        # Warn only — assets on an active order remain eligible for a new order.
         for aid, code, name, oid, onum, ost in active_rows:
-            blocked.add(int(aid))
             active_conflicts.append(
                 ActiveOrderConflict(
                     asset_id=int(aid),
@@ -586,28 +588,63 @@ class PhysicalOrderService:
             ).all()
         )
 
-    def _executor_role_from_workflow(self) -> Role:
-        """Executor pool = first-step role of the workflow mapped to order.create."""
-        wf = get_workflow_for_action(self._db, ACTION_CREATE)
-        if wf is None or not wf.steps:
-            raise ConflictError(
-                "No active physical order assignment workflow is configured. "
-                "Map order.create to a workflow in Workflow Assignment."
-            )
-        first = sorted(wf.steps, key=lambda s: int(s.step_order))[0]
-        role = self._db.get(Role, int(first.approver_role_id))
-        if role is None:
-            raise ConflictError("Workflow assignment role is missing.")
-        return role
-
     def _user_in_plant_scope(self, user: User, plant_id: int) -> bool:
         user_plants = {int(ou.id) for ou in (user.org_units or [])}
         if user_plants and plant_id not in user_plants:
             return False
         return True
 
+    def _physical_order_workflow(self) -> ApprovalWorkflow:
+        wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
+        if wf is None or not wf.steps:
+            raise ConflictError(
+                "No active Physical order workflow is configured. "
+                "Map order.complete to a workflow in Workflow Assignment."
+            )
+        return wf
+
+    def _executor_role_from_workflow(self) -> Role:
+        """Executor pool = Assign step (or first step) of the Physical order workflow."""
+        wf = self._physical_order_workflow()
+        step = assignment_step_for_workflow(wf)
+        if step is None:
+            raise ConflictError("Physical order workflow has no steps.")
+        role = self._db.get(Role, int(step.approver_role_id))
+        if role is None:
+            raise ConflictError("Workflow assignment role is missing.")
+        return role
+
+    def _closure_approver_role(self) -> Role | None:
+        """Role that approves after complete (and may close) — last non-assign step."""
+        wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
+        if wf is None or not wf.steps:
+            return None
+        try:
+            first = first_approval_step(wf)
+        except ConflictError:
+            return None
+        steps = sorted(wf.steps, key=lambda s: int(s.step_order))
+        approval_steps = [
+            s
+            for s in steps
+            if str(getattr(s, "step_kind", None) or "approve").strip().lower() != "assign"
+        ]
+        last = approval_steps[-1] if approval_steps else first
+        return self._db.get(Role, int(last.approver_role_id))
+
+    def _user_in_role(self, user_id: int, role_id: int) -> bool:
+        return (
+            self._db.scalar(
+                select(user_role.c.user_id).where(
+                    user_role.c.user_id == int(user_id),
+                    user_role.c.role_id == int(role_id),
+                )
+            )
+            is not None
+        )
+
     def list_executors(self, *, plant_id: int | None = None) -> ExecutorListResponse:
-        """Users in the workflow-mapped assignment role (not a hardcoded role name)."""
+        """Users in the workflow Assign-step role (plant-scoped when plant_id is set)."""
         role = self._executor_role_from_workflow()
         users = self._users_in_role(int(role.id))
         items: list[ExecutorUserPublic] = []
@@ -637,9 +674,26 @@ class PhysicalOrderService:
         if int(user_id) not in {e.id for e in pool.items}:
             raise ConflictError(
                 f"Selected user is not in the \"{pool.role_name}\" role configured "
-                "for physical order assignment at this plant."
+                "for Physical order assignment in the workflow."
             )
         return user
+
+    def _assert_can_close(self, *, actor_user_id: int) -> None:
+        """Same role that approves after complete may close the order."""
+        role = self._closure_approver_role()
+        if role is None:
+            snapshot = _get_cached_permission_snapshot(self._db, actor_user_id)
+            if _has_any_permission(snapshot, ("order.approve", "order.update", "order.create")):
+                return
+            raise ConflictError("You do not have permission to close this order.")
+        user = self._db.get(User, actor_user_id)
+        if user is not None and bool(user.is_superuser):
+            return
+        if self._user_in_role(actor_user_id, int(role.id)):
+            return
+        raise ConflictError(
+            f"Only users in the \"{role.name}\" role can close the order after approval."
+        )
 
     def _apply_pending_verification_resets(
         self,
@@ -1690,6 +1744,7 @@ class PhysicalOrderService:
                 raise ConflictError("Order must be approved before it can be closed.")
         elif order.status != ORDER_STATUS_COMPLETED:
             raise ConflictError("Order must be completed before it can be closed.")
+        self._assert_can_close(actor_user_id=actor_user_id)
         order.status = ORDER_STATUS_CLOSED
         order.closed_at = _now_utc()
         log_order_event(

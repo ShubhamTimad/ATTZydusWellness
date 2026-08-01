@@ -42,6 +42,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import {
   orderStatusLabel,
@@ -209,6 +210,7 @@ export function OrderDetailPage() {
   const [executorRoleName, setExecutorRoleName] = React.useState<string | null>(null)
   const [reassignTo, setReassignTo] = React.useState("")
   const [assignTo, setAssignTo] = React.useState("")
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const canApprove = hasPermission("order.approve")
   const canExecute = hasPermission("order.execute")
   const canCreate = hasPermission("order.create")
@@ -322,6 +324,8 @@ export function OrderDetailPage() {
             ? `Order returned to ${res.assigned_to_name} for rework.`
             : "Order returned to executor for rework.",
         )
+      } else if (path === "/approval/reject-order") {
+        toast.success("Order rejected.")
       } else if (path === "/submit-closure") {
         toast.success("Order completed.")
       } else if (path === "/submit") {
@@ -410,8 +414,24 @@ export function OrderDetailPage() {
 
   const canReassign = isAssigned && canReassignOrder && !isClosed
   const canClose =
-    (isClosureApproved || (isCompleted && !hasClosureWorkflow)) &&
-    (canApprove || canUpdate || (canCreate && isCreator))
+    (isClosureApproved || (isCompleted && !hasClosureWorkflow)) && canApprove
+
+  async function completeOrder() {
+    if (!order) return
+    const pending = order.pending_physical_count
+    const total = order.items.length
+    if (pending > 0) {
+      const ok = await confirmAsk({
+        title: "Assets still pending",
+        description: `${pending} of ${total} asset${total === 1 ? "" : "s"} not scanned yet. Complete this order anyway?`,
+        confirmLabel: "Complete anyway",
+        cancelLabel: "Keep scanning",
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    await runAction("/submit-closure")
+  }
 
   function clearAssetFilters() {
     setAssetSearchInput("")
@@ -529,20 +549,13 @@ export function OrderDetailPage() {
                 variant="outline"
                 size="sm"
                 className="h-9"
-                disabled={busy || selected.size === 0}
-                onClick={beginClosureLineReject}
+                disabled={busy}
+                onClick={() => {
+                  setRejectMode("order")
+                  setRejectOpen(true)
+                }}
               >
-                Reject selected
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9"
-                disabled={busy || selected.size === 0}
-                onClick={beginClosureLineApprove}
-              >
-                Approve selected
+                Reject
               </Button>
               <AdminPrimaryButton
                 type="button"
@@ -578,7 +591,7 @@ export function OrderDetailPage() {
             <AdminPrimaryButton
               type="button"
               disabled={busy}
-              onClick={() => void runAction("/submit-closure")}
+              onClick={() => void completeOrder()}
             >
               Complete
             </AdminPrimaryButton>
@@ -686,23 +699,18 @@ export function OrderDetailPage() {
               </div>
             ) : null}
             {selectedScanItem ? (
-              <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="min-w-0 shrink-0 sm:max-w-[14rem]">
                     <p className="flex items-center gap-2 text-sm font-medium">
-                      <ScanLine className="size-4 text-primary" aria-hidden />
-                      Scan {selectedScanItem.asset_code}
+                      <ScanLine className="size-4 shrink-0 text-primary" aria-hidden />
+                      <span className="truncate">Scan {selectedScanItem.asset_code}</span>
                     </p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
                       Expected RFID: {selectedScanItem.rfid_code ?? "—"}
                     </p>
                   </div>
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedScanItemId(null)}>
-                    Cancel
-                  </Button>
-                </div>
-                <div className="flex flex-wrap items-end gap-2">
-                  <div className="min-w-[12rem] flex-1 space-y-1">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
                     <Label htmlFor="scan" className="sr-only">
                       Scan RFID
                     </Label>
@@ -715,12 +723,25 @@ export function OrderDetailPage() {
                         if (e.key === "Enter") void scan()
                       }}
                       placeholder="Scan RFID tag…"
-                      className="h-10"
+                      className="h-10 min-w-0 flex-1"
                     />
+                    <Button
+                      type="button"
+                      className="h-10 shrink-0"
+                      disabled={busy || !scanValue.trim()}
+                      onClick={() => void scan()}
+                    >
+                      Verify
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10 shrink-0"
+                      onClick={() => setSelectedScanItemId(null)}
+                    >
+                      Cancel
+                    </Button>
                   </div>
-                  <Button type="button" disabled={busy || !scanValue.trim()} onClick={() => void scan()}>
-                    Verify
-                  </Button>
                 </div>
               </div>
             ) : order.pending_physical_count > 0 ? (
@@ -737,69 +758,91 @@ export function OrderDetailPage() {
       </AdminPanel>
 
       <AdminPanel className="shrink-0 overflow-hidden p-0">
-        <div className={cn("flex flex-wrap items-center gap-2 border-b border-border/60 py-3", orderPanelPad)}>
-          <p className="mr-auto text-sm font-medium text-foreground">
+        <div className={cn("flex flex-nowrap items-center gap-2 border-b border-border/60 py-3", orderPanelPad)}>
+          <p className="shrink-0 text-sm font-medium text-foreground">
             Assets
             <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
               ({order.total_count})
             </span>
           </p>
-          <div className="relative min-w-[14rem] flex-1 sm:max-w-md">
-            <Search
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
-            />
-            <Input
-              id="order-asset-search"
-              value={assetSearchInput}
-              onChange={(e) => setAssetSearchInput(e.target.value)}
-              placeholder="Search asset code, name, RFID, or verifier…"
-              className="h-9 w-full pl-9"
-              aria-label="Search order assets"
-            />
-            {assetSearchInput ? (
-              <button
-                type="button"
-                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
-                aria-label="Clear search"
-                onClick={() => setAssetSearchInput("")}
-              >
-                <X className="size-4" />
-              </button>
+          <div className="ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-2">
+            {canReviewClosure && selected.size > 0 ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 shrink-0"
+                  disabled={busy}
+                  onClick={beginClosureLineReject}
+                >
+                  Reject selected ({selected.size})
+                </Button>
+                <AdminPrimaryButton
+                  type="button"
+                  className="shrink-0"
+                  disabled={busy}
+                  onClick={beginClosureLineApprove}
+                >
+                  Approve selected ({selected.size})
+                </AdminPrimaryButton>
+              </>
             ) : null}
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={cn(
-              listToolbarBtnClass,
-              assetColumnFiltersOpen && "border-primary/40 bg-primary/5",
-            )}
-            aria-expanded={assetColumnFiltersOpen}
-            onClick={() => setAssetColumnFiltersOpen((open) => !open)}
-          >
-            <ListFilter className="size-4" aria-hidden />
-            Filter
-            {activeAssetColumnFilterCount > 0 ? (
-              <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
-                {activeAssetColumnFilterCount}
-              </Badge>
-            ) : null}
-          </Button>
-
-          {activeAssetColumnFilterCount > 0 || assetSearch.trim() ? (
+            <div className="relative min-w-0 w-56 flex-1 sm:w-64 sm:flex-none lg:w-80">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                id="order-asset-search"
+                value={assetSearchInput}
+                onChange={(e) => setAssetSearchInput(e.target.value)}
+                placeholder="Search asset code, name, RFID, or verifier…"
+                className="h-9 w-full pl-9"
+                aria-label="Search order assets"
+              />
+              {assetSearchInput ? (
+                <button
+                  type="button"
+                  className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                  aria-label="Clear search"
+                  onClick={() => setAssetSearchInput("")}
+                >
+                  <X className="size-4" />
+                </button>
+              ) : null}
+            </div>
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className={listToolbarBtnClass}
-              onClick={clearAssetFilters}
+              className={cn(
+                listToolbarBtnClass,
+                assetColumnFiltersOpen && "border-primary/40 bg-primary/5",
+              )}
+              aria-expanded={assetColumnFiltersOpen}
+              onClick={() => setAssetColumnFiltersOpen((open) => !open)}
             >
-              Clear
+              <ListFilter className="size-4" aria-hidden />
+              Filter
+              {activeAssetColumnFilterCount > 0 ? (
+                <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
+                  {activeAssetColumnFilterCount}
+                </Badge>
+              ) : null}
             </Button>
-          ) : null}
+            {activeAssetColumnFilterCount > 0 || assetSearch.trim() ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={listToolbarBtnClass}
+                onClick={clearAssetFilters}
+              >
+                Clear
+              </Button>
+            ) : null}
+          </div>
         </div>
         <div className="app-data-table-wrap min-h-0">
           <Table className="app-table-head-sticky">
@@ -957,6 +1000,8 @@ export function OrderDetailPage() {
                             <Lock className="size-3" aria-hidden />
                             Verified
                           </AdminPillBadge>
+                        ) : (item.verification_status || "").toLowerCase() === "approved" ? (
+                          <AdminPillBadge tone="success">Approved</AdminPillBadge>
                         ) : scannable ? (
                           <AdminPillBadge tone="warning">Scan pending</AdminPillBadge>
                         ) : (item.verification_status || "").toLowerCase() === "pending" ? (
@@ -1016,8 +1061,8 @@ export function OrderDetailPage() {
             <DialogTitle>{isRejected ? "Reassign & submit" : "Assign & submit"}</DialogTitle>
             <DialogDescription>
               {executorRoleName
-                ? `Select a user from the "${executorRoleName}" role defined in the physical order assignment workflow. The order moves to Assigned so they can start work.`
-                : "Select an executor from the role defined in the physical order assignment workflow. The order moves to Assigned so they can start work."}
+                ? `Select a user from the "${executorRoleName}" role (Assign step of the Physical order workflow). The order moves to Assigned so they can start work.`
+                : "Select an executor from the Physical order workflow Assign step. The order moves to Assigned so they can start work."}
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body space-y-4">
@@ -1045,7 +1090,7 @@ export function OrderDetailPage() {
                 <p className="text-xs text-muted-foreground">
                   {executorRoleName
                     ? `No users in the "${executorRoleName}" role for this plant. Assign that role to users scoped to this plant.`
-                    : "Configure the physical order assignment workflow (order.create) and ensure its first-step role has users for this plant."}
+                    : "Configure the Physical order workflow (order.complete) with an Assign step and ensure that role has users for this plant."}
                 </p>
               ) : null}
             </div>
@@ -1132,7 +1177,11 @@ export function OrderDetailPage() {
             <DialogTitle>
               {rejectMode === "order" ? "Reject order" : "Reject selected assets"}
             </DialogTitle>
-            <DialogDescription>A reason is required.</DialogDescription>
+            <DialogDescription>
+              {rejectMode === "order"
+                ? "This rejects the full order. Pending assets will be marked rejected."
+                : "A reason is required."}
+            </DialogDescription>
           </DialogHeader>
           <div className="dialog-body space-y-4">
             <textarea
@@ -1233,6 +1282,7 @@ export function OrderDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </AdminPage>
   )
 }

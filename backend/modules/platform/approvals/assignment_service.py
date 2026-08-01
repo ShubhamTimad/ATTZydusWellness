@@ -80,7 +80,8 @@ def get_workflow_for_action(db: Session, action_code: str) -> ApprovalWorkflow |
     if (canonical is not None and canonical in asset_import_variants) or raw in asset_import_variants:
         return wf_svc.get_active_workflow_for_entity("asset_import")
     if (canonical is not None and canonical in order_create_variants) or raw in order_create_variants:
-        return wf_svc.get_active_workflow_for_entity("physical_order_creation")
+        # Legacy: assignment used order.create; executor pool now uses the Physical order workflow.
+        return wf_svc.get_active_workflow_for_entity("physical_order_closure")
     if (canonical is not None and canonical in order_complete_variants) or raw in order_complete_variants:
         return wf_svc.get_active_workflow_for_entity("physical_order_closure")
     capex_submit_variants = _permission_code_variants("capitalization.submit")

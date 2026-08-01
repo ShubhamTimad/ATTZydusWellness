@@ -110,7 +110,7 @@ export function AdminDataTable({
       contentClassName={cn("flex min-h-0 flex-1 flex-col overflow-hidden p-0", contentClassName)}
     >
       <div className="app-data-table-wrap min-h-0 flex-1">{children}</div>
-      {footer}
+      {footer ? <div className="shrink-0">{footer}</div> : null}
     </AdminPanel>
   )
 }
@@ -154,13 +154,12 @@ export function AdminTablePagination({
   itemLabel?: string
   loading?: boolean
 }) {
-  if (totalPages <= 1 && total <= pageSize) return null
-
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1
   const to = Math.min(page * pageSize, total)
+  const pages = Math.max(1, totalPages)
 
   return (
-    <div className="app-list-pagination">
+    <div className="app-list-pagination shrink-0">
       <span>
         {loading
           ? "Loading…"
@@ -181,14 +180,14 @@ export function AdminTablePagination({
           Previous
         </Button>
         <span className="min-w-[5.5rem] px-2 text-center tabular-nums">
-          Page {page} / {totalPages}
+          Page {page} / {pages}
         </span>
         <Button
           type="button"
           variant="outline"
           size="sm"
           className="h-8 gap-1 px-2.5"
-          disabled={loading || page >= totalPages}
+          disabled={loading || page >= pages}
           onClick={() => onPageChange(page + 1)}
         >
           Next

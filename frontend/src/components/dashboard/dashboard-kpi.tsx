@@ -22,28 +22,28 @@ export function DashboardPanel({
   return (
     <section
       className={cn(
-        "app-panel relative overflow-hidden",
+        "app-panel relative flex h-full min-h-0 flex-col overflow-hidden",
         theme?.surface,
         className,
       )}
     >
       {theme?.accentBar ? (
-        <div className={cn("h-1 w-full bg-gradient-to-r", theme.accentBar)} aria-hidden />
+        <div className={cn("h-1 w-full shrink-0 bg-gradient-to-r", theme.accentBar)} aria-hidden />
       ) : null}
       {theme?.pattern ? (
         <div className={cn("pointer-events-none absolute inset-0", theme.pattern)} aria-hidden />
       ) : null}
 
-      <div className="app-panel-header relative">
+      <div className="app-panel-header relative shrink-0">
         <div className="flex min-w-0 items-start gap-3">
           {Icon && theme ? (
             <div
               className={cn(
-                "flex size-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset",
+                "flex size-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
                 theme.iconWrap,
               )}
             >
-              <Icon className="size-5" aria-hidden />
+              <Icon className="size-4" aria-hidden />
             </div>
           ) : null}
           <div className="min-w-0">
@@ -52,12 +52,12 @@ export function DashboardPanel({
                 {theme.tag}
               </span>
             ) : null}
-            <h2 className={cn("app-panel-title", theme?.tag && "mt-1.5")}>{title}</h2>
-            {description ? <p className="app-panel-description mt-1">{description}</p> : null}
+            <h2 className={cn("app-panel-title", theme?.tag && "mt-1")}>{title}</h2>
+            {description ? <p className="app-panel-description mt-0.5">{description}</p> : null}
           </div>
         </div>
       </div>
-      <div className="app-dashboard-panel-body relative">{children}</div>
+      <div className="app-dashboard-panel-body relative flex min-h-0 flex-1 flex-col">{children}</div>
     </section>
   )
 }
@@ -67,11 +67,13 @@ export function HeroStatCard({
   label,
   value,
   hint,
+  compact = false,
 }: {
   theme: DashboardPanelTheme
   label: string
   value: React.ReactNode
   hint?: string
+  compact?: boolean
 }) {
   const Icon = theme.icon
 
@@ -82,31 +84,39 @@ export function HeroStatCard({
         theme.surface,
       )}
     >
-      <div className={cn("h-1 w-full bg-gradient-to-r", theme.accentBar)} aria-hidden />
+      <div className={cn("h-0.5 w-full bg-gradient-to-r", theme.accentBar)} aria-hidden />
       {theme.pattern ? (
         <div className={cn("pointer-events-none absolute inset-0", theme.pattern)} aria-hidden />
       ) : null}
-      <div className="relative p-5">
-        <div className="min-w-0 space-y-3">
-          <div className="flex items-center gap-2.5">
+      <div className={cn("relative", compact ? "p-3.5" : "p-5")}>
+        <div className={cn("min-w-0", compact ? "space-y-2" : "space-y-3")}>
+          <div className="flex items-center gap-2">
             <div
               className={cn(
-                "flex size-10 items-center justify-center rounded-xl ring-1 ring-inset",
+                "flex items-center justify-center rounded-lg ring-1 ring-inset",
+                compact ? "size-8" : "size-10 rounded-xl",
                 theme.iconWrap,
               )}
             >
-              <Icon className="size-5" aria-hidden />
+              <Icon className={compact ? "size-4" : "size-5"} aria-hidden />
             </div>
             <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               {theme.tag}
             </span>
           </div>
           <div>
-            <p className="text-sm font-medium text-muted-foreground">{label}</p>
-            <p className="mt-1 text-3xl font-semibold tracking-tight text-foreground tabular-nums sm:text-4xl">
+            <p className="text-xs font-medium text-muted-foreground">{label}</p>
+            <p
+              className={cn(
+                "mt-0.5 font-semibold tracking-tight text-foreground tabular-nums",
+                compact ? "text-2xl" : "text-3xl sm:text-4xl",
+              )}
+            >
               {value}
             </p>
-            {hint ? <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{hint}</p> : null}
+            {hint ? (
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{hint}</p>
+            ) : null}
           </div>
         </div>
       </div>
@@ -120,6 +130,7 @@ export function KpiCard({
   hint,
   icon: Icon,
   accent = false,
+  accentClass = "text-primary",
   tint,
   className,
 }: {
@@ -128,6 +139,8 @@ export function KpiCard({
   hint?: string
   icon?: LucideIcon
   accent?: boolean
+  /** Theme accent color for icon/value when accent is set. */
+  accentClass?: string
   tint?: string
   className?: string
 }) {
@@ -137,12 +150,12 @@ export function KpiCard({
         <p className="app-kpi-label">{label}</p>
         {Icon ? (
           <Icon
-            className={cn("size-4 shrink-0 opacity-50", accent && "text-primary opacity-70")}
+            className={cn("size-4 shrink-0 opacity-50", accent && cn(accentClass, "opacity-70"))}
             aria-hidden
           />
         ) : null}
       </div>
-      <p className={cn("app-kpi-value", accent && "text-primary")}>{value}</p>
+      <p className={cn("app-kpi-value", accent && accentClass)}>{value}</p>
       {hint ? <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{hint}</p> : null}
     </div>
   )
@@ -169,23 +182,30 @@ export function StatChip({
   label,
   value,
   active,
+  tone = "default",
   className,
 }: {
   label: string
   value: React.ReactNode
   active?: boolean
+  tone?: "default" | "success" | "warning" | "danger" | "info"
   className?: string
 }) {
+  const toneClass =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200"
+      : tone === "warning"
+        ? "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100"
+        : tone === "danger"
+          ? "border-red-200 bg-red-50 text-red-800 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-200"
+          : tone === "info"
+            ? "border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200"
+            : active
+              ? "border-primary/25 bg-primary/[0.06]"
+              : "border-transparent bg-background/60"
+
   return (
-    <div
-      className={cn(
-        "flex min-w-[7rem] flex-1 flex-col rounded-lg border px-3 py-2",
-        active
-          ? "border-primary/25 bg-primary/[0.06]"
-          : "border-transparent bg-background/60",
-        className,
-      )}
-    >
+    <div className={cn("flex min-w-[7rem] flex-1 flex-col rounded-lg border px-3 py-2", toneClass, className)}>
       <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
       <span className="mt-0.5 text-lg font-semibold tabular-nums text-foreground">{value}</span>
     </div>

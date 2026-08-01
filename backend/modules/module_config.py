@@ -236,6 +236,47 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
         ],
     },
     {
+        "key": "dashboard",
+        "title": "Dashboard",
+        "tabs": [
+            {
+                "key": "dashboard",
+                "title": "Dashboard",
+                "actions": ["view"],
+            },
+            {
+                "key": "orders",
+                "title": "Orders section",
+                "actions": ["view"],
+            },
+            {
+                "key": "assets",
+                "title": "Assets section",
+                "actions": ["view"],
+            },
+            {
+                "key": "financial_year",
+                "title": "Financial year section",
+                "actions": ["view"],
+            },
+            {
+                "key": "it",
+                "title": "IT · Users section",
+                "actions": ["view"],
+            },
+            {
+                "key": "transfers",
+                "title": "Transfers section",
+                "actions": ["view"],
+            },
+            {
+                "key": "disposals",
+                "title": "Disposals section",
+                "actions": ["view"],
+            },
+        ],
+    },
+    {
         "key": "mobile",
         "title": "Mobile application",
         "tabs": [

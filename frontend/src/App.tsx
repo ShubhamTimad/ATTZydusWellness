@@ -5,6 +5,7 @@ import { RequirePermission } from "@/components/admin/require-permission"
 import { AppLoginPage } from "@/pages/app-login"
 import { AdminOverviewPage } from "@/pages/admin-overview"
 import { DashboardPage } from "@/pages/dashboard"
+import { DASHBOARD_ANY_OF } from "@/lib/dashboard-permissions"
 import { LoginPage } from "@/pages/login"
 import { PermissionsPage } from "@/pages/permissions"
 import { PlantsPage } from "@/pages/plants"
@@ -62,7 +63,14 @@ function App() {
         <Route path="/mfa/setup" element={<MfaSetupPage />} />
         <Route path="/login" element={<AppLoginRoute />} />
         <Route path="/dashboard" element={<AppRoute />}>
-          <Route index element={<DashboardPage />} />
+          <Route
+            index
+            element={
+              <RequirePermission anyOf={[...DASHBOARD_ANY_OF]}>
+                <DashboardPage />
+              </RequirePermission>
+            }
+          />
           <Route
             path="reports"
             element={

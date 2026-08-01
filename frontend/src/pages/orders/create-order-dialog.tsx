@@ -154,7 +154,7 @@ export function CreatePhysicalOrderDialog({
               <p className="text-xs text-muted-foreground">
                 {roleName
                   ? `No users in the "${roleName}" role for this plant.`
-                  : "Configure the assignment workflow first."}
+                  : "Configure the Physical order workflow Assign step first."}
               </p>
             ) : null}
           </div>

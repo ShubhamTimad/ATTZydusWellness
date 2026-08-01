@@ -44,6 +44,7 @@ import {
   hasAnyNonUsersRbacPermission,
   hasPermission,
 } from "@/lib/permissions"
+import { DASHBOARD_ANY_OF } from "@/lib/dashboard-permissions"
 import { navbarDisplayName, navbarInitials, type NavbarUser } from "@/lib/navbar-user"
 import { cn } from "@/lib/utils"
 
@@ -82,7 +83,7 @@ const shellNavGroups: ShellNavGroup[] = [
   {
     label: "Overview",
     items: [
-      { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, to: "/dashboard", permission: null },
+      { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, to: "/dashboard", permission: [...DASHBOARD_ANY_OF] },
       { id: "reports", label: "Report", icon: FileBarChart, to: "/dashboard/reports", permission: "report.view" },
     ],
   },

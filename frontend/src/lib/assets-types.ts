@@ -397,3 +397,11 @@ export type FinancialYearDashboardModule = {
   coverage_pct: number
   by_plant: { plant: string; verified: number; pending: number }[]
 }
+
+export type ItDashboardModule = {
+  total_users: number
+  active_users: number
+  inactive_users: number
+  new_users_last_7_days: number
+  users_by_role: { role: string; count: number }[]
+}

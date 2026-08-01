@@ -3,13 +3,50 @@
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from core.permissions import invalidate_permission_cache
 from modules.platform.features.model import Feature
 from modules.module_config import MODULE_CONFIG, _normalize_action_token
 from modules.platform.permissions.model import Permission
+from modules.platform.roles.model import Role
 from modules.rbac_constants import build_permission_code, feature_storage_key
+
+
+def _backfill_dashboard_section_grants(db: Session) -> int:
+    """
+    Grant dashboard section perms to roles that already have related domain access,
+    so existing roles keep seeing the dashboard after the catalog gains dashboard.*.
+    IT is auto-granted when a role already has ``users.view``.
+    """
+    pairs = [
+        ("order.view", ("dashboard.view", "dashboard.orders.view")),
+        (
+            "asset.view",
+            ("dashboard.view", "dashboard.assets.view", "dashboard.financial_year.view"),
+        ),
+        ("users.view", ("dashboard.view", "dashboard.it.view")),
+        ("transfer.view", ("dashboard.view", "dashboard.transfers.view")),
+        ("disposal.view", ("dashboard.view", "dashboard.disposals.view")),
+    ]
+    by_code = {p.code: p for p in db.scalars(select(Permission)).all() if p.code}
+    added = 0
+    roles = db.scalars(select(Role).options(selectinload(Role.permissions))).all()
+    for role in roles:
+        have = {p.code for p in role.permissions if p.code}
+        for trigger, grant_codes in pairs:
+            if trigger not in have and trigger.replace(".", ":", 1) not in have:
+                continue
+            for code in grant_codes:
+                if code in have:
+                    continue
+                perm = by_code.get(code)
+                if perm is None:
+                    continue
+                role.permissions.append(perm)
+                have.add(code)
+                added += 1
+    return added
 
 
 def sync_all_modules_to_db(db: Session) -> dict[str, int]:
@@ -73,10 +110,13 @@ def sync_all_modules_to_db(db: Session) -> dict[str, int]:
                         perm.code = code
                         updated_codes += 1
 
+    db.flush()
+    dashboard_grants_added = _backfill_dashboard_section_grants(db)
     db.commit()
     invalidate_permission_cache(None)
     return {
         "features_created": created_features,
         "permissions_created": created_permissions,
         "permission_codes_updated": updated_codes,
+        "dashboard_grants_added": dashboard_grants_added,
     }

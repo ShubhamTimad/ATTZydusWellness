@@ -45,6 +45,7 @@ type StepRow = {
 }
 
 const STEP_KINDS: { value: string; label: string }[] = [
+  { value: "assign", label: "Assign (executor)" },
   { value: "approve", label: "Approve" },
   { value: "receive", label: "Receive" },
   { value: "confirm", label: "Confirm" },
@@ -76,8 +77,7 @@ const WORKFLOW_ENTITY_TYPES: { value: string; label: string }[] = [
   { value: "disposal_order", label: "Asset disposal (no Engineering)" },
   { value: "disposal_order_engineering", label: "Asset disposal (with Engineering)" },
   { value: "transfer_order", label: "Asset transfer" },
-  { value: "physical_order_creation", label: "Physical order assignment (executor role)" },
-  { value: "physical_order_closure", label: "Physical order closure approval" },
+  { value: "physical_order_closure", label: "Physical order (assign → approve/close)" },
 ]
 
 const KNOWN_ENTITY_TYPE_VALUES = new Set(WORKFLOW_ENTITY_TYPES.map((e) => e.value))

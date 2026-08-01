@@ -1,45 +1,64 @@
-import { Package, Radio, RadioOff } from "lucide-react"
-
-import { DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
+import { DashboardBarChart, DashboardChartGrid, DashboardDonutChart, ChartPanel } from "@/components/dashboard/dashboard-charts"
+import { DASHBOARD_CHART, DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
 import { CoverageBar, DashboardPanel, KpiCard, KpiGrid } from "@/components/dashboard/dashboard-kpi"
 import type { AssetsDashboardModule } from "@/lib/assets-types"
 
 export function AssetDashboard({ data }: { data: AssetsDashboardModule }) {
   const theme = DASHBOARD_THEMES.assets
+  const rfidMix = [
+    { name: "Tagged", value: data.rfid_tagged },
+    { name: "Not tagged", value: data.rfid_not_tagged },
+  ]
+  const categoryRows = (data.by_category ?? []).slice(0, 8)
 
   return (
-    <DashboardPanel
-      title="Asset register"
-      description={`${data.active_assets} active · ${data.rfid_coverage_pct}% RFID coverage`}
-      theme={theme}
-    >
+    <DashboardPanel title="Asset register" theme={theme}>
       <KpiGrid className="sm:grid-cols-3">
-        <KpiCard label="Total assets" value={data.total_assets} tint={theme.kpiTint} accent />
-        <KpiCard label="Active assets" value={data.active_assets} icon={Package} tint={theme.kpiTint} accent />
-        <KpiCard label="Added (7 days)" value={data.recently_added} tint={theme.kpiTint} />
+        <KpiCard
+          label="Total"
+          value={data.total_assets}
+          tint={theme.kpiTint}
+          accent
+          accentClass={theme.accentText}
+          className="!p-3"
+        />
+        <KpiCard
+          label="Active"
+          value={data.active_assets}
+          tint={theme.kpiTint}
+          accent
+          accentClass={theme.accentText}
+          className="!p-3"
+        />
+        <KpiCard label="Added (7d)" value={data.recently_added} tint={theme.kpiTint} className="!p-3" />
       </KpiGrid>
 
-      <div className="space-y-3 rounded-[var(--app-radius-surface)] border border-border/60 bg-background/40 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">RFID tagging</p>
-        <KpiGrid className="sm:grid-cols-2">
-          <KpiCard
-            label="RFID tagged"
-            value={data.rfid_tagged}
-            hint="Active assets with a tag"
-            icon={Radio}
-            tint={theme.kpiTint}
-            accent
+      <CoverageBar
+        value={data.rfid_coverage_pct}
+        label="RFID coverage"
+        className="border-0 bg-transparent p-0"
+      />
+
+      <DashboardChartGrid columns={2}>
+        <ChartPanel title="RFID mix">
+          <DashboardDonutChart
+            data={rfidMix}
+            colors={[DASHBOARD_CHART.assets, "#94a3b8"]}
+            emptyMessage="No assets"
+            height={168}
           />
-          <KpiCard
-            label="Not tagged"
-            value={data.rfid_not_tagged}
-            hint="Missing RFID assignment"
-            icon={RadioOff}
-            tint={theme.kpiTint}
+        </ChartPanel>
+        <ChartPanel title="By category">
+          <DashboardBarChart
+            data={categoryRows}
+            xKey="category"
+            xAngle={-18}
+            height={168}
+            series={[{ dataKey: "count", fill: theme.chartFill }]}
+            emptyMessage="No categories"
           />
-        </KpiGrid>
-        <CoverageBar value={data.rfid_coverage_pct} label="RFID tagging coverage" className="border-0 bg-transparent p-0" />
-      </div>
+        </ChartPanel>
+      </DashboardChartGrid>
     </DashboardPanel>
   )
 }

@@ -1209,41 +1209,45 @@ export function AssetsListPage() {
         setActiveConflictOpen(true)
         return
       }
-      if ((res.not_approved?.length ?? 0) > 0) {
-        setNotApprovedOpen(true)
-        return
-      }
-      if (res.missing_rfid.length > 0) {
-        setMissingRfidOpen(true)
-        return
-      }
-      if (res.plant_mismatch.length > 0) {
-        setPlantMismatchOpen(true)
-        return
-      }
-      if (res.cost_center_mismatch.length > 0) {
-        setCcMismatchOpen(true)
-        return
-      }
-      if (res.eligible_asset_ids.length === 0) {
-        toast.error("No eligible assets selected.")
-        return
-      }
-      const fyVerified = res.already_verified_in_fy.filter((a) =>
-        res.eligible_asset_ids.includes(a.asset_id),
-      )
-      if (fyVerified.length > 0) {
-        setFyVerifiedOpen(true)
-        return
-      }
-      setResetVerificationAssetIds([])
-      setEligibleForOrder(res.eligible_asset_ids)
-      setCreateOrderOpen(true)
+      continueCreateOrderAfterWarnings(res)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Validation failed.")
     } finally {
       setOrderValidateBusy(false)
     }
+  }
+
+  function continueCreateOrderAfterWarnings(res: ValidateAssetsResponse) {
+    if ((res.not_approved?.length ?? 0) > 0) {
+      setNotApprovedOpen(true)
+      return
+    }
+    if (res.missing_rfid.length > 0) {
+      setMissingRfidOpen(true)
+      return
+    }
+    if (res.plant_mismatch.length > 0) {
+      setPlantMismatchOpen(true)
+      return
+    }
+    if (res.cost_center_mismatch.length > 0) {
+      setCcMismatchOpen(true)
+      return
+    }
+    if (res.eligible_asset_ids.length === 0) {
+      toast.error("No eligible assets selected.")
+      return
+    }
+    const fyVerified = res.already_verified_in_fy.filter((a) =>
+      res.eligible_asset_ids.includes(a.asset_id),
+    )
+    if (fyVerified.length > 0) {
+      setFyVerifiedOpen(true)
+      return
+    }
+    setResetVerificationAssetIds([])
+    setEligibleForOrder(res.eligible_asset_ids)
+    setCreateOrderOpen(true)
   }
 
   function proceedWithEligibleOnly(resetIds: number[] = []) {
@@ -1612,7 +1616,7 @@ export function AssetsListPage() {
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-[var(--app-grid-gap)]">
-        <div className="app-list-toolbar">
+        <div className="app-list-toolbar shrink-0">
           <div className="relative min-w-[16rem] flex-1">
             <Search
               className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
@@ -2180,9 +2184,10 @@ export function AssetsListPage() {
       <Dialog open={activeConflictOpen} onOpenChange={setActiveConflictOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Active order conflicts</DialogTitle>
+            <DialogTitle>Already on an active order</DialogTitle>
             <DialogDescription>
-              Following assets already belong to active orders. You can continue with eligible assets only.
+              These assets already belong to an active physical verification order. You can still create
+              a new order.
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body max-h-64 overflow-auto">
@@ -2208,14 +2213,20 @@ export function AssetsListPage() {
               </tbody>
             </table>
           </div>
-          <div className="flex justify-end gap-2 border-t pt-3">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setActiveConflictOpen(false)}>
               Cancel
             </Button>
-            <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly()}>
-              Continue with eligible
+            <AdminPrimaryButton
+              type="button"
+              onClick={() => {
+                setActiveConflictOpen(false)
+                if (validationResult) continueCreateOrderAfterWarnings(validationResult)
+              }}
+            >
+              Continue
             </AdminPrimaryButton>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -2295,11 +2306,11 @@ export function AssetsListPage() {
               </li>
             ))}
           </ul>
-          <div className="flex justify-end">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setPlantMismatchOpen(false)}>
               Close
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -2319,11 +2330,11 @@ export function AssetsListPage() {
               </li>
             ))}
           </ul>
-          <div className="flex justify-end">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setCcMismatchOpen(false)}>
               Close
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -2378,7 +2389,7 @@ export function AssetsListPage() {
               </tbody>
             </table>
           </div>
-          <div className="flex justify-end gap-2 border-t pt-3">
+          <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setFyVerifiedOpen(false)}>
               Cancel
             </Button>
@@ -2392,7 +2403,7 @@ export function AssetsListPage() {
             <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly(fyVerifiedEligibleIds())}>
               Yes, verify again
             </AdminPrimaryButton>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

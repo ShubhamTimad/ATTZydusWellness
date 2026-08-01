@@ -143,8 +143,8 @@ export function OrdersListPage() {
   }, [load])
 
   React.useEffect(() => {
-    void getJson<{ modules: { orders: OrdersDashboardModule } }>("/dashboard/summary")
-      .then((res) => setCounts(res.modules.orders))
+    void getJson<{ modules: { orders?: OrdersDashboardModule } }>("/dashboard/summary")
+      .then((res) => setCounts(res.modules.orders ?? null))
       .catch(() => setCounts(null))
   }, [tab, data?.total])
 

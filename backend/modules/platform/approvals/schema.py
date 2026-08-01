@@ -10,7 +10,7 @@ ApprovalEntityType = Literal["user_creation", "asset_creation", "asset_import"]
 ApprovalRequestStatus = Literal["pending", "approved", "rejected", "in_rework"]
 ApprovalTaskStatus = Literal["pending", "approved", "rejected", "open", "closed"]
 ApprovalActionType = Literal["approve", "reject"]
-ApprovalStepKind = Literal["approve", "receive", "confirm", "close"]
+ApprovalStepKind = Literal["approve", "receive", "confirm", "close", "assign"]
 
 
 class ApprovalWorkflowCreate(BaseModel):

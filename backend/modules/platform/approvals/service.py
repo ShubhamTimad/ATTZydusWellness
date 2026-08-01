@@ -46,6 +46,35 @@ def _step_kind(step: ApprovalStep | None) -> str:
     return str(getattr(step, "step_kind", None) or "approve").strip().lower() or "approve"
 
 
+def _sorted_steps(workflow: ApprovalWorkflow) -> list[ApprovalStep]:
+    return sorted(workflow.steps or [], key=lambda s: int(s.step_order))
+
+
+def assignment_step_for_workflow(workflow: ApprovalWorkflow) -> ApprovalStep | None:
+    """First ``assign`` step, else first step (executor pool for physical orders)."""
+    steps = _sorted_steps(workflow)
+    if not steps:
+        return None
+    for step in steps:
+        if _step_kind(step) == "assign":
+            return step
+    return steps[0]
+
+
+def first_approval_step(workflow: ApprovalWorkflow) -> ApprovalStep:
+    """First step that is not assignment-only (approval starts here after complete)."""
+    steps = _sorted_steps(workflow)
+    if not steps:
+        raise ConflictError("Active workflow has no steps configured.")
+    for step in steps:
+        if _step_kind(step) != "assign":
+            return step
+    raise ConflictError(
+        "Physical order workflow has only assignment steps. "
+        "Add an Approve step for the role that approves and closes the order."
+    )
+
+
 class ApprovalWorkflowService:
     def __init__(self, db: Session) -> None:
         self._db = db
@@ -113,8 +142,10 @@ class ApprovalWorkflowService:
         if required_approvals < 1:
             raise ConflictError("required_approvals must be >= 1.")
         kind = (step_kind or "approve").strip().lower()
-        if kind not in ("approve", "receive", "confirm", "close"):
-            raise ConflictError("step_kind must be one of: approve, receive, confirm, close.")
+        if kind not in ("approve", "receive", "confirm", "close", "assign"):
+            raise ConflictError(
+                "step_kind must be one of: approve, receive, confirm, close, assign."
+            )
         existing_orders = [s.step_order for s in wf.steps]
         if step_order in existing_orders:
             raise ConflictError("That level number already exists.")
@@ -171,8 +202,10 @@ class ApprovalWorkflowService:
             step.required_approvals = required_approvals
         if step_kind is not None:
             kind = step_kind.strip().lower()
-            if kind not in ("approve", "receive", "confirm", "close"):
-                raise ConflictError("step_kind must be one of: approve, receive, confirm, close.")
+            if kind not in ("approve", "receive", "confirm", "close", "assign"):
+                raise ConflictError(
+                    "step_kind must be one of: approve, receive, confirm, close, assign."
+                )
             step.step_kind = kind
         self._db.commit()
         self._db.refresh(step)
@@ -274,8 +307,7 @@ class ApprovalEngineService:
     ) -> ApprovalRequest:
         if not workflow.steps:
             raise ConflictError("Active workflow has no steps configured.")
-        steps_sorted = sorted(workflow.steps, key=lambda s: int(s.step_order))
-        first = steps_sorted[0]
+        first = first_approval_step(workflow)
         req = ApprovalRequest(
             workflow_id=workflow.id,
             entity_type=entity_type,
@@ -610,8 +642,7 @@ class ApprovalEngineService:
         wf = req.workflow
         if wf is None or not wf.steps:
             raise ApprovalError("Workflow is missing for this request.")
-        steps_sorted = sorted(wf.steps, key=lambda s: int(s.step_order))
-        first = steps_sorted[0]
+        first = first_approval_step(wf)
         req.status = "pending"
         req.current_step = int(first.step_order)
         req.last_resubmitted_at = now
@@ -1053,7 +1084,11 @@ class ApprovalEngineService:
                 kind=kind,
             )
 
-        if idx == len(steps_sorted) - 1:
+        next_approval = next(
+            (s for s in steps_sorted[idx + 1 :] if _step_kind(s) != "assign"),
+            None,
+        )
+        if next_approval is None:
             # Final approval. Disposal orders hand off to the receiver, so the
             # final approver (Store Person) must also name the receiving user.
             if is_disposal and next_assigned_user_id is None:
@@ -1071,7 +1106,7 @@ class ApprovalEngineService:
             return self.get_request(req.id)
 
         # Move to next step.
-        next_step = steps_sorted[idx + 1]
+        next_step = next_approval
         req.current_step = next_step.step_order
         needs_named_next_approver = (
             is_disposal

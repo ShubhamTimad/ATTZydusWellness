@@ -213,7 +213,7 @@ class ExecutorUserPublic(BaseModel):
 
 
 class ExecutorListResponse(BaseModel):
-    """Users in the first-step role of the physical-order assignment workflow."""
+    """Users in the Assign-step role of the Physical order workflow."""
 
     role_id: int
     role_name: str

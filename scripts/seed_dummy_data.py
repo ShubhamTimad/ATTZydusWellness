@@ -118,6 +118,9 @@ ROLE_SPECS: list[dict[str, object]] = [
             "asset.import",
             "asset.reassign",
             "asset.manage",
+            "dashboard.view",
+            "dashboard.assets.view",
+            "dashboard.financial_year.view",
         ],
     },
     {
@@ -131,6 +134,9 @@ ROLE_SPECS: list[dict[str, object]] = [
             "asset.view",
             "asset.approve",
             "asset.reassign",
+            "dashboard.view",
+            "dashboard.assets.view",
+            "dashboard.financial_year.view",
         ],
     },
     {
@@ -145,22 +151,57 @@ ROLE_SPECS: list[dict[str, object]] = [
             "users.view",
             "users.create",
             "users.update",
+            "dashboard.view",
+            "dashboard.it.view",
         ],
     },
     {
         "name": "Physical Order Creator",
         "description": "Create physical verification orders.",
-        "permissions": ["order.create", "order.view", "order.reassign"],
+        "permissions": [
+            "order.create",
+            "order.view",
+            "order.reassign",
+            "dashboard.view",
+            "dashboard.orders.view",
+        ],
     },
     {
         "name": "Physical Order Executor",
         "description": "Execute physical verification on assigned orders.",
-        "permissions": ["order.execute", "order.view", "order.reassign"],
+        "permissions": [
+            "order.execute",
+            "order.view",
+            "order.reassign",
+            "dashboard.view",
+            "dashboard.orders.view",
+        ],
     },
     {
         "name": "Physical Order Approver",
         "description": "Approve physical verification orders and closures.",
-        "permissions": ["order.approve", "order.view", "order.reassign", "approval.view", "approval.act"],
+        "permissions": [
+            "order.approve",
+            "order.view",
+            "order.reassign",
+            "approval.view",
+            "approval.act",
+            "dashboard.view",
+            "dashboard.orders.view",
+        ],
+    },
+    {
+        "name": "IT Admin",
+        "description": "IT user administration: create users, activate/deactivate accounts, assign roles.",
+        "permissions": [
+            "users.view",
+            "users.create",
+            "users.update",
+            "roles.view",
+            "roles.update",
+            "dashboard.view",
+            "dashboard.it.view",
+        ],
     },
     {
         "name": "Cost Center User",
@@ -339,20 +380,14 @@ WORKFLOW_SPECS: list[dict[str, object]] = [
         "steps": [(1, "Plant Manager", 1)],
     },
     {
-        "name": "Physical Order Creation Approval",
-        "entity_type": "physical_order_creation",
-        "activate": True,
-        "map_action": "order.create",
-        "steps": [(1, "Operator", 1)],
-    },
-    {
-        "name": "Physical Order Completion Approval",
+        "name": "Physical Order Approval",
         "entity_type": "physical_order_closure",
         "activate": True,
         "map_action": "order.complete",
+        # Step 1 Assign = who can be selected as executor; Approve = who approves & closes.
         "steps": [
-            (1, "Operator", 1),
-            (2, "Operator", 1),
+            (1, "Operator", 1, "assign"),
+            (2, "Approver", 1, "approve"),
         ],
     },
     {
@@ -778,7 +813,7 @@ def _seed_workflow(
     *,
     name: str,
     entity_type: str,
-    steps: list[tuple[int, str, int]],
+    steps: list[tuple[int, str, int] | tuple[int, str, int, str]],
     activate: bool,
     map_action: str | None,
 ) -> ApprovalWorkflow:
@@ -804,13 +839,16 @@ def _seed_workflow(
     db.execute(delete(ApprovalStep).where(ApprovalStep.workflow_id == int(wf.id)))
     db.flush()
 
-    for step_order, role_name, required in steps:
+    for step in steps:
+        step_order, role_name, required = step[0], step[1], step[2]
+        step_kind = step[3] if len(step) > 3 else "approve"
         db.add(
             ApprovalStep(
                 workflow_id=int(wf.id),
                 step_order=int(step_order),
                 approver_role_id=_role_id(db, str(role_name)),
                 required_approvals=int(required),
+                step_kind=str(step_kind),
             )
         )
     db.commit()
