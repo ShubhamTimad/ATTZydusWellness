@@ -30,6 +30,7 @@ import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer"
 import { SessionIdleNavbarBadge } from "@/components/session-idle-navbar-badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -82,7 +83,7 @@ const shellNavGroups: ShellNavGroup[] = [
     label: "Overview",
     items: [
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, to: "/dashboard", permission: null },
-      { id: "reports", label: "Report", icon: FileBarChart, to: "/dashboard/reports", permission: null },
+      { id: "reports", label: "Report", icon: FileBarChart, to: "/dashboard/reports", permission: "report.view" },
     ],
   },
   {
@@ -239,6 +240,7 @@ export type AppShellLayoutProps = {
 }
 
 export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShellLayoutProps) {
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const account: NavbarUser = user ?? {
     fullName: null,
     email: userEmail ?? null,
@@ -247,6 +249,16 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
   const displayName = navbarDisplayName(account)
   const initials = navbarInitials(account)
   const location = useLocation()
+
+  async function handleSignOut() {
+    const ok = await confirmAsk({
+      title: "Sign out?",
+      description: "Do you want to logout?",
+      confirmLabel: "Sign out",
+    })
+    if (!ok) return
+    onSignOut?.()
+  }
   const visibleGroups = shellNavGroups
     .map((group) => ({
       ...group,
@@ -551,7 +563,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
                 className="h-10 cursor-pointer justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground"
                 onSelect={(e) => {
                   e.preventDefault()
-                  onSignOut?.()
+                  void handleSignOut()
                 }}
               >
                 <LogOut className="size-4" aria-hidden />
@@ -570,6 +582,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
       </div>
 
       <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} />
+      {confirmDialog}
     </div>
   )
 }

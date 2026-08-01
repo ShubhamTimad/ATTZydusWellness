@@ -39,7 +39,7 @@ import type {
   AssetRfidAttachResult,
   SubmitForApprovalResult,
 } from "@/lib/assets-types"
-import { formatSubmitForApprovalSuccess } from "@/lib/assets-types"
+import { formatRfidAttachError, formatRfidAttachSuccess, formatSubmitForApprovalError, formatSubmitForApprovalSuccess } from "@/lib/assets-types"
 import {
   ASSET_VIEW_SECTIONS,
   type AssetViewSectionConfig,
@@ -315,22 +315,14 @@ export function AssetDetailPage() {
       const updated = await getJson<AssetDetail>(`/admin/assets/${asset.id}`)
       setAsset(updated)
 
-      toast.success(
-        res.operation === "updated"
-          ? `RFID updated on ${res.asset_code}.`
-          : `RFID attached to ${res.asset_code}.`,
-      )
+      toast.success(formatRfidAttachSuccess(res))
 
       setRfidDialogOpen(false)
 
       void loadAudit(updated.id)
 
     } catch (e) {
-      toast.error(
-        e instanceof ApiError
-          ? e.message
-          : "Failed to update RFID.",
-      )
+      toast.error(formatRfidAttachError(e, "Failed to update RFID."))
     } finally {
       setRfidSaving(false)
     }
@@ -555,19 +547,19 @@ export function AssetDetailPage() {
         { assignee_user_id: userId },
       )
       if (res.errors?.length) {
-        toast.error(
-          res.errors[0] ??
-            "This asset could not be submitted for approval. Check its status and try again.",
-        )
+        toast.error(formatSubmitForApprovalError(res.errors[0]))
         return
       }
       setSubmitAssignOpen(false)
-      const success = formatSubmitForApprovalSuccess(res)
+      const success = formatSubmitForApprovalSuccess(res, {
+        assetCode: asset.asset_code,
+        assetName: asset.asset_name,
+      })
       toast.success(
         success ??
           (res.activated_count > 0
-            ? "Asset activated (no approval workflow is configured)."
-            : "Asset submitted for approval."),
+            ? `Asset ${asset.asset_code} activated — no approval workflow is configured.`
+            : `Asset ${asset.asset_code} submitted for approval.`),
       )
       await load()
       if (asset.id) void loadAudit(asset.id)

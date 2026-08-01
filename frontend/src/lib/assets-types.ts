@@ -55,30 +55,132 @@ export type AssetRfidAttachResult = {
   tag_color_hex?: string | null
 }
 
+/** User-facing success toast after attach/update RFID. */
+export function formatRfidAttachSuccess(res: AssetRfidAttachResult): string {
+  const asset =
+    res.asset_name?.trim() && res.asset_name.trim() !== res.asset_code
+      ? `${res.asset_code} (${res.asset_name.trim()})`
+      : res.asset_code
+
+  if (res.operation === "updated") {
+    if (res.previous_rfid_code && res.previous_rfid_code !== res.rfid_code) {
+      return `RFID on asset ${asset} updated to ${res.rfid_code} (was ${res.previous_rfid_code}).`
+    }
+    return `RFID on asset ${asset} updated to ${res.rfid_code}.`
+  }
+  return `RFID ${res.rfid_code} attached to asset ${asset}.`
+}
+
+type RfidErrorDetail = {
+  code?: string
+  message?: string
+  rfid_code?: string
+  existing_asset_code?: string
+}
+
+/** User-facing error toast when attach/update RFID fails. */
+export function formatRfidAttachError(error: unknown, fallback = "Failed to save RFID."): string {
+  if (!(error instanceof Error)) return fallback
+
+  const body =
+    "body" in error && error.body && typeof error.body === "object"
+      ? (error.body as { detail?: unknown }).detail
+      : undefined
+
+  const detail =
+    body && typeof body === "object" && !Array.isArray(body) ? (body as RfidErrorDetail) : null
+
+  if (detail?.code === "duplicate_rfid") {
+    const rfid = detail.rfid_code?.trim()
+    const other = detail.existing_asset_code?.trim()
+    if (rfid && other) {
+      return `RFID ${rfid} is already assigned to asset ${other}. Enter a different code.`
+    }
+    if (typeof detail.message === "string" && detail.message.trim()) return detail.message.trim()
+  }
+
+  if (detail?.code === "invalid_rfid" || detail?.code === "invalid_tag_color") {
+    if (typeof detail.message === "string" && detail.message.trim()) return detail.message.trim()
+  }
+
+  const msg = error.message.trim()
+  if (/Asset .+ not found/i.test(msg)) {
+    const match = msg.match(/Asset ['"]?([^'"]+)['"]? not found/i)
+    return match?.[1]
+      ? `Asset ${match[1]} was not found. Check the asset code and try again.`
+      : "Asset was not found. Check the asset code and try again."
+  }
+  if (msg) return msg
+  return fallback
+}
+
 export type SubmitForApprovalResult = {
   submitted_count: number
   activated_count: number
   errors: string[]
 }
 
+type SubmitForApprovalMessageOpts = {
+  assetCode?: string | null
+  assetName?: string | null
+}
+
+function assetDisplayLabel(opts?: SubmitForApprovalMessageOpts): string | null {
+  const code = opts?.assetCode?.trim()
+  if (!code) return null
+  const name = opts?.assetName?.trim()
+  if (name && name !== code) return `${code} (${name})`
+  return code
+}
+
 /** User-facing success toast for submit-for-approval API results. */
-export function formatSubmitForApprovalSuccess(res: SubmitForApprovalResult): string | null {
+export function formatSubmitForApprovalSuccess(
+  res: SubmitForApprovalResult,
+  opts?: SubmitForApprovalMessageOpts,
+): string | null {
+  const asset = assetDisplayLabel(opts)
   const parts: string[] = []
+
   if (res.submitted_count > 0) {
-    parts.push(
-      res.submitted_count === 1
-        ? "1 asset submitted for approval"
-        : `${res.submitted_count} assets submitted for approval`,
-    )
+    if (res.submitted_count === 1) {
+      parts.push(
+        asset
+          ? `Asset ${asset} submitted for approval`
+          : "Asset submitted for approval",
+      )
+    } else {
+      parts.push(`${res.submitted_count} assets submitted for approval`)
+    }
   }
+
   if (res.activated_count > 0) {
-    parts.push(
-      res.activated_count === 1
-        ? "1 asset activated (no approval workflow is configured)"
-        : `${res.activated_count} assets activated (no approval workflow is configured)`,
-    )
+    if (res.activated_count === 1) {
+      parts.push(
+        asset && res.submitted_count === 0
+          ? `Asset ${asset} activated — no approval workflow is configured`
+          : "1 asset activated — no approval workflow is configured",
+      )
+    } else {
+      parts.push(
+        `${res.activated_count} assets activated — no approval workflow is configured`,
+      )
+    }
   }
+
   return parts.length > 0 ? `${parts.join(". ")}.` : null
+}
+
+/** User-facing error toast for a submit-for-approval failure line. */
+export function formatSubmitForApprovalError(
+  error: string | null | undefined,
+  fallback = "Asset could not be submitted for approval. Check its status and try again.",
+): string {
+  const msg = (error ?? "").trim()
+  if (!msg) return fallback
+  if (/Asset #\d+: not found\.?/i.test(msg)) {
+    return msg.replace(/Asset #(\d+): not found\.?/i, "Asset #$1 was not found.")
+  }
+  return msg.endsWith(".") ? msg : `${msg}.`
 }
 
 export type AssetListResponse = {

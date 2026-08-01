@@ -7,6 +7,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -39,6 +40,9 @@ export function CreatePhysicalOrderDialog({
   const [remarks, setRemarks] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [loadingExecutors, setLoadingExecutors] = React.useState(false)
+
+  const assetCountLabel =
+    assetIds.length === 1 ? "1 RFID asset" : `${assetIds.length} RFID assets`
 
   React.useEffect(() => {
     if (!open) {
@@ -82,8 +86,8 @@ export function CreatePhysicalOrderDialog({
       })
       toast.success(
         order.assigned_to_name
-          ? `Order ${order.order_number} assigned to ${order.assigned_to_name}.`
-          : `Order ${order.order_number} created.`,
+          ? `Physical verification order ${order.order_number} created with ${assetIds.length} ${assetIds.length === 1 ? "asset" : "assets"} and assigned to ${order.assigned_to_name}.`
+          : `Physical verification order ${order.order_number} created with ${assetIds.length} ${assetIds.length === 1 ? "asset" : "assets"}.`,
       )
       onCreated(order)
       onOpenChange(false)
@@ -96,23 +100,36 @@ export function CreatePhysicalOrderDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Create physical verification order</DialogTitle>
-          <DialogDescription>
-            {assetIds.length} RFID-tagged asset(s) will be included. Pick the next user from the
-            assignment workflow role; the order goes to Assigned so they can start.
-            {resetVerificationAssetIds.length > 0
-              ? ` ${resetVerificationAssetIds.length} asset(s) were already verified this financial year; physical count and verification date will be cleared when the order is assigned.`
-              : null}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="dialog-body space-y-4">
+      <DialogContent className="overflow-hidden rounded-2xl p-0 sm:max-w-md">
+        <div className="border-b px-6 py-4 pr-12">
+          <DialogHeader className="space-y-1">
+            <DialogTitle className="text-lg font-semibold tracking-tight">
+              Create verification order
+            </DialogTitle>
+            <DialogDescription>
+              {assetCountLabel} · assign to start
+            </DialogDescription>
+          </DialogHeader>
+          {resetVerificationAssetIds.length > 0 ? (
+            <p className="mt-2 rounded-lg border border-amber-200/80 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200">
+              {resetVerificationAssetIds.length === 1
+                ? "1 asset already verified this year — count & date will reset."
+                : `${resetVerificationAssetIds.length} assets already verified this year — count & date will reset.`}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="space-y-5 px-6 py-5">
           <div className="space-y-2">
-            <Label htmlFor="executor">{roleName ? `${roleName} *` : "Assignee *"}</Label>
+            <Label htmlFor="executor" className="text-sm font-medium">
+              {roleName ? `${roleName}` : "Assignee"}{" "}
+              <span className="text-destructive" aria-hidden>
+                *
+              </span>
+            </Label>
             <select
               id="executor"
-              className={adminSelectClass}
+              className={cn(adminSelectClass, "h-11")}
               value={assignedTo}
               onChange={(e) => setAssignedTo(e.target.value)}
               disabled={loadingExecutors || busy || Boolean(loadError)}
@@ -136,35 +153,48 @@ export function CreatePhysicalOrderDialog({
             ) : !loadingExecutors && executors.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 {roleName
-                  ? `No users in the "${roleName}" role for this plant. Assign that role to users scoped to this plant.`
-                  : "Configure the physical order assignment workflow (order.create) first."}
+                  ? `No users in the "${roleName}" role for this plant.`
+                  : "Configure the assignment workflow first."}
               </p>
             ) : null}
           </div>
+
           <div className="space-y-2">
-            <Label htmlFor="remarks">Remarks</Label>
+            <Label htmlFor="remarks" className="text-sm font-medium">
+              Remarks
+            </Label>
             <textarea
               id="remarks"
-              className={cn(adminTextareaClass, "min-h-[80px]")}
+              className={cn(adminTextareaClass, "min-h-[88px] resize-y")}
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               rows={3}
-              placeholder="Optional notes for the assignee"
+              placeholder="Optional notes"
+              disabled={busy}
             />
           </div>
-          <div className="dialog-footer-actions">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+        </div>
+
+        <DialogFooter className="border-t bg-muted/20 px-6 py-4 sm:justify-end">
+          <div className="flex w-full justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={busy}
+            >
               Cancel
             </Button>
             <AdminPrimaryButton
               type="button"
+              className="min-w-28"
               onClick={() => void createAndAssign()}
               disabled={busy || loadingExecutors || !assignedTo}
             >
               {busy ? "Creating…" : "Create & assign"}
             </AdminPrimaryButton>
           </div>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

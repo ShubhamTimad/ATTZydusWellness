@@ -46,7 +46,7 @@ export function TagColorPicker({
     <div
       id={id}
       role="radiogroup"
-      aria-label="Tag color"
+      aria-label="Tag Color"
       className={cn("flex flex-wrap gap-2", disabled && "pointer-events-none opacity-50")}
     >
       {tagColors.map((c) => {
@@ -87,7 +87,7 @@ type TagColorSelectProps = {
 
 export function TagColorSelect({
   id = "tag-color",
-  label = "Tag color",
+  label = "Tag Color",
   value,
   onChange,
   tagColors,

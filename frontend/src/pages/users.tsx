@@ -81,6 +81,7 @@ export function UsersPage() {
   return (
     <AdminPage
       fullWidth
+      viewportFill
       description="Manage accounts, roles, plant, department, and cost center assignments."
       actions={
         canCreate ? (
@@ -100,7 +101,7 @@ export function UsersPage() {
         </Alert>
       ) : null}
 
-      <AdminDataTable>
+      <AdminDataTable className="min-h-0 flex-1">
         <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>

@@ -75,6 +75,7 @@ export function DisposalOrderCreatePage() {
   const [assetSearch, setAssetSearch] = React.useState("")
   const [catalog, setCatalog] = React.useState<AssetListItem[]>([])
   const [catalogLoading, setCatalogLoading] = React.useState(false)
+  const [browseMore, setBrowseMore] = React.useState(false)
   const [requiresEngineering, setRequiresEngineering] = React.useState(false)
   const [remarks, setRemarks] = React.useState("")
   const [busy, setBusy] = React.useState(false)
@@ -94,6 +95,7 @@ export function DisposalOrderCreatePage() {
     )
   }, [searchParams])
   const fromAssets = presetAssetIds.size > 0
+  const showCatalog = !fromAssets || browseMore
   const presetApplied = React.useRef(false)
 
   // Assets handed over from Asset Master (sessionStorage + query params).
@@ -115,11 +117,14 @@ export function DisposalOrderCreatePage() {
           if (rows.length < parsed.filter((a) => idSet.has(a.id)).length) {
             toast.error("Some assets were skipped — only active, approved assets can be disposed.")
           }
+          return
         }
       }
     } catch {
       /* ignore */
     }
+    // No draft payload — open catalog so preset ids can still be resolved.
+    setBrowseMore(true)
   }, [fromAssets, presetAssetIds])
 
   // Default plant when the user only has one.
@@ -129,7 +134,7 @@ export function DisposalOrderCreatePage() {
   }, [plantId, masters.plants])
 
   React.useEffect(() => {
-    if (plantId == null) {
+    if (!showCatalog || plantId == null) {
       setCatalog([])
       setCatalogLoading(false)
       return
@@ -163,7 +168,7 @@ export function DisposalOrderCreatePage() {
       cancelled = true
       window.clearTimeout(t)
     }
-  }, [plantId, assetSearch])
+  }, [plantId, assetSearch, showCatalog])
 
   // Fallback preselect from catalog when sessionStorage was empty.
   React.useEffect(() => {
@@ -258,6 +263,7 @@ export function DisposalOrderCreatePage() {
                     setPlantId(e.target.value ? Number(e.target.value) : null)
                     setSelected([])
                     setAssetSearch("")
+                    setBrowseMore(false)
                   }}
                 >
                   <option value="">Select plant</option>
@@ -269,23 +275,36 @@ export function DisposalOrderCreatePage() {
                 </select>
               </FormField>
 
-              <FormField id="asset_search" labelText="Search">
-                <div className="relative">
-                  <Search
-                    className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden
-                  />
-                  <Input
-                    id="asset_search"
-                    value={assetSearch}
-                    disabled={plantId == null}
-                    onChange={(e) => setAssetSearch(e.target.value)}
-                    placeholder={plantId == null ? "Select a plant first" : "Asset code or name…"}
-                    className="pl-9"
-                    autoComplete="off"
-                  />
+              {showCatalog ? (
+                <FormField id="asset_search" labelText="Search">
+                  <div className="relative">
+                    <Search
+                      className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <Input
+                      id="asset_search"
+                      value={assetSearch}
+                      disabled={plantId == null}
+                      onChange={(e) => setAssetSearch(e.target.value)}
+                      placeholder={plantId == null ? "Select a plant first" : "Asset code or name…"}
+                      className="pl-9"
+                      autoComplete="off"
+                    />
+                  </div>
+                </FormField>
+              ) : (
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 w-full shadow-sm sm:w-auto"
+                    onClick={() => setBrowseMore(true)}
+                  >
+                    Select other assets
+                  </Button>
                 </div>
-              </FormField>
+              )}
             </div>
 
             <div className="-mx-5 -mb-5 max-h-[28rem] overflow-auto">
@@ -301,7 +320,40 @@ export function DisposalOrderCreatePage() {
                   </AdminTableHeaderRow>
                 </TableHeader>
                 <TableBody>
-                  {plantId == null ? (
+                  {!showCatalog ? (
+                    selected.length === 0 ? (
+                      <AdminTableEmptyRow colSpan={4}>No assets selected</AdminTableEmptyRow>
+                    ) : (
+                      selected.map((a) => (
+                        <AdminTableBodyRow
+                          key={a.id}
+                          className="bg-primary/5"
+                          onClick={() => toggleAsset(a)}
+                        >
+                          <AdminTableCell className="align-middle">
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            >
+                              <Checkbox
+                                checked
+                                onCheckedChange={() => toggleAsset(a)}
+                                aria-label={`Select ${a.asset_code}`}
+                              />
+                            </div>
+                          </AdminTableCell>
+                          <AdminTableCell>
+                            <div className="font-medium">{a.asset_code}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {a.asset_name || "—"}
+                            </div>
+                          </AdminTableCell>
+                          <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
+                          <AdminTableCell>{a.functional_location ?? "—"}</AdminTableCell>
+                        </AdminTableBodyRow>
+                      ))
+                    )
+                  ) : plantId == null ? (
                     <AdminTableEmptyRow colSpan={4}>
                       Select a plant to list assets.
                     </AdminTableEmptyRow>
@@ -357,21 +409,30 @@ export function DisposalOrderCreatePage() {
           >
             <div className="grid grid-cols-1 gap-4">
               {canSubmitWithEngineering ? (
-                <div className={adminSwitchRowClass}>
-                  <div className="space-y-1">
-                    <Label htmlFor="requires_engineering" className="text-sm font-medium">
+                <label
+                  htmlFor="requires_engineering"
+                  className={cn(
+                    adminSwitchRowClass,
+                    "cursor-pointer transition-colors hover:bg-muted/35",
+                    requiresEngineering && "border-primary/40 bg-primary/5",
+                  )}
+                >
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <span className="block text-sm font-medium text-foreground">
                       Submit with engineering approval
-                    </Label>
-                    {/* <p className="text-xs text-muted-foreground">
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
                       Routes the order through the disposal workflow that includes Engineering.
-                    </p> */}
+                    </span>
                   </div>
                   <Checkbox
                     id="requires_engineering"
                     checked={requiresEngineering}
                     onCheckedChange={(v) => setRequiresEngineering(v === true)}
+                    className="size-5 border-foreground/35 shadow-sm"
+                    aria-label="Submit with engineering approval"
                   />
-                </div>
+                </label>
               ) : null}
 
               <FormField id="remarks" labelText="Remarks">

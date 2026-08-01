@@ -59,6 +59,7 @@ from modules.platform.settings.financial_year import (
     list_financial_year_periods,
     resolve_financial_year_period,
 )
+from modules.assets.list_search import asset_global_search_clause
 from modules.assets.model import AssetAuditEvent
 from modules.assets.import_parser import parse_upload_file
 from modules.assets.import_row_mapper import build_section_payloads
@@ -1292,9 +1293,9 @@ class AssetMasterService:
         status = physical_order_status.strip().lower()
         displayed = self._displayed_physical_order_subquery()
         if status == "none":
-            has_displayed = select(displayed.c.asset_id)
+            has_displayed = select(displayed.c.asset_id).correlate(None)
             return base.where(AssetMaster.id.not_in(has_displayed))
-        matching = select(displayed.c.asset_id).where(displayed.c.order_status == status)
+        matching = select(displayed.c.asset_id).where(displayed.c.order_status == status).correlate(None)
         return base.where(AssetMaster.id.in_(matching))
 
     def _master_label_lookups(
@@ -1356,6 +1357,7 @@ class AssetMasterService:
         fy_start_year: int | None = None,
         fy_scan_from: date | None = None,
         fy_scan_to: date | None = None,
+        search_columns: list[str] | None = None,
     ) -> tuple[str, Any, VerificationWindow | None, dict[str, int] | None, set[int] | None]:
         fy_mode = (fy_verification or "").strip().lower()
         current_period = financial_year_period_for()
@@ -1377,6 +1379,7 @@ class AssetMasterService:
                 plant_id=plant_id,
                 category_id=category_id,
                 search=search,
+                search_columns=search_columns,
             )
             verified_ids = verified_asset_ids_in_window(
                 self._db,
@@ -1384,6 +1387,7 @@ class AssetMasterService:
                 plant_id=plant_id,
                 category_id=category_id,
                 search=search,
+                search_columns=search_columns,
             )
         return fy_mode, current_period, scan_window, fy_summary, verified_ids
 
@@ -1410,21 +1414,23 @@ class AssetMasterService:
             q = _like("category")
             base = base.where(
                 AssetMaster.asset_category_id.in_(
-                    select(AssetCategory.id).where(
-                        or_(AssetCategory.name.ilike(q), AssetCategory.code.ilike(q))
-                    )
+                    select(AssetCategory.id)
+                    .where(or_(AssetCategory.name.ilike(q), AssetCategory.code.ilike(q)))
+                    .correlate(None)
                 )
             )
         if f.get("cost_center"):
             # Dropdown sends the exact code; name-contains kept for direct API use.
-            # correlate(None): name subquery must not collapse against the outer asset query.
+            # Explicit FROM + correlate(AssetMaster): nested IN/EXISTS must not
+            # collapse when the outer list query is counted via with_only_columns.
             matching_cc = (
                 select(CostCenterMaster.code)
                 .where(CostCenterMaster.name.ilike(_like("cost_center")))
                 .correlate(None)
             )
             base = base.where(
-                select(AssetFinancialInformation.id)
+                select(1)
+                .select_from(AssetFinancialInformation)
                 .where(
                     AssetFinancialInformation.asset_id == AssetMaster.id,
                     or_(
@@ -1432,6 +1438,7 @@ class AssetMasterService:
                         AssetFinancialInformation.cost_center.in_(matching_cc),
                     ),
                 )
+                .correlate(AssetMaster)
                 .exists()
             )
         if f.get("functional_location"):
@@ -1441,7 +1448,8 @@ class AssetMasterService:
                 .correlate(None)
             )
             base = base.where(
-                select(AssetLocationInformation.id)
+                select(1)
+                .select_from(AssetLocationInformation)
                 .where(
                     AssetLocationInformation.asset_id == AssetMaster.id,
                     or_(
@@ -1449,9 +1457,24 @@ class AssetMasterService:
                         AssetLocationInformation.functional_location.in_(matching_fl),
                     ),
                 )
+                .correlate(AssetMaster)
                 .exists()
             )
         return base
+
+    def _count_asset_rows(self, stmt: Any) -> int:
+        """Count assets for a filtered list query.
+
+        Avoid ``select(count).select_from(stmt.subquery())`` — ORM selects with
+        correlated EXISTS (column filters) raise auto-correlation / empty FROM
+        when nested as a subquery.
+        """
+        return int(
+            self._db.scalar(
+                stmt.with_only_columns(func.count(func.distinct(AssetMaster.id))).order_by(None)
+            )
+            or 0
+        )
 
     def _asset_list_base_query(
         self,
@@ -1474,6 +1497,7 @@ class AssetMasterService:
         asset_ids: list[int] | None = None,
         column_filters: dict[str, str] | None = None,
         viewer_scope: ViewerOrgScope | None = None,
+        search_columns: list[str] | None = None,
     ) -> tuple[Any, str, VerificationWindow | None, dict[str, int] | None, set[int] | None, int | None, int | None]:
         scope = viewer_scope or ViewerOrgScope(None, None, None)
         if plant_id is not None and scope.plant_ids is not None and int(plant_id) not in scope.plant_ids:
@@ -1491,6 +1515,7 @@ class AssetMasterService:
             fy_start_year=fy_start_year,
             fy_scan_from=fy_scan_from,
             fy_scan_to=fy_scan_to,
+            search_columns=search_columns,
         )
         base = select(AssetMaster).where(AssetMaster.deleted_at.is_(None))
         if plant_id == -1:
@@ -1505,16 +1530,9 @@ class AssetMasterService:
                 None,
             )
         if search:
-            q = f"%{search.strip()}%"
-            base = base.where(
-                or_(
-                    AssetMaster.asset_name.ilike(q),
-                    AssetMaster.asset_code.ilike(q),
-                    AssetMaster.combined_asset_number.ilike(q),
-                    AssetMaster.serial_no.ilike(q),
-                    AssetMaster.rfid_code.ilike(q),
-                )
-            )
+            match = asset_global_search_clause(search, search_columns)
+            if match is not None:
+                base = base.where(match)
         if category_id is not None:
             base = base.where(AssetMaster.asset_category_id == category_id)
         base = self._apply_column_filters(base, column_filters)
@@ -1586,18 +1604,8 @@ class AssetMasterService:
         if scan_window is None:
             has_rfid = and_(AssetMaster.rfid_code.isnot(None), AssetMaster.rfid_code != "")
             no_rfid = or_(AssetMaster.rfid_code.is_(None), AssetMaster.rfid_code == "")
-            rfid_summary_tagged = int(
-                self._db.scalar(
-                    select(func.count()).select_from(base.where(has_rfid).subquery())
-                )
-                or 0
-            )
-            rfid_summary_not_tagged = int(
-                self._db.scalar(
-                    select(func.count()).select_from(base.where(no_rfid).subquery())
-                )
-                or 0
-            )
+            rfid_summary_tagged = self._count_asset_rows(base.where(has_rfid))
+            rfid_summary_not_tagged = self._count_asset_rows(base.where(no_rfid))
             rfid_mode = (rfid_status or "").strip().lower()
             if rfid_mode == "tagged":
                 base = base.where(has_rfid)
@@ -1653,6 +1661,9 @@ class AssetMasterService:
         page = max(1, page)
         page_size = min(max(1, page_size), 100)
         scope = load_viewer_org_scope(self._db, viewer_user_id)
+        search_columns = (
+            self.get_asset_list_columns(viewer_user_id) if viewer_user_id is not None else None
+        )
         (
             base,
             _fy_mode,
@@ -1675,6 +1686,7 @@ class AssetMasterService:
             fy_scan_to=fy_scan_to,
             column_filters=column_filters,
             viewer_scope=scope,
+            search_columns=search_columns,
         )
         current_period = financial_year_period_for()
         fy_mode = (fy_verification or "").strip().lower()
@@ -1683,15 +1695,13 @@ class AssetMasterService:
             if fy_mode in {"verified", "pending", "all"}
             else None
         )
+        total = self._count_asset_rows(base)
         base = base.options(
             selectinload(AssetMaster.category),
             selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
             selectinload(AssetMaster.financial),
             selectinload(AssetMaster.inventory),
         )
-
-        count_stmt = select(func.count()).select_from(base.subquery())
-        total = int(self._db.scalar(count_stmt) or 0)
 
         order_col = AssetMaster.created_at
         if sort_by == "asset_name":

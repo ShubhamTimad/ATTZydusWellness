@@ -34,6 +34,10 @@ import {
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
+import {
+  blockNonNegativeNumberKeys,
+  sanitizeNonNegativeNumericInput,
+} from "@/lib/asset-master-fields"
 
 type CreateForm = {
   asset_name: string
@@ -350,7 +354,7 @@ export function AssetCreatePage() {
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2">
-                <Label className="app-form-label mb-2 block">Asset image</Label>
+                <Label className="app-form-label mb-2 block">Asset Image</Label>
                 <AssetImage
                   file={imageFile}
                   editable
@@ -370,7 +374,7 @@ export function AssetCreatePage() {
                 "asset_name",
                 <FormField
                   id="asset_name"
-                  labelText={fc.getLabel("asset_name", "Asset name")}
+                  labelText={fc.getLabel("asset_name", "Asset Name")}
                   required={fc.isRequired("asset_name")}
                   className="sm:col-span-2"
                 >
@@ -536,7 +540,7 @@ export function AssetCreatePage() {
                 </FormField>,
               )}
               {canViewCapex ? (
-                <FormField id="capitalization_form_id" labelText="CapEx form number">
+                <FormField id="capitalization_form_id" labelText="CapEx Form Number">
                   <CapexFormSearchSelect
                     id="capitalization_form_id"
                     value={form.capitalization_form_id}
@@ -644,7 +648,7 @@ export function AssetCreatePage() {
               </FormField>
               <FormField
                 id="actual_location"
-                labelText={fc.getLabel("actual_location", "Actual location 2")}
+                labelText={fc.getLabel("actual_location", "Actual Location 2")}
                 required={fc.isRequired("actual_location")}
               >
                 <select
@@ -666,7 +670,7 @@ export function AssetCreatePage() {
               </FormField>
               {field(
                 "sub_location",
-                <FormField id="sub_location" labelText={fc.getLabel("sub_location", "Sub location")}>
+                <FormField id="sub_location" labelText={fc.getLabel("sub_location", "Sub Location")}>
                   <Input id="sub_location" value={form.sub_location} onChange={(e) => patch({ sub_location: e.target.value })} />
                 </FormField>,
               )}
@@ -747,9 +751,14 @@ export function AssetCreatePage() {
                   <Input
                     id="gross_block"
                     type="number"
+                    min={0}
                     step="0.01"
+                    inputMode="decimal"
                     value={form.gross_block}
-                    onChange={(e) => patch({ gross_block: e.target.value })}
+                    onKeyDown={blockNonNegativeNumberKeys}
+                    onChange={(e) =>
+                      patch({ gross_block: sanitizeNonNegativeNumericInput(e.target.value) })
+                    }
                   />
                 </FormField>,
               )}
@@ -768,8 +777,15 @@ export function AssetCreatePage() {
                 <FormField id="life_span" labelText={fc.getLabel("life_span", "Life-Span (Years)")}>
                   <Input
                     id="life_span"
+                    type="number"
+                    min={0}
+                    step="1"
+                    inputMode="numeric"
                     value={form.life_span}
-                    onChange={(e) => patch({ life_span: e.target.value })}
+                    onKeyDown={blockNonNegativeNumberKeys}
+                    onChange={(e) =>
+                      patch({ life_span: sanitizeNonNegativeNumericInput(e.target.value, true) })
+                    }
                   />
                 </FormField>,
               )}
@@ -777,7 +793,7 @@ export function AssetCreatePage() {
                 "profit_center",
                 <FormField
                   id="profit_center"
-                  labelText={fc.getLabel("profit_center", "Profit center")}
+                  labelText={fc.getLabel("profit_center", "Profit Center")}
                   required={fc.isRequired("profit_center")}
                 >
                   <select
@@ -810,20 +826,27 @@ export function AssetCreatePage() {
                 "depreciation_rate",
                 <FormField
                   id="depreciation_rate"
-                  labelText={fc.getLabel("depreciation_rate", "Rate of depreciation")}
+                  labelText={fc.getLabel("depreciation_rate", "Rate of Depreciation")}
                 >
                   <Input
                     id="depreciation_rate"
                     type="number"
+                    min={0}
                     step="0.0001"
+                    inputMode="decimal"
                     value={form.depreciation_rate}
-                    onChange={(e) => patch({ depreciation_rate: e.target.value })}
+                    onKeyDown={blockNonNegativeNumberKeys}
+                    onChange={(e) =>
+                      patch({
+                        depreciation_rate: sanitizeNonNegativeNumericInput(e.target.value),
+                      })
+                    }
                   />
                 </FormField>,
               )}
               {field(
                 "put_to_use_date",
-                <FormField id="put_to_use_date" labelText={fc.getLabel("put_to_use_date", "Put to use")}>
+                <FormField id="put_to_use_date" labelText={fc.getLabel("put_to_use_date", "Put to Use")}>
                   <Input
                     id="put_to_use_date"
                     type="date"
@@ -834,7 +857,7 @@ export function AssetCreatePage() {
               )}
               {field(
                 "vendor_name",
-                <FormField id="vendor_name" labelText={fc.getLabel("vendor_name", "Vendor name")}>
+                <FormField id="vendor_name" labelText={fc.getLabel("vendor_name", "Vendor Name")}>
                   <Input
                     id="vendor_name"
                     value={form.vendor_name}
@@ -844,7 +867,7 @@ export function AssetCreatePage() {
               )}
               {field(
                 "po_number",
-                <FormField id="po_number" labelText={fc.getLabel("po_number", "PO number")}>
+                <FormField id="po_number" labelText={fc.getLabel("po_number", "PO Number")}>
                   <Input
                     id="po_number"
                     value={form.po_number}
@@ -863,7 +886,7 @@ export function AssetCreatePage() {
                   />
                 </FormField>,
               )}
-              <FormField id="pm_equipment_id" labelText="PM equipment ID">
+              <FormField id="pm_equipment_id" labelText="PM Equipment ID">
                 <Input
                   id="pm_equipment_id"
                   value={form.pm_equipment_id}
@@ -881,24 +904,24 @@ export function AssetCreatePage() {
           contentClassName="px-5 py-5"
         >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <FormField labelText={fc.getLabel("inventory_count", "Inventory count")}>
+            <FormField labelText={fc.getLabel("inventory_count", "Inventory Count")}>
               <Input readOnly disabled className="bg-muted/40" value="1" />
             </FormField>
-            <FormField labelText={fc.getLabel("physical_count", "Physical count")}>
+            <FormField labelText={fc.getLabel("physical_count", "Physical Count")}>
               <Input readOnly disabled className="bg-muted/40" value="0" />
             </FormField>
-            <FormField labelText={fc.getLabel("last_verification_date", "Last verification date")}>
+            <FormField labelText={fc.getLabel("last_verification_date", "Last Verification Date")}>
               <Input readOnly disabled className="bg-muted/40" value="—" />
             </FormField>
             {field(
               "invoice_no",
-              <FormField id="invoice_no" labelText={fc.getLabel("invoice_no", "Invoice no.")}>
+              <FormField id="invoice_no" labelText={fc.getLabel("invoice_no", "Invoice No.")}>
                 <Input id="invoice_no" value={form.invoice_no} onChange={(e) => patch({ invoice_no: e.target.value })} />
               </FormField>,
             )}
             {field(
               "invoice_date",
-              <FormField id="invoice_date" labelText={fc.getLabel("invoice_date", "Invoice date")}>
+              <FormField id="invoice_date" labelText={fc.getLabel("invoice_date", "Invoice Date")}>
                 <Input
                   id="invoice_date"
                   type="date"
@@ -909,13 +932,13 @@ export function AssetCreatePage() {
             )}
             {field(
               "voucher_no",
-              <FormField id="voucher_no" labelText={fc.getLabel("voucher_no", "Voucher no.")}>
+              <FormField id="voucher_no" labelText={fc.getLabel("voucher_no", "Voucher No.")}>
                 <Input id="voucher_no" value={form.voucher_no} onChange={(e) => patch({ voucher_no: e.target.value })} />
               </FormField>,
             )}
             {field(
               "voucher_date",
-              <FormField id="voucher_date" labelText={fc.getLabel("voucher_date", "Voucher date")}>
+              <FormField id="voucher_date" labelText={fc.getLabel("voucher_date", "Voucher Date")}>
                 <Input
                   id="voucher_date"
                   type="date"
@@ -926,13 +949,13 @@ export function AssetCreatePage() {
             )}
             {field(
               "grn_no",
-              <FormField id="grn_no" labelText={fc.getLabel("grn_no", "GRN no.")}>
+              <FormField id="grn_no" labelText={fc.getLabel("grn_no", "GRN No.")}>
                 <Input id="grn_no" value={form.grn_no} onChange={(e) => patch({ grn_no: e.target.value })} />
               </FormField>,
             )}
             {field(
               "grn_date",
-              <FormField id="grn_date" labelText={fc.getLabel("grn_date", "GRN date")}>
+              <FormField id="grn_date" labelText={fc.getLabel("grn_date", "GRN Date")}>
                 <Input
                   id="grn_date"
                   type="date"

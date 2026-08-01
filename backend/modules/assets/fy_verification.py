@@ -56,9 +56,8 @@ def _rfid_active_base(
     plant_id: int | None = None,
     category_id: int | None = None,
     search: str | None = None,
+    search_columns: list[str] | None = None,
 ):
-    from sqlalchemy import or_
-
     base = (
         select(AssetMaster.id)
         .where(
@@ -73,16 +72,11 @@ def _rfid_active_base(
     if plant_id is not None:
         base = base.join(AssetLocationInformation).where(AssetLocationInformation.plant_id == plant_id)
     if search:
-        q = f"%{search.strip()}%"
-        base = base.where(
-            or_(
-                AssetMaster.asset_name.ilike(q),
-                AssetMaster.asset_code.ilike(q),
-                AssetMaster.combined_asset_number.ilike(q),
-                AssetMaster.serial_no.ilike(q),
-                AssetMaster.rfid_code.ilike(q),
-            )
-        )
+        from modules.assets.list_search import asset_global_search_clause
+
+        match = asset_global_search_clause(search, search_columns)
+        if match is not None:
+            base = base.where(match)
     return base
 
 
@@ -93,6 +87,7 @@ def verified_asset_ids_in_window(
     plant_id: int | None = None,
     category_id: int | None = None,
     search: str | None = None,
+    search_columns: list[str] | None = None,
 ) -> set[int]:
     scan_subq = (
         select(AssetAuditEvent.asset_id)
@@ -100,7 +95,12 @@ def verified_asset_ids_in_window(
         .distinct()
         .subquery()
     )
-    base = _rfid_active_base(plant_id=plant_id, category_id=category_id, search=search)
+    base = _rfid_active_base(
+        plant_id=plant_id,
+        category_id=category_id,
+        search=search,
+        search_columns=search_columns,
+    )
     base = base.where(AssetMaster.id.in_(select(scan_subq.c.asset_id)))
     return {int(x) for x in db.scalars(base).all()}
 
@@ -156,6 +156,7 @@ def fy_verification_summary(
     plant_id: int | None = None,
     category_id: int | None = None,
     search: str | None = None,
+    search_columns: list[str] | None = None,
 ) -> dict[str, int]:
     verified_ids = verified_asset_ids_in_window(
         db,
@@ -163,8 +164,14 @@ def fy_verification_summary(
         plant_id=plant_id,
         category_id=category_id,
         search=search,
+        search_columns=search_columns,
     )
-    rfid_base = _rfid_active_base(plant_id=plant_id, category_id=category_id, search=search)
+    rfid_base = _rfid_active_base(
+        plant_id=plant_id,
+        category_id=category_id,
+        search=search,
+        search_columns=search_columns,
+    )
     total_rfid = int(db.scalar(select(func.count()).select_from(rfid_base.subquery())) or 0)
     verified_count = len(verified_ids)
     pending_count = max(total_rfid - verified_count, 0)

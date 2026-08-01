@@ -13,7 +13,10 @@ import {
   ASSET_FIELD_LABELS,
   ASSET_MASTER_FIELDS,
   ASSET_VIEW_PANEL_MIN_HEIGHT,
+  blockNonNegativeNumberKeys,
   isAssetMasterDateField,
+  isAssetMasterNumberField,
+  sanitizeNonNegativeNumericInput,
 } from "@/lib/asset-master-fields"
 import type { AssetViewSectionConfig } from "@/lib/asset-master-fields"
 import { useAssetFieldConfig } from "@/lib/use-asset-field-config"
@@ -468,6 +471,21 @@ function EditFieldCell({
           type="date"
           value={val ? val.slice(0, 10) : ""}
           onChange={(e) => onSection(k, e.target.value || null)}
+        />
+      ) : isAssetMasterNumberField(k) ? (
+        <Input
+          type="number"
+          min={0}
+          step={k === "life_span" ? "1" : "any"}
+          inputMode={k === "life_span" ? "numeric" : "decimal"}
+          value={val}
+          onKeyDown={blockNonNegativeNumberKeys}
+          onChange={(e) =>
+            onSection(
+              k,
+              sanitizeNonNegativeNumericInput(e.target.value, k === "life_span") || null,
+            )
+          }
         />
       ) : multiline ? (
         <textarea

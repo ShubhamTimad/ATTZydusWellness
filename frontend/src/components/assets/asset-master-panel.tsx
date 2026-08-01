@@ -9,7 +9,10 @@ import type { AssetDetail } from "@/lib/assets-types"
 import {
   ASSET_MASTER_FIELDS,
   assetMasterFieldValue,
+  blockNonNegativeNumberKeys,
   isAssetMasterDateField,
+  isAssetMasterNumberField,
+  sanitizeNonNegativeNumericInput,
   type AssetMasterFieldDef,
 } from "@/lib/asset-master-fields"
 import type { CategoryMaster, CostCenterMaster, PlantOption } from "@/lib/masters-types"
@@ -219,6 +222,7 @@ function FieldEditor({
 
   const val = sectionValue()
   const dateField = def.kind === "date" || isAssetMasterDateField(def.key)
+  const numberField = isAssetMasterNumberField(def.key)
 
   if (def.kind === "textarea") {
     return (
@@ -246,9 +250,19 @@ function FieldEditor({
       <Label className="text-xs">{def.label}</Label>
       <Input
         className={cn("h-9", def.key === "asset_code" || def.key === "rfid_code" ? "font-mono" : undefined)}
-        type={dateField ? "date" : "text"}
+        type={dateField ? "date" : numberField ? "number" : "text"}
+        min={numberField ? 0 : undefined}
+        step={numberField ? (def.key === "life_span" ? "1" : "any") : undefined}
+        inputMode={numberField ? (def.key === "life_span" ? "numeric" : "decimal") : undefined}
         value={dateField && val ? val.slice(0, 10) : val}
-        onChange={(e) => setValue(e.target.value || null)}
+        onKeyDown={numberField ? blockNonNegativeNumberKeys : undefined}
+        onChange={(e) =>
+          setValue(
+            numberField
+              ? sanitizeNonNegativeNumericInput(e.target.value, def.key === "life_span") || null
+              : e.target.value || null,
+          )
+        }
       />
     </div>
   )

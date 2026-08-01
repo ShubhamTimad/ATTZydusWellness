@@ -63,7 +63,14 @@ function App() {
         <Route path="/login" element={<AppLoginRoute />} />
         <Route path="/dashboard" element={<AppRoute />}>
           <Route index element={<DashboardPage />} />
-          <Route path="reports" element={<ReportsPage />} />
+          <Route
+            path="reports"
+            element={
+              <RequirePermission code="report.view">
+                <ReportsPage />
+              </RequirePermission>
+            }
+          />
           /*
             <Route
               path="performance"

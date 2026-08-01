@@ -7,6 +7,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
+from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.assets.service import AssetMasterService
 from modules.reports.definitions import REPORT_DEFINITIONS, report_by_key
@@ -67,6 +68,7 @@ def _filter_options(kind: str, *, plant_options: list[ReportFilterOptionPublic],
 @router.get("/catalog", response_model=ReportCatalogPublic)
 def get_report_catalog(
     current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[object, Depends(require_permission("report.view"))],
     db: Annotated[Session, Depends(get_db)],
 ) -> ReportCatalogPublic:
     _ = current
@@ -112,6 +114,7 @@ def get_report_catalog(
 @router.get("/generate")
 def generate_report(
     current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[object, Depends(require_any_permission("report.export", "report.view"))],
     db: Annotated[Session, Depends(get_db)],
     report: str = Query(..., min_length=1),
     format: str = Query("xlsx", pattern="^(?i)(xlsx|pdf)$"),

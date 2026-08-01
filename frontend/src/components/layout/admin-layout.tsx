@@ -20,6 +20,7 @@ import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -161,6 +162,7 @@ export function AdminLayout({
   userEmail,
   onSignOut,
 }: AdminLayoutProps) {
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const allItems = navGroups.flatMap((g) => g.items)
   const activeLabel = allItems.find((i) => i.id === activeId)?.label ?? "Overview"
   const title = pageTitle ?? activeLabel
@@ -180,6 +182,16 @@ export function AdminLayout({
     .filter((group) => group.items.length > 0)
 
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false)
+
+  async function handleSignOut() {
+    const ok = await confirmAsk({
+      title: "Sign out?",
+      description: "Do you want to logout?",
+      confirmLabel: "Sign out",
+    })
+    if (!ok) return
+    onSignOut?.()
+  }
 
   function handleNavigate(id: AdminNavId) {
     onNavigate(id)
@@ -314,7 +326,7 @@ export function AdminLayout({
                 className="h-10 cursor-pointer justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground"
                 onSelect={(e) => {
                   e.preventDefault()
-                  onSignOut?.()
+                  void handleSignOut()
                 }}
               >
                 <LogOut className="size-4" aria-hidden />
@@ -331,6 +343,7 @@ export function AdminLayout({
           </div>
         </main>
       </div>
+      {confirmDialog}
     </div>
   )
 }

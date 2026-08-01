@@ -573,22 +573,32 @@ export function DisposalOrderDetailPage() {
                 ) : null}
               </FormField>
 
-              <div className={adminSwitchRowClass}>
-                <div className="space-y-1">
-                  <Label htmlFor="requires_engineering" className="text-sm font-medium">
+              <label
+                htmlFor="requires_engineering"
+                className={cn(
+                  adminSwitchRowClass,
+                  canEditEngineering && "cursor-pointer transition-colors hover:bg-muted/35",
+                  !canEditEngineering && "opacity-70",
+                  requiresEngineering && "border-primary/40 bg-primary/5",
+                )}
+              >
+                <div className="min-w-0 flex-1 space-y-1">
+                  <span className="block text-sm font-medium text-foreground">
                     Engineering Approval
-                  </Label>
-                  {/* <p className="text-xs text-muted-foreground">
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
                     Routes the order through the disposal workflow that includes Engineering.
-                  </p> */}
+                  </span>
                 </div>
                 <Checkbox
                   id="requires_engineering"
                   checked={requiresEngineering}
                   disabled={!canEditEngineering}
                   onCheckedChange={(v) => setRequiresEngineering(v === true)}
+                  className="size-5 border-foreground/35 shadow-sm"
+                  aria-label="Engineering approval"
                 />
-              </div>
+              </label>
 
               <FormField id="remarks" labelText="Remarks">
                 {order.can_edit || order.can_close ? (

@@ -69,7 +69,12 @@ import type {
   FinancialYearOption,
   SubmitForApprovalResult,
 } from "@/lib/assets-types"
-import { formatSubmitForApprovalSuccess } from "@/lib/assets-types"
+import {
+  formatRfidAttachError,
+  formatRfidAttachSuccess,
+  formatSubmitForApprovalError,
+  formatSubmitForApprovalSuccess,
+} from "@/lib/assets-types"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 import { CapexDecisionDialog } from "@/pages/capex/capex-decision-dialog"
 import type { CostCenterMaster, FunctionalLocationMaster } from "@/lib/masters-types"
@@ -980,15 +985,11 @@ export function AssetsListPage() {
           rfid_code: rfid,
           ...rfidPayloadExtras(),
         })
-        toast.success(
-          res.operation === "updated"
-            ? `RFID updated on ${res.asset_code}.`
-            : `RFID attached to ${res.asset_code}.`,
-        )
+        toast.success(formatRfidAttachSuccess(res))
         setRfidDialogOpen(false)
         await load()
       } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Failed to attach RFID.")
+        toast.error(formatRfidAttachError(e, "Failed to attach RFID."))
       } finally {
         setRfidSaving(false)
       }
@@ -1002,15 +1003,11 @@ export function AssetsListPage() {
         `/admin/assets/${rfidAttachAssetId}/rfid/attach`,
         { rfid_code: rfid, ...rfidPayloadExtras() },
       )
-      toast.success(
-        res.operation === "updated"
-          ? `RFID updated on ${res.asset_code}.`
-          : `RFID attached to ${res.asset_code}.`,
-      )
+      toast.success(formatRfidAttachSuccess(res))
       setRfidDialogOpen(false)
       await load()
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Failed to attach RFID.")
+      toast.error(formatRfidAttachError(e, "Failed to attach RFID."))
     } finally {
       setRfidSaving(false)
     }
@@ -1035,12 +1032,16 @@ export function AssetsListPage() {
         asset_ids: ids,
         assignee_user_id: userId,
       })
-      const success = formatSubmitForApprovalSuccess(res)
+      const single =
+        ids.length === 1 && submitEligibleRows[0]
+          ? {
+              assetCode: submitEligibleRows[0].asset_code,
+              assetName: submitEligibleRows[0].asset_name,
+            }
+          : undefined
+      const success = formatSubmitForApprovalSuccess(res, single)
       if (res.errors?.length) {
-        toast.error(
-          res.errors[0] ??
-            "Some assets could not be submitted for approval. Check their status and try again.",
-        )
+        toast.error(formatSubmitForApprovalError(res.errors[0]))
       }
       if (success) {
         toast.success(success)
@@ -1621,9 +1622,9 @@ export function AssetsListPage() {
               id="asset-search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search By Asset Name, Number , RFID Code"
+              placeholder="Search displayed columns…"
               className="w-full pl-9"
-              aria-label="Search assets"
+              aria-label="Search displayed columns"
             />
             {searchInput ? (
               <button
@@ -1730,7 +1731,7 @@ export function AssetsListPage() {
                 disabled={bulkActionBusy}
                 onClick={() => openBulkDecision("reject")}
               >
-                Reject selected
+                Reject
               </Button>
               <AdminPrimaryButton
                 type="button"
@@ -1738,7 +1739,7 @@ export function AssetsListPage() {
                 disabled={bulkActionBusy}
                 onClick={() => openBulkDecision("approve")}
               >
-                Approve selected
+                Approve
               </AdminPrimaryButton>
             </>
           ) : null}

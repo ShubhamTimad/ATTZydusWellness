@@ -22,7 +22,7 @@ export type AssetMasterFieldDef = {
 }
 
 export const ASSET_MASTER_FIELDS: AssetMasterFieldDef[] = [
-  { key: "asset_name", label: "Asset name", section: "root", kind: "text" },
+  { key: "asset_name", label: "Asset Name", section: "root", kind: "text" },
   { key: "asset_code", label: "Asset Number", section: "root", kind: "text" },
   { key: "combined_asset_number", label: "Combined Asset No", section: "root", kind: "text" },
   { key: "sub_no", label: "Sub-No", section: "root", kind: "text" },
@@ -34,22 +34,22 @@ export const ASSET_MASTER_FIELDS: AssetMasterFieldDef[] = [
   { key: "remark", label: "Asset Remark", section: "root", kind: "textarea" },
   { key: "asset_description", label: "Asset Description", section: "root", kind: "textarea" },
   { key: "rfid_code", label: "RFID Code", section: "root", kind: "text" },
-  { key: "tag_color_id", label: "Tag color", section: "root", kind: "text" },
-  { key: "sub_location", label: "Sub location", section: "location", kind: "text" },
-  { key: "cost_center", label: "Cost center code", section: "financial", kind: "cost_center" },
-  { key: "party_details", label: "Party details", section: "financial", kind: "text" },
-  { key: "invoice_no", label: "Invoice no.", section: "financial", kind: "text" },
-  { key: "invoice_date", label: "Invoice date", section: "financial", kind: "date" },
-  { key: "inventory_count", label: "Inventory count", section: "inventory", kind: "readonly", readonly: true },
-  { key: "voucher_no", label: "Voucher no.", section: "financial", kind: "text" },
-  { key: "voucher_date", label: "Voucher date", section: "financial", kind: "date" },
-  { key: "grn_date", label: "GRN date", section: "financial", kind: "date" },
-  { key: "grn_no", label: "GRN no.", section: "financial", kind: "text" },
-  { key: "put_to_use_date", label: "Put to use", section: "financial", kind: "date" },
-  { key: "depreciation_rate", label: "Rate of depreciation", section: "financial", kind: "number" },
-  { key: "gross_block", label: "Gross block", section: "financial", kind: "number" },
-  { key: "life_span", label: "Life span", section: "financial", kind: "text" },
-  { key: "plant_id", label: "Plant name", section: "location", kind: "plant" },
+  { key: "tag_color_id", label: "Tag Color", section: "root", kind: "text" },
+  { key: "sub_location", label: "Sub Location", section: "location", kind: "text" },
+  { key: "cost_center", label: "Cost Center Code", section: "financial", kind: "cost_center" },
+  { key: "party_details", label: "Party Details", section: "financial", kind: "text" },
+  { key: "invoice_no", label: "Invoice No.", section: "financial", kind: "text" },
+  { key: "invoice_date", label: "Invoice Date", section: "financial", kind: "date" },
+  { key: "inventory_count", label: "Inventory Count", section: "inventory", kind: "readonly", readonly: true },
+  { key: "voucher_no", label: "Voucher No.", section: "financial", kind: "text" },
+  { key: "voucher_date", label: "Voucher Date", section: "financial", kind: "date" },
+  { key: "grn_date", label: "GRN Date", section: "financial", kind: "date" },
+  { key: "grn_no", label: "GRN No.", section: "financial", kind: "text" },
+  { key: "put_to_use_date", label: "Put to Use", section: "financial", kind: "date" },
+  { key: "depreciation_rate", label: "Rate of Depreciation", section: "financial", kind: "number" },
+  { key: "gross_block", label: "APC-IGAAP", section: "financial", kind: "number" },
+  { key: "life_span", label: "Life-Span (Years)", section: "financial", kind: "text" },
+  { key: "plant_id", label: "Plant Name", section: "location", kind: "plant" },
 ]
 
 /** Excel / CSV header row for download or documentation. */
@@ -87,7 +87,7 @@ export function isAssetManualFieldRequired(key: string): boolean {
 }
 
 export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
-  { key: "asset_name", label: "Asset name", required: true },
+  { key: "asset_name", label: "Asset Name", required: true },
   { key: "asset_class_code", label: "Asset Class", kind: "select" },
   { key: "asset_type", label: "Asset Type" },
   { key: "category_code", label: "Asset Category", required: true },
@@ -97,28 +97,28 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
   { key: "asset_description", label: "Asset Description" },
   { key: "remark", label: "Asset Remark" },
   { key: "rfid_code", label: "RFID Code" },
-  { key: "tag_color_code", label: "Tag color", kind: "select" },
+  { key: "tag_color_code", label: "Tag Color", kind: "select" },
   { key: "asset_custodian_code", label: "Asset Custodian", kind: "select" },
   { key: "asset_condition_code", label: "Asset Physical Condition", kind: "select" },
-  { key: "sub_location", label: "Sub location" },
+  { key: "sub_location", label: "Sub Location" },
   { key: "plant_code", label: "Plant Code", required: true, kind: "select" },
   { key: "plant_name", label: "Plant Name", kind: "select" },
   { key: "cost_center", label: "Cost Center Code", required: true, kind: "select" },
   { key: "cost_center_name", label: "Cost Center Name", kind: "select" },
-  { key: "profit_center", label: "Profit center" },
+  { key: "profit_center", label: "Profit Center" },
   { key: "functional_location", label: "Actual Location 1" },
-  { key: "actual_location", label: "Actual location 2" },
-  { key: "capitalization_form_number", label: "CapEx form number" },
+  { key: "actual_location", label: "Actual Location 2" },
+  { key: "capitalization_form_number", label: "CapEx Form Number" },
   { key: "party_details", label: "Party Details" },
-  { key: "invoice_no", label: "Invoice no." },
-  { key: "invoice_date", label: "Invoice date", kind: "date" },
-  { key: "inventory_count", label: "Inventory count", kind: "readonly" },
-  { key: "voucher_no", label: "Voucher no." },
-  { key: "voucher_date", label: "Voucher date", kind: "date" },
-  { key: "grn_date", label: "GRN date", kind: "date" },
-  { key: "grn_no", label: "GRN no." },
-  { key: "put_to_use_date", label: "Put to use", kind: "date" },
-  { key: "depreciation_rate", label: "Rate of depreciation" },
+  { key: "invoice_no", label: "Invoice No." },
+  { key: "invoice_date", label: "Invoice Date", kind: "date" },
+  { key: "inventory_count", label: "Inventory Count", kind: "readonly" },
+  { key: "voucher_no", label: "Voucher No." },
+  { key: "voucher_date", label: "Voucher Date", kind: "date" },
+  { key: "grn_date", label: "GRN Date", kind: "date" },
+  { key: "grn_no", label: "GRN No." },
+  { key: "put_to_use_date", label: "Put to Use", kind: "date" },
+  { key: "depreciation_rate", label: "Rate of Depreciation" },
   { key: "gross_block", label: "APC-IGAAP" },
   { key: "life_span", label: "Life-Span (Years)" },
   { key: "cap_date", label: "Capitalization Date", kind: "date" },
@@ -188,6 +188,29 @@ export function isAssetMasterDateField(key: string): boolean {
   return DATE_KEYS.has(key)
 }
 
+const NUMBER_KEYS = new Set(
+  ASSET_MASTER_FIELDS.filter((f) => f.kind === "number").map((f) => f.key).concat(["life_span"]),
+)
+
+export function isAssetMasterNumberField(key: string): boolean {
+  return NUMBER_KEYS.has(key)
+}
+
+/** Keep numeric inputs ≥ 0; allow empty / in-progress decimals (e.g. `0.`). */
+export function sanitizeNonNegativeNumericInput(raw: string, integer = false): string {
+  if (!raw) return ""
+  let s = raw.replace(/[^\d.]/g, "")
+  if (integer) return s.replace(/\./g, "")
+  const dot = s.indexOf(".")
+  if (dot !== -1) s = s.slice(0, dot + 1) + s.slice(dot + 1).replace(/\./g, "")
+  return s
+}
+
+/** Prevent typing signs / scientific notation into non-negative number inputs. */
+export function blockNonNegativeNumberKeys(e: { key: string; preventDefault: () => void }) {
+  if (e.key === "-" || e.key === "e" || e.key === "E" || e.key === "+") e.preventDefault()
+}
+
 /** Display labels for asset detail sections (view + edit). */
 export const ASSET_FIELD_LABELS: Record<string, string> = {
   ...Object.fromEntries(ASSET_MASTER_FIELDS.map((f) => [f.key, f.label])),
@@ -197,8 +220,8 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   remark: "Asset Remark",
   sub_no: "Sub-No",
   asset_description: "Asset Description",
-  tag_color_id: "Tag color",
-  tag_color_code: "Tag color",
+  tag_color_id: "Tag Color",
+  tag_color_code: "Tag Color",
   asset_custodian_id: "Asset Custodian",
   asset_custodian_code: "Asset Custodian",
   asset_condition_id: "Asset Physical Condition",
@@ -209,7 +232,7 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   asset_class_code: "Asset Class",
   asset_type: "Asset Type",
   functional_location: "Actual Location 1",
-  actual_location: "Actual location 2",
+  actual_location: "Actual Location 2",
   building: "Building",
   floor: "Floor",
   cost_center: "Cost Center Code",
@@ -218,12 +241,29 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   cap_date: "Capitalization Date",
   gross_block: "APC-IGAAP",
   life_span: "Life-Span (Years)",
-  pm_equipment_id: "PM equipment ID",
-  physical_count: "Physical count",
-  last_verification_date: "Last verification date",
-  fy_verification_count: "Verifications this FY",
-  physical_order_id: "Physical order ID",
-  physical_order_status: "Order status",
+  pm_equipment_id: "PM Equipment ID",
+  physical_count: "Physical Count",
+  last_verification_date: "Last Verification Date",
+  fy_verification_count: "Verifications This FY",
+  physical_order_id: "Physical Order ID",
+  physical_order_status: "Order Status",
+  capitalization_form_number: "CapEx Form Number",
+  profit_center: "Profit Center",
+  put_to_use_date: "Put to Use",
+  depreciation_rate: "Rate of Depreciation",
+  vendor_name: "Vendor Name",
+  po_number: "PO Number",
+  inventory_count: "Inventory Count",
+  invoice_no: "Invoice No.",
+  invoice_date: "Invoice Date",
+  voucher_no: "Voucher No.",
+  voucher_date: "Voucher Date",
+  grn_no: "GRN No.",
+  grn_date: "GRN Date",
+  sub_location: "Sub Location",
+  plant_id: "Plant Name",
+  plant_code: "Plant Code",
+  plant_name: "Plant Name",
 }
 
 export type AssetViewSectionId = "information" | "location" | "financial" | "inventory"

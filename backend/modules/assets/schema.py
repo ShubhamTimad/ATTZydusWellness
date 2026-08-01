@@ -63,7 +63,7 @@ class AssetFinancialPayload(BaseModel):
     profit_center: str | None = None
     profit_center_name: str | None = None
     cap_date: date | None = None
-    gross_block: Decimal | None = None
+    gross_block: Decimal | None = Field(default=None, ge=0)
     party_details: str | None = None
     invoice_no: str | None = None
     invoice_date: date | None = None
@@ -72,7 +72,7 @@ class AssetFinancialPayload(BaseModel):
     grn_no: str | None = None
     grn_date: date | None = None
     put_to_use_date: date | None = None
-    depreciation_rate: Decimal | None = None
+    depreciation_rate: Decimal | None = Field(default=None, ge=0)
     life_span: str | None = None
     vendor_name: str | None = None
     po_number: str | None = None
@@ -82,8 +82,8 @@ class AssetFinancialPayload(BaseModel):
 class AssetInventoryPayload(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    inventory_count: int | None = None
-    physical_count: int | None = None
+    inventory_count: int | None = Field(default=None, ge=0)
+    physical_count: int | None = Field(default=None, ge=0)
     last_verification_date: date | None = None
     verification_status: str | None = None
     verification_remarks: str | None = None

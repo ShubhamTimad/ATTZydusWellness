@@ -951,16 +951,20 @@ export function OrderDetailPage() {
                       </AdminTableCell>
                       <AdminTableCell>
                         {item.verification_status === "rejected" && !item.physically_verified ? (
-                          <Badge variant="destructive">Rejected</Badge>
+                          <AdminPillBadge tone="danger">Rejected</AdminPillBadge>
                         ) : item.physically_verified ? (
-                          <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600">
+                          <AdminPillBadge tone="success" className="gap-1">
                             <Lock className="size-3" aria-hidden />
                             Verified
-                          </Badge>
+                          </AdminPillBadge>
                         ) : scannable ? (
-                          <Badge variant="secondary">Scan pending</Badge>
+                          <AdminPillBadge tone="warning">Scan pending</AdminPillBadge>
+                        ) : (item.verification_status || "").toLowerCase() === "pending" ? (
+                          <AdminPillBadge tone="warning">Pending</AdminPillBadge>
                         ) : (
-                          <Badge variant="outline">{item.verification_status}</Badge>
+                          <AdminPillBadge tone="neutral">
+                            {item.verification_status || "Pending"}
+                          </AdminPillBadge>
                         )}
                       </AdminTableCell>
                       <AdminTableCell className="whitespace-normal text-sm text-foreground">

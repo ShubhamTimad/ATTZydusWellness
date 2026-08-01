@@ -134,6 +134,7 @@ export function AssetImportPage() {
   const [importProgress, setImportProgress] = React.useState<ImportProgressState | null>(null)
   const [cancellingImport, setCancellingImport] = React.useState(false)
   const [downloadingTemplate, setDownloadingTemplate] = React.useState(false)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
   const importAbortRef = React.useRef<AbortController | null>(null)
   const importBatchIdRef = React.useRef<number | null>(null)
   const importCancelledRef = React.useRef(false)
@@ -185,14 +186,15 @@ export function AssetImportPage() {
     }
   }
 
-  async function runPreview() {
-    if (!file) {
+  async function runPreview(overrideFile?: File) {
+    const selected = overrideFile ?? file
+    if (!selected) {
       toast.error("Choose a CSV or Excel file.")
       return
     }
     setLoading(true)
     const fd = new FormData()
-    fd.append("file", file)
+    fd.append("file", selected)
     const token = getToken()
     try {
       const res = await fetch(`${API_BASE_URL}/admin/assets/import/preview`, {
@@ -204,8 +206,10 @@ export function AssetImportPage() {
       const data = text ? (JSON.parse(text) as PreviewResponse) : null
       if (!res.ok || !data) throw new Error((data as { detail?: string })?.detail ?? "Preview failed")
       const normalized = normalizePreview(data)
+      setFile(selected)
       setPreview(normalized)
       setSelectedRows(new Set())
+      setResult(null)
       setStep("review")
       if (normalized.error_rows > 0) {
         toast.warning(
@@ -219,6 +223,19 @@ export function AssetImportPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  function openFilePicker() {
+    const input = fileInputRef.current
+    if (!input) return
+    input.value = ""
+    input.click()
+  }
+
+  function onReplacementFileChosen(e: React.ChangeEvent<HTMLInputElement>) {
+    const next = e.target.files?.[0] ?? null
+    if (!next) return
+    void runPreview(next)
   }
 
   async function revalidate() {
@@ -530,6 +547,13 @@ export function AssetImportPage() {
         </Button>
       }
     >
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.xlsx,.xls"
+        className="hidden"
+        onChange={onReplacementFileChosen}
+      />
       {step === "upload" ? (
         <AdminPanel title="Upload file">
           <div className="dialog-body space-y-4">
@@ -573,12 +597,8 @@ export function AssetImportPage() {
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={importing}
-                onClick={() => {
-                  setStep("upload")
-                  setPreview(null)
-                  setSelectedRows(new Set())
-                }}
+                disabled={importing || loading}
+                onClick={openFilePicker}
               >
                 Upload another file
               </Button>

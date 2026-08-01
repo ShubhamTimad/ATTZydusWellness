@@ -64,8 +64,10 @@ export function AssetRfidDialog({
 
           <p className="mt-1 text-sm text-muted-foreground">
             {showAssetCode
-              ? "Enter the asset code and scan or type the RFID tag."
-              : "Scan the RFID tag or enter the RFID manually."}
+              ? "Enter asset code and RFID. Codes must be unique."
+              : isUpdate
+                ? ""
+                : ""}
           </p>
         </div>
 
