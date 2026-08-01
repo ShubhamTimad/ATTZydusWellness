@@ -121,6 +121,8 @@ export type CapexFormDetail = {
   created_at: string
   updated_at: string
   approval_panel?: CapexApprovalPanel | null
+  can_delete?: boolean
+  can_archive?: boolean
 }
 
 export type CapexFormWritePayload = {
@@ -153,6 +155,7 @@ export function capexStatusLabel(status: string): string {
     approved: "Approved",
     rejected: "Rejected",
     in_rework: "Rejected",
+    cancelled: "Archived",
   }
   return map[status] ?? status
 }
@@ -162,7 +165,7 @@ export function capexStatusPillTone(
 ): "neutral" | "success" | "warning" | "danger" | "info" {
   if (status === "approved") return "success"
   if (status === "pending_approval") return "warning"
-  if (status === "rejected" || status === "in_rework") return "danger"
+  if (status === "rejected" || status === "in_rework" || status === "cancelled") return "danger"
   if (status === "draft") return "neutral"
   return "info"
 }

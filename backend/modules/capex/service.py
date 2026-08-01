@@ -16,6 +16,7 @@ from modules.capex.constants import (
     ROLE_ENGINEERING,
     ROLE_HOD,
     STATUS_APPROVED,
+    STATUS_CANCELLED,
     STATUS_DRAFT,
     STATUS_IN_REWORK,
     STATUS_PENDING_APPROVAL,
@@ -66,6 +67,33 @@ def action_and_entity_for_form(*, requires_engineering: bool) -> tuple[str, str]
     return ACTION_SUBMIT, ENTITY_TYPE
 
 
+_PLAIN_CAPEX_DRAFT_AUDIT = frozenset({"created", "updated"})
+
+
+def _is_plain_capex_draft(db: Session, form: CapitalizationForm) -> bool:
+    if form.status != STATUS_DRAFT:
+        return False
+    if form.approval_request_id is not None:
+        return False
+    extra = db.scalar(
+        select(CapitalizationFormAudit.id)
+        .where(
+            CapitalizationFormAudit.form_id == int(form.id),
+            CapitalizationFormAudit.action.not_in(_PLAIN_CAPEX_DRAFT_AUDIT),
+        )
+        .limit(1)
+    )
+    return extra is None
+
+
+def _actor_may_discard_capex(form: CapitalizationForm, *, actor_user_id: int, db: Session) -> bool:
+    creator_id = int(form.created_by) if form.created_by is not None else None
+    if creator_id is not None and creator_id == int(actor_user_id):
+        return True
+    viewer = db.get(User, int(actor_user_id))
+    return viewer is not None and bool(viewer.is_superuser)
+
+
 def _users_in_role(db: Session, role_id: int) -> list[User]:
     return list(
         db.scalars(
@@ -114,6 +142,7 @@ _AUDIT_LABELS: dict[str, str] = {
     "rejected": "Rejected",
     "linked_to_asset": "Linked to asset",
     "unlinked_from_asset": "Unlinked from asset",
+    "archived": "Form archived",
 }
 
 
@@ -456,6 +485,13 @@ class CapexFormService:
     ) -> CapexFormDetail:
         creator = form.creator
         asset = form.asset
+        viewer = self._db.get(User, int(viewer_user_id)) if viewer_user_id is not None else None
+        is_super = viewer is not None and bool(viewer.is_superuser)
+        is_creator = (
+            form.created_by is not None
+            and viewer_user_id is not None
+            and int(form.created_by) == int(viewer_user_id)
+        )
         return CapexFormDetail(
             id=int(form.id),
             form_number=form.form_number,
@@ -481,6 +517,12 @@ class CapexFormService:
             created_at=form.created_at,
             updated_at=form.updated_at,
             approval_panel=self._approval_panel(form, viewer_user_id=viewer_user_id),
+            can_delete=_is_plain_capex_draft(self._db, form) and (is_creator or is_super),
+            can_archive=(
+                form.status in EDITABLE_STATUSES
+                and not _is_plain_capex_draft(self._db, form)
+                and (is_creator or is_super)
+            ),
         )
 
     def _form_payload(self, form: CapitalizationForm, *, action_code: str) -> dict[str, Any]:
@@ -717,6 +759,59 @@ class CapexFormService:
                 old_value={k: v["from"] for k, v in changes.items()},
                 new_value={k: v["to"] for k, v in changes.items()},
             )
+        self._db.commit()
+        return self._to_detail(self._load(form_id), viewer_user_id=actor_user_id)
+
+    def delete_draft_form(self, form_id: int, *, actor_user_id: int) -> None:
+        form = self._load(form_id)
+        if not _is_plain_capex_draft(self._db, form):
+            raise ConflictError(
+                "Only a plain draft capitalization form (no submit, approve, or reject history) "
+                "can be deleted. Archive it instead to keep the audit trail."
+            )
+        if not _actor_may_discard_capex(form, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the draft creator can delete this capitalization form.")
+        self._db.delete(form)
+        self._db.commit()
+
+    def archive_form(self, form_id: int, *, actor_user_id: int) -> CapexFormDetail:
+        form = self._load(form_id)
+        if form.status not in EDITABLE_STATUSES:
+            raise ConflictError(
+                "Only draft, rejected, or in-rework capitalization forms can be archived."
+            )
+        if _is_plain_capex_draft(self._db, form):
+            raise ConflictError(
+                "This is a plain draft with no approval history — delete it instead of archiving."
+            )
+        if not _actor_may_discard_capex(form, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the form creator can archive this capitalization form.")
+
+        if form.approval_request_id is not None:
+            now = datetime.now(timezone.utc)
+            req = self._db.get(ApprovalRequest, int(form.approval_request_id))
+            if req is not None and str(req.status) in ("pending", "in_rework"):
+                req.status = "rejected"
+            open_tasks = self._db.scalars(
+                select(ApprovalTask).where(
+                    ApprovalTask.request_id == int(form.approval_request_id),
+                    ApprovalTask.status.in_(("pending", "open")),
+                )
+            ).all()
+            for t in open_tasks:
+                t.status = "closed"
+                t.closed_at = now
+
+        old_status = form.status
+        form.status = STATUS_CANCELLED
+        log_capex_event(
+            self._db,
+            form_id=int(form.id),
+            action="archived",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status},
+            new_value={"status": form.status},
+        )
         self._db.commit()
         return self._to_detail(self._load(form_id), viewer_user_id=actor_user_id)
 

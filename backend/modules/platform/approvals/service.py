@@ -479,10 +479,21 @@ class ApprovalEngineService:
         if actor is None:
             raise NotFoundError("User", actor_user_id)
         # Assets: any user with submit permission may resubmit after edits (router enforces asset.create).
+        # Transfers: original submitter, destination custodian (after CF return), or superuser.
         # Other entity types: only the original submitter (or superuser).
         if str(req.entity_type) not in ("asset_creation", "asset_import"):
             if req.created_by != actor_user_id and not bool(actor.is_superuser):
-                raise ApprovalError("Only the person who submitted this request can resubmit it.")
+                allowed = False
+                if str(req.entity_type) in TRANSFER_ENTITY_TYPES:
+                    from modules.transfers.model import AssetTransferOrder
+                    from modules.transfers.service import _is_destination_actor
+
+                    xfer = self._db.get(AssetTransferOrder, int(req.entity_id))
+                    allowed = xfer is not None and _is_destination_actor(xfer, actor_user_id)
+                if not allowed:
+                    raise ApprovalError(
+                        "Only the person who submitted this request can resubmit it."
+                    )
 
         entity_type = str(req.entity_type)
         if entity_type == "user_creation":
@@ -825,11 +836,14 @@ class ApprovalEngineService:
         self._db.flush()
 
         if act == "reject":
-            # Transfer receive/confirm/close are operational — reject only on approve steps.
-            if str(req.entity_type) in TRANSFER_ENTITY_TYPES and _step_kind(task.step) != "approve":
+            # Transfer: reject on approve (→ creator rework) or confirm (→ receiver redo receive).
+            # Receive/close stay non-rejectable.
+            transfer_step_kind = (
+                _step_kind(task.step) if str(req.entity_type) in TRANSFER_ENTITY_TYPES else None
+            )
+            if transfer_step_kind is not None and transfer_step_kind not in ("approve", "confirm"):
                 raise ApprovalError(
-                    "Reject is only available on approval steps. "
-                    "Use the operational reject path for receive/confirm/close, or ask an approver to reject earlier."
+                    "Reject is only available on approval or confirm steps for transfers."
                 )
             now = _now_utc()
             task.status = "rejected"
@@ -882,23 +896,21 @@ class ApprovalEngineService:
                     comment=comment,
                     step_role_name=step_role,
                 )
-            elif str(req.entity_type) in TRANSFER_ENTITY_TYPES:
+            transfer_return_to: str | None = None
+            if str(req.entity_type) in TRANSFER_ENTITY_TYPES:
                 from modules.transfers.service import reject_transfer_approval
 
                 step_role = None
                 if task.step is not None:
                     role = self._db.get(Role, int(task.step.approver_role_id))
                     step_role = role.name if role is not None else None
-                reject_transfer_approval(
+                transfer_return_to = reject_transfer_approval(
                     self._db,
                     order_id=int(req.entity_id),
                     approver_user_id=actor_user_id,
                     comment=comment,
                     step_role_name=step_role,
                 )
-
-            # Move request into rework state (do not keep it "pending").
-            req.status = "in_rework"
 
             # Close all still-pending approval tasks for this request (avoid multiple active items).
             pending = self._db.scalars(
@@ -911,6 +923,42 @@ class ApprovalEngineService:
             for t in pending:
                 t.status = "closed"
                 t.closed_at = now
+
+            # Post-receive transfer reject: same order stays pending, reopen receive for custodian.
+            if transfer_return_to == "receiver":
+                from modules.transfers.model import AssetTransferOrder
+
+                wf = self._db.scalar(
+                    select(ApprovalWorkflow)
+                    .where(ApprovalWorkflow.id == int(req.workflow_id))
+                    .options(selectinload(ApprovalWorkflow.steps))
+                )
+                if wf is None:
+                    raise ApprovalError("Approval workflow not found.")
+                receive_step = next(
+                    (s for s in _sorted_steps(wf) if _step_kind(s) == "receive"),
+                    None,
+                )
+                if receive_step is None:
+                    raise ApprovalError("Transfer workflow has no receive step to reopen.")
+                order = self._db.get(AssetTransferOrder, int(req.entity_id))
+                receiver_id = (
+                    int(order.to_asset_custodian_id)
+                    if order is not None and order.to_asset_custodian_id is not None
+                    else None
+                )
+                if receiver_id is None:
+                    raise ApprovalError(
+                        "Destination custodian is missing; cannot return this transfer to the receiver."
+                    )
+                req.status = "pending"
+                req.current_step = int(receive_step.step_order)
+                self._create_tasks_for_step(req, receive_step, assigned_user_id=receiver_id)
+                self._db.commit()
+                return self.get_request(req.id)
+
+            # Move request into rework state (do not keep it "pending").
+            req.status = "in_rework"
 
             # Ensure only one open rework task exists.
             existing_rework = self._db.scalar(
@@ -1063,6 +1111,7 @@ class ApprovalEngineService:
                 next_assigned_user_id=next_assigned_user_id,
                 to_functional_location=to_functional_location,
                 to_actual_location=to_actual_location,
+                to_cost_center_id=to_cost_center_id,
                 kind=kind,
             )
 
@@ -1167,6 +1216,7 @@ class ApprovalEngineService:
         next_assigned_user_id: int | None,
         to_functional_location: str | None,
         to_actual_location: str | None,
+        to_cost_center_id: int | None,
         kind: str,
     ) -> ApprovalRequest:
         """Transfer workflow: approve/receive/confirm/close all run through the engine."""
@@ -1228,6 +1278,7 @@ class ApprovalEngineService:
                 next_assignee_user_id=int(next_assigned_user_id),
                 step_role_name=step_role_name,
                 comment=comment,
+                cost_center_id=to_cost_center_id,
             )
         elif kind == "confirm":
             apply_transfer_confirm(

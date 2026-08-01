@@ -42,6 +42,8 @@ export type TransferOrderListItem = {
   assigned_to_name: string | null
   created_by_name: string | null
   created_at: string
+  can_delete?: boolean
+  can_archive?: boolean
 }
 
 export type TransferOrderListResponse = {
@@ -107,6 +109,9 @@ export type TransferOrderDetail = {
   can_cf_confirm: boolean
   can_cf_close: boolean
   can_edit: boolean
+  can_delete: boolean
+  can_archive: boolean
+  can_restart_transfer: boolean
 }
 
 export const TRANSFER_STATUS_TABS = [
@@ -171,6 +176,7 @@ function progressLabelForStep(s: {
   phase: string
 }): string {
   const role = shortTransferRoleLabel(s.approver_role_name)
+  if (s.phase === "rejected") return role
   if (s.phase === "completed") return `Approved by ${role}`
   return role
 }
@@ -253,7 +259,8 @@ export function buildTransferProgress(detail: TransferOrderDetail): {
       }
 
       let stepStatus: string = "upcoming"
-      if (s.phase === "completed" || status === "closed") stepStatus = "completed"
+      if (s.phase === "rejected") stepStatus = "rejected"
+      else if (s.phase === "completed" || status === "closed") stepStatus = "completed"
       else if (s.phase === "current") {
         stepStatus = "active"
         currentStepKey = key
@@ -293,11 +300,45 @@ export function buildTransferProgress(detail: TransferOrderDetail): {
 
       steps.push({
         key,
-        label: progressLabelForStep({ ...s, phase: stepStatus === "completed" ? "completed" : s.phase }),
+        label: progressLabelForStep({
+          ...s,
+          phase:
+            stepStatus === "completed"
+              ? "completed"
+              : stepStatus === "rejected"
+                ? "rejected"
+                : s.phase,
+        }),
         status: stepStatus,
         detail: s.assigned_user_name ?? null,
         approver_slots: [],
       })
+      if (stepStatus === "rejected") {
+        const last = steps[steps.length - 1]!
+        if (!last.label.startsWith("Rejected")) {
+          last.label = `Rejected — ${last.label}`
+        }
+      }
+    }
+
+    // Post-receive CF reject returns to receiver: show confirm as rejected, receive as active.
+    const priorRejectKind = priorRejectedStepKind(detail)
+    if (
+      status === "approved_by_cf" &&
+      (detail.rejection_reason || priorRejectKind === "confirm")
+    ) {
+      for (const step of steps) {
+        if (step.key === "received_by_cc2") {
+          step.status = "rejected"
+          step.label = step.label.startsWith("Rejected")
+            ? step.label
+            : `Rejected — ${step.label}`
+        }
+        if (step.key === "approved_by_cf") {
+          step.status = "active"
+          currentStepKey = "approved_by_cf"
+        }
+      }
     }
 
     if (isRejected && !insertedRejected) {
@@ -450,6 +491,19 @@ function currentTransferWorkflowSteps(
   if (currentRun?.workflow_steps?.length) return currentRun.workflow_steps
   if (panel?.workflow_steps?.length) return panel.workflow_steps
   return defaultTransferApprovalSteps()
+}
+
+/** Step kind that was rejected on an earlier attempt (e.g. confirm → return to receive). */
+function priorRejectedStepKind(detail: TransferOrderDetail): string | null {
+  const runs = detail.approval_panel?.workflow_runs
+  if (!runs?.length) return null
+  for (let i = runs.length - 1; i >= 0; i -= 1) {
+    const run = runs[i]!
+    if (run.is_current) continue
+    const rejected = run.workflow_steps?.find((s) => s.phase === "rejected")
+    if (rejected) return stepKindOf(rejected)
+  }
+  return null
 }
 
 function defaultTransferApprovalSteps(): NonNullable<TransferApprovalPanel["workflow_steps"]> {

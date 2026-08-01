@@ -35,6 +35,7 @@ from modules.transfers.constants import (
     REJECTABLE_STATUSES,
     ROLE_TO_ASSIGNEE_LEVEL,
     STATUS_APPROVED_BY_CF,
+    STATUS_CANCELLED,
     STATUS_CLOSED,
     STATUS_CONFIRMED_BY_CF,
     STATUS_DRAFT,
@@ -99,6 +100,82 @@ def _strip_or_none(value: str | None) -> str | None:
         return None
     s = value.strip()
     return s or None
+
+
+# Drafts with only create/update history can be hard-deleted; anything with
+# submit / approve / reject / receive / etc. must archive instead.
+_PLAIN_DRAFT_AUDIT_ACTIONS = frozenset({"created", "updated"})
+
+
+def _is_plain_transfer_draft(db: Session, order: AssetTransferOrder) -> bool:
+    """True when the order is an untouched draft (never submitted / acted on)."""
+    if order.status != STATUS_DRAFT:
+        return False
+    if order.approval_request_id is not None:
+        return False
+    extra = db.scalar(
+        select(AssetTransferOrderAudit.id)
+        .where(
+            AssetTransferOrderAudit.order_id == int(order.id),
+            AssetTransferOrderAudit.action.not_in(_PLAIN_DRAFT_AUDIT_ACTIONS),
+        )
+        .limit(1)
+    )
+    return extra is None
+
+
+def _actor_may_discard_transfer(order: AssetTransferOrder, *, actor_user_id: int, db: Session) -> bool:
+    creator_id = int(order.created_by) if order.created_by is not None else None
+    if creator_id is not None and creator_id == int(actor_user_id):
+        return True
+    viewer = db.get(User, int(actor_user_id))
+    if viewer is not None and bool(viewer.is_superuser):
+        return True
+    from core.permissions import get_flat_permission_codes_for_user
+
+    codes = set(get_flat_permission_codes_for_user(db, int(actor_user_id)))
+    return bool(codes & {"transfer.manage", "transfer:manage", "transfer.create", "transfer:create"})
+
+
+def _is_destination_actor(order: AssetTransferOrder, viewer_user_id: int | None) -> bool:
+    if viewer_user_id is None:
+        return False
+    uid = int(viewer_user_id)
+    if order.to_asset_custodian_id is not None and int(order.to_asset_custodian_id) == uid:
+        return True
+    if order.assigned_to is not None and int(order.assigned_to) == uid:
+        return True
+    return False
+
+
+def _restore_destination_locations_from_audit(db: Session, order: AssetTransferOrder) -> bool:
+    """If locations were cleared after reject, refill from the last receive audit entry."""
+    if order.to_functional_location and order.to_actual_location:
+        return False
+    rows = db.scalars(
+        select(AssetTransferOrderAudit)
+        .where(AssetTransferOrderAudit.order_id == int(order.id))
+        .order_by(AssetTransferOrderAudit.id.desc())
+        .limit(40)
+    ).all()
+    for row in rows:
+        nv = row.new_value if isinstance(row.new_value, dict) else None
+        if not nv:
+            continue
+        fl = _strip_or_none(nv.get("to_functional_location") if isinstance(nv.get("to_functional_location"), str) else None)
+        al = _strip_or_none(nv.get("to_actual_location") if isinstance(nv.get("to_actual_location"), str) else None)
+        # Audit may store Location 1 / Location 2 under alternate keys from API mapping.
+        if not fl:
+            raw = nv.get("Location 1")
+            fl = _strip_or_none(raw if isinstance(raw, str) else None)
+        if not al:
+            raw = nv.get("Location 2")
+            al = _strip_or_none(raw if isinstance(raw, str) else None)
+        if fl and al:
+            order.to_functional_location = fl
+            order.to_actual_location = al
+            return True
+    return False
 
 
 def _asset_plant_id(asset: AssetMaster) -> int | None:
@@ -405,6 +482,27 @@ class TransferOrderService:
                 f"{sample}{more}."
             )
 
+    def _assert_actor_may_submit_transfer(
+        self,
+        order: AssetTransferOrder,
+        assets: list[AssetMaster],
+        *,
+        actor_user_id: int,
+    ) -> None:
+        """Source custodian on first submit; destination actor may resubmit after reject restart."""
+        try:
+            self._assert_actor_is_custodian(assets, actor_user_id=actor_user_id)
+            return
+        except ConflictError:
+            if order.status == STATUS_IN_REWORK and (
+                _is_destination_actor(order, actor_user_id)
+                or (
+                    order.created_by is not None
+                    and int(order.created_by) == int(actor_user_id)
+                )
+            ):
+                return
+            raise
     def _assert_assets_approved_for_transfer(self, assets: list[AssetMaster]) -> None:
         """Transfer orders may only include approved (or approval-not-required) active assets."""
         bad: list[str] = []
@@ -655,6 +753,119 @@ class TransferOrderService:
         self._db.commit()
         return self.get_order(int(order.id), viewer_user_id=actor_user_id)
 
+    def delete_draft_order(self, order_id: int, *, actor_user_id: int) -> None:
+        """Hard-delete a plain draft that was never submitted / approved / rejected."""
+        order = self._load_order(order_id)
+        if not _is_plain_transfer_draft(self._db, order):
+            raise ConflictError(
+                "Only a plain draft transfer (no submit, approve, or reject history) "
+                "can be deleted. Archive it instead to keep the audit trail."
+            )
+        if not _actor_may_discard_transfer(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the draft creator can delete this transfer order.")
+        self._db.delete(order)
+        self._db.commit()
+
+    def archive_order(self, order_id: int, *, actor_user_id: int) -> TransferOrderDetail:
+        """Archive an editable transfer that already has workflow history (same order id)."""
+        order = self._load_order(order_id)
+        if order.status not in EDITABLE_STATUSES:
+            raise ConflictError(
+                "Only draft, rejected, or in-rework transfer orders can be archived."
+            )
+        if _is_plain_transfer_draft(self._db, order):
+            raise ConflictError(
+                "This is a plain draft with no approval history — delete it instead of archiving."
+            )
+        if not _actor_may_discard_transfer(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the order creator can archive this transfer order.")
+
+        # Close leftover approval/rework inbox items so archived orders leave the queue.
+        if order.approval_request_id is not None:
+            now = datetime.now(timezone.utc)
+            req = self._db.get(ApprovalRequest, int(order.approval_request_id))
+            if req is not None and str(req.status) in ("pending", "in_rework"):
+                req.status = "rejected"
+            open_tasks = self._db.scalars(
+                select(ApprovalTask).where(
+                    ApprovalTask.request_id == int(order.approval_request_id),
+                    ApprovalTask.status.in_(("pending", "open")),
+                )
+            ).all()
+            for t in open_tasks:
+                t.status = "closed"
+                t.closed_at = now
+
+        old_status = order.status
+        order.status = STATUS_CANCELLED
+        order.closed_at = None
+        _log(
+            self._db,
+            order_id=int(order.id),
+            action="archived",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status},
+            new_value={"status": order.status},
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def restart_transfer_for_resubmit(
+        self, order_id: int, *, actor_user_id: int
+    ) -> TransferOrderDetail:
+        """After CF reject returns to receiver: reopen same order for full approve flow.
+
+        Same order number / audit trail. Closes the pending receive task and moves the
+        order into in_rework so destination can be changed and resubmitted from step 1.
+        """
+        order = self._load_order(order_id)
+        if order.status != STATUS_APPROVED_BY_CF or not (order.rejection_reason or "").strip():
+            raise ConflictError(
+                "Only a transfer returned to the receiver after reject can be restarted."
+            )
+        actor = self._db.get(User, int(actor_user_id))
+        is_super = bool(actor and actor.is_superuser)
+        is_dest = _is_destination_actor(order, actor_user_id)
+        is_creator = (
+            order.created_by is not None and int(order.created_by) == int(actor_user_id)
+        )
+        if not (is_super or is_dest or is_creator):
+            raise ConflictError(
+                "Only the destination custodian (or the order creator) can restart this transfer."
+            )
+
+        now = datetime.now(timezone.utc)
+        if order.approval_request_id is not None:
+            req = self._db.get(ApprovalRequest, int(order.approval_request_id))
+            if req is not None and str(req.status) == "pending":
+                req.status = "in_rework"
+            open_tasks = self._db.scalars(
+                select(ApprovalTask).where(
+                    ApprovalTask.request_id == int(order.approval_request_id),
+                    ApprovalTask.status.in_(("pending", "open")),
+                )
+            ).all()
+            for t in open_tasks:
+                t.status = "closed"
+                t.closed_at = now
+
+        old_status = order.status
+        order.status = STATUS_IN_REWORK
+        self._assign(order, to_user_id=int(actor_user_id), by_user_id=actor_user_id)
+        _log(
+            self._db,
+            order_id=int(order.id),
+            action="restart_transfer",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status},
+            new_value={
+                "status": order.status,
+                "note": "Restarted for full approve flow on the same order",
+            },
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
     def _order_payload(self, order: AssetTransferOrder, *, action_code: str) -> dict:
         return {
             "action_code": action_code,
@@ -681,7 +892,7 @@ class TransferOrderService:
         assets = [item.asset for item in order.items if item.asset is not None]
         if not assets:
             assets = self._load_assets([int(item.asset_id) for item in order.items])
-        self._assert_actor_is_custodian(assets, actor_user_id=actor_user_id)
+        self._assert_actor_may_submit_transfer(order, assets, actor_user_id=actor_user_id)
         self._assert_assets_approved_for_transfer(assets)
         self._assert_same_from_cost_center(assets)
         if order.to_asset_custodian_id is None:
@@ -803,19 +1014,7 @@ class TransferOrderService:
 
     def _revert_assets_after_receive(self, order: AssetTransferOrder) -> None:
         """Restore cost center / locations / custodian from line-item snapshots."""
-        for item in order.items:
-            asset = item.asset
-            if asset is None:
-                continue
-            if item.from_cost_center_code:
-                fin = _ensure_financial(asset)
-                fin.cost_center = item.from_cost_center_code
-            loc = _ensure_location(asset)
-            loc.functional_location = item.from_functional_location
-            loc.actual_location = item.from_actual_location
-            asset.asset_custodian_id = (
-                int(item.from_asset_custodian_id) if item.from_asset_custodian_id else None
-            )
+        _revert_transfer_assets_after_receive(order)
 
     def cf_reject(
         self, order_id: int, data: CfRejectTransferRequest, *, actor_user_id: int
@@ -950,7 +1149,7 @@ class TransferOrderService:
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
     def list_orders(
-        self, *, tab: str, page: int, page_size: int
+        self, *, tab: str, page: int, page_size: int, viewer_user_id: int | None = None
     ) -> TransferOrderListResponse:
         statuses = _TAB_STATUSES.get(tab, ACTIVE_STATUSES)
         where = []
@@ -979,21 +1178,33 @@ class TransferOrderService:
                 .limit(page_size)
             ).all()
         )
-        items = [
-            TransferOrderListItem(
-                id=int(r.id),
-                order_number=r.order_number,
-                plant_name=(r.plant.name if r.plant else "") or (r.plant.code if r.plant else ""),
-                from_cost_center_code=r.from_cost_center.code if r.from_cost_center else None,
-                to_cost_center_code=r.to_cost_center.code if r.to_cost_center else "",
-                asset_count=len(r.items),
-                status=r.status,
-                assigned_to_name=r.assignee.full_name if r.assignee else None,
-                created_by_name=r.creator.full_name if r.creator else None,
-                created_at=r.created_at,
+        items = []
+        for r in rows:
+            may_discard = (
+                viewer_user_id is not None
+                and _actor_may_discard_transfer(
+                    r, actor_user_id=int(viewer_user_id), db=self._db
+                )
             )
-            for r in rows
-        ]
+            plain = _is_plain_transfer_draft(self._db, r)
+            items.append(
+                TransferOrderListItem(
+                    id=int(r.id),
+                    order_number=r.order_number,
+                    plant_name=(r.plant.name if r.plant else "") or (r.plant.code if r.plant else ""),
+                    from_cost_center_code=r.from_cost_center.code if r.from_cost_center else None,
+                    to_cost_center_code=r.to_cost_center.code if r.to_cost_center else "",
+                    asset_count=len(r.items),
+                    status=r.status,
+                    assigned_to_name=r.assignee.full_name if r.assignee else None,
+                    created_by_name=r.creator.full_name if r.creator else None,
+                    created_at=r.created_at,
+                    can_delete=bool(may_discard and plain),
+                    can_archive=bool(
+                        may_discard and r.status in EDITABLE_STATUSES and not plain
+                    ),
+                )
+            )
         return TransferOrderListResponse(items=items, total=total, page=page, page_size=page_size)
 
     # -------------------------------------------------------- approval panel
@@ -1029,6 +1240,37 @@ class TransferOrderService:
                     ),
                 )
             )
+        # Return-to-receiver: keep confirm marked rejected on the live run so the
+        # horizontal process flow / timeline show the CF reject while receive is current.
+        if len(out) >= 2 and str(req.status).lower() == "pending":
+            prev = out[-2]
+            last = out[-1]
+            if prev.request_status == "rejected":
+                prev_rej = next(
+                    (s for s in prev.workflow_steps if s.phase == "rejected"),
+                    None,
+                )
+                cur = next((s for s in last.workflow_steps if s.phase == "current"), None)
+                if (
+                    prev_rej is not None
+                    and cur is not None
+                    and str(cur.step_kind or "").lower() == "receive"
+                ):
+                    patched = [
+                        (
+                            s.model_copy(
+                                update={
+                                    "phase": "rejected",
+                                    "status_label": "Rejected — returned to receiver",
+                                }
+                            )
+                            if int(s.step_order) == int(prev_rej.step_order)
+                            and s.phase == "upcoming"
+                            else s
+                        )
+                        for s in last.workflow_steps
+                    ]
+                    out[-1] = last.model_copy(update={"workflow_steps": patched})
         return out
 
     def _approval_panel(
@@ -1065,19 +1307,35 @@ class TransferOrderService:
         workflow_runs = self._workflow_runs_for_request(req)
         steps = workflow_runs[-1].workflow_steps if workflow_runs else []
 
+        pending_tasks = [
+            t
+            for t in (req.tasks or [])
+            if str(t.task_type) == "approval" and str(t.status).lower() == "pending"
+        ]
+        pending_task: ApprovalTask | None = (
+            max(pending_tasks, key=lambda t: int(t.id)) if pending_tasks else None
+        )
         my_pending: int | None = None
-        pending_task: ApprovalTask | None = None
-        for t in req.tasks or []:
-            if str(t.task_type) != "approval" or str(t.status).lower() != "pending":
-                continue
-            pending_task = t
-            if (
-                viewer_user_id is not None
-                and t.assigned_user_id is not None
-                and int(t.assigned_user_id) == int(viewer_user_id)
-            ):
-                my_pending = int(t.id)
-            break
+        if viewer_user_id is not None:
+            for t in sorted(pending_tasks, key=lambda x: int(x.id), reverse=True):
+                if t.assigned_user_id is not None and int(t.assigned_user_id) == int(viewer_user_id):
+                    my_pending = int(t.id)
+                    pending_task = t
+                    break
+
+        # Role-assigned pending: still expose as my task when viewer has that role.
+        if my_pending is None and pending_task is not None and pending_task.assigned_role_id is not None:
+            if viewer_user_id is not None:
+                from modules.rbac_association import user_role as ur
+
+                has_role = self._db.scalar(
+                    select(ur.c.user_id).where(
+                        ur.c.user_id == int(viewer_user_id),
+                        ur.c.role_id == int(pending_task.assigned_role_id),
+                    ).limit(1)
+                )
+                if has_role is not None:
+                    my_pending = int(pending_task.id)
 
         current_assignee_id: int | None = None
         current_assignee_name: str | None = None
@@ -1186,6 +1444,16 @@ class TransferOrderService:
         )
         is_super = bool(viewer and viewer.is_superuser)
         panel = self._approval_panel(order, viewer_user_id=viewer_user_id)
+        is_dest = _is_destination_actor(order, viewer_user_id)
+        returned_to_receiver = (
+            order.status == STATUS_APPROVED_BY_CF
+            and bool((order.rejection_reason or "").strip())
+        )
+        if returned_to_receiver and _restore_destination_locations_from_audit(self._db, order):
+            self._db.commit()
+        may_edit_rework = is_creator or is_super or (
+            order.status == STATUS_IN_REWORK and is_dest
+        )
 
         plant = order.plant
         plant_name = ""
@@ -1257,7 +1525,7 @@ class TransferOrderService:
                 for a in audits
             ],
             approval_panel=panel,
-            can_submit=(order.status in SUBMITTABLE_STATUSES) and (is_creator or is_super),
+            can_submit=(order.status in SUBMITTABLE_STATUSES) and may_edit_rework,
             can_cf_decide=False,
             # Reject only during approval steps (engine); never after approval → receive/confirm/close.
             can_cf_reject=False,
@@ -1268,6 +1536,7 @@ class TransferOrderService:
                     order.status == STATUS_APPROVED_BY_CF
                     and (
                         is_super
+                        or is_assignee
                         or (
                             order.to_asset_custodian_id is not None
                             and int(order.to_asset_custodian_id) == int(viewer_user_id or 0)
@@ -1288,7 +1557,24 @@ class TransferOrderService:
                 legacy_ok=(order.status == STATUS_CONFIRMED_BY_CF) and (is_assignee or is_super),
                 step_kind="close",
             ),
-            can_edit=(order.status in EDITABLE_STATUSES) and (is_creator or is_super),
+            can_edit=(order.status in EDITABLE_STATUSES) and may_edit_rework,
+            can_delete=(
+                viewer_user_id is not None
+                and _is_plain_transfer_draft(self._db, order)
+                and _actor_may_discard_transfer(
+                    order, actor_user_id=int(viewer_user_id), db=self._db
+                )
+            ),
+            can_archive=(
+                viewer_user_id is not None
+                and order.status in EDITABLE_STATUSES
+                and not _is_plain_transfer_draft(self._db, order)
+                and _actor_may_discard_transfer(
+                    order, actor_user_id=int(viewer_user_id), db=self._db
+                )
+            ),
+            can_restart_transfer=returned_to_receiver
+            and (is_super or is_dest or is_creator),
         )
 
 
@@ -1302,6 +1588,16 @@ def _can_operational_flag(
     """Engine pending task wins; while request is still pending, hide legacy-only gates."""
     if panel is not None and panel.my_pending_task_id is not None and panel.current_step_kind == step_kind:
         return True
+    # Pending receive/confirm/close: still allow the operational actor (e.g. destination
+    # custodian after CF reject returns the order to them).
+    if (
+        panel is not None
+        and panel.request_status == "pending"
+        and panel.current_step_kind == step_kind
+        and panel.pending_task_id is not None
+        and legacy_ok
+    ):
+        return True
     if order.approval_request_id is not None and panel is not None and panel.request_status == "pending":
         return False
     return legacy_ok
@@ -1310,12 +1606,30 @@ def _can_operational_flag(
 # ------------------------------------------------- approval engine callbacks
 
 
+def _revert_transfer_assets_after_receive(order: AssetTransferOrder) -> None:
+    """Restore cost center / locations / custodian from line-item snapshots."""
+    for item in order.items:
+        asset = item.asset
+        if asset is None:
+            continue
+        if item.from_cost_center_code:
+            fin = _ensure_financial(asset)
+            fin.cost_center = item.from_cost_center_code
+        loc = _ensure_location(asset)
+        loc.functional_location = item.from_functional_location
+        loc.actual_location = item.from_actual_location
+        asset.asset_custodian_id = (
+            int(item.from_asset_custodian_id) if item.from_asset_custodian_id else None
+        )
+
+
 def _apply_receive_assets(
     db: Session,
     order: AssetTransferOrder,
     *,
     functional_location: str,
     actual_location: str,
+    cost_center_id: int | None = None,
 ) -> tuple[str, str]:
     """Update order + asset locations/CC/custodian. Does not change assignee or status."""
     fl = _strip_or_none(functional_location)
@@ -1324,6 +1638,8 @@ def _apply_receive_assets(
         raise ConflictError(
             "Actual Location 1 and Actual Location 2 are required when receiving assets."
         )
+    if cost_center_id is not None:
+        order.to_cost_center_id = int(cost_center_id)
     to_cc = db.get(CostCenterMaster, int(order.to_cost_center_id))
     if to_cc is None:
         raise ConflictError("Destination cost center is missing.")
@@ -1389,6 +1705,7 @@ def apply_transfer_receive(
     next_assignee_user_id: int,
     step_role_name: str | None = None,
     comment: str | None = None,
+    cost_center_id: int | None = None,
 ) -> None:
     order = db.get(AssetTransferOrder, order_id)
     if order is None:
@@ -1408,9 +1725,11 @@ def apply_transfer_receive(
         order,
         functional_location=functional_location or "",
         actual_location=actual_location or "",
+        cost_center_id=cost_center_id,
     )
     old_status = order.status
     order.status = STATUS_RECEIVED_BY_CC2
+    order.rejection_reason = None
     order.assigned_to = int(next_assignee_user_id)
     order.assigned_by = actor_user_id
     order.assigned_at = datetime.now(timezone.utc)
@@ -1532,12 +1851,56 @@ def reject_transfer_approval(
     approver_user_id: int | None,
     comment: str | None,
     step_role_name: str | None = None,
-) -> None:
-    order = db.get(AssetTransferOrder, order_id)
+) -> str:
+    """Apply reject on the transfer order.
+
+    Returns ``\"receiver\"`` when post-receive reject sends the same order back to the
+    destination custodian (not draft/rework). Otherwise ``\"creator\"``.
+    """
+    order = db.scalar(
+        select(AssetTransferOrder)
+        .where(AssetTransferOrder.id == int(order_id))
+        .options(
+            selectinload(AssetTransferOrder.items).selectinload(AssetTransferOrderItem.asset),
+        )
+    )
     if order is None:
-        return
+        return "creator"
+
+    reason = (comment or "").strip() or None
+    old_status = order.status
+    order.rejection_reason = reason
+
+    # After receive (or confirm): revert assets and reopen receive on the same order.
+    if old_status in {STATUS_RECEIVED_BY_CC2, STATUS_CONFIRMED_BY_CF}:
+        _revert_transfer_assets_after_receive(order)
+        order.status = STATUS_APPROVED_BY_CF
+        order.closed_at = None
+        # Keep destination CC + locations so the receiver sees the same values to edit.
+        receiver_id = (
+            int(order.to_asset_custodian_id) if order.to_asset_custodian_id is not None else None
+        )
+        if receiver_id is not None:
+            order.assigned_to = receiver_id
+            order.assigned_by = approver_user_id
+            order.assigned_at = datetime.now(timezone.utc)
+        _log(
+            db,
+            order_id=int(order.id),
+            action="rejected",
+            actor_user_id=approver_user_id,
+            old_value={"status": old_status},
+            new_value={
+                "status": order.status,
+                "rejection_reason": reason,
+                "step_role_name": step_role_name,
+                "returned_to": "receiver",
+                "assigned_to": receiver_id,
+            },
+        )
+        return "receiver"
+
     order.status = STATUS_IN_REWORK
-    order.rejection_reason = (comment or "").strip() or None
     if order.created_by is not None:
         order.assigned_to = int(order.created_by)
         order.assigned_by = approver_user_id
@@ -1547,13 +1910,16 @@ def reject_transfer_approval(
         order_id=int(order.id),
         action="rejected",
         actor_user_id=approver_user_id,
+        old_value={"status": old_status},
         new_value={
             "status": order.status,
-            "rejection_reason": order.rejection_reason,
+            "rejection_reason": reason,
             "step_role_name": step_role_name,
+            "returned_to": "creator",
+            "assigned_to": int(order.assigned_to) if order.assigned_to is not None else None,
         },
     )
-    db.commit()
+    return "creator"
 
 
 def log_transfer_step_approved(

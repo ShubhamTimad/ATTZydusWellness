@@ -122,13 +122,19 @@ def list_destination_cost_centers(
 
 @router.get("", response_model=TransferOrderListResponse)
 def list_orders(
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
     _: Annotated[object, Depends(require_permission("transfer.view"))],
     tab: str = Query("active"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
 ) -> TransferOrderListResponse:
-    return svc.list_orders(tab=tab, page=page, page_size=page_size)
+    return svc.list_orders(
+        tab=tab,
+        page=page,
+        page_size=page_size,
+        viewer_user_id=int(current.subject),
+    )
 
 
 @router.post("", response_model=TransferOrderDetail, status_code=status.HTTP_201_CREATED)
@@ -163,10 +169,45 @@ def update_order(
     body: UpdateTransferOrderRequest,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
-    _: Annotated[object, Depends(require_any_permission("transfer.create", "transfer.manage"))],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "transfer.create",
+                "transfer.receive",
+                "transfer.manage",
+            )
+        ),
+    ],
 ) -> TransferOrderDetail:
     try:
         return svc.update_order(order_id, body, actor_user_id=int(current.subject))
+    except Exception as e:
+        raise _http(e) from e
+
+
+@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[object, Depends(require_any_permission("transfer.create", "transfer.manage"))],
+) -> None:
+    try:
+        svc.delete_draft_order(order_id, actor_user_id=int(current.subject))
+    except Exception as e:
+        raise _http(e) from e
+
+
+@router.post("/{order_id}/archive", response_model=TransferOrderDetail)
+def archive_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[object, Depends(require_any_permission("transfer.create", "transfer.manage"))],
+) -> TransferOrderDetail:
+    try:
+        return svc.archive_order(order_id, actor_user_id=int(current.subject))
     except Exception as e:
         raise _http(e) from e
 
@@ -178,11 +219,42 @@ def submit_order(
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
     _: Annotated[
-        object, Depends(require_any_permission("transfer.create", "transfer.submit"))
+        object,
+        Depends(
+            require_any_permission(
+                "transfer.create",
+                "transfer.submit",
+                "transfer.receive",
+                "transfer.manage",
+            )
+        ),
     ],
 ) -> TransferOrderDetail:
     try:
         return svc.submit_order(order_id, body, actor_user_id=int(current.subject))
+    except Exception as e:
+        raise _http(e) from e
+
+
+@router.post("/{order_id}/restart-transfer", response_model=TransferOrderDetail)
+def restart_transfer(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "transfer.create",
+                "transfer.receive",
+                "transfer.manage",
+            )
+        ),
+    ],
+) -> TransferOrderDetail:
+    """After CF reject → receiver: reopen same order for a full re-transfer (approve flow)."""
+    try:
+        return svc.restart_transfer_for_resubmit(order_id, actor_user_id=int(current.subject))
     except Exception as e:
         raise _http(e) from e
 

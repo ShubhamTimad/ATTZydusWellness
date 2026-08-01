@@ -77,6 +77,34 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+_EDITABLE_PHYSICAL_STATUSES = frozenset({ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED})
+_PLAIN_PHYSICAL_DRAFT_AUDIT = frozenset({"order_created", "assignment_changed"})
+
+
+def _is_plain_physical_draft(db: Session, order: PhysicalOrder) -> bool:
+    if order.status != ORDER_STATUS_DRAFT:
+        return False
+    if order.approval_request_id is not None:
+        return False
+    extra = db.scalar(
+        select(PhysicalOrderAudit.id)
+        .where(
+            PhysicalOrderAudit.order_id == int(order.id),
+            PhysicalOrderAudit.action.not_in(_PLAIN_PHYSICAL_DRAFT_AUDIT),
+        )
+        .limit(1)
+    )
+    return extra is None
+
+
+def _actor_may_discard_physical(order: PhysicalOrder, *, actor_user_id: int, db: Session) -> bool:
+    creator_id = int(order.created_by) if order.created_by is not None else None
+    if creator_id is not None and creator_id == int(actor_user_id):
+        return True
+    viewer = db.get(User, int(actor_user_id))
+    return viewer is not None and bool(viewer.is_superuser)
+
+
 def _order_link(order_id: int) -> str:
     base = (os.environ.get("FRONTEND_APP_URL") or os.environ.get("FRONTEND_ORIGIN") or "http://localhost:5173").rstrip(
         "/"
@@ -1308,6 +1336,13 @@ class PhysicalOrderService:
             user_name_fn=user_name_fn,
         )
         cc = order.cost_center
+        viewer = self._db.get(User, int(viewer_user_id)) if viewer_user_id is not None else None
+        is_super = viewer is not None and bool(viewer.is_superuser)
+        is_creator = (
+            order.created_by is not None
+            and viewer_user_id is not None
+            and int(order.created_by) == int(viewer_user_id)
+        )
         return PhysicalOrderDetail(
             id=int(order.id),
             order_number=order.order_number,
@@ -1339,7 +1374,64 @@ class PhysicalOrderService:
             audit=audit,
             progress=progress,
             approval_notice=self._build_approval_notice(order),
+            can_delete=_is_plain_physical_draft(self._db, order) and (is_creator or is_super),
+            can_archive=(
+                order.status in _EDITABLE_PHYSICAL_STATUSES
+                and not _is_plain_physical_draft(self._db, order)
+                and (is_creator or is_super)
+            ),
         )
+
+    def delete_draft_order(self, order_id: int, *, actor_user_id: int) -> None:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if not _is_plain_physical_draft(self._db, order):
+            raise ConflictError(
+                "Only a plain draft physical order (no submit, approve, or reject history) "
+                "can be deleted. Archive it instead to keep the audit trail."
+            )
+        if not _actor_may_discard_physical(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the draft creator can delete this physical order.")
+        self._db.delete(order)
+        self._db.commit()
+
+    def archive_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status not in _EDITABLE_PHYSICAL_STATUSES:
+            raise ConflictError("Only draft or rejected physical orders can be archived.")
+        if _is_plain_physical_draft(self._db, order):
+            raise ConflictError(
+                "This is a plain draft with no approval history — delete it instead of archiving."
+            )
+        if not _actor_may_discard_physical(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the order creator can archive this physical order.")
+
+        if order.approval_request_id is not None:
+            now = _now_utc()
+            req = self._db.get(ApprovalRequest, int(order.approval_request_id))
+            if req is not None and str(req.status) in ("pending", "in_rework"):
+                req.status = "rejected"
+            open_tasks = self._db.scalars(
+                select(ApprovalTask).where(
+                    ApprovalTask.request_id == int(order.approval_request_id),
+                    ApprovalTask.status.in_(("pending", "open")),
+                )
+            ).all()
+            for t in open_tasks:
+                t.status = "closed"
+                t.closed_at = now
+
+        old_status = order.status
+        order.status = ORDER_STATUS_CANCELLED
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="archived",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status},
+            new_value={"status": order.status},
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
 
     def update_order(
         self,

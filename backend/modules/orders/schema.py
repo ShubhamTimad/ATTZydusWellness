@@ -204,6 +204,8 @@ class PhysicalOrderDetail(BaseModel):
     audit: list[PhysicalOrderAuditPublic]
     progress: PhysicalOrderProgressPublic
     approval_notice: PhysicalOrderApprovalNotice | None = None
+    can_delete: bool = False
+    can_archive: bool = False
 
 
 class ExecutorUserPublic(BaseModel):

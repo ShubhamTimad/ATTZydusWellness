@@ -268,6 +268,12 @@ function rejectedAtRole(steps: TaskApprovalStepLine[]): string | null {
   return steps.find((s) => s.phase === "rejected")?.approver_role_name ?? null
 }
 
+/** Current attempt jumped back to receive (post-receive reject), not a full resubmit. */
+function currentRunStartsAtReceive(steps: TaskApprovalStepLine[]): boolean {
+  const current = steps.find((s) => s.phase === "current")
+  return (current?.step_kind || "").toLowerCase() === "receive"
+}
+
 function CompactTimeline({
   steps,
   title,
@@ -313,8 +319,19 @@ function CompactTimeline({
               ) : null}
               {idx === 0 && older && fromRole ? (
                 <p className="mb-3 text-[11px] text-muted-foreground">
-                  Resubmitted after <span className="font-medium text-foreground/80">{fromRole}</span>{" "}
-                  rejected on the earlier attempt
+                  {currentRunStartsAtReceive(section.steps) ? (
+                    <>
+                      Returned to receiver after{" "}
+                      <span className="font-medium text-foreground/80">{fromRole}</span> rejected —
+                      edit destination details and receive again on this same order
+                    </>
+                  ) : (
+                    <>
+                      Resubmitted after{" "}
+                      <span className="font-medium text-foreground/80">{fromRole}</span> rejected on
+                      the earlier attempt
+                    </>
+                  )}
                 </p>
               ) : null}
               <CompactStepList steps={section.steps} />

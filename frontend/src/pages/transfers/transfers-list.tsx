@@ -22,22 +22,27 @@ import {
   AdminTableHeadCell,
   AdminTableHeaderRow,
 } from "@/components/layout/admin-ui"
+import { Button } from "@/components/ui/button"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { getJson } from "@/lib/api"
+import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
 import {
   TRANSFER_STATUS_TABS,
   transferStatusLabel,
   transferStatusPillTone,
+  type TransferOrderListItem,
   type TransferOrderListResponse,
 } from "@/lib/transfer-types"
 
 export function TransferOrdersListPage() {
   const navigate = useNavigate()
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [tab, setTab] = React.useState<string>(TRANSFER_STATUS_TABS[0]?.key ?? "draft")
   const [page, setPage] = React.useState(1)
   const [data, setData] = React.useState<TransferOrderListResponse | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [busyId, setBusyId] = React.useState<number | null>(null)
   const canCreate = hasPermission("transfer.create")
 
   const load = React.useCallback(async () => {
@@ -57,10 +62,52 @@ export function TransferOrdersListPage() {
     void load()
   }, [load])
 
+  async function discardRow(row: TransferOrderListItem) {
+    if (row.can_delete) {
+      const ok = await confirmAsk({
+        title: "Delete draft transfer?",
+        description: `Permanently delete draft ${row.order_number}? This cannot be undone.`,
+        confirmLabel: "Delete",
+        destructive: true,
+      })
+      if (!ok) return
+      setBusyId(row.id)
+      try {
+        await deleteJson(`/admin/transfer-orders/${row.id}`)
+        toast.success("Draft transfer order deleted.")
+        await load()
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Could not delete transfer order")
+      } finally {
+        setBusyId(null)
+      }
+      return
+    }
+    if (row.can_archive) {
+      const ok = await confirmAsk({
+        title: "Archive transfer order?",
+        description: `Archive ${row.order_number}? It will be cancelled and kept in the audit trail.`,
+        confirmLabel: "Archive",
+      })
+      if (!ok) return
+      setBusyId(row.id)
+      try {
+        await postJson(`/admin/transfer-orders/${row.id}/archive`, {})
+        toast.success("Transfer order archived.")
+        await load()
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Could not archive transfer order")
+      } finally {
+        setBusyId(null)
+      }
+    }
+  }
+
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const showActions = items.some((r) => r.can_delete || r.can_archive)
 
   return (
     <AdminPage fullWidth dense className="w-full">
@@ -119,13 +166,14 @@ export function TransferOrdersListPage() {
                   <AdminTableHeadCell>Assignee</AdminTableHeadCell>
                   <AdminTableHeadCell>Status</AdminTableHeadCell>
                   <AdminTableHeadCell>Created</AdminTableHeadCell>
+                  {showActions ? <AdminTableHeadCell className="text-right">Actions</AdminTableHeadCell> : null}
                 </AdminTableHeaderRow>
               </TableHeader>
               <TableBody>
                 {loading && items.length === 0 ? (
-                  <AdminTableEmptyRow colSpan={8}>Loading…</AdminTableEmptyRow>
+                  <AdminTableEmptyRow colSpan={showActions ? 9 : 8}>Loading…</AdminTableEmptyRow>
                 ) : items.length === 0 ? (
-                  <AdminTableEmptyRow colSpan={8}>No transfer orders.</AdminTableEmptyRow>
+                  <AdminTableEmptyRow colSpan={showActions ? 9 : 8}>No transfer orders.</AdminTableEmptyRow>
                 ) : (
                   items.map((row) => (
                     <AdminTableBodyRow
@@ -147,6 +195,25 @@ export function TransferOrdersListPage() {
                       <AdminTableCell className="text-muted-foreground">
                         {new Date(row.created_at).toLocaleDateString()}
                       </AdminTableCell>
+                      {showActions ? (
+                        <AdminTableCell className="text-right">
+                          {row.can_delete || row.can_archive ? (
+                            <Button
+                              type="button"
+                              variant={row.can_delete ? "destructive" : "outline"}
+                              size="sm"
+                              className="h-8"
+                              disabled={busyId === row.id}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void discardRow(row)
+                              }}
+                            >
+                              {row.can_delete ? "Delete" : "Archive"}
+                            </Button>
+                          ) : null}
+                        </AdminTableCell>
+                      ) : null}
                     </AdminTableBodyRow>
                   ))
                 )}
@@ -155,6 +222,7 @@ export function TransferOrdersListPage() {
           </AdminDataTable>
         </WorkspaceTabsContent>
       </WorkspaceTabs>
+      {confirmDialog}
     </AdminPage>
   )
 }

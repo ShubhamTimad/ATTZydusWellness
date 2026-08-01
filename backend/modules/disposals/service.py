@@ -100,6 +100,33 @@ def _strip_or_none(value: str | None) -> str | None:
     return s or None
 
 
+_PLAIN_DRAFT_AUDIT_ACTIONS = frozenset({"created", "updated"})
+
+
+def _is_plain_disposal_draft(db: Session, order: AssetDisposalOrder) -> bool:
+    if order.status != STATUS_DRAFT:
+        return False
+    if order.approval_request_id is not None:
+        return False
+    extra = db.scalar(
+        select(AssetDisposalOrderAudit.id)
+        .where(
+            AssetDisposalOrderAudit.order_id == int(order.id),
+            AssetDisposalOrderAudit.action.not_in(_PLAIN_DRAFT_AUDIT_ACTIONS),
+        )
+        .limit(1)
+    )
+    return extra is None
+
+
+def _actor_may_discard_disposal(order: AssetDisposalOrder, *, actor_user_id: int, db: Session) -> bool:
+    creator_id = int(order.created_by) if order.created_by is not None else None
+    if creator_id is not None and creator_id == int(actor_user_id):
+        return True
+    viewer = db.get(User, int(actor_user_id))
+    return viewer is not None and bool(viewer.is_superuser)
+
+
 def _asset_plant_id(asset: AssetMaster) -> int | None:
     loc = asset.location
     if loc is None or loc.plant_id is None:
@@ -501,18 +528,52 @@ class DisposalOrderService:
         self._db.commit()
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
+    def delete_draft_order(self, order_id: int, *, actor_user_id: int) -> None:
+        """Hard-delete a plain draft that was never submitted / approved / rejected."""
+        order = self._load_order(order_id)
+        if not _is_plain_disposal_draft(self._db, order):
+            raise ConflictError(
+                "Only a plain draft disposal (no submit, approve, or reject history) "
+                "can be deleted. Archive it instead to keep the audit trail."
+            )
+        if not _actor_may_discard_disposal(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the draft creator can delete this disposal order.")
+        assets = self._order_assets(order)
+        self._restore_assets_active(assets)
+        self._db.delete(order)
+        self._db.commit()
+
     def archive_draft_order(
         self, order_id: int, *, actor_user_id: int
     ) -> DisposalOrderDetail:
-        """Archive a draft — keep the order for history and reactivate its assets."""
+        """Archive an editable disposal that already has workflow history."""
         order = self._load_order(order_id)
-        if order.status != STATUS_DRAFT:
-            raise ConflictError("Only draft disposal orders can be archived.")
-        creator_id = int(order.created_by) if order.created_by is not None else None
-        if creator_id is not None and creator_id != int(actor_user_id):
-            viewer = self._db.get(User, int(actor_user_id))
-            if viewer is None or not viewer.is_superuser:
-                raise ConflictError("Only the draft creator can archive this disposal order.")
+        if order.status not in EDITABLE_STATUSES:
+            raise ConflictError(
+                "Only draft, rejected, or in-rework disposal orders can be archived."
+            )
+        if _is_plain_disposal_draft(self._db, order):
+            raise ConflictError(
+                "This is a plain draft with no approval history — delete it instead of archiving."
+            )
+        if not _actor_may_discard_disposal(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the order creator can archive this disposal order.")
+
+        if order.approval_request_id is not None:
+            now = datetime.now(timezone.utc)
+            req = self._db.get(ApprovalRequest, int(order.approval_request_id))
+            if req is not None and str(req.status) in ("pending", "in_rework"):
+                req.status = "rejected"
+            open_tasks = self._db.scalars(
+                select(ApprovalTask).where(
+                    ApprovalTask.request_id == int(order.approval_request_id),
+                    ApprovalTask.status.in_(("pending", "open")),
+                )
+            ).all()
+            for t in open_tasks:
+                t.status = "closed"
+                t.closed_at = now
+
         assets = self._order_assets(order)
         self._restore_assets_active(assets)
         old_status = order.status
@@ -1167,6 +1228,12 @@ class DisposalOrderService:
             ),
             can_close=_can_disposal_operational_flag(
                 order, panel=panel, legacy_ok=legacy_close, step_kind="close"
+            ),
+            can_delete=_is_plain_disposal_draft(self._db, order) and (is_creator or is_super),
+            can_archive=(
+                order.status in EDITABLE_STATUSES
+                and not _is_plain_disposal_draft(self._db, order)
+                and (is_creator or is_super)
             ),
         )
 

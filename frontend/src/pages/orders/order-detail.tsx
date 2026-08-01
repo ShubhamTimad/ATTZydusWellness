@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import {
   ListFilter,
   Loader2,
@@ -43,7 +43,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
-import { ApiError, getJson, postJson } from "@/lib/api"
+import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
 import {
   orderStatusLabel,
   orderStatusPillTone,
@@ -180,6 +180,7 @@ const orderPanelPad = "px-[var(--app-card-padding)]"
 
 export function OrderDetailPage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const [order, setOrder] = React.useState<PhysicalOrderDetail | null>(null)
   const [currentUserId, setCurrentUserId] = React.useState<number | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -503,6 +504,72 @@ export function OrderDetailPage() {
           >
             {orderStatusLabel(order.status)}
           </AdminPillBadge>
+          {order.can_delete ? (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={async () => {
+                const ok = await confirmAsk({
+                  title: "Delete draft order?",
+                  description: "Permanently delete this draft physical order? This cannot be undone.",
+                  confirmLabel: "Delete",
+                  destructive: true,
+                })
+                if (!ok) return
+                setBusy(true)
+                try {
+                  await deleteJson(`/admin/physical-orders/${order.id}`)
+                  toast.success("Draft physical order deleted.")
+                  navigate("/dashboard/orders")
+                } catch (e) {
+                  toast.error(
+                    e instanceof ApiError ? e.message : "Could not delete physical order",
+                  )
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              Delete draft
+            </Button>
+          ) : null}
+          {order.can_archive ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={async () => {
+                const ok = await confirmAsk({
+                  title: "Archive physical order?",
+                  description:
+                    "Archive this physical order? It will be cancelled and kept in the audit trail.",
+                  confirmLabel: "Archive",
+                })
+                if (!ok) return
+                setBusy(true)
+                try {
+                  setOrder(
+                    await postJson(`/admin/physical-orders/${order.id}/archive`, {}),
+                  )
+                  toast.success("Physical order archived.")
+                  navigate("/dashboard/orders")
+                } catch (e) {
+                  toast.error(
+                    e instanceof ApiError ? e.message : "Could not archive physical order",
+                  )
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              Archive
+            </Button>
+          ) : null}
           {canReassign ? (
             <Button
               type="button"

@@ -22,10 +22,11 @@ import {
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import {
   buildDisposalProgress,
@@ -115,6 +116,7 @@ export function DisposalOrderDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const orderId = Number(id)
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [order, setOrder] = React.useState<DisposalOrderDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
@@ -396,7 +398,40 @@ export function DisposalOrderDetailPage() {
               {busy ? "Saving…" : "Save changes"}
             </Button>
           ) : null}
-          {order.can_edit && order.status === "draft" ? (
+          {order.can_delete ? (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={async () => {
+                const ok = await confirmAsk({
+                  title: "Delete draft disposal?",
+                  description:
+                    "Permanently delete this draft disposal order and reactivate its assets?",
+                  confirmLabel: "Delete",
+                  destructive: true,
+                })
+                if (!ok) return
+                setBusy(true)
+                try {
+                  await deleteJson(`/admin/disposal-orders/${order.id}`)
+                  toast.success("Draft disposal order deleted. Assets reactivated.")
+                  navigate("/dashboard/disposal-orders")
+                } catch (e) {
+                  toast.error(
+                    e instanceof ApiError ? e.message : "Could not delete disposal order",
+                  )
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              Delete draft
+            </Button>
+          ) : null}
+          {order.can_archive ? (
             <Button
               type="button"
               variant="outline"
@@ -404,24 +439,30 @@ export function DisposalOrderDetailPage() {
               className="h-9"
               disabled={busy}
               onClick={async () => {
-                if (!window.confirm("Archive this draft disposal order and reactivate its assets?")) return
+                const ok = await confirmAsk({
+                  title: "Archive disposal order?",
+                  description:
+                    "Archive this disposal order and reactivate its assets? The order stays for audit history.",
+                  confirmLabel: "Archive",
+                })
+                if (!ok) return
                 setBusy(true)
                 try {
                   applyOrder(
                     await postJson(`/admin/disposal-orders/${order.id}/archive`, {}),
                   )
-                  toast.success("Draft disposal archived. Assets reactivated.")
+                  toast.success("Disposal order archived. Assets reactivated.")
                   navigate("/dashboard/disposal-orders")
                 } catch (e) {
                   toast.error(
-                    e instanceof ApiError ? e.message : "Could not archive draft disposal order",
+                    e instanceof ApiError ? e.message : "Could not archive disposal order",
                   )
                 } finally {
                   setBusy(false)
                 }
               }}
             >
-              Archive draft
+              Archive
             </Button>
           ) : null}
           {order.can_submit ? (
@@ -1027,6 +1068,7 @@ export function DisposalOrderDetailPage() {
         }
         onConfirm={confirmDecision}
       />
+      {confirmDialog}
     </AdminPage>
   )
 }

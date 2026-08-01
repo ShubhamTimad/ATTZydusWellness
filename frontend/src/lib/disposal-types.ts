@@ -76,6 +76,8 @@ export type DisposalOrderDetail = {
   can_edit: boolean
   can_receive: boolean
   can_close: boolean
+  can_delete: boolean
+  can_archive: boolean
 }
 
 /** Tab keys must match _TAB_STATUSES in backend/modules/disposals/service.py. */

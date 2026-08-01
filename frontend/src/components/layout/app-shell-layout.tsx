@@ -253,7 +253,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
 
   async function handleSignOut() {
     const ok = await confirmAsk({
-      title: "Sign out?",
+      title: "Sign out",
       description: "Do you want to logout?",
       confirmLabel: "Sign out",
     })

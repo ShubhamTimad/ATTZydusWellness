@@ -19,9 +19,10 @@ import {
 } from "@/components/layout/admin-ui"
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import {
   buildTransferProgress,
@@ -82,6 +83,7 @@ export function TransferOrderDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const orderId = Number(id)
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [order, setOrder] = React.useState<TransferOrderDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
@@ -106,7 +108,12 @@ export function TransferOrderDetailPage() {
   const draftEditable = Boolean(order?.can_edit)
   const panel = order?.approval_panel
   const stepKind = (panel?.current_step_kind || "approve").toLowerCase()
-  const canDecide = Boolean(panel?.my_pending_task_id) && hasPermission("approval.act")
+  // Prefer the viewer's task; for receive, fall back to the pending receive task when
+  // this viewer is the destination custodian (can_cc2_assign) after a CF reject return.
+  const myTaskId =
+    panel?.my_pending_task_id ??
+    (order?.can_cc2_assign && stepKind === "receive" ? panel?.pending_task_id ?? null : null)
+  const canDecide = Boolean(myTaskId) && hasPermission("approval.act")
   const engineReceive = canDecide && stepKind === "receive"
   const engineConfirm = canDecide && stepKind === "confirm"
   const engineClose = canDecide && stepKind === "close"
@@ -119,7 +126,12 @@ export function TransferOrderDetailPage() {
   const legacyReceive = Boolean(order?.can_cc2_assign) && !engineOwnsOps
   const legacyConfirm = Boolean(order?.can_cf_confirm) && !engineOwnsOps
   const legacyClose = Boolean(order?.can_cf_close) && !engineOwnsOps
-  const receiveEditable = Boolean(order?.can_cc2_assign) || engineReceive
+  const receiveEditable =
+    Boolean(order?.can_cc2_assign) ||
+    engineReceive ||
+    (stepKind === "receive" &&
+      viewerUserId != null &&
+      panel?.current_assignee_user_id === viewerUserId)
   const showLocations =
     receiveEditable ||
     Boolean(
@@ -231,7 +243,7 @@ export function TransferOrderDetailPage() {
     comment: string | null
     nextAssignedUserId: number | null
   }) {
-    const taskId = order?.approval_panel?.my_pending_task_id
+    const taskId = myTaskId
     if (!taskId) return
     const kind = (order?.approval_panel?.current_step_kind || "approve").toLowerCase()
     setBusy(true)
@@ -246,13 +258,16 @@ export function TransferOrderDetailPage() {
           ? {
               to_functional_location: toFunctionalLocation.trim(),
               to_actual_location: toActualLocation.trim(),
+              ...(toCostCenterId ? { to_cost_center_id: Number(toCostCenterId) } : {}),
             }
           : {}),
       })
       setDecisionOpen(false)
       const ok =
         decisionMode === "reject"
-          ? "Rejected."
+          ? kind === "confirm"
+            ? "Rejected — returned to the receiver on this same order."
+            : "Rejected."
           : kind === "receive"
             ? "Assets received."
             : kind === "confirm"
@@ -270,8 +285,12 @@ export function TransferOrderDetailPage() {
   }
 
   async function confirmReceiveViaEngine(nextUserId: number) {
-    const taskId = order?.approval_panel?.my_pending_task_id
+    const taskId = myTaskId
     if (!taskId) return
+    if (!toCostCenterId) {
+      toast.error("Select destination cost center before receiving.")
+      return
+    }
     if (!toFunctionalLocation.trim() || !toActualLocation.trim()) {
       toast.error("Select Actual Location 1 and 2 before receiving.")
       return
@@ -283,6 +302,7 @@ export function TransferOrderDetailPage() {
         next_assigned_user_id: nextUserId,
         to_functional_location: toFunctionalLocation.trim(),
         to_actual_location: toActualLocation.trim(),
+        ...(toCostCenterId ? { to_cost_center_id: Number(toCostCenterId) } : {}),
       })
       toast.success("Assets received. Assigned for confirmation.")
       setPickerMode(null)
@@ -358,6 +378,72 @@ export function TransferOrderDetailPage() {
     )
   }
 
+  async function deleteDraftOrder() {
+    if (!order) return
+    const ok = await confirmAsk({
+      title: "Delete draft transfer?",
+      description: "Permanently delete this draft transfer order? This cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      await deleteJson(`/admin/transfer-orders/${order.id}`)
+      toast.success("Draft transfer order deleted.")
+      navigate("/dashboard/transfer-orders")
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not delete transfer order")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function archiveTransferOrder() {
+    if (!order) return
+    const ok = await confirmAsk({
+      title: "Archive transfer order?",
+      description: "Archive this transfer order? It will be cancelled and kept in the audit trail.",
+      confirmLabel: "Archive",
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      applyOrder(await postJson(`/admin/transfer-orders/${order.id}/archive`, {}))
+      toast.success("Transfer order archived.")
+      navigate("/dashboard/transfer-orders")
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not archive transfer order")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function restartTransfer() {
+    if (!order) return
+    const ok = await confirmAsk({
+      title: "Restart transfer on this same order?",
+      description:
+        "Change destination cost center / custodian, then submit again for the full approval flow. Same order number and audit trail — no new transfer id.",
+      confirmLabel: "Transfer",
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      applyOrder(
+        await postJson<TransferOrderDetail>(
+          `/admin/transfer-orders/${order.id}/restart-transfer`,
+          {},
+        ),
+      )
+      toast.success("Transfer reopened — update destination, then submit for approval.")
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not restart transfer")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (loading || !order) {
     return (
       <AdminPage fullWidth dense description="" className="w-full pb-6">
@@ -377,11 +463,13 @@ export function TransferOrderDetailPage() {
         }
       : null)
 
-  const destinationDescription = receiveEditable
-    ? "Set Actual Location 1 and 2, then receive the assets. Cost center, locations, and custodian update on receive."
-    : draftEditable
-      ? "Update destination cost center and asset custodian. Locations are set when the destination custodian receives."
-      : "Destination details for this transfer order."
+  const destinationDescription = order.can_restart_transfer
+    ? "Receive again with updated locations, or click Transfer to change destination and restart the full approval flow on this same order."
+    : receiveEditable
+      ? "Edit destination cost center and Actual Location 1 / 2, then receive. Same order id continues — no new transfer is created."
+      : draftEditable
+        ? "Update destination cost center and asset custodian. Locations are set when the destination custodian receives."
+        : "Destination details for this transfer order."
 
   const progress = buildTransferProgress(order)
   const decisionConfirmLabel =
@@ -401,6 +489,30 @@ export function TransferOrderDetailPage() {
           >
             {transferStatusLabel(order.status)}
           </AdminPillBadge>
+          {order.can_delete ? (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={() => void deleteDraftOrder()}
+            >
+              Delete draft
+            </Button>
+          ) : null}
+          {order.can_archive ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={() => void archiveTransferOrder()}
+            >
+              Archive
+            </Button>
+          ) : null}
           {draftEditable ? (
             <Button
               type="button"
@@ -425,7 +537,18 @@ export function TransferOrderDetailPage() {
                 setPickerMode("submit")
               }}
             >
-              Submit for approval
+              {order.status === "in_rework" || order.status === "rejected"
+                ? "Transfer"
+                : "Submit for approval"}
+            </AdminPrimaryButton>
+          ) : null}
+          {order.can_restart_transfer ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => void restartTransfer()}
+            >
+              Transfer
             </AdminPrimaryButton>
           ) : null}
           {engineApprove ? (
@@ -460,6 +583,10 @@ export function TransferOrderDetailPage() {
               type="button"
               disabled={busy}
               onClick={() => {
+                if (!toCostCenterId) {
+                  toast.error("Select destination cost center before receiving.")
+                  return
+                }
                 if (!toFunctionalLocation.trim() || !toActualLocation.trim()) {
                   toast.error("Select Actual Location 1 and 2 before receiving.")
                   return
@@ -471,16 +598,31 @@ export function TransferOrderDetailPage() {
             </AdminPrimaryButton>
           ) : null}
           {engineConfirm ? (
-            <AdminPrimaryButton
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setDecisionMode("approve")
-                setDecisionOpen(true)
-              }}
-            >
-              Confirm
-            </AdminPrimaryButton>
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                disabled={busy}
+                onClick={() => {
+                  setDecisionMode("reject")
+                  setDecisionOpen(true)
+                }}
+              >
+                Reject
+              </Button>
+              <AdminPrimaryButton
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setDecisionMode("approve")
+                  setDecisionOpen(true)
+                }}
+              >
+                Confirm
+              </AdminPrimaryButton>
+            </>
           ) : null}
           {engineClose ? (
             <AdminPrimaryButton
@@ -542,21 +684,51 @@ export function TransferOrderDetailPage() {
       }
     >
       <div className="space-y-[var(--app-grid-gap)]">
-        <div className="shrink-0">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-            {order.order_number}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {order.plant_name}
-            {order.from_cost_center_code || order.to_cost_center_code
-              ? ` · ${order.from_cost_center_code ?? "—"} → ${order.to_cost_center_code}`
-              : null}
-            {order.assigned_to_name
-              ? ` · ${order.assigned_to_name}`
-              : order.created_by_name
-                ? ` · ${order.created_by_name}`
+        <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+              {order.order_number}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {order.plant_name}
+              {order.from_cost_center_code || order.to_cost_center_code
+                ? ` · ${order.from_cost_center_code ?? "—"} → ${order.to_cost_center_code}`
                 : null}
-          </p>
+              {order.assigned_to_name
+                ? ` · ${order.assigned_to_name}`
+                : order.created_by_name
+                  ? ` · ${order.created_by_name}`
+                  : null}
+            </p>
+          </div>
+          {(order.can_delete || order.can_archive) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {order.can_delete ? (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  className="h-9"
+                  disabled={busy}
+                  onClick={() => void deleteDraftOrder()}
+                >
+                  Delete draft
+                </Button>
+              ) : null}
+              {order.can_archive ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  disabled={busy}
+                  onClick={() => void archiveTransferOrder()}
+                >
+                  Archive
+                </Button>
+              ) : null}
+            </div>
+          )}
         </div>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
@@ -583,15 +755,19 @@ export function TransferOrderDetailPage() {
             contentClassName="px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4">
-              <FormField id="to_cc" labelText="Destination cost center" required={draftEditable}>
-                {draftEditable ? (
+              <FormField
+                id="to_cc"
+                labelText="Destination cost center"
+                required={draftEditable || receiveEditable}
+              >
+                {draftEditable || receiveEditable ? (
                   <select
                     id="to_cc"
                     className={adminSelectClass}
                     value={toCostCenterId}
                     onChange={(e) => {
                       setToCostCenterId(e.target.value)
-                      setToAssetCustodianId(null)
+                      if (draftEditable) setToAssetCustodianId(null)
                     }}
                   >
                     <option value="">Select cost center</option>
@@ -787,7 +963,9 @@ export function TransferOrderDetailPage() {
         }
         confirmLabel={
           pickerMode === "submit"
-            ? "Submit"
+            ? order.status === "in_rework" || order.status === "rejected"
+              ? "Transfer"
+              : "Submit"
             : engineReceive
               ? "Receive & assign next"
               : "Receive & assign CF"
@@ -816,7 +994,11 @@ export function TransferOrderDetailPage() {
                 { assigned_to: userId },
               )
               applyOrder(res)
-              toast.success("Transfer order submitted for approval.")
+              toast.success(
+                order.status === "in_rework" || order.status === "rejected"
+                  ? "Transfer submitted for approval."
+                  : "Transfer order submitted for approval.",
+              )
             } catch (e) {
               toast.error(e instanceof ApiError ? e.message : "Action failed")
             } finally {
@@ -868,6 +1050,7 @@ export function TransferOrderDetailPage() {
         }
         onConfirm={confirmDecision}
       />
+      {confirmDialog}
     </AdminPage>
   )
 }

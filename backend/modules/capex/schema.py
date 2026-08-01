@@ -143,6 +143,8 @@ class CapexFormDetail(BaseModel):
     created_at: datetime
     updated_at: datetime
     approval_panel: CapexApprovalPanel | None = None
+    can_delete: bool = False
+    can_archive: bool = False
 
 
 class CapexAuditChange(BaseModel):

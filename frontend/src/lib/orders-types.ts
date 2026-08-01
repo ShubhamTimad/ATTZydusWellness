@@ -188,6 +188,8 @@ export type PhysicalOrderDetail = {
   audit: PhysicalOrderAudit[]
   progress: PhysicalOrderProgress
   approval_notice?: PhysicalOrderApprovalNotice | null
+  can_delete?: boolean
+  can_archive?: boolean
 }
 
 export type OrdersDashboardModule = {
@@ -245,6 +247,7 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   closed: "Closed",
   in_progress: "In progress",
   rejected: "Rejected",
+  cancelled: "Archived",
 }
 
 export function orderStatusLabel(status: string): string {

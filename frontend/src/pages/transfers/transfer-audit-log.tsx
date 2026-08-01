@@ -7,6 +7,7 @@ const ACTION_LABELS: Record<string, string> = {
   created: "Created",
   updated: "Updated",
   submitted: "Submitted for approval",
+  restart_transfer: "Transfer restarted",
   resubmitted: "Resubmitted for approval",
   step_approved: "Step approved",
   approved: "Fully approved",
@@ -16,6 +17,7 @@ const ACTION_LABELS: Record<string, string> = {
   cc2_assigned_to_cf: "Received",
   cf_confirmed: "Confirmed by CF",
   cf_closed: "Closed",
+  archived: "Archived",
 }
 
 const FIELD_LABELS: Record<string, string> = {

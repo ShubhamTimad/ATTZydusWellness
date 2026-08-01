@@ -145,6 +145,19 @@ def archive_order(
         raise _http(e) from e
 
 
+@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[DisposalOrderService, Depends(get_disposal_service)],
+    _: Annotated[object, Depends(require_permission("disposal.update"))],
+) -> None:
+    try:
+        svc.delete_draft_order(order_id, actor_user_id=int(current.subject))
+    except Exception as e:
+        raise _http(e) from e
+
+
 @router.post("/{order_id}/submit", response_model=DisposalOrderDetail)
 def submit_order(
     order_id: int,

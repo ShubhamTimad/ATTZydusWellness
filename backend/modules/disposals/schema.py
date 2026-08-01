@@ -161,3 +161,5 @@ class DisposalOrderDetail(BaseModel):
     can_edit: bool = False
     can_receive: bool = False
     can_close: bool = False
+    can_delete: bool = False
+    can_archive: bool = False

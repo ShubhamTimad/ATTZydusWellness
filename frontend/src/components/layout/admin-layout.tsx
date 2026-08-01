@@ -185,7 +185,7 @@ export function AdminLayout({
 
   async function handleSignOut() {
     const ok = await confirmAsk({
-      title: "Sign out?",
+      title: "Sign out",
       description: "Do you want to logout?",
       confirmLabel: "Sign out",
     })

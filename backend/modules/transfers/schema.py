@@ -107,6 +107,8 @@ class TransferOrderListItem(BaseModel):
     assigned_to_name: str | None = None
     created_by_name: str | None = None
     created_at: datetime
+    can_delete: bool = False
+    can_archive: bool = False
 
 
 class TransferOrderListResponse(BaseModel):
@@ -184,3 +186,7 @@ class TransferOrderDetail(BaseModel):
     can_cf_confirm: bool = False
     can_cf_close: bool = False
     can_edit: bool = False
+    can_delete: bool = False
+    can_archive: bool = False
+    # After CF reject returns to receiver: restart full approve flow on same order id.
+    can_restart_transfer: bool = False

@@ -137,6 +137,34 @@ def update_order(
         raise HTTPException(status_code=code, detail=str(e)) from e
 
 
+@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.update"))],
+) -> None:
+    try:
+        svc.delete_draft_order(order_id, actor_user_id=int(current.subject))
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.post("/{order_id}/archive", response_model=PhysicalOrderDetail)
+def archive_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.update"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.archive_order(order_id, actor_user_id=int(current.subject))
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
 @router.post("/{order_id}/submit", response_model=PhysicalOrderDetail)
 def submit_order(
     order_id: int,

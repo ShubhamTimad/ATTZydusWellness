@@ -17,9 +17,10 @@ import {
 } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
+import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import type { AssetActionItem } from "@/lib/asset-actions"
 import {
   buildCapexProgress,
@@ -112,6 +113,7 @@ export function CapexDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const formId = Number(id)
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [detail, setDetail] = React.useState<CapexFormDetail | null>(null)
   const [form, setForm] = React.useState<CapexFormWritePayload | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -366,6 +368,73 @@ export function CapexDetailPage() {
           >
             {capexStatusLabel(detail.status)}
           </AdminPillBadge>
+          {detail.can_delete ? (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="h-9"
+              disabled={saving || acting || reassigning}
+              onClick={async () => {
+                const ok = await confirmAsk({
+                  title: "Delete draft form?",
+                  description:
+                    "Permanently delete this draft capitalization form? This cannot be undone.",
+                  confirmLabel: "Delete",
+                  destructive: true,
+                })
+                if (!ok) return
+                setSaving(true)
+                try {
+                  await deleteJson(`/admin/capitalization-forms/${detail.id}`)
+                  toast.success("Draft capitalization form deleted.")
+                  navigate("/dashboard/capitalization")
+                } catch (e) {
+                  toast.error(
+                    e instanceof ApiError ? e.message : "Could not delete capitalization form",
+                  )
+                } finally {
+                  setSaving(false)
+                }
+              }}
+            >
+              Delete draft
+            </Button>
+          ) : null}
+          {detail.can_archive ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={saving || acting || reassigning}
+              onClick={async () => {
+                const ok = await confirmAsk({
+                  title: "Archive capitalization form?",
+                  description:
+                    "Archive this capitalization form? It will be cancelled and kept in the audit trail.",
+                  confirmLabel: "Archive",
+                })
+                if (!ok) return
+                setSaving(true)
+                try {
+                  setDetail(
+                    await postJson(`/admin/capitalization-forms/${detail.id}/archive`, {}),
+                  )
+                  toast.success("Capitalization form archived.")
+                  navigate("/dashboard/capitalization")
+                } catch (e) {
+                  toast.error(
+                    e instanceof ApiError ? e.message : "Could not archive capitalization form",
+                  )
+                } finally {
+                  setSaving(false)
+                }
+              }}
+            >
+              Archive
+            </Button>
+          ) : null}
           {canReassign ? (
             <Button
               type="button"
@@ -639,6 +708,7 @@ export function CapexDetailPage() {
         busy={reassigning}
         onConfirm={reassignApprover}
       />
+      {confirmDialog}
     </AdminPage>
   )
 }
