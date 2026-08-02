@@ -70,16 +70,17 @@ jobs:
             COLOR="Warning"
           else
             TITLE="Server update in ~5 minutes"
-            DETAIL="A develop deploy is queued. Use the interactive card in Teams to Deploy now, Cancel, or Retry (stays in chat).
+            DETAIL="A develop deploy is queued (~5 min wait).
           Repo: ${REPO}
           Branch: ${BRANCH}
           Actor: ${ACTOR}
-          Commit: ${SHA:0:7}"
+          Commit: ${SHA:0:7}
+          Cancel the Actions run to abort, or re-run with skip_wait to deploy now."
             COLOR="Warning"
           fi
           export TITLE DETAIL COLOR RUN_URL RUN_ID REPO BRANCH ACTOR SHA
 
-          # In-chat buttons: Power Automate "wait for response" flow (docs/TEAMS_INTERACTIVE_DEPLOY.md)
+          # Optional Power Automate hook — never block deploy on 401/expired URL.
           if [ -n "${TEAMS_APPROVAL_FLOW_URL:-}" ] && [ "${SKIP_WAIT}" != "true" ]; then
             python3 <<'PY2' > /tmp/approval-payload.json
           import json, os
@@ -95,12 +96,16 @@ jobs:
               "skip_wait": False,
           }))
           PY2
-            curl -sS -f -H "Content-Type: application/json"               --data @/tmp/approval-payload.json               "$TEAMS_APPROVAL_FLOW_URL"
-            echo
-            echo "Sent interactive approval request to TEAMS_APPROVAL_FLOW_URL"
-          elif [ "${SKIP_WAIT}" != "true" ]; then
-            echo "TEAMS_APPROVAL_FLOW_URL not set — in-chat buttons unavailable."
-            echo "See docs/TEAMS_INTERACTIVE_DEPLOY.md"
+            if curl -sS -f -H "Content-Type: application/json" \
+              --data @/tmp/approval-payload.json \
+              "$TEAMS_APPROVAL_FLOW_URL"; then
+              echo
+              echo "Sent interactive approval request to TEAMS_APPROVAL_FLOW_URL"
+            else
+              echo
+              echo "::warning::TEAMS_APPROVAL_FLOW_URL returned an error (often 401). Continuing with webhook notify only."
+              echo "Fix or clear the secret — see docs/TEAMS_INTERACTIVE_DEPLOY.md"
+            fi
           fi
 
           if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
@@ -112,6 +117,7 @@ jobs:
           title = os.environ["TITLE"]
           detail = os.environ["DETAIL"]
           color = os.environ.get("COLOR", "Warning")
+          run_url = os.environ["RUN_URL"]
           payload = {
               "title": title,
               "text": detail,
@@ -128,16 +134,25 @@ jobs:
                           {"type": "TextBlock", "size": "Medium", "weight": "Bolder", "color": color, "text": title, "wrap": True},
                           {"type": "TextBlock", "text": detail, "wrap": True},
                           {"type": "TextBlock", "isSubtle": True, "wrap": True,
-                           "text": "Interactive Deploy now / Cancel / Retry come from TEAMS_APPROVAL_FLOW_URL (docs/TEAMS_INTERACTIVE_DEPLOY.md)."},
+                           "text": "Cancel this Actions run to abort, or re-run with skip_wait to deploy now."},
+                      ],
+                      "actions": [
+                          {"type": "Action.OpenUrl", "title": "View workflow run", "url": run_url},
                       ],
                   },
               }],
           }
           print(json.dumps(payload))
           PY2
-          curl -sS -f -H "Content-Type: application/json"             --data @/tmp/teams-payload.json             "$TEAMS_WEBHOOK_URL"
-          echo
-          echo "Teams pending status notification sent"
+          if curl -sS -f -H "Content-Type: application/json" \
+            --data @/tmp/teams-payload.json \
+            "$TEAMS_WEBHOOK_URL"; then
+            echo
+            echo "Teams pending status notification sent"
+          else
+            echo
+            echo "::warning::TEAMS_WEBHOOK_URL notify failed — deploy will still continue"
+          fi
 
   wait-gate:
     name: Wait 5 minutes (or skip)
@@ -304,9 +319,9 @@ jobs:
           PY
           curl -sS -f -H "Content-Type: application/json" \
             --data @/tmp/teams-payload.json \
-            "$TEAMS_WEBHOOK_URL"
-          echo
-          echo "Teams success notification sent"
+            "$TEAMS_WEBHOOK_URL" \
+            && echo && echo "Teams success notification sent" \
+            || { echo; echo "::warning::TEAMS_WEBHOOK_URL success notify failed"; }
 
   notify-teams-failure:
     name: Notify Teams on failure
@@ -373,6 +388,6 @@ jobs:
           PY
           curl -sS -f -H "Content-Type: application/json" \
             --data @/tmp/teams-payload.json \
-            "$TEAMS_WEBHOOK_URL"
-          echo
-          echo "Teams failure notification sent"
+            "$TEAMS_WEBHOOK_URL" \
+            && echo && echo "Teams failure notification sent" \
+            || { echo; echo "::warning::TEAMS_WEBHOOK_URL failure notify failed"; }
