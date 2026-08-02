@@ -2,9 +2,9 @@ name: Deploy develop
 
 # Push to develop → Teams pending (≈5 min) → wait → deploy → Teams success/failure.
 #
-# Option A — Wait 5 minutes (do nothing).
-# Option B — Deploy now: Teams button opens GitHub → Run workflow (skip_wait ON)
-#   → concurrency cancels the waiting run and deploys immediately.
+# Wait 5 min: do nothing.
+# Deploy now (real one-click): Teams button opens DEPLOY_NOW_URL
+#   (server /api/deploy-now?token=… → GitHub workflow_dispatch skip_wait=true).
 # Cancel: open the run → Cancel workflow.
 
 on:
@@ -48,13 +48,14 @@ jobs:
       - name: Post pending deploy to Teams
         env:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          DEPLOY_NOW_URL: ${{ secrets.DEPLOY_NOW_URL }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/deploy-develop.yml
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
           ACTOR: ${{ github.actor }}
           SHA: ${{ github.sha }}
-          SKIP_WAIT: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_wait || false }}
+          SKIP_WAIT: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_wait == true }}
         run: |
           set -euo pipefail
           if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
@@ -80,11 +81,11 @@ jobs:
           Commit: ${SHA:0:7}
 
           • Wait 5 minutes — do nothing; deploy starts automatically.
-          • Deploy now (no wait) — open GitHub → Run workflow (skip wait is ON). That cancels this wait and deploys immediately.
+          • Deploy now — tap the button (skips wait immediately).
           • Cancel — open this run → Cancel workflow."
             COLOR="Warning"
           fi
-          export TITLE DETAIL COLOR RUN_URL WORKFLOW_URL SKIP_WAIT
+          export TITLE DETAIL COLOR RUN_URL WORKFLOW_URL SKIP_WAIT DEPLOY_NOW_URL
           python3 <<'PY' > /tmp/teams-payload.json
           import json, os
           title = os.environ["TITLE"]
@@ -92,11 +93,15 @@ jobs:
           color = os.environ.get("COLOR", "Warning")
           run_url = os.environ["RUN_URL"]
           workflow_url = os.environ["WORKFLOW_URL"]
+          deploy_now = (os.environ.get("DEPLOY_NOW_URL") or "").strip()
           skip = os.environ.get("SKIP_WAIT", "false") == "true"
           actions = [{"type": "Action.OpenUrl", "title": "View / cancel run", "url": run_url}]
           if not skip:
+              # Prefer real one-click URL; otherwise open workflow page (must click Run workflow).
+              now_url = deploy_now or workflow_url
+              now_title = "Deploy now (no 5 min wait)" if deploy_now else "Open GitHub → Run workflow (skip wait)"
               actions = [
-                  {"type": "Action.OpenUrl", "title": "Deploy now (no 5 min wait)", "url": workflow_url},
+                  {"type": "Action.OpenUrl", "title": now_title, "url": now_url},
                   {"type": "Action.OpenUrl", "title": "Wait / view run", "url": run_url},
                   {"type": "Action.OpenUrl", "title": "Cancel run", "url": run_url},
               ]
@@ -135,14 +140,13 @@ jobs:
     steps:
       - name: Hold deploy window
         env:
-          SKIP_WAIT: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_wait || false }}
+          SKIP_WAIT: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_wait == true }}
         run: |
           set -euo pipefail
-          if [ "${SKIP_WAIT}" = "true" ]; then
-            echo "skip_wait=true — continuing immediately"
-            exit 0
-          fi
-          echo "Waiting 5 minutes before deploy. Do nothing to wait, or Run workflow with skip_wait to deploy now."
+          case "${SKIP_WAIT}" in
+            true|True|TRUE|1) echo "skip_wait=true — continuing immediately"; exit 0 ;;
+          esac
+          echo "Waiting 5 minutes before deploy."
           for i in $(seq 1 30); do
             echo "Wait tick ${i}/30 ($(date -u +%H:%M:%S) UTC)"
             sleep 10

@@ -1,7 +1,10 @@
 import os
+import json
+import urllib.error
+import urllib.request
 
-from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from admin_api.routes import router as admin_api_router
@@ -50,6 +53,56 @@ def admin_root_redirect() -> RedirectResponse:
 def admin_login_redirect() -> RedirectResponse:
     target = os.getenv("FRONTEND_ADMIN_URL", "http://localhost:5173/admin")
     return RedirectResponse(url=f"{target.rstrip('/')}/login", status_code=307)
+
+
+@app.get("/deploy-now", include_in_schema=False)
+def deploy_now(token: str = Query(default="")) -> HTMLResponse:
+    """
+    One-click skip for develop deploy wait (Teams OpenUrl target).
+    Requires DEPLOY_NOW_TOKEN + GH_PAT (Actions: write) + GITHUB_REPOSITORY.
+    """
+    expected = (os.getenv("DEPLOY_NOW_TOKEN") or "").strip()
+    if not expected or token != expected:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    pat = (os.getenv("GH_PAT") or os.getenv("GITHUB_DEPLOY_PAT") or "").strip()
+    repo = (os.getenv("GITHUB_REPOSITORY") or "").strip()
+    if not pat or not repo:
+        raise HTTPException(status_code=503, detail="Deploy-now is not configured on the server")
+
+    url = f"https://api.github.com/repos/{repo}/actions/workflows/deploy-develop.yml/dispatches"
+    body = json.dumps({"ref": "develop", "inputs": {"skip_wait": "true"}}).encode()
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {pat}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
+            "User-Agent": "takeda-att-deploy-now",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            status = getattr(resp, "status", 204)
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")[:500]
+        raise HTTPException(status_code=502, detail=f"GitHub API {e.code}: {detail}") from e
+    except urllib.error.URLError as e:
+        raise HTTPException(status_code=502, detail=f"GitHub request failed: {e}") from e
+
+    if status not in (201, 204):
+        raise HTTPException(status_code=502, detail=f"Unexpected GitHub status {status}")
+
+    return HTMLResponse(
+        "<!doctype html><html><body style='font-family:system-ui;padding:2rem'>"
+        "<h1>Deploy started</h1>"
+        "<p>Skipped the 5-minute wait. The waiting run will cancel and deploy begins now.</p>"
+        "<p>You can close this tab.</p>"
+        "</body></html>"
+    )
 
 
 if _env_flag("SYNC_MODULES_ON_STARTUP", True):
