@@ -1,0 +1,76 @@
+name: Deploy control (Teams buttons)
+
+# Called by Power Automate when someone clicks Deploy now / Cancel / Retry in Teams.
+# Requires secret GH_PAT (classic PAT or fine-grained) with:
+#   Actions: Read and write
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: deploy_now | cancel | retry
+        type: choice
+        options:
+          - deploy_now
+          - cancel
+          - retry
+        required: true
+      target_run_id:
+        description: Actions run id to cancel (required for deploy_now and cancel)
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run control action
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          ACTION: ${{ inputs.action }}
+          TARGET_RUN_ID: ${{ inputs.target_run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "Secret GH_PAT is required for deploy-control (Actions: Read and write)"
+            exit 1
+          fi
+          echo "action=${ACTION} target_run_id=${TARGET_RUN_ID}"
+
+          if [ "${ACTION}" = "cancel" ]; then
+            if [ -z "${TARGET_RUN_ID}" ]; then
+              echo "target_run_id required for cancel"
+              exit 1
+            fi
+            gh run cancel "${TARGET_RUN_ID}" --repo "${REPO}" || true
+            echo "Cancelled run ${TARGET_RUN_ID}"
+            exit 0
+          fi
+
+          if [ "${ACTION}" = "deploy_now" ]; then
+            if [ -n "${TARGET_RUN_ID}" ]; then
+              gh run cancel "${TARGET_RUN_ID}" --repo "${REPO}" || true
+              echo "Cancelled waiting run ${TARGET_RUN_ID}"
+            fi
+            gh workflow run deploy-develop.yml --repo "${REPO}" -f skip_wait=true --ref develop
+            echo "Triggered deploy-develop with skip_wait=true"
+            exit 0
+          fi
+
+          if [ "${ACTION}" = "retry" ]; then
+            if [ -n "${TARGET_RUN_ID}" ]; then
+              gh run cancel "${TARGET_RUN_ID}" --repo "${REPO}" || true
+            fi
+            gh workflow run deploy-develop.yml --repo "${REPO}" -f skip_wait=false --ref develop
+            echo "Triggered deploy-develop (with 5-minute wait)"
+            exit 0
+          fi
+
+          echo "Unknown action: ${ACTION}"
+          exit 1
