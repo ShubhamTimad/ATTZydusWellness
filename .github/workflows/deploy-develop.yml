@@ -2,10 +2,10 @@ name: Deploy develop
 
 # Push to develop → Teams pending (≈5 min) → wait → deploy → Teams success/failure.
 #
-# In-chat Deploy now / Cancel / Retry require TEAMS_APPROVAL_FLOW_URL + GH_PAT
-# (see docs/TEAMS_INTERACTIVE_DEPLOY.md). OpenUrl buttons cannot stay inside Teams.
-#
-# Manual: Run workflow with skip_wait=true, or Cancel workflow on the run page.
+# Teams uses Incoming Webhook only (Open URL buttons → GitHub Actions).
+# Deploy now: Run workflow → enable skip_wait (cancels this wait).
+# Cancel: open the run → Cancel workflow.
+# Retry: Run workflow again (optionally with skip_wait).
 
 on:
   push:
@@ -48,9 +48,8 @@ jobs:
       - name: Post pending deploy to Teams
         env:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
-          TEAMS_APPROVAL_FLOW_URL: ${{ secrets.TEAMS_APPROVAL_FLOW_URL }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          RUN_ID: ${{ github.run_id }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/deploy-develop.yml
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
           ACTOR: ${{ github.actor }}
@@ -58,7 +57,10 @@ jobs:
           SKIP_WAIT: ${{ inputs.skip_wait || false }}
         run: |
           set -euo pipefail
-
+          if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
+            echo "TEAMS_WEBHOOK_URL secret is not set — skip Teams notify"
+            exit 0
+          fi
           if [ "${SKIP_WAIT}" = "true" ]; then
             TITLE="Deploy develop starting now"
             DETAIL="Skip-wait requested — deploying immediately after build.
@@ -70,54 +72,25 @@ jobs:
             COLOR="Warning"
           else
             TITLE="Server update in ~5 minutes"
-            DETAIL="A develop deploy is queued (~5 min wait).
+            DETAIL="A develop deploy is queued. The server will update in about 5 minutes unless cancelled or sped up.
           Repo: ${REPO}
           Branch: ${BRANCH}
           Actor: ${ACTOR}
           Commit: ${SHA:0:7}
-          Cancel the Actions run to abort, or re-run with skip_wait to deploy now."
+
+          Deploy now: Run workflow → enable skip_wait (cancels this wait).
+          Cancel: open this run → Cancel workflow.
+          Retry: Run workflow again."
             COLOR="Warning"
           fi
-          export TITLE DETAIL COLOR RUN_URL RUN_ID REPO BRANCH ACTOR SHA
-
-          # Optional Power Automate hook — never block deploy on 401/expired URL.
-          if [ -n "${TEAMS_APPROVAL_FLOW_URL:-}" ] && [ "${SKIP_WAIT}" != "true" ]; then
-            python3 <<'PY2' > /tmp/approval-payload.json
-          import json, os
-          print(json.dumps({
-              "title": os.environ["TITLE"],
-              "text": os.environ["DETAIL"],
-              "run_id": str(os.environ["RUN_ID"]),
-              "run_url": os.environ["RUN_URL"],
-              "repo": os.environ["REPO"],
-              "branch": os.environ["BRANCH"],
-              "actor": os.environ["ACTOR"],
-              "sha": os.environ["SHA"][:7],
-              "skip_wait": False,
-          }))
-          PY2
-            if curl -sS -f -H "Content-Type: application/json" \
-              --data @/tmp/approval-payload.json \
-              "$TEAMS_APPROVAL_FLOW_URL"; then
-              echo
-              echo "Sent interactive approval request to TEAMS_APPROVAL_FLOW_URL"
-            else
-              echo
-              echo "::warning::TEAMS_APPROVAL_FLOW_URL returned an error (often 401). Continuing with webhook notify only."
-              echo "Fix or clear the secret — see docs/TEAMS_INTERACTIVE_DEPLOY.md"
-            fi
-          fi
-
-          if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
-            echo "TEAMS_WEBHOOK_URL secret is not set — skip status notify"
-            exit 0
-          fi
-          python3 <<'PY2' > /tmp/teams-payload.json
+          export TITLE DETAIL COLOR RUN_URL WORKFLOW_URL
+          python3 <<'PY' > /tmp/teams-payload.json
           import json, os
           title = os.environ["TITLE"]
           detail = os.environ["DETAIL"]
           color = os.environ.get("COLOR", "Warning")
           run_url = os.environ["RUN_URL"]
+          workflow_url = os.environ["WORKFLOW_URL"]
           payload = {
               "title": title,
               "text": detail,
@@ -133,26 +106,22 @@ jobs:
                       "body": [
                           {"type": "TextBlock", "size": "Medium", "weight": "Bolder", "color": color, "text": title, "wrap": True},
                           {"type": "TextBlock", "text": detail, "wrap": True},
-                          {"type": "TextBlock", "isSubtle": True, "wrap": True,
-                           "text": "Cancel this Actions run to abort, or re-run with skip_wait to deploy now."},
                       ],
                       "actions": [
-                          {"type": "Action.OpenUrl", "title": "View workflow run", "url": run_url},
+                          {"type": "Action.OpenUrl", "title": "Deploy now (skip wait)", "url": workflow_url},
+                          {"type": "Action.OpenUrl", "title": "Cancel / view run", "url": run_url},
+                          {"type": "Action.OpenUrl", "title": "Retry workflow", "url": workflow_url},
                       ],
                   },
               }],
           }
           print(json.dumps(payload))
-          PY2
-          if curl -sS -f -H "Content-Type: application/json" \
+          PY
+          curl -sS -f -H "Content-Type: application/json" \
             --data @/tmp/teams-payload.json \
-            "$TEAMS_WEBHOOK_URL"; then
-            echo
-            echo "Teams pending status notification sent"
-          else
-            echo
-            echo "::warning::TEAMS_WEBHOOK_URL notify failed — deploy will still continue"
-          fi
+            "$TEAMS_WEBHOOK_URL" \
+            && echo && echo "Teams pending notification sent" \
+            || { echo; echo "::warning::TEAMS_WEBHOOK_URL notify failed — deploy will still continue"; }
 
   wait-gate:
     name: Wait 5 minutes (or skip)
