@@ -1,13 +1,25 @@
 name: Deploy develop
 
+# Push to develop → Teams pending (≈5 min) → wait → deploy → Teams success/failure.
+#
+# Deploy now: Actions → this workflow → Run workflow → enable skip_wait
+#   (concurrency cancels the waiting run and starts a skip-wait deploy).
+# Cancel: open the run → Cancel workflow.
+# Retry: Run workflow again (optionally with skip_wait).
+
 on:
   push:
     branches: [develop]
   workflow_dispatch:
+    inputs:
+      skip_wait:
+        description: "Deploy now — skip the 5-minute wait"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-develop
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -28,9 +40,114 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  announce-pending:
+    name: Notify Teams — deploy pending
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post pending deploy to Teams
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/deploy-develop.yml
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ github.sha }}
+          SKIP_WAIT: ${{ inputs.skip_wait || false }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
+            echo "TEAMS_WEBHOOK_URL secret is not set — skip Teams notify"
+            exit 0
+          fi
+          if [ "${SKIP_WAIT}" = "true" ]; then
+            TITLE="Deploy develop starting now"
+            DETAIL="Skip-wait requested — deploying immediately after build.
+          Repo: ${REPO}
+          Branch: ${BRANCH}
+          Actor: ${ACTOR}
+          Commit: ${SHA:0:7}
+          Run: ${RUN_URL}"
+            COLOR="Warning"
+          else
+            TITLE="Server update in ~5 minutes"
+            DETAIL="A develop deploy is queued. The server will update in about 5 minutes unless cancelled or sped up.
+          Repo: ${REPO}
+          Branch: ${BRANCH}
+          Actor: ${ACTOR}
+          Commit: ${SHA:0:7}
+
+          Deploy now: Run workflow → enable skip_wait (cancels this wait).
+          Cancel: open this run → Cancel workflow.
+          Retry: Run workflow again."
+            COLOR="Warning"
+          fi
+          export TITLE DETAIL COLOR RUN_URL WORKFLOW_URL
+          python3 <<'PY' > /tmp/teams-payload.json
+          import json, os
+          title = os.environ["TITLE"]
+          detail = os.environ["DETAIL"]
+          color = os.environ.get("COLOR", "Warning")
+          run_url = os.environ["RUN_URL"]
+          workflow_url = os.environ["WORKFLOW_URL"]
+          payload = {
+              "title": title,
+              "text": detail,
+              "summary": title,
+              "type": "message",
+              "attachments": [{
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "contentUrl": None,
+                  "content": {
+                      "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                      "type": "AdaptiveCard",
+                      "version": "1.4",
+                      "body": [
+                          {"type": "TextBlock", "size": "Medium", "weight": "Bolder", "color": color, "text": title, "wrap": True},
+                          {"type": "TextBlock", "text": detail, "wrap": True},
+                      ],
+                      "actions": [
+                          {"type": "Action.OpenUrl", "title": "Deploy now (skip wait)", "url": workflow_url},
+                          {"type": "Action.OpenUrl", "title": "Cancel / view run", "url": run_url},
+                          {"type": "Action.OpenUrl", "title": "Retry workflow", "url": workflow_url},
+                      ],
+                  },
+              }],
+          }
+          print(json.dumps(payload))
+          PY
+          curl -sS -f -H "Content-Type: application/json" \
+            --data @/tmp/teams-payload.json \
+            "$TEAMS_WEBHOOK_URL"
+          echo
+          echo "Teams pending notification sent"
+
+  wait-gate:
+    name: Wait 5 minutes (or skip)
+    needs: announce-pending
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hold deploy window
+        env:
+          SKIP_WAIT: ${{ inputs.skip_wait || false }}
+        run: |
+          set -euo pipefail
+          if [ "${SKIP_WAIT}" = "true" ]; then
+            echo "skip_wait=true — continuing immediately"
+            exit 0
+          fi
+          echo "Waiting 5 minutes before deploy. Cancel this run to abort, or start a new run with skip_wait to deploy now."
+          # 30 x 10s — cancel-in-progress from a skip_wait run will kill this job.
+          for i in $(seq 1 30); do
+            echo "Wait tick ${i}/30 ($(date -u +%H:%M:%S) UTC)"
+            sleep 10
+          done
+          echo "Wait finished — proceeding to deploy"
+
   deploy:
     name: Deploy to server
-    needs: build
+    needs: wait-gate
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
@@ -110,16 +227,82 @@ jobs:
             git checkout develop
             git reset --hard origin/develop
 
+  notify-teams-success:
+    name: Notify Teams on success
+    needs: [build, wait-gate, deploy]
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post success to Teams
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
+            echo "TEAMS_WEBHOOK_URL secret is not set — skip Teams notify"
+            exit 0
+          fi
+          export TITLE="Deploy develop succeeded"
+          export DETAIL="Server updated successfully.
+          Repo: ${REPO}
+          Branch: ${BRANCH}
+          Actor: ${ACTOR}
+          Commit: ${SHA:0:7}
+          Run: ${RUN_URL}"
+          export COLOR="Good"
+          export RUN_URL
+          python3 <<'PY' > /tmp/teams-payload.json
+          import json, os
+          title = os.environ["TITLE"]
+          detail = os.environ["DETAIL"]
+          color = os.environ.get("COLOR", "Good")
+          run_url = os.environ["RUN_URL"]
+          payload = {
+              "title": title,
+              "text": detail,
+              "summary": title,
+              "type": "message",
+              "attachments": [{
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "contentUrl": None,
+                  "content": {
+                      "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                      "type": "AdaptiveCard",
+                      "version": "1.4",
+                      "body": [
+                          {"type": "TextBlock", "size": "Medium", "weight": "Bolder", "color": color, "text": title, "wrap": True},
+                          {"type": "TextBlock", "text": detail, "wrap": True},
+                      ],
+                      "actions": [
+                          {"type": "Action.OpenUrl", "title": "View workflow run", "url": run_url},
+                      ],
+                  },
+              }],
+          }
+          print(json.dumps(payload))
+          PY
+          curl -sS -f -H "Content-Type: application/json" \
+            --data @/tmp/teams-payload.json \
+            "$TEAMS_WEBHOOK_URL"
+          echo
+          echo "Teams success notification sent"
+
   notify-teams-failure:
     name: Notify Teams on failure
-    needs: [build, deploy]
-    if: always() && (needs.build.result == 'failure' || needs.deploy.result == 'failure')
+    needs: [build, announce-pending, wait-gate, deploy]
+    if: always() && (needs.build.result == 'failure' || needs.announce-pending.result == 'failure' || needs.wait-gate.result == 'failure' || needs.deploy.result == 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Post failure to Teams
         env:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/deploy-develop.yml
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
           ACTOR: ${{ github.actor }}
@@ -135,50 +318,40 @@ jobs:
           Branch: ${BRANCH}
           Actor: ${ACTOR}
           Commit: ${SHA:0:7}
-          Run: ${RUN_URL}"
+          Run: ${RUN_URL}
+
+          Retry: Run workflow again (optionally with skip_wait)."
+          export COLOR="Attention"
+          export RUN_URL WORKFLOW_URL
           python3 <<'PY' > /tmp/teams-payload.json
           import json, os
           title = os.environ["TITLE"]
           detail = os.environ["DETAIL"]
+          color = os.environ.get("COLOR", "Attention")
           run_url = os.environ["RUN_URL"]
+          workflow_url = os.environ["WORKFLOW_URL"]
           payload = {
               "title": title,
               "text": detail,
               "summary": title,
               "type": "message",
-              "attachments": [
-                  {
-                      "contentType": "application/vnd.microsoft.card.adaptive",
-                      "contentUrl": None,
-                      "content": {
-                          "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                          "type": "AdaptiveCard",
-                          "version": "1.4",
-                          "body": [
-                              {
-                                  "type": "TextBlock",
-                                  "size": "Medium",
-                                  "weight": "Bolder",
-                                  "color": "Attention",
-                                  "text": title,
-                                  "wrap": True,
-                              },
-                              {
-                                  "type": "TextBlock",
-                                  "text": detail,
-                                  "wrap": True,
-                              },
-                          ],
-                          "actions": [
-                              {
-                                  "type": "Action.OpenUrl",
-                                  "title": "View workflow run",
-                                  "url": run_url,
-                              }
-                          ],
-                      },
-                  }
-              ],
+              "attachments": [{
+                  "contentType": "application/vnd.microsoft.card.adaptive",
+                  "contentUrl": None,
+                  "content": {
+                      "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                      "type": "AdaptiveCard",
+                      "version": "1.4",
+                      "body": [
+                          {"type": "TextBlock", "size": "Medium", "weight": "Bolder", "color": color, "text": title, "wrap": True},
+                          {"type": "TextBlock", "text": detail, "wrap": True},
+                      ],
+                      "actions": [
+                          {"type": "Action.OpenUrl", "title": "View workflow run", "url": run_url},
+                          {"type": "Action.OpenUrl", "title": "Retry workflow", "url": workflow_url},
+                      ],
+                  },
+              }],
           }
           print(json.dumps(payload))
           PY
