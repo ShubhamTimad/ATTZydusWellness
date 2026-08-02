@@ -561,7 +561,8 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
               </DropdownMenuItem>
               <DropdownMenuSeparator className="my-2" />
               <DropdownMenuItem
-                className="h-10 cursor-pointer justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground"
+                variant="destructive"
+                className="h-10 cursor-pointer gap-2 rounded-lg px-2 text-sm font-medium"
                 onSelect={(e) => {
                   e.preventDefault()
                   void handleSignOut()

@@ -26,6 +26,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -322,8 +323,10 @@ export function AdminLayout({
                   <div className="truncate text-xs text-muted-foreground">{account.email.trim()}</div>
                 ) : null}
               </DropdownMenuLabel>
+              <DropdownMenuSeparator className="my-2" />
               <DropdownMenuItem
-                className="h-10 cursor-pointer justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground"
+                variant="destructive"
+                className="h-10 cursor-pointer gap-2 rounded-lg px-2 text-sm font-medium"
                 onSelect={(e) => {
                   e.preventDefault()
                   void handleSignOut()
