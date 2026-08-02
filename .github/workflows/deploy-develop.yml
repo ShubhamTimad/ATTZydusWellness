@@ -109,3 +109,81 @@ jobs:
             echo "Deploy OK: $NEW_SHA"
             git checkout develop
             git reset --hard origin/develop
+
+  notify-teams-failure:
+    name: Notify Teams on failure
+    needs: [build, deploy]
+    if: always() && (needs.build.result == 'failure' || needs.deploy.result == 'failure')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post failure to Teams
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
+            echo "TEAMS_WEBHOOK_URL secret is not set — skip Teams notify"
+            exit 0
+          fi
+          export TITLE="Deploy develop failed"
+          export DETAIL="Repo: ${REPO}
+          Branch: ${BRANCH}
+          Actor: ${ACTOR}
+          Commit: ${SHA:0:7}
+          Run: ${RUN_URL}"
+          python3 <<'PY' > /tmp/teams-payload.json
+          import json, os
+          title = os.environ["TITLE"]
+          detail = os.environ["DETAIL"]
+          run_url = os.environ["RUN_URL"]
+          payload = {
+              "title": title,
+              "text": detail,
+              "summary": title,
+              "type": "message",
+              "attachments": [
+                  {
+                      "contentType": "application/vnd.microsoft.card.adaptive",
+                      "contentUrl": None,
+                      "content": {
+                          "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                          "type": "AdaptiveCard",
+                          "version": "1.4",
+                          "body": [
+                              {
+                                  "type": "TextBlock",
+                                  "size": "Medium",
+                                  "weight": "Bolder",
+                                  "color": "Attention",
+                                  "text": title,
+                                  "wrap": True,
+                              },
+                              {
+                                  "type": "TextBlock",
+                                  "text": detail,
+                                  "wrap": True,
+                              },
+                          ],
+                          "actions": [
+                              {
+                                  "type": "Action.OpenUrl",
+                                  "title": "View workflow run",
+                                  "url": run_url,
+                              }
+                          ],
+                      },
+                  }
+              ],
+          }
+          print(json.dumps(payload))
+          PY
+          curl -sS -f -H "Content-Type: application/json" \
+            --data @/tmp/teams-payload.json \
+            "$TEAMS_WEBHOOK_URL"
+          echo
+          echo "Teams failure notification sent"
