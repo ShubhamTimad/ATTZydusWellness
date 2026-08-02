@@ -215,7 +215,6 @@ export function OrderDetailPage() {
   const canApprove = hasPermission("order.approve")
   const canExecute = hasPermission("order.execute")
   const canCreate = hasPermission("order.create")
-  const canUpdate = hasPermission("order.update")
   const canReassignOrder =
     hasPermission("order.reassign") ||
     hasPermission("order.create") ||
