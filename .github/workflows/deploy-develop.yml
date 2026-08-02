@@ -2,10 +2,10 @@ name: Deploy develop
 
 # Push to develop → Teams pending (≈5 min) → wait → deploy → Teams success/failure.
 #
-# Teams uses Incoming Webhook only (Open URL buttons → GitHub Actions).
-# Deploy now: Run workflow → enable skip_wait (cancels this wait).
+# Teams buttons only open GitHub (Incoming Webhook cannot cancel a run).
+# Deploy now: open workflow → Run workflow (skip_wait defaults ON) → cancels the waiting run.
 # Cancel: open the run → Cancel workflow.
-# Retry: Run workflow again (optionally with skip_wait).
+# Retry: Run workflow again.
 
 on:
   push:
@@ -13,9 +13,9 @@ on:
   workflow_dispatch:
     inputs:
       skip_wait:
-        description: "Deploy now — skip the 5-minute wait"
+        description: "Deploy now — skip the 5-minute wait (leave ON when using Deploy now from Teams)"
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: deploy-develop
@@ -54,7 +54,8 @@ jobs:
           BRANCH: ${{ github.ref_name }}
           ACTOR: ${{ github.actor }}
           SHA: ${{ github.sha }}
-          SKIP_WAIT: ${{ inputs.skip_wait || false }}
+          # Push always waits; only workflow_dispatch can skip.
+          SKIP_WAIT: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_wait || false }}
         run: |
           set -euo pipefail
           if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
@@ -78,9 +79,10 @@ jobs:
           Actor: ${ACTOR}
           Commit: ${SHA:0:7}
 
-          Deploy now: Run workflow → enable skip_wait (cancels this wait).
-          Cancel: open this run → Cancel workflow.
-          Retry: Run workflow again."
+          Deploy now does NOT stop this wait by itself.
+          1) Click Deploy now → GitHub opens
+          2) Click Run workflow (skip wait is already ON)
+          3) That new run cancels this waiting one and deploys now."
             COLOR="Warning"
           fi
           export TITLE DETAIL COLOR RUN_URL WORKFLOW_URL
@@ -108,7 +110,7 @@ jobs:
                           {"type": "TextBlock", "text": detail, "wrap": True},
                       ],
                       "actions": [
-                          {"type": "Action.OpenUrl", "title": "Deploy now (skip wait)", "url": workflow_url},
+                          {"type": "Action.OpenUrl", "title": "Open GitHub → Run workflow", "url": workflow_url},
                           {"type": "Action.OpenUrl", "title": "Cancel / view run", "url": run_url},
                           {"type": "Action.OpenUrl", "title": "Retry workflow", "url": workflow_url},
                       ],
@@ -130,7 +132,7 @@ jobs:
     steps:
       - name: Hold deploy window
         env:
-          SKIP_WAIT: ${{ inputs.skip_wait || false }}
+          SKIP_WAIT: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_wait || false }}
         run: |
           set -euo pipefail
           if [ "${SKIP_WAIT}" = "true" ]; then
