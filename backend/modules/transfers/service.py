@@ -1501,37 +1501,8 @@ class TransferOrderService:
                     ),
                 )
             )
-        # Return-to-receiver: keep confirm marked rejected on the live run so the
-        # horizontal process flow / timeline show the CF reject while receive is current.
-        if len(out) >= 2 and str(req.status).lower() == "pending":
-            prev = out[-2]
-            last = out[-1]
-            if prev.request_status == "rejected":
-                prev_rej = next(
-                    (s for s in prev.workflow_steps if s.phase == "rejected"),
-                    None,
-                )
-                cur = next((s for s in last.workflow_steps if s.phase == "current"), None)
-                if (
-                    prev_rej is not None
-                    and cur is not None
-                    and str(cur.step_kind or "").lower() == "receive"
-                ):
-                    patched = [
-                        (
-                            s.model_copy(
-                                update={
-                                    "phase": "rejected",
-                                    "status_label": "Rejected — returned to receiver",
-                                }
-                            )
-                            if int(s.step_order) == int(prev_rej.step_order)
-                            and s.phase == "upcoming"
-                            else s
-                        )
-                        for s in last.workflow_steps
-                    ]
-                    out[-1] = last.model_copy(update={"workflow_steps": patched})
+        # Rejection stays on the earlier attempt only. The live run must show a clean
+        # path (completed → current → upcoming) so restart-after-reject progress bars match.
         return out
 
     def _approval_panel(

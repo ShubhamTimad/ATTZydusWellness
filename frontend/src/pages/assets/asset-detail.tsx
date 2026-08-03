@@ -393,6 +393,9 @@ export function AssetDetailPage() {
         if (!a) return a
         return {
           ...a,
+          asset_custodian_id: null,
+          asset_custodian_code: null,
+          asset_custodian_name: null,
           financial: {
             ...(a.financial ?? {}),
             cost_center: code,
@@ -833,10 +836,7 @@ export function AssetDetailPage() {
 
   const sectionPanelProps = {
     compact: !editing,
-    fieldColumns: (sectionId: AssetViewSectionId) =>
-      !editing && (sectionId === "financial" || sectionId === "information")
-        ? (2 as const)
-        : (1 as const),
+    fieldColumns: (_sectionId: AssetViewSectionId) => 2 as const,
   }
 
   function renderAssetViewSection(sectionId: AssetViewSectionId) {
@@ -948,6 +948,14 @@ export function AssetDetailPage() {
               value: String(c.id),
               label: assetClassLabel(c),
             })),
+          }}
+          selectPlaceholders={{
+            asset_custodian_id: a.financial?.cost_center
+              ? "—"
+              : "Select cost center first",
+          }}
+          selectDisabled={{
+            asset_custodian_id: !a.financial?.cost_center,
           }}
           tagColors={a.rfid_code?.trim() ? masters.tagColors : []}
         />
@@ -1127,18 +1135,23 @@ export function AssetDetailPage() {
           {!editing ? <SummaryStrip items={summaryItems} /> : null}
 
           {editing ? (
-            <div className="app-grid app-grid-2 items-stretch">
-              {ASSET_VIEW_SECTIONS.map((sec) => renderAssetViewSection(sec.id))}
+            <div className="flex flex-col gap-[var(--app-grid-gap)]">
+              {renderAssetViewSection("information")}
+              <div className="grid grid-cols-1 items-stretch gap-[var(--app-grid-gap)] lg:grid-cols-2">
+                {renderAssetViewSection("financial")}
+                {renderAssetViewSection("location")}
+              </div>
+              {renderAssetViewSection("inventory")}
             </div>
           ) : (
             <div className="flex flex-col gap-5">
               {renderAssetViewSection("information")}
               <div className="border-t-2 border-border/70" role="separator" />
-              <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-3">
-                {renderAssetViewSection("location")}
+              <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
                 {renderAssetViewSection("financial")}
-                {renderAssetViewSection("inventory")}
+                {renderAssetViewSection("location")}
               </div>
+              {renderAssetViewSection("inventory")}
             </div>
           )}
           <div className="flex justify-end border-t border-border/60 pt-3">

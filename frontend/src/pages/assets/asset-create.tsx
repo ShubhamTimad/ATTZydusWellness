@@ -345,15 +345,14 @@ export function AssetCreatePage() {
           void createAsset()
         }}
       >
-        <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
-          <AdminPanel
-            title="Asset information"
-            description="Core identification fields"
-            headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
-          >
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="sm:col-span-2">
+        <AdminPanel
+          title="Asset information"
+          description="Core identification fields"
+          headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
+          contentClassName="px-5 py-5"
+        >
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="sm:col-span-2 lg:col-span-3">
                 <Label className="app-form-label mb-2 block">Asset Image</Label>
                 <AssetImage
                   file={imageFile}
@@ -376,7 +375,7 @@ export function AssetCreatePage() {
                   id="asset_name"
                   labelText={fc.getLabel("asset_name", "Asset Name")}
                   required={fc.isRequired("asset_name")}
-                  className="sm:col-span-2"
+                  className="sm:col-span-2 lg:col-span-3"
                 >
                   <Input
                     id="asset_name"
@@ -528,9 +527,12 @@ export function AssetCreatePage() {
                     id="asset_custodian_id"
                     className={adminSelectClass}
                     value={form.asset_custodian_id}
+                    disabled={!form.cost_center}
                     onChange={(e) => patch({ asset_custodian_id: e.target.value })}
                   >
-                    <option value="">—</option>
+                    <option value="">
+                      {form.cost_center ? "—" : "Select cost center first"}
+                    </option>
                     {masters.custodianUsers.map((c) => (
                       <option key={c.id} value={String(c.id)}>
                         {assetCustodianLabel(c)}
@@ -564,6 +566,7 @@ export function AssetCreatePage() {
                 <FormField
                   id="remark"
                   labelText={fc.getLabel("remark", "Asset Remark")}
+                  className="sm:col-span-2 lg:col-span-3"
                 >
                   <textarea
                     id="remark"
@@ -580,6 +583,7 @@ export function AssetCreatePage() {
                 <FormField
                   id="asset_description"
                   labelText={fc.getLabel("asset_description", "Asset Description")}
+                  className="sm:col-span-2 lg:col-span-3"
                 >
                   <textarea
                     id="asset_description"
@@ -594,103 +598,14 @@ export function AssetCreatePage() {
             </div>
           </AdminPanel>
 
-          <AdminPanel
-            title="Location"
-            description="Plant is fixed to Takeda"
-            headerActions={<MapPin className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
-          >
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {field(
-                "plant_code",
-                <FormField
-                  labelText="Plant Code"
-                >
-                  <Input
-                    readOnly
-                    disabled
-                    className="bg-muted/40 font-mono"
-                    value={selectedPlant?.code ?? "—"}
-                  />
-                </FormField>,
-              )}
-              <FormField
-                labelText="Plant Name"
-                required={fc.isRequired("plant_id")}
-              >
-                <Input
-                  readOnly
-                  disabled
-                  className="bg-muted/40"
-                  value={selectedPlant?.name ?? "Takeda"}
-                />
-              </FormField>
-              <FormField
-                id="functional_location"
-                labelText={fc.getLabel("functional_location", "Actual Location 1")}
-                required={fc.isRequired("functional_location")}
-              >
-                <select
-                  id="functional_location"
-                  className={adminSelectClass}
-                  value={form.functional_location}
-                  onChange={(e) =>
-                    patch({ functional_location: e.target.value, actual_location: "" })
-                  }
-                >
-                  <option value="">—</option>
-                  {masters.functionalLocations.map((l) => (
-                    <option key={l.id} value={l.code}>
-                      {functionalLocationLabel(l)}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              <FormField
-                id="actual_location"
-                labelText={fc.getLabel("actual_location", "Actual Location 2")}
-                required={fc.isRequired("actual_location")}
-              >
-                <select
-                  id="actual_location"
-                  className={adminSelectClass}
-                  value={form.actual_location}
-                  disabled={!form.functional_location}
-                  onChange={(e) => patch({ actual_location: e.target.value })}
-                >
-                  <option value="">
-                    {form.functional_location ? "—" : "Select functional location first"}
-                  </option>
-                  {masters.actualLocations.map((l) => (
-                    <option key={l.id} value={l.code}>
-                      {actualLocationLabel(l)}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              {field(
-                "sub_location",
-                <FormField id="sub_location" labelText={fc.getLabel("sub_location", "Sub Location")}>
-                  <Input id="sub_location" value={form.sub_location} onChange={(e) => patch({ sub_location: e.target.value })} />
-                </FormField>,
-              )}
-              <FormField id="room" labelText="Room">
-                <Input id="room" value={form.room} onChange={(e) => patch({ room: e.target.value })} />
-              </FormField>
-              <FormField id="zone" labelText="Zone">
-                <Input id="zone" value={form.zone} onChange={(e) => patch({ zone: e.target.value })} />
-              </FormField>
-            </div>
-          </AdminPanel>
-
+        <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
             title="Financial information"
             description="Cost, capitalization, and life span"
             headerActions={<DollarSign className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
-            className="lg:col-span-2"
           >
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {field(
                 "cost_center",
                 <FormField
@@ -702,7 +617,13 @@ export function AssetCreatePage() {
                     id="cost_center"
                     className={adminSelectClass}
                     value={form.cost_center}
-                    onChange={(e) => patch({ cost_center: e.target.value, profit_center: "" })}
+                    onChange={(e) =>
+                      patch({
+                        cost_center: e.target.value,
+                        profit_center: "",
+                        asset_custodian_id: "",
+                      })
+                    }
                   >
                     <option value="">—</option>
                     {masters.costCenters.map((m) => (
@@ -723,7 +644,13 @@ export function AssetCreatePage() {
                     id="cost_center_name"
                     className={adminSelectClass}
                     value={form.cost_center}
-                    onChange={(e) => patch({ cost_center: e.target.value, profit_center: "" })}
+                    onChange={(e) =>
+                      patch({
+                        cost_center: e.target.value,
+                        profit_center: "",
+                        asset_custodian_id: "",
+                      })
+                    }
                   >
                     <option value="">—</option>
                     {masters.costCenters.map((m) => (
@@ -895,6 +822,96 @@ export function AssetCreatePage() {
               </FormField>
             </div>
           </AdminPanel>
+
+          <AdminPanel
+            title="Location"
+            description="Plant is fixed to Takeda"
+            headerActions={<MapPin className="size-4 text-muted-foreground" aria-hidden />}
+            contentClassName="px-5 py-5"
+          >
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {field(
+                "plant_code",
+                <FormField
+                  labelText="Plant Code"
+                >
+                  <Input
+                    readOnly
+                    disabled
+                    className="bg-muted/40 font-mono"
+                    value={selectedPlant?.code ?? "—"}
+                  />
+                </FormField>,
+              )}
+              <FormField
+                labelText="Plant Name"
+                required={fc.isRequired("plant_id")}
+              >
+                <Input
+                  readOnly
+                  disabled
+                  className="bg-muted/40"
+                  value={selectedPlant?.name ?? "Takeda"}
+                />
+              </FormField>
+              <FormField
+                id="functional_location"
+                labelText={fc.getLabel("functional_location", "Actual Location 1")}
+                required={fc.isRequired("functional_location")}
+              >
+                <select
+                  id="functional_location"
+                  className={adminSelectClass}
+                  value={form.functional_location}
+                  onChange={(e) =>
+                    patch({ functional_location: e.target.value, actual_location: "" })
+                  }
+                >
+                  <option value="">—</option>
+                  {masters.functionalLocations.map((l) => (
+                    <option key={l.id} value={l.code}>
+                      {functionalLocationLabel(l)}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField
+                id="actual_location"
+                labelText={fc.getLabel("actual_location", "Actual Location 2")}
+                required={fc.isRequired("actual_location")}
+              >
+                <select
+                  id="actual_location"
+                  className={adminSelectClass}
+                  value={form.actual_location}
+                  disabled={!form.functional_location}
+                  onChange={(e) => patch({ actual_location: e.target.value })}
+                >
+                  <option value="">
+                    {form.functional_location ? "—" : "Select functional location first"}
+                  </option>
+                  {masters.actualLocations.map((l) => (
+                    <option key={l.id} value={l.code}>
+                      {actualLocationLabel(l)}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              {field(
+                "sub_location",
+                <FormField id="sub_location" labelText={fc.getLabel("sub_location", "Sub Location")}>
+                  <Input id="sub_location" value={form.sub_location} onChange={(e) => patch({ sub_location: e.target.value })} />
+                </FormField>,
+              )}
+              <FormField id="room" labelText="Room">
+                <Input id="room" value={form.room} onChange={(e) => patch({ room: e.target.value })} />
+              </FormField>
+              <FormField id="zone" labelText="Zone">
+                <Input id="zone" value={form.zone} onChange={(e) => patch({ zone: e.target.value })} />
+              </FormField>
+            </div>
+          </AdminPanel>
+
         </div>
 
         <AdminPanel

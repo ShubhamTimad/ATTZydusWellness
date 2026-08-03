@@ -200,10 +200,9 @@ export type CapexProgressStep = {
 }
 
 /**
- * Full form-progress path (current attempt only):
- * Draft → Pending for approval → role levels (future included) → Rejected (if stopped).
- * Completed levels use "Approved by {Role}"; waiting/future use the role name.
- * Resubmit after rework starts a new attempt, so the flow resets.
+ * Form-progress path (current attempt only):
+ * Draft → workflow role steps (approve/close) → Rejected (if stopped).
+ * Completed approve levels use "Approved by {Role}"; close uses "Closed by {Role}".
  */
 export function buildCapexProgress(detail: CapexFormDetail): {
   steps: CapexProgressStep[]
@@ -212,7 +211,6 @@ export function buildCapexProgress(detail: CapexFormDetail): {
   const status = detail.status
   const isRejected = status === "rejected" || status === "in_rework"
   const workflowSteps = currentCapexWorkflowSteps(detail)
-  const completedApprovals = workflowSteps.filter((s) => s.phase === "completed")
   const currentApproval = workflowSteps.find((s) => s.phase === "current")
   const rejectAtOrder = workflowSteps.find((s) => s.phase === "rejected")?.step_order
 
@@ -223,28 +221,18 @@ export function buildCapexProgress(detail: CapexFormDetail): {
       status: status === "draft" ? "active" : "completed",
       approver_slots: [],
     },
-    {
-      key: "pending_approval",
-      label: "Pending for approval",
-      status:
-        status === "pending_approval" && completedApprovals.length === 0
-          ? "active"
-          : status === "draft"
-            ? "upcoming"
-            : "completed",
-      approver_slots: [],
-    },
   ]
 
   let insertedRejected = false
   for (const s of workflowSteps) {
     const role = shortCapexRoleLabel(s.approver_role_name)
+    const kind = (s.step_kind || "approve").toLowerCase()
     const key = `approved_by_${s.step_order}`
 
     if (s.phase === "completed") {
       steps.push({
         key,
-        label: `Approved by ${role}`,
+        label: kind === "close" ? `Closed by ${role}` : `Approved by ${role}`,
         status: "completed",
         detail: s.assigned_user_name ?? null,
         approver_slots: [],
@@ -274,7 +262,7 @@ export function buildCapexProgress(detail: CapexFormDetail): {
 
     steps.push({
       key,
-      label: role,
+      label: kind === "close" ? `Close — ${role}` : role,
       status: s.phase === "current" ? "active" : "upcoming",
       detail: s.assigned_user_name ?? null,
       approver_slots: [],
@@ -298,11 +286,11 @@ export function buildCapexProgress(detail: CapexFormDetail): {
     currentStepKey = "draft"
   } else if (status === "approved") {
     const lastApproved = [...steps].reverse().find((s) => s.key.startsWith("approved_by_"))
-    currentStepKey = lastApproved?.key ?? "pending_approval"
+    currentStepKey = lastApproved?.key ?? "draft"
   } else if (currentApproval) {
     currentStepKey = `approved_by_${currentApproval.step_order}`
-  } else if (status === "pending_approval") {
-    currentStepKey = "pending_approval"
+  } else if (status === "pending_approval" && workflowSteps.length > 0) {
+    currentStepKey = `approved_by_${workflowSteps[0]!.step_order}`
   }
 
   return { steps, currentStepKey }

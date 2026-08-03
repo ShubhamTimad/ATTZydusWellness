@@ -1157,15 +1157,23 @@ class ApprovalEngineService:
         # Move to next step.
         next_step = next_approval
         req.current_step = next_step.step_order
-        needs_named_next_approver = (
-            is_disposal
-            or str(req.entity_type)
-            in (
-                "capitalization_request",
-                "capitalization_request_engineering",
-            )
+        is_capex = str(req.entity_type) in (
+            "capitalization_request",
+            "capitalization_request_engineering",
         )
+        needs_named_next_approver = is_disposal or is_capex
         if needs_named_next_approver:
+            cur_role = self._db.get(Role, int(step.approver_role_id))
+            nxt_role = self._db.get(Role, int(next_step.approver_role_id))
+            # CapEx: same role on next step → actor continues (no picker).
+            if (
+                is_capex
+                and next_assigned_user_id is None
+                and cur_role is not None
+                and nxt_role is not None
+                and int(cur_role.id) == int(nxt_role.id)
+            ):
+                next_assigned_user_id = actor_user_id
             if next_assigned_user_id is None:
                 raise ApprovalError(
                     "Select the next approver before approving this step."
@@ -1173,8 +1181,6 @@ class ApprovalEngineService:
             self._create_tasks_for_step(
                 req, next_step, assigned_user_id=int(next_assigned_user_id)
             )
-            cur_role = self._db.get(Role, int(step.approver_role_id))
-            nxt_role = self._db.get(Role, int(next_step.approver_role_id))
             if is_disposal:
                 from modules.disposals.service import log_disposal_step_approved
 

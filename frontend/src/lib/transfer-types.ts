@@ -338,26 +338,6 @@ export function buildTransferProgress(detail: TransferOrderDetail): {
       }
     }
 
-    // Post-receive CF reject returns to receiver: show confirm as rejected, receive as active.
-    const priorRejectKind = priorRejectedStepKind(detail)
-    if (
-      status === "approved_by_cf" &&
-      (detail.rejection_reason || priorRejectKind === "confirm")
-    ) {
-      for (const step of steps) {
-        if (step.key === "received_by_cc2") {
-          step.status = "rejected"
-          step.label = step.label.startsWith("Rejected")
-            ? step.label
-            : `Rejected — ${step.label}`
-        }
-        if (step.key === "approved_by_cf") {
-          step.status = "active"
-          currentStepKey = "approved_by_cf"
-        }
-      }
-    }
-
     if (isRejected && !insertedRejected) {
       steps.push({
         key: "rejected",
@@ -508,19 +488,6 @@ function currentTransferWorkflowSteps(
   if (currentRun?.workflow_steps?.length) return currentRun.workflow_steps
   if (panel?.workflow_steps?.length) return panel.workflow_steps
   return defaultTransferApprovalSteps()
-}
-
-/** Step kind that was rejected on an earlier attempt (e.g. confirm → return to receive). */
-function priorRejectedStepKind(detail: TransferOrderDetail): string | null {
-  const runs = detail.approval_panel?.workflow_runs
-  if (!runs?.length) return null
-  for (let i = runs.length - 1; i >= 0; i -= 1) {
-    const run = runs[i]!
-    if (run.is_current) continue
-    const rejected = run.workflow_steps?.find((s) => s.phase === "rejected")
-    if (rejected) return stepKindOf(rejected)
-  }
-  return null
 }
 
 function defaultTransferApprovalSteps(): NonNullable<TransferApprovalPanel["workflow_steps"]> {

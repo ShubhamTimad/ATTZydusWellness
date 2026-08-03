@@ -195,7 +195,12 @@ export function AssetDetailSectionPanel({
         </div>
       </div>
       {editing ? (
-        <div className="grid gap-[var(--app-form-gap)] p-[var(--app-card-padding)] sm:grid-cols-2 sm:content-start">
+        <div
+          className={cn(
+            "grid gap-[var(--app-form-gap)] p-[var(--app-card-padding)] sm:grid-cols-2 sm:content-start",
+            config.id === "information" && "lg:grid-cols-3",
+          )}
+        >
           {extra}
           {keys.map((k, index) => {
             const multiline = textareaKeys.has(k)
@@ -211,7 +216,10 @@ export function AssetDetailSectionPanel({
               return (
                 <div
                   key={group.join("-")}
-                  className="grid gap-[var(--app-form-gap)] sm:col-span-2 sm:grid-cols-2"
+                  className={cn(
+                    "grid gap-[var(--app-form-gap)] sm:col-span-2 sm:grid-cols-2",
+                    config.id === "information" && "lg:col-span-3",
+                  )}
                 >
                   {group.map((gk) => (
                     <EditFieldCell

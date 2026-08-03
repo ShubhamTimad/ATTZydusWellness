@@ -32,3 +32,20 @@ STATUS_LABELS: dict[str, str] = {
 ROLE_HOD = "Department HOD"
 ROLE_ENGINEERING = "Engineering"
 ROLE_CENTRAL_FINANCE = "Central Finance"
+
+
+def capex_needs_next_assignee(
+    *,
+    current_role_id: int | None,
+    next_role_id: int | None,
+) -> bool:
+    """Whether approving the current CapEx step requires picking a user for the next step.
+
+    Same role on the next step → current actor continues (approve then close, etc.).
+    """
+    if next_role_id is None:
+        return False
+    if current_role_id is not None and int(current_role_id) == int(next_role_id):
+        return False
+    return True
+

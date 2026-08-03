@@ -22,6 +22,7 @@ from modules.capex.constants import (
     STATUS_PENDING_APPROVAL,
     STATUS_REJECTED,
     SUBMITTABLE_STATUSES,
+    capex_needs_next_assignee,
 )
 from modules.capex.audit import log_capex_event
 from modules.capex.model import CapitalizationForm, CapitalizationFormAudit
@@ -324,12 +325,19 @@ class CapexFormService:
                         None,
                     )
                     if nxt_row is not None:
-                        needs_next = True
                         next_role_id = int(nxt_row.approver_role_id)
+                        needs_next = capex_needs_next_assignee(
+                            current_role_id=current_role_id,
+                            next_role_id=next_role_id,
+                        )
                         role = self._db.get(Role, next_role_id)
                         if role is not None:
                             next_role = role.name
                             next_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
+                        if not needs_next:
+                            next_role_id = None
+                            next_role = None
+                            next_level = None
         return CapexApprovalPanel(
             request_id=int(req.id),
             request_status=str(req.status),
