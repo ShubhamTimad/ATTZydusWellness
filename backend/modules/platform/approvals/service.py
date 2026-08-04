@@ -838,6 +838,7 @@ class ApprovalEngineService:
         if act == "reject":
             # Transfer: reject on approve (→ creator rework) or confirm (→ receiver redo receive).
             # Receive/close stay non-rejectable.
+            # CapEx/disposal close steps are also non-rejectable.
             transfer_step_kind = (
                 _step_kind(task.step) if str(req.entity_type) in TRANSFER_ENTITY_TYPES else None
             )
@@ -845,6 +846,14 @@ class ApprovalEngineService:
                 raise ApprovalError(
                     "Reject is only available on approval or confirm steps for transfers."
                 )
+            capex_step_kind = (
+                _step_kind(task.step)
+                if str(req.entity_type)
+                in ("capitalization_request", "capitalization_request_engineering")
+                else None
+            )
+            if capex_step_kind == "close":
+                raise ApprovalError("Reject is not available on the Close step.")
             now = _now_utc()
             task.status = "rejected"
             task.acted_at = now
@@ -923,6 +932,13 @@ class ApprovalEngineService:
             for t in pending:
                 t.status = "closed"
                 t.closed_at = now
+
+            # Physical orders: terminal rejected on the order itself (executor restarts there).
+            # Do not open a creator rework task / leave the approval request in_rework.
+            if str(req.entity_type) in ("physical_order_creation", "physical_order_closure"):
+                req.status = "rejected"
+                self._db.commit()
+                return self.get_request(req.id)
 
             # Post-receive transfer reject: same order stays pending, reopen receive for custodian.
             if transfer_return_to == "receiver":

@@ -80,6 +80,7 @@ const ORDER_ACTION_BUSY_LABELS: Record<string, string> = {
   "/approval/approve-items": "Approving…",
   "/close": "Closing order…",
   "/start": "Starting…",
+  "/restart": "Restarting…",
   "/submit": "Submitting…",
   "/reassign": "Reassigning…",
 }
@@ -325,7 +326,17 @@ export function OrderDetailPage() {
             : "Order returned to executor for rework.",
         )
       } else if (path === "/approval/reject-order") {
-        toast.success("Order rejected.")
+        toast.success(
+          res.assigned_to_name
+            ? `Order rejected. Returned to ${res.assigned_to_name} to restart verification.`
+            : "Order rejected.",
+        )
+      } else if (path === "/restart") {
+        toast.success(
+          res.assigned_to_name
+            ? `Order restarted and assigned to ${res.assigned_to_name}.`
+            : "Order restarted.",
+        )
       } else if (path === "/submit-closure") {
         toast.success("Order completed.")
       } else if (path === "/submit") {
@@ -392,6 +403,10 @@ export function OrderDetailPage() {
   const canReviewCreation = isPendingApproval && canApprove
   const canReviewClosure = isCompleted && hasClosureWorkflow && canApprove
   const canAssignSubmit = (isDraft || isRejected) && canCreate && isCreator
+  const canRestartRejected =
+    isRejected &&
+    Boolean(order.assigned_to) &&
+    ((canExecute && isAssignee) || (canCreate && isCreator))
   const canScan =
     isInProgress && canExecute && isAssignee
   const filteredItems = order.items.filter(
@@ -482,7 +497,7 @@ export function OrderDetailPage() {
   const showRowSelection = canReviewClosure
   const selectableItems = filteredItems.filter((item) => itemIsSelectableAtClosure(item))
 
-  const showRejectColumn = order.rejected_item_count > 0 || canReviewClosure
+  const showRejectColumn = order.rejected_item_count > 0 || canReviewClosure || isRejected
   const tableColSpan = (showRowSelection ? 1 : 0) + 4 + (showRejectColumn ? 1 : 0)
   const activeProgressStep =
     order.progress.steps.find((step) => step.key === order.progress.current_step_key) ??
@@ -642,6 +657,15 @@ export function OrderDetailPage() {
               }}
             >
               {isRejected ? "Reassign & submit" : "Assign & submit"}
+            </AdminPrimaryButton>
+          ) : null}
+          {canRestartRejected ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => void runAction("/restart")}
+            >
+              Restart order
             </AdminPrimaryButton>
           ) : null}
           {canStart ? (
@@ -1059,7 +1083,7 @@ export function OrderDetailPage() {
                         {item.rfid_code ?? "—"}
                       </AdminTableCell>
                       <AdminTableCell>
-                        {item.verification_status === "rejected" && !item.physically_verified ? (
+                        {item.verification_status === "rejected" ? (
                           <AdminPillBadge tone="danger">Rejected</AdminPillBadge>
                         ) : item.physically_verified ? (
                           <AdminPillBadge tone="success" className="gap-1">
@@ -1092,12 +1116,12 @@ export function OrderDetailPage() {
                       </AdminTableCell>
                       {showRejectColumn ? (
                         <AdminTableCell className="whitespace-normal text-sm text-foreground">
-                          {item.rejection_reason ? (
-                            <span className="text-destructive">{item.rejection_reason}</span>
-                          ) : item.physically_verified ? (
-                            <span className="text-muted-foreground">—</span>
+                          {item.verification_status === "rejected" || item.rejection_reason ? (
+                            <span className="text-destructive">
+                              {item.rejection_reason || "Rejected"}
+                            </span>
                           ) : (
-                            "—"
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </AdminTableCell>
                       ) : null}
@@ -1245,8 +1269,8 @@ export function OrderDetailPage() {
             </DialogTitle>
             <DialogDescription>
               {rejectMode === "order"
-                ? "This rejects the full order. Pending assets will be marked rejected."
-                : "A reason is required."}
+                ? "This rejects the full order. Every asset is marked rejected and must be verified again after restart. The order returns to the assigned executor."
+                : "Reject the selected non-verified assets. Verified assets stay locked; only rejected lines need scanning again."}
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body space-y-4">

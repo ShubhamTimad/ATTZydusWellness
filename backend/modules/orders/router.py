@@ -336,6 +336,22 @@ def start_order(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
+@router.post("/{order_id}/restart", response_model=PhysicalOrderDetail)
+def restart_rejected_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.execute", "order.create", "order.update")),
+    ],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.restart_rejected_order(order_id, actor_user_id=int(current.subject))
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
 @router.post("/{order_id}/scan", response_model=ScanAssetResponse)
 def scan_asset(
     order_id: int,

@@ -2,7 +2,7 @@ import * as React from "react"
 import type { LucideIcon } from "lucide-react"
 
 import { TagColorPicker, TagColorSwatch } from "@/components/assets/tag-color-select"
-import { AdminPanel, adminSelectClass, adminTextareaClass } from "@/components/layout/admin-ui"
+import { AdminPanel, adminSelectClass, AutoGrowTextarea } from "@/components/layout/admin-ui"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
@@ -180,8 +180,14 @@ export function AssetDetailSectionPanel({
 
   return (
     <AdminPanel
-      className={cn("flex h-full min-h-0 flex-col", panelMinHeight, className)}
-      contentClassName="flex min-h-0 flex-1 flex-col p-0"
+      className={cn(
+        // Fill side-by-side grid cell so Financial | Location match height.
+        // Do not use min-h-0 here — that collapses overflow into following sections.
+        "flex h-full flex-col",
+        panelMinHeight,
+        className,
+      )}
+      contentClassName="flex flex-1 flex-col p-0"
     >
       <div
         className={cn(
@@ -252,7 +258,10 @@ export function AssetDetailSectionPanel({
               return (
                 <div
                   key={k}
-                  className="grid gap-[var(--app-form-gap)] sm:col-span-2 sm:grid-cols-2"
+                  className={cn(
+                    "grid gap-[var(--app-form-gap)] sm:col-span-2 sm:grid-cols-2",
+                    config.id === "information" && "lg:col-span-3",
+                  )}
                 >
                   <EditFieldCell
                     fieldKey={k}
@@ -496,10 +505,8 @@ function EditFieldCell({
           }
         />
       ) : multiline ? (
-        <textarea
+        <AutoGrowTextarea
           id={`asset-field-${k}`}
-          className={adminTextareaClass}
-          rows={4}
           value={val}
           placeholder={
             k === "asset_description"
@@ -508,7 +515,7 @@ function EditFieldCell({
                 ? "Detailed remarks about this asset…"
                 : undefined
           }
-          onChange={(e) => onSection(k, e.target.value || null)}
+          onChange={(next) => onSection(k, next || null)}
         />
       ) : (
         <Input

@@ -36,6 +36,8 @@ export const ASSET_MASTER_FIELDS: AssetMasterFieldDef[] = [
   { key: "rfid_code", label: "RFID Code", section: "root", kind: "text" },
   { key: "tag_color_id", label: "Tag Color", section: "root", kind: "text" },
   { key: "sub_location", label: "Sub Location", section: "location", kind: "text" },
+  { key: "room", label: "Room", section: "location", kind: "text" },
+  { key: "zone", label: "Zone", section: "location", kind: "text" },
   { key: "cost_center", label: "Cost Center Code", section: "financial", kind: "cost_center" },
   { key: "party_details", label: "Party Details", section: "financial", kind: "text" },
   { key: "invoice_no", label: "Invoice No.", section: "financial", kind: "text" },
@@ -235,6 +237,8 @@ export const ASSET_FIELD_LABELS: Record<string, string> = {
   actual_location: "Actual Location 2",
   building: "Building",
   floor: "Floor",
+  room: "Room",
+  zone: "Zone",
   cost_center: "Cost Center Code",
   cost_center_name: "Cost Center Name",
   party_details: "Party Details",
@@ -317,6 +321,8 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
     keys: [
       "functional_location",
       "actual_location",
+      "room",
+      "zone",
     ],
   },
   {

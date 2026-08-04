@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Package } from "lucide-react"
 
-import { AdminPanel, adminSelectClass, adminTextareaClass } from "@/components/layout/admin-ui"
+import { AdminPanel, adminSelectClass, AutoGrowTextarea } from "@/components/layout/admin-ui"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
@@ -228,9 +228,7 @@ function FieldEditor({
     return (
       <div className="space-y-1.5">
         <Label className="text-xs">{def.label}</Label>
-        <textarea
-          className={adminTextareaClass}
-          rows={4}
+        <AutoGrowTextarea
           value={val}
           placeholder={
             def.key === "asset_description"
@@ -239,7 +237,7 @@ function FieldEditor({
                 ? "Detailed remarks about this asset…"
                 : undefined
           }
-          onChange={(e) => setValue(e.target.value || null)}
+          onChange={(next) => setValue(next || null)}
         />
       </div>
     )
