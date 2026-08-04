@@ -174,7 +174,7 @@ jobs:
 
             git fetch origin
             git checkout develop
-            git pull origin develop
+            git reset --hard origin/develop
             NEW_SHA="$(git rev-parse HEAD)"
 
             echo "Deploying $NEW_SHA (previous was $PREVIOUS_SHA)"
