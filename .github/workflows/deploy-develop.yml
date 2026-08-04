@@ -1,11 +1,12 @@
 name: Deploy develop
 
-# Push to develop → Teams pending → 5 min gate → deploy → Teams success/failure.
+# Push to develop → Teams pending (≈5 min) → wait → deploy → Teams success/failure.
 #
-# Skip wait (on the run page): open the run → Review deployments → Approve.
-#   Requires repo Environment "develop-deploy" with Wait timer = 5 minutes
-#   (Settings → Environments → develop-deploy).
-# Skip wait (manual run): Actions → Deploy develop → Run workflow → skip_wait checked.
+# Wait 5 min: do nothing.
+# Deploy now: Actions → Deploy develop → Run workflow (right side) →
+#   leave "Deploy now — skip the 5-minute wait" checked → Run workflow.
+#   (cancels the waiting push run via concurrency, then deploys immediately)
+# Or set secret DEPLOY_NOW_URL to /api/deploy-now?token=… for one-click from Teams.
 # Cancel: open the run → Cancel workflow.
 
 on:
@@ -82,9 +83,9 @@ jobs:
           Commit: ${SHA:0:7}
 
           • Wait 5 minutes — do nothing; deploy starts automatically.
-          • Deploy now — open the run → **Review deployments** → Approve.
-          • Or: ${RUN_URL}
-          • Cancel — same run → Cancel workflow."
+          • Deploy now — ${WORKFLOW_URL}
+            → Run workflow → leave skip wait checked → Run workflow.
+          • Cancel — ${RUN_URL} → Cancel workflow."
             COLOR="Warning"
           fi
           export TITLE DETAIL COLOR RUN_URL WORKFLOW_URL SKIP_WAIT DEPLOY_NOW_URL
@@ -99,9 +100,8 @@ jobs:
           skip = os.environ.get("SKIP_WAIT", "false") == "true"
           actions = [{"type": "Action.OpenUrl", "title": "View / cancel run", "url": run_url}]
           if not skip:
-              # Prefer run page (Review deployments → Approve). Optional one-click API URL.
-              now_url = deploy_now or run_url
-              now_title = "Deploy now (no 5 min wait)" if deploy_now else "Open run → Review deployments → Approve"
+              now_url = deploy_now or workflow_url
+              now_title = "Deploy now (no 5 min wait)" if deploy_now else "Run workflow → skip wait"
               actions = [
                   {"type": "Action.OpenUrl", "title": now_title, "url": now_url},
                   {"type": "Action.OpenUrl", "title": "Wait / view run", "url": run_url},
@@ -136,16 +136,24 @@ jobs:
             || { echo; echo "::warning::TEAMS_WEBHOOK_URL notify failed — deploy will still continue"; }
 
   wait-gate:
-    # Native GitHub skip: run page → Review deployments → Approve
-    # Repo Settings → Environments → develop-deploy → Wait timer = 5 minutes
-    name: Wait 5 minutes (or Approve to skip)
+    name: Wait 5 minutes (or skip)
     needs: announce-pending
     if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.skip_wait == true || inputs.skip_wait == 'true')) }}
     runs-on: ubuntu-latest
-    environment: develop-deploy
     steps:
-      - name: Gate passed
-        run: echo "Environment gate cleared — proceeding to deploy"
+      - name: Hold deploy window
+        env:
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/deploy-develop.yml
+        run: |
+          set -euo pipefail
+          echo "Waiting 5 minutes before deploy."
+          echo "To skip now: open ${WORKFLOW_URL}"
+          echo "  → Run workflow → leave skip wait checked → Run workflow"
+          for i in $(seq 1 30); do
+            echo "Wait tick ${i}/30 ($(date -u +%H:%M:%S) UTC)"
+            sleep 10
+          done
+          echo "Wait finished — proceeding to deploy"
 
   deploy:
     name: Deploy to server
