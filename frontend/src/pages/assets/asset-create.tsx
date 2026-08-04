@@ -13,7 +13,7 @@ import {
   AdminPanel,
   AdminPrimaryButton,
   adminSelectClass,
-  adminTextareaClass,
+  AutoGrowTextarea,
 } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -568,12 +568,10 @@ export function AssetCreatePage() {
                   labelText={fc.getLabel("remark", "Asset Remark")}
                   className="sm:col-span-2 lg:col-span-3"
                 >
-                  <textarea
+                  <AutoGrowTextarea
                     id="remark"
-                    className={adminTextareaClass}
-                    rows={4}
                     value={form.remark}
-                    onChange={(e) => patch({ remark: e.target.value })}
+                    onChange={(next) => patch({ remark: next })}
                     placeholder="Detailed remarks about this asset…"
                   />
                 </FormField>,
@@ -585,12 +583,10 @@ export function AssetCreatePage() {
                   labelText={fc.getLabel("asset_description", "Asset Description")}
                   className="sm:col-span-2 lg:col-span-3"
                 >
-                  <textarea
+                  <AutoGrowTextarea
                     id="asset_description"
-                    className={adminTextareaClass}
-                    rows={4}
                     value={form.asset_description}
-                    onChange={(e) => patch({ asset_description: e.target.value })}
+                    onChange={(next) => patch({ asset_description: next })}
                     placeholder="Detailed description of this asset…"
                   />
                 </FormField>,
@@ -600,10 +596,11 @@ export function AssetCreatePage() {
 
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
+            className="flex h-full flex-col"
             title="Financial information"
             description="Cost, capitalization, and life span"
             headerActions={<DollarSign className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
+            contentClassName="flex flex-1 flex-col px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {field(
@@ -824,10 +821,11 @@ export function AssetCreatePage() {
           </AdminPanel>
 
           <AdminPanel
+            className="flex h-full flex-col"
             title="Location"
             description="Plant is fixed to Takeda"
             headerActions={<MapPin className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
+            contentClassName="flex flex-1 flex-col px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {field(

@@ -38,8 +38,12 @@ function phaseFor(
   activeKey: string | null,
   orderStatus?: string,
 ): Phase {
-  if (orderStatus === "rejected" && (step.key === "rejected" || step.status === "rejected")) {
-    return "rejected"
+  if (orderStatus === "rejected") {
+    // Trust backend phases — do not paint Approved/Closed as done via activeIdx.
+    if (step.key === "rejected" || step.status === "rejected") return "rejected"
+    if (step.status === "completed") return "completed"
+    if (step.status === "active") return "current"
+    return "upcoming"
   }
   if (step.status === "rejected") return "rejected"
 
@@ -65,6 +69,13 @@ function displayLabel(step: OrderLifecycleStep, orderStatus?: string, isCurrent?
   if (isCurrent && orderStatus === "pending_approval" && step.key === "approved") {
     return "Pending approval"
   }
+  if (
+    isCurrent &&
+    (orderStatus === "completed" || orderStatus === "pending_closure_approval") &&
+    step.key === "closure_approved"
+  ) {
+    return "Pending approval"
+  }
   if (isCurrent && orderStatus === "draft" && step.key === "order_created") {
     return "Draft"
   }
@@ -72,7 +83,16 @@ function displayLabel(step: OrderLifecycleStep, orderStatus?: string, isCurrent?
     return orderStatus === "draft" ? "Draft" : "Order created"
   }
   if (step.key === "in_progress") return "In progress"
-  if (step.key === "closure_approved") return "Approved"
+  if (step.key === "closure_approved") {
+    if (
+      orderStatus === "completed" ||
+      orderStatus === "pending_closure_approval" ||
+      step.status === "active"
+    ) {
+      return "Pending approval"
+    }
+    return "Approved"
+  }
   // Prefer backend label; normalize accidental ALL CAPS.
   const raw = (step.label || step.key).trim()
   if (raw === raw.toUpperCase() && raw.length > 1) {

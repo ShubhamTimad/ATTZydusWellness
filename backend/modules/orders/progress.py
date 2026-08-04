@@ -364,13 +364,21 @@ def _step_phase(
     step_key: str,
     step_order: tuple[str, ...],
     active_key: str | None,
+    rejection_cutoff: str | None = None,
 ) -> str:
     """Return pending | active | completed | rejected for a business lifecycle step."""
     if order_status == ORDER_STATUS_REJECTED:
-        if step_key == "order_created":
-            return "completed"
         if step_key == "rejected":
             return "rejected"
+        cutoff = rejection_cutoff or "order_created"
+        if step_key in step_order and cutoff in step_order:
+            return (
+                "completed"
+                if step_order.index(step_key) <= step_order.index(cutoff)
+                else "pending"
+            )
+        if step_key == "order_created":
+            return "completed"
         return "pending"
 
     if active_key is None or step_key not in step_order:
@@ -390,6 +398,41 @@ def _step_phase(
     return "pending"
 
 
+def _rejection_cutoff_key(
+    order: PhysicalOrder,
+    audit_rows: list[PhysicalOrderAudit],
+    *,
+    has_closure_workflow: bool,
+) -> str:
+    """Last happy-path step that actually happened before rejection."""
+    if order.closed_at or _find_audit_time(audit_rows, "closed"):
+        return "closed"
+    if has_closure_workflow and _find_audit_time(audit_rows, "closure_approved"):
+        return "closure_approved"
+    if (
+        order.completed_at
+        or _find_audit_time(audit_rows, "closure_submitted")
+        or _find_audit_time(audit_rows, "completed")
+    ):
+        return "completed"
+    if order.started_at:
+        return "in_progress"
+    if order.assigned_at:
+        return "assigned"
+    for row in reversed(audit_rows):
+        if str(row.action) != "rejected":
+            continue
+        nv = row.new_value or {}
+        if nv.get("phase") == "creation" or nv.get("entity_type") == ENTITY_TYPE_CREATION:
+            return "approved"
+        break
+    if any(str(r.action) == "submitted_for_approval" for r in audit_rows):
+        return "approved"
+    if any(str(r.action) == "approved" for r in audit_rows):
+        return "approved"
+    return "order_created"
+
+
 def build_order_progress(
     db: Session,
     order: PhysicalOrder,
@@ -400,9 +443,14 @@ def build_order_progress(
     creation_wf = _workflow_definition(db, action_code=ACTION_CREATE, phase="assignment")
     closure_wf = _workflow_definition(db, action_code=ACTION_COMPLETE, phase="closure")
     status = str(order.status)
-    # Creation-approval UI only for legacy in-flight pending_approval orders.
-    show_creation_approval = status == ORDER_STATUS_PENDING_APPROVAL
     has_closure_workflow = closure_wf is not None
+    rejection_cutoff: str | None = None
+    if status == ORDER_STATUS_REJECTED:
+        rejection_cutoff = _rejection_cutoff_key(
+            order, audit_rows, has_closure_workflow=has_closure_workflow
+        )
+    # Creation-approval UI for in-flight pending_approval, or after a creation reject.
+    show_creation_approval = status == ORDER_STATUS_PENDING_APPROVAL or rejection_cutoff == "approved"
     step_order = _step_order(
         show_creation_approval=show_creation_approval,
         has_closure_workflow=has_closure_workflow,
@@ -423,6 +471,7 @@ def build_order_progress(
             step_key=step_key,
             step_order=step_order,
             active_key=active_key,
+            rejection_cutoff=rejection_cutoff,
         )
 
     work_completed_at = (
@@ -503,18 +552,15 @@ def build_order_progress(
     )
 
     if has_closure_workflow:
+        awaiting_closure = status in (ORDER_STATUS_COMPLETED, ORDER_STATUS_PENDING_CLOSURE)
         steps.append(
             OrderLifecycleStepPublic(
                 key="closure_approved",
-                label="Approved",
+                label="Pending approval" if awaiting_closure else "Approved",
                 status=phase("closure_approved"),
                 actor_name=_find_audit_actor(audit_rows, "closure_approved", user_name_fn),
                 occurred_at=_find_audit_time(audit_rows, "closure_approved"),
-                detail=(
-                    "Awaiting approval"
-                    if status == ORDER_STATUS_COMPLETED
-                    else None
-                ),
+                detail="Awaiting approval" if awaiting_closure else None,
             )
         )
 
@@ -535,6 +581,15 @@ def build_order_progress(
     )
 
     if status == ORDER_STATUS_REJECTED:
+        # CapEx-style: stop at the last reached step, then Rejected — do not paint
+        # Approved/Closed as done when rejection happened earlier.
+        if rejection_cutoff:
+            kept: list[OrderLifecycleStepPublic] = []
+            for step in steps:
+                kept.append(step)
+                if step.key == rejection_cutoff:
+                    break
+            steps = kept
         steps.append(
             OrderLifecycleStepPublic(
                 key="rejected",

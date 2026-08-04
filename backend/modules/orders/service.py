@@ -59,7 +59,7 @@ from modules.orders.schema import (
 )
 from core.permissions import _get_cached_permission_snapshot, _has_any_permission
 from modules.assets.audit_log import log_asset_event
-from modules.assets.model import AssetInventoryInformation
+from modules.assets.model import AssetAuditEvent, AssetInventoryInformation
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.settings.financial_year import financial_year_period_for, is_verified_in_financial_year
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow, TaskAuditLog
@@ -152,14 +152,24 @@ class PhysicalOrderService:
         reason: str | None = None,
         rejected_codes: list[str] | None = None,
     ) -> None:
-        """Return order to executor after closure rejection."""
+        """Return order to executor after selected-item rejection at closure.
+
+        Verified lines stay locked; rejected (and other non-verified) lines must be
+        scanned again. Status goes back to in_progress for the original assignee.
+        """
         order.status = ORDER_STATUS_IN_PROGRESS
+        order.completed_at = None
         for item in order.items:
             if self._is_physically_verified(item):
                 item.verification_status = ITEM_STATUS_APPROVED
                 item.rejection_reason = None
                 continue
-            # Keep rejected status + reason visible for executor re-work.
+            # Keep rejected status + reason visible until the executor re-scans.
+            if item.verification_status != ITEM_STATUS_REJECTED:
+                item.verification_status = ITEM_STATUS_PENDING
+                item.rejection_reason = None
+            item.scan_time = None
+            item.verified_by = None
         log_order_event(
             self._db,
             order_id=int(order.id),
@@ -189,6 +199,70 @@ class PhysicalOrderService:
                     )
             except Exception:
                 pass
+
+    def _clear_item_verification(self, item: PhysicalOrderItem, *, rejected: bool, reason: str | None) -> None:
+        item.scan_time = None
+        item.verified_by = None
+        if rejected:
+            item.verification_status = ITEM_STATUS_REJECTED
+            item.rejection_reason = (reason or "Rejected").strip() or "Rejected"
+        else:
+            item.verification_status = ITEM_STATUS_PENDING
+            item.rejection_reason = None
+
+    def _apply_full_order_rejection(
+        self,
+        order: PhysicalOrder,
+        *,
+        reason: str,
+        actor_user_id: int | None,
+        entity_type: str | None = None,
+    ) -> None:
+        """Full-order reject: every line rejected + scans cleared; stay with original assignee."""
+        cleaned = (reason or "Rejected").strip() or "Rejected"
+        for item in order.items:
+            self._clear_item_verification(item, rejected=True, reason=cleaned)
+        order.status = ORDER_STATUS_REJECTED
+
+        creation_req: ApprovalRequest | None = None
+        if order.approval_request_id is not None:
+            creation_req = self._db.get(ApprovalRequest, int(order.approval_request_id))
+        if creation_req is not None and str(creation_req.status) == "pending":
+            self._close_pending_approval_tasks(int(creation_req.id))
+            creation_req.status = "rejected"
+
+        closure = self._latest_closure_approval_request(int(order.id))
+        if closure is not None and str(closure.status) == "pending":
+            self._close_pending_approval_tasks(int(closure.id))
+            closure.status = "rejected"
+
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="rejected",
+            actor_user_id=actor_user_id,
+            new_value={
+                "reason": cleaned,
+                "scope": "full",
+                "entity_type": entity_type,
+                "assigned_to": int(order.assigned_to) if order.assigned_to is not None else None,
+            },
+        )
+
+    def _reset_order_after_full_rejection(self, order: PhysicalOrder) -> None:
+        """Fresh run after a full-order reject: clear all lines and run timestamps."""
+        for item in order.items:
+            self._clear_item_verification(item, rejected=False, reason=None)
+        order.completed_at = None
+        order.started_at = None
+        order.started_by = None
+        order.closed_at = None
+        order.approval_request_id = None
+        closure = self._latest_closure_approval_request(int(order.id))
+        if closure is not None and str(closure.status) in ("pending", "in_rework", "rejected"):
+            self._close_pending_approval_tasks(int(closure.id))
+            if str(closure.status) == "pending":
+                closure.status = "rejected"
 
     def _promote_pending_closure_to_completed(
         self,
@@ -230,12 +304,89 @@ class PhysicalOrderService:
         order.status = ORDER_STATUS_APPROVED
         if order.completed_at is None:
             order.completed_at = _now_utc()
+        # Whole-order approval → update Inventory & verification for every scanned asset.
+        self._post_inventory_for_items(order, list(order.items or []), actor_user_id=actor_user_id)
         log_order_event(
             self._db,
             order_id=int(order.id),
             action="closure_approved",
             actor_user_id=actor_user_id,
         )
+
+    def _inventory_already_posted_for_order(
+        self, *, asset_id: int, order_id: int
+    ) -> bool:
+        rows = self._db.scalars(
+            select(AssetAuditEvent)
+            .where(
+                AssetAuditEvent.asset_id == int(asset_id),
+                AssetAuditEvent.action == "physical_order_verified",
+            )
+            .order_by(AssetAuditEvent.id.desc())
+            .limit(30)
+        ).all()
+        for row in rows:
+            nv = row.new_value if isinstance(row.new_value, dict) else {}
+            if int(nv.get("order_id") or 0) == int(order_id):
+                return True
+        return False
+
+    def _post_inventory_verification_for_item(
+        self,
+        item: PhysicalOrderItem,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int | None,
+    ) -> bool:
+        """Write asset Inventory & verification after the line is approved (not on scan)."""
+        if item.scan_time is None:
+            return False
+        if item.verification_status == ITEM_STATUS_REJECTED:
+            return False
+        if self._inventory_already_posted_for_order(
+            asset_id=int(item.asset_id), order_id=int(order.id)
+        ):
+            return False
+        asset = item.asset
+        if asset is None:
+            asset = self._db.get(AssetMaster, int(item.asset_id))
+        if asset is None:
+            return False
+        inv = asset.inventory
+        if inv is None:
+            inv = AssetInventoryInformation(asset_id=int(asset.id), inventory_count=1)
+            self._db.add(inv)
+            asset.inventory = inv
+        old_physical = inv.physical_count
+        old_verified = inv.last_verification_date
+        inv.physical_count = 1
+        inv.last_verification_date = (
+            item.scan_time.date() if item.scan_time is not None else date.today()
+        )
+        log_asset_physically_verified(
+            self._db,
+            asset=asset,
+            order=order,
+            actor_user_id=actor_user_id,
+            old_physical=old_physical,
+            old_verified=old_verified,
+        )
+        return True
+
+    def _post_inventory_for_items(
+        self,
+        order: PhysicalOrder,
+        items: list[PhysicalOrderItem],
+        *,
+        actor_user_id: int | None,
+    ) -> int:
+        posted = 0
+        for item in items:
+            if self._post_inventory_verification_for_item(
+                item, order, actor_user_id=actor_user_id
+            ):
+                posted += 1
+        return posted
 
     def _maybe_complete_closure_after_item_approval(
         self,
@@ -1416,7 +1567,12 @@ class PhysicalOrderService:
             scan_time=item.scan_time,
             verified_by_name=verifier,
             physically_verified=self._is_physically_verified(item),
-            last_verification_date=inv.last_verification_date if inv else None,
+            # Order UI: show this order's scan date; asset inventory updates only after approval.
+            last_verification_date=(
+                item.scan_time.date()
+                if item.scan_time is not None
+                else (inv.last_verification_date if inv else None)
+            ),
         )
 
     def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> PhysicalOrderDetail:
@@ -1621,11 +1777,43 @@ class PhysicalOrderService:
                     "intended_only": True,
                 },
             )
-        for item in order.items:
-            item.verification_status = ITEM_STATUS_PENDING
-            item.rejection_reason = None
+        if order.status == ORDER_STATUS_REJECTED:
+            self._reset_order_after_full_rejection(order)
+        else:
+            for item in order.items:
+                self._clear_item_verification(item, rejected=False, reason=None)
         self._submit_and_assign(order, actor_user_id=actor_user_id)
         return self.get_order(order_id)
+
+    def restart_rejected_order(
+        self, order_id: int, *, actor_user_id: int
+    ) -> PhysicalOrderDetail:
+        """Assignee (or creator) restarts a fully rejected order with the same executor."""
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_REJECTED:
+            raise ConflictError("Only a rejected order can be restarted.")
+        if order.assigned_to is None:
+            raise ConflictError("Assign an executor before restarting.")
+        is_assignee = int(order.assigned_to) == int(actor_user_id)
+        is_creator = order.created_by is not None and int(order.created_by) == int(actor_user_id)
+        if not is_assignee and not is_creator:
+            raise ConflictError("Only the assigned executor or order creator can restart.")
+        self._assert_valid_executor(int(order.assigned_to), plant_id=int(order.plant_id))
+        self._reset_order_after_full_rejection(order)
+        self._activate_assignment(
+            order,
+            actor_user_id=actor_user_id,
+            after_creation_approval=False,
+        )
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="returned_for_execution",
+            actor_user_id=actor_user_id,
+            new_value={"reason": "Restarted after full order rejection", "scope": "full"},
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
 
     def _find_pending_closure_task(
         self, order: PhysicalOrder, *, actor_user_id: int
@@ -1762,10 +1950,16 @@ class PhysicalOrderService:
                     return self.get_order(order_id)
                 self._complete_closure_approval(order, actor_user_id=actor_user_id)
             else:
-                self._maybe_complete_closure_after_item_approval(
+                selected = [i for i in order.items if int(i.id) in id_set]
+                completed = self._maybe_complete_closure_after_item_approval(
                     order,
                     actor_user_id=actor_user_id,
                 )
+                if not completed:
+                    # Partial approval → update Inventory & verification only for those assets.
+                    self._post_inventory_for_items(
+                        order, selected, actor_user_id=actor_user_id
+                    )
             self._db.commit()
             return self.get_order(order_id)
         if order.status != ORDER_STATUS_PENDING_APPROVAL:
@@ -1878,25 +2072,24 @@ class PhysicalOrderService:
 
     def reject_order(self, order_id: int, *, reason: str, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        entity_type: str | None = None
         if order.status == ORDER_STATUS_PENDING_APPROVAL:
-            pass
+            entity_type = ENTITY_TYPE_CREATION
         elif order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
-            pass
+            entity_type = ENTITY_TYPE_CLOSURE
+            self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
         else:
             raise ConflictError("Order is not in an approval phase.")
-        for item in order.items:
-            if item.verification_status == ITEM_STATUS_PENDING:
-                item.verification_status = ITEM_STATUS_REJECTED
-                item.rejection_reason = reason.strip()
-        order.status = ORDER_STATUS_REJECTED
-        log_order_event(
-            self._db,
-            order_id=order_id,
-            action="rejected",
+        cleaned = reason.strip()
+        if not cleaned:
+            raise ConflictError("A rejection reason is required.")
+        self._apply_full_order_rejection(
+            order,
+            reason=cleaned,
             actor_user_id=actor_user_id,
-            new_value={"reason": reason},
+            entity_type=entity_type,
         )
-        self._notify_rejected(order, reason)
+        self._notify_rejected(order, cleaned)
         self._db.commit()
         return self.get_order(order_id)
 
@@ -2068,20 +2261,8 @@ class PhysicalOrderService:
                 "rfid_code": rfid,
             },
         )
-        inv = a.inventory
-        old_physical = inv.physical_count if inv else None
-        old_verified = inv.last_verification_date if inv else None
-        if inv:
-            inv.physical_count = 1
-            inv.last_verification_date = date.today()
-        log_asset_physically_verified(
-            self._db,
-            asset=a,
-            order=order,
-            actor_user_id=actor_user_id,
-            old_physical=old_physical,
-            old_verified=old_verified,
-        )
+        # Inventory & verification on the asset master updates only after closure approval
+        # (whole order or selected lines) — not at scan time.
         self._db.commit()
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
         physically_verified = self._physically_verified_count(order.items)
@@ -2097,10 +2278,14 @@ class PhysicalOrderService:
             raise ConflictError("Order is not in progress.")
         if order.assigned_to != actor_user_id:
             raise ConflictError("Only the assigned executor can submit for closure.")
-        # Unscanned lines are left for closure review; executor may complete early.
+        # Unscanned lines are left for closure review; keep verified scans locked.
         for item in order.items:
-            item.verification_status = ITEM_STATUS_PENDING
-            item.rejection_reason = None
+            if self._is_physically_verified(item):
+                item.verification_status = ITEM_STATUS_APPROVED
+                item.rejection_reason = None
+            else:
+                item.verification_status = ITEM_STATUS_PENDING
+                item.rejection_reason = None
         order.status = ORDER_STATUS_COMPLETED
         order.completed_at = _now_utc()
         wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
@@ -2148,6 +2333,10 @@ class PhysicalOrderService:
         else:
             for item in order.items:
                 item.verification_status = ITEM_STATUS_APPROVED
+            # No closure workflow → completion is the approval gate for inventory.
+            self._post_inventory_for_items(
+                order, list(order.items or []), actor_user_id=actor_user_id
+            )
             log_order_event(
                 self._db,
                 order_id=order_id,
@@ -2323,13 +2512,11 @@ def reject_order_approval(
         order = svc._load_order(order_id)
     except NotFoundError:
         return
-    order.status = ORDER_STATUS_REJECTED
-    log_order_event(
-        db,
-        order_id=order_id,
-        action="rejected",
+    svc._apply_full_order_rejection(
+        order,
+        reason=comment or "Rejected",
         actor_user_id=approver_user_id,
-        new_value={"comment": comment, "entity_type": entity_type},
+        entity_type=entity_type,
     )
     PhysicalOrderService(db)._notify_rejected(order, comment or "Rejected")
     db.commit()

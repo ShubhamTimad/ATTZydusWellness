@@ -1137,7 +1137,7 @@ export function AssetDetailPage() {
           {editing ? (
             <div className="flex flex-col gap-[var(--app-grid-gap)]">
               {renderAssetViewSection("information")}
-              <div className="grid grid-cols-1 items-stretch gap-[var(--app-grid-gap)] lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-[var(--app-grid-gap)] lg:grid-cols-2">
                 {renderAssetViewSection("financial")}
                 {renderAssetViewSection("location")}
               </div>
@@ -1147,7 +1147,7 @@ export function AssetDetailPage() {
             <div className="flex flex-col gap-5">
               {renderAssetViewSection("information")}
               <div className="border-t-2 border-border/70" role="separator" />
-              <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
                 {renderAssetViewSection("financial")}
                 {renderAssetViewSection("location")}
               </div>

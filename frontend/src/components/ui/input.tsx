@@ -2,15 +2,30 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+const PICKER_TYPES = new Set(["date", "datetime-local", "month", "week", "time"])
+
+function Input({ className, type, onClick, ...props }: React.ComponentProps<"input">) {
   return (
     <input
       type={type}
       data-slot="input"
       className={cn(
         "h-9 w-full min-w-0 rounded-lg border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-primary/50 focus-visible:ring-3 focus-visible:ring-primary/15 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-muted/40 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
-        className
+        type && PICKER_TYPES.has(type) && "cursor-pointer",
+        className,
       )}
+      onClick={(e) => {
+        onClick?.(e)
+        if (e.defaultPrevented) return
+        if (!type || !PICKER_TYPES.has(type)) return
+        const el = e.currentTarget
+        if (el.disabled || el.readOnly) return
+        try {
+          el.showPicker?.()
+        } catch {
+          // Unsupported browser, or picker already open from the calendar icon.
+        }
+      }}
       {...props}
     />
   )

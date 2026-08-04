@@ -90,6 +90,35 @@ def test_reassign_requires_pending_approval():
             svc.reassign_approver(1, actor_user_id=1, assignee_user_id=2)
 
 
+def test_reassign_blocked_after_first_approval_level():
+    from modules.capex.constants import STATUS_PENDING_APPROVAL
+
+    form = SimpleNamespace(id=1, status=STATUS_PENDING_APPROVAL, approval_request_id=9)
+    pending = SimpleNamespace(
+        task_type="approval",
+        status="pending",
+        step=SimpleNamespace(step_order=2, approver_role_id=1),
+        assigned_user_id=1,
+    )
+    req = SimpleNamespace(
+        id=9,
+        status="pending",
+        tasks=[pending],
+        workflow=SimpleNamespace(
+            steps=[
+                SimpleNamespace(step_order=1),
+                SimpleNamespace(step_order=2),
+            ]
+        ),
+    )
+    db = MagicMock()
+    db.scalar.return_value = req
+    svc = CapexFormService(db)
+    with patch.object(svc, "_load", return_value=form):
+        with pytest.raises(ConflictError, match="first approval level"):
+            svc.reassign_approver(1, actor_user_id=1, assignee_user_id=2)
+
+
 def test_split_approval_task_runs_keeps_prior_attempt():
     from modules.platform.tasks.service import _split_approval_task_runs
 

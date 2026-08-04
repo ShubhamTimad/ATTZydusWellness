@@ -24,6 +24,8 @@ import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import type { AssetActionItem } from "@/lib/asset-actions"
 import {
   buildCapexProgress,
+  capexCurrentStepKind,
+  capexIsFirstApprovalStep,
   capexStatusLabel,
   capexStatusPillTone,
   isCapexEditable,
@@ -179,11 +181,14 @@ export function CapexDetailPage() {
   const needsNextAssignee = Boolean(detail?.approval_panel?.needs_next_assignee)
   const nextAssigneeRoleId = detail?.approval_panel?.next_assignee_role_id ?? null
   const nextStepRoleName = detail?.approval_panel?.next_step_role_name ?? "next approver"
+  const stepKind = detail ? capexCurrentStepKind(detail) : "approve"
+  const isCloseStep = stepKind === "close"
   const canReassign = Boolean(
     detail?.status === "pending_approval" &&
       detail.approval_panel?.pending_task_id &&
       detail.approval_panel?.current_assignee_role_id &&
-      hasPermission("capitalization.reassign"),
+      hasPermission("capitalization.reassign") &&
+      capexIsFirstApprovalStep(detail),
   )
   const reassignRoleId = detail?.approval_panel?.current_assignee_role_id ?? null
   const reassignRoleName = detail?.approval_panel?.current_step_role_name ?? "Approver"
@@ -308,7 +313,9 @@ export function CapexDetailPage() {
           : {}),
       })
       setDecisionOpen(false)
-      toast.success(decisionMode === "approve" ? "Approved." : "Rejected.")
+      toast.success(
+        decisionMode === "reject" ? "Rejected." : isCloseStep ? "Closed." : "Approved.",
+      )
       await load()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
@@ -449,22 +456,24 @@ export function CapexDetailPage() {
           ) : null}
           {canActOnForm ? (
             <>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9"
-                disabled={saving || acting || reassigning}
-                onClick={() => openDecision("reject")}
-              >
-                Reject
-              </Button>
+              {!isCloseStep ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  disabled={saving || acting || reassigning}
+                  onClick={() => openDecision("reject")}
+                >
+                  Reject
+                </Button>
+              ) : null}
               <AdminPrimaryButton
                 type="button"
                 disabled={saving || acting || reassigning}
                 onClick={() => openDecision("approve")}
               >
-                Approve
+                {isCloseStep ? "Close" : "Approve"}
               </AdminPrimaryButton>
             </>
           ) : null}
@@ -684,6 +693,12 @@ export function CapexDetailPage() {
         onOpenChange={setDecisionOpen}
         mode={decisionMode}
         busy={acting}
+        title={
+          decisionMode === "reject" ? "Reject" : isCloseStep ? "Close" : "Approve"
+        }
+        confirmLabel={
+          decisionMode === "reject" ? "Reject" : isCloseStep ? "Close" : "Approve"
+        }
         needsNextAssignee={needsNextAssignee}
         nextAssigneeLevel={null}
         nextStepRoleName={nextStepRoleName}

@@ -290,6 +290,8 @@ class CapexFormService:
         current_role: str | None = None
         current_level: str | None = None
         current_role_id: int | None = None
+        current_kind: str | None = None
+        current_order: int | None = None
         if pending_task is not None:
             if pending_task.assigned_user_id is not None:
                 current_assignee_id = int(pending_task.assigned_user_id)
@@ -297,6 +299,8 @@ class CapexFormService:
             step = pending_task.step
             if step is not None:
                 current_role_id = int(step.approver_role_id)
+                current_kind = str(getattr(step, "step_kind", None) or "approve").strip().lower() or "approve"
+                current_order = int(step.step_order)
                 role = self._db.get(Role, current_role_id)
                 if role is not None:
                     current_role = role.name
@@ -307,6 +311,7 @@ class CapexFormService:
         next_role: str | None = None
         next_role_id: int | None = None
         next_level: str | None = None
+        next_kind: str | None = None
         wf_steps = sorted(
             (req.workflow.steps or []) if req.workflow is not None else [],
             key=lambda s: int(s.step_order),
@@ -326,6 +331,10 @@ class CapexFormService:
                     )
                     if nxt_row is not None:
                         next_role_id = int(nxt_row.approver_role_id)
+                        next_kind = (
+                            str(getattr(nxt_row, "step_kind", None) or "approve").strip().lower()
+                            or "approve"
+                        )
                         needs_next = capex_needs_next_assignee(
                             current_role_id=current_role_id,
                             next_role_id=next_role_id,
@@ -338,6 +347,7 @@ class CapexFormService:
                             next_role_id = None
                             next_role = None
                             next_level = None
+                            next_kind = None
         return CapexApprovalPanel(
             request_id=int(req.id),
             request_status=str(req.status),
@@ -349,12 +359,15 @@ class CapexFormService:
             current_assignee_name=current_assignee_name,
             current_step_role_name=current_role,
             current_assignee_level=current_level,
+            current_step_kind=current_kind,
+            current_step_order=current_order,
             current_assignee_role_id=current_role_id,
             is_final_step=is_final,
             needs_next_assignee=needs_next,
             next_step_role_name=next_role,
             next_assignee_role_id=next_role_id,
             next_assignee_level=next_level,
+            next_step_kind=next_kind,
         )
 
     def _workflow_runs_for_request(self, req: ApprovalRequest) -> list[CapexWorkflowRunPublic]:
@@ -931,6 +944,7 @@ class CapexFormService:
             select(ApprovalRequest)
             .where(ApprovalRequest.id == int(form.approval_request_id))
             .options(
+                selectinload(ApprovalRequest.workflow).selectinload(ApprovalWorkflow.steps),
                 selectinload(ApprovalRequest.tasks).selectinload(ApprovalTask.step),
             )
         )
@@ -947,6 +961,15 @@ class CapexFormService:
         )
         if pending is None or pending.step is None:
             raise ConflictError("No pending approval step to reassign.")
+
+        # Reassign only on the first approval level (after draft / submit).
+        wf_steps = sorted(
+            (req.workflow.steps or []) if req.workflow is not None else [],
+            key=lambda s: int(s.step_order),
+        )
+        first_order = int(wf_steps[0].step_order) if wf_steps else int(pending.step.step_order)
+        if int(pending.step.step_order) != first_order:
+            raise ConflictError("Approver can only be reassigned on the first approval level.")
 
         if pending.assigned_user_id is not None and int(pending.assigned_user_id) == int(
             assignee_user_id

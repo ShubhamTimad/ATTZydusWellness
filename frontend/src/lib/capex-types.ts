@@ -64,6 +64,7 @@ export type CapexApprovalPanel = {
   current_assignee_level?: "hod" | "engineering" | "central_finance" | string | null
   current_assignee_role_id?: number | null
   current_step_kind?: string
+  current_step_order?: number | null
   is_final_step?: boolean
   needs_next_assignee?: boolean
   next_step_role_name?: string | null
@@ -304,6 +305,26 @@ function currentCapexWorkflowSteps(detail: CapexFormDetail): CapexApprovalStepLi
   if (currentRun?.workflow_steps?.length) return currentRun.workflow_steps
   if (panel?.workflow_steps?.length) return panel.workflow_steps
   return defaultCapexApprovalSteps(detail.requires_engineering)
+}
+
+/** Current pending CapEx step kind (approve | close | …). */
+export function capexCurrentStepKind(detail: CapexFormDetail): string {
+  const fromPanel = detail.approval_panel?.current_step_kind
+  if (fromPanel) return String(fromPanel).toLowerCase()
+  const current = currentCapexWorkflowSteps(detail).find((s) => s.phase === "current")
+  return (current?.step_kind || "approve").toLowerCase()
+}
+
+/** True when the pending step is the first approval level (reassign allowed). */
+export function capexIsFirstApprovalStep(detail: CapexFormDetail): boolean {
+  const steps = currentCapexWorkflowSteps(detail)
+  if (!steps.length) return true
+  const order =
+    detail.approval_panel?.current_step_order ??
+    steps.find((s) => s.phase === "current")?.step_order
+  if (order == null) return false
+  const first = Math.min(...steps.map((s) => s.step_order))
+  return Number(order) === first
 }
 
 function defaultCapexApprovalSteps(_requiresEngineering: boolean): CapexApprovalStepLine[] {
