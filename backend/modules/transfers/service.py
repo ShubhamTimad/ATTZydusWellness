@@ -33,11 +33,14 @@ from modules.rbac_association import user_role
 from modules.transfers.constants import (
     ACTION_SUBMIT,
     ACTIVE_STATUSES,
+    ARCHIVABLE_STATUSES,
     ASSIGNEE_LEVEL_ROLES,
+    CREATOR_ACTION_STATUSES,
     EDITABLE_STATUSES,
     ENTITY_TYPE,
     PENDING_APPROVAL_STATUSES,
     REJECTABLE_STATUSES,
+    RESUMABLE_STATUSES,
     ROLE_TO_ASSIGNEE_LEVEL,
     STATUS_APPROVED_BY_CF,
     STATUS_CANCELLED,
@@ -75,9 +78,9 @@ from modules.transfers.schema import (
 _TAB_STATUSES: dict[str, frozenset[str] | None] = {
     "all": None,
     "draft": EDITABLE_STATUSES,
-    "pending": PENDING_APPROVAL_STATUSES | frozenset({STATUS_IN_REWORK}),
-    "assigned_to_cf": PENDING_APPROVAL_STATUSES | frozenset({STATUS_IN_REWORK}),
-    "rejected": frozenset({STATUS_REJECTED}),
+    "pending": PENDING_APPROVAL_STATUSES,
+    "assigned_to_cf": PENDING_APPROVAL_STATUSES,
+    "rejected": RESUMABLE_STATUSES,
     "approved_by_cf": frozenset({STATUS_APPROVED_BY_CF}),
     "received_by_cc2": frozenset({STATUS_RECEIVED_BY_CC2}),
     "confirmed_by_cf": frozenset({STATUS_CONFIRMED_BY_CF}),
@@ -163,11 +166,19 @@ def _list_action_label(
         return None
     uid = int(viewer_user_id)
     status = order.status
+    if status in RESUMABLE_STATUSES and (
+        order.created_by is not None and int(order.created_by) == uid
+    ):
+        return "Restart"
     if status in EDITABLE_STATUSES and (
         (order.created_by is not None and int(order.created_by) == uid)
-        or (status == STATUS_IN_REWORK and _is_destination_actor(order, uid))
+        or (
+            order.assigned_to is not None
+            and int(order.assigned_to) == uid
+            and _is_destination_actor(order, uid)
+        )
     ):
-        return "Transfer" if status in (STATUS_IN_REWORK, STATUS_REJECTED) else "Submit"
+        return "Submit"
     req_id = int(order.approval_request_id) if order.approval_request_id is not None else None
     if req_id is not None and req_id in pending_kinds:
         kind = pending_kinds[req_id]
@@ -535,15 +546,22 @@ class TransferOrderService:
             self._assert_actor_is_custodian(assets, actor_user_id=actor_user_id)
             return
         except ConflictError:
-            if order.status == STATUS_IN_REWORK and (
-                _is_destination_actor(order, actor_user_id)
-                or (
-                    order.created_by is not None
-                    and int(order.created_by) == int(actor_user_id)
+            # After reject restart / resume, destination assignee (or creator) may resubmit draft.
+            if (
+                order.status == STATUS_DRAFT
+                and order.assigned_to is not None
+                and int(order.assigned_to) == int(actor_user_id)
+                and (
+                    _is_destination_actor(order, actor_user_id)
+                    or (
+                        order.created_by is not None
+                        and int(order.created_by) == int(actor_user_id)
+                    )
                 )
             ):
                 return
             raise
+
     def _assert_assets_approved_for_transfer(self, assets: list[AssetMaster]) -> None:
         """Transfer orders may only include approved (or approval-not-required) active assets."""
         bad: list[str] = []
@@ -649,6 +667,16 @@ class TransferOrderService:
             raise NotFoundError("Transfer order", order_id)
         return order
 
+    def _normalize_legacy_rework_orders(self) -> None:
+        """Fold legacy in_rework rows into rejected (status is no longer used)."""
+        updated = self._db.execute(
+            AssetTransferOrder.__table__.update()
+            .where(AssetTransferOrder.status == STATUS_IN_REWORK)
+            .values(status=STATUS_REJECTED)
+        )
+        if getattr(updated, "rowcount", 0):
+            self._db.commit()
+
     def _assign(self, order: AssetTransferOrder, *, to_user_id: int, by_user_id: int) -> None:
         order.assigned_to = to_user_id
         order.assigned_by = by_user_id
@@ -734,7 +762,8 @@ class TransferOrderService:
         order = self._load_order(order_id)
         if order.status not in EDITABLE_STATUSES:
             raise ConflictError(
-                "Transfer order can only be edited while draft, rejected, or in rework."
+                "Transfer order can only be edited while draft. "
+                "Restart a rejected transfer before making changes."
             )
         before = {
             "to_cost_center_id": order.to_cost_center_id,
@@ -810,9 +839,9 @@ class TransferOrderService:
     def archive_order(self, order_id: int, *, actor_user_id: int) -> TransferOrderDetail:
         """Archive an editable transfer that already has workflow history (same order id)."""
         order = self._load_order(order_id)
-        if order.status not in EDITABLE_STATUSES:
+        if order.status not in ARCHIVABLE_STATUSES:
             raise ConflictError(
-                "Only draft, rejected, or in-rework transfer orders can be archived."
+                "Only draft, rejected, or legacy in-rework transfer orders can be archived."
             )
         if _is_plain_transfer_draft(self._db, order):
             raise ConflictError(
@@ -854,11 +883,7 @@ class TransferOrderService:
     def restart_transfer_for_resubmit(
         self, order_id: int, *, actor_user_id: int
     ) -> TransferOrderDetail:
-        """After CF reject returns to receiver: reopen same order for full approve flow.
-
-        Same order number / audit trail. Closes the pending receive task and moves the
-        order into in_rework so destination can be changed and resubmitted from step 1.
-        """
+        """After CF reject returns to receiver: reopen same order as draft for full approve flow."""
         order = self._load_order(order_id)
         if order.status != STATUS_APPROVED_BY_CF or not (order.rejection_reason or "").strip():
             raise ConflictError(
@@ -876,10 +901,13 @@ class TransferOrderService:
             )
 
         now = datetime.now(timezone.utc)
+        old_request_id = (
+            int(order.approval_request_id) if order.approval_request_id is not None else None
+        )
         if order.approval_request_id is not None:
             req = self._db.get(ApprovalRequest, int(order.approval_request_id))
-            if req is not None and str(req.status) == "pending":
-                req.status = "in_rework"
+            if req is not None and str(req.status) in ("pending", "in_rework"):
+                req.status = "rejected"
             open_tasks = self._db.scalars(
                 select(ApprovalTask).where(
                     ApprovalTask.request_id == int(order.approval_request_id),
@@ -891,18 +919,52 @@ class TransferOrderService:
                 t.closed_at = now
 
         old_status = order.status
-        order.status = STATUS_IN_REWORK
+        order.status = STATUS_DRAFT
+        order.rejection_reason = None
+        order.approval_request_id = None
         self._assign(order, to_user_id=int(actor_user_id), by_user_id=actor_user_id)
         _log(
             self._db,
             order_id=int(order.id),
             action="restart_transfer",
             actor_user_id=actor_user_id,
-            old_value={"status": old_status},
+            old_value={"status": old_status, "approval_request_id": old_request_id},
             new_value={
                 "status": order.status,
-                "note": "Restarted for full approve flow on the same order",
+                "note": "Restarted as draft for full approve flow on the same order",
             },
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def resume_rejected_order(
+        self, order_id: int, *, actor_user_id: int
+    ) -> TransferOrderDetail:
+        """Rejected / legacy in_rework → draft so the creator starts approval from the beginning."""
+        order = self._load_order(order_id)
+        if order.status not in RESUMABLE_STATUSES:
+            raise ConflictError(
+                "Only a rejected transfer order can be restarted."
+            )
+        if not _actor_may_discard_transfer(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the order creator can restart this transfer order.")
+        old_status = order.status
+        old_request_id = (
+            int(order.approval_request_id) if order.approval_request_id is not None else None
+        )
+        order.status = STATUS_DRAFT
+        order.rejection_reason = None
+        order.approval_request_id = None
+        order.assigned_to = int(order.created_by) if order.created_by is not None else None
+        order.assigned_by = actor_user_id
+        order.assigned_at = datetime.now(timezone.utc)
+        _log(
+            self._db,
+            order_id=int(order.id),
+            action="restarted",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status, "approval_request_id": old_request_id},
+            new_value={"status": order.status},
         )
         self._db.commit()
         return self.get_order(order_id, viewer_user_id=actor_user_id)
@@ -964,38 +1026,6 @@ class TransferOrderService:
             "role_name": str(first_role.name),
         }
         try:
-            existing = (
-                self._db.get(ApprovalRequest, int(order.approval_request_id))
-                if order.approval_request_id
-                else None
-            )
-            same_workflow = (
-                existing is not None
-                and str(existing.entity_type) == entity_type
-                and int(existing.workflow_id) == int(wf.id)
-            )
-            if same_workflow and order.status in (STATUS_REJECTED, STATUS_IN_REWORK):
-                try:
-                    engine.resubmit_rejected_request(
-                        request_id=int(order.approval_request_id),
-                        actor_user_id=actor_user_id,
-                        assigned_user_id=int(assigned_to),
-                    )
-                    order.status = STATUS_PENDING_APPROVAL
-                    order.rejection_reason = None
-                    self._assign(order, to_user_id=assigned_to, by_user_id=actor_user_id)
-                    _log(
-                        self._db,
-                        order_id=int(order.id),
-                        action="resubmitted",
-                        actor_user_id=actor_user_id,
-                        new_value=assign_meta,
-                    )
-                    self._db.commit()
-                    return
-                except ApprovalError:
-                    pass
-
             req = engine.create_request_for_entity(
                 workflow=wf,
                 entity_type=entity_type,
@@ -1206,6 +1236,7 @@ class TransferOrderService:
         assigned_to: str | None = None,
         created_on: date | None = None,
     ) -> TransferOrderListResponse:
+        self._normalize_legacy_rework_orders()
         tab_key = (tab or "needs_action").strip().lower()
         where = self._list_orders_where(tab_key, viewer_user_id=viewer_user_id)
         where.extend(
@@ -1269,7 +1300,7 @@ class TransferOrderService:
                     created_at=r.created_at,
                     can_delete=bool(may_discard and plain),
                     can_archive=bool(
-                        may_discard and r.status in EDITABLE_STATUSES and not plain
+                        may_discard and r.status in ARCHIVABLE_STATUSES and not plain
                     ),
                     needs_my_action=action_label is not None,
                     my_action_label=action_label,
@@ -1411,16 +1442,16 @@ class TransferOrderService:
                 ),
                 and_(
                     AssetTransferOrder.created_by == uid,
-                    AssetTransferOrder.status.in_(EDITABLE_STATUSES),
+                    AssetTransferOrder.status.in_(CREATOR_ACTION_STATUSES),
                 ),
                 and_(
                     AssetTransferOrder.assigned_to == uid,
                     AssetTransferOrder.status.in_(
                         (
+                            STATUS_DRAFT,
                             STATUS_APPROVED_BY_CF,
                             STATUS_RECEIVED_BY_CC2,
                             STATUS_CONFIRMED_BY_CF,
-                            STATUS_IN_REWORK,
                             STATUS_REJECTED,
                         )
                     ),
@@ -1648,6 +1679,7 @@ class TransferOrderService:
         )
 
     def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> TransferOrderDetail:
+        self._normalize_legacy_rework_orders()
         order = self._load_order(order_id)
         audits = list(
             self._db.scalars(
@@ -1684,7 +1716,7 @@ class TransferOrderService:
         if returned_to_receiver and _restore_destination_locations_from_audit(self._db, order):
             self._db.commit()
         may_edit_rework = is_creator or is_super or (
-            order.status == STATUS_IN_REWORK and is_dest
+            is_dest and is_assignee and order.status == STATUS_DRAFT
         )
 
         plant = order.plant
@@ -1790,6 +1822,7 @@ class TransferOrderService:
                 step_kind="close",
             ),
             can_edit=(order.status in EDITABLE_STATUSES) and may_edit_rework,
+            can_resume=(order.status in RESUMABLE_STATUSES) and (is_creator or is_super),
             can_delete=(
                 viewer_user_id is not None
                 and _is_plain_transfer_draft(self._db, order)
@@ -1799,7 +1832,7 @@ class TransferOrderService:
             ),
             can_archive=(
                 viewer_user_id is not None
-                and order.status in EDITABLE_STATUSES
+                and order.status in ARCHIVABLE_STATUSES
                 and not _is_plain_transfer_draft(self._db, order)
                 and _actor_may_discard_transfer(
                     order, actor_user_id=int(viewer_user_id), db=self._db
@@ -2132,7 +2165,7 @@ def reject_transfer_approval(
         )
         return "receiver"
 
-    order.status = STATUS_IN_REWORK
+    order.status = STATUS_REJECTED
     if order.created_by is not None:
         order.assigned_to = int(order.created_by)
         order.assigned_by = approver_user_id

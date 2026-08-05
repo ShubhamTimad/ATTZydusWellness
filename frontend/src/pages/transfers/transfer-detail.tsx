@@ -436,7 +436,7 @@ export function TransferOrderDetailPage() {
           {},
         ),
       )
-      toast.success("Transfer reopened — update destination, then submit for approval.")
+      toast.success("Transfer restarted as draft — update destination, then submit for approval.")
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not restart transfer")
     } finally {
@@ -513,6 +513,34 @@ export function TransferOrderDetailPage() {
               Archive
             </Button>
           ) : null}
+          {order.can_resume ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true)
+                try {
+                  applyOrder(
+                    await postJson<TransferOrderDetail>(
+                      `/admin/transfer-orders/${order.id}/resume`,
+                      {},
+                    ),
+                  )
+                  toast.success(
+                    "Transfer restarted as draft. Update details, then submit for approval.",
+                  )
+                } catch (e) {
+                  toast.error(
+                    e instanceof ApiError ? e.message : "Could not restart transfer order",
+                  )
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              Restart
+            </AdminPrimaryButton>
+          ) : null}
           {draftEditable ? (
             <Button
               type="button"
@@ -537,9 +565,7 @@ export function TransferOrderDetailPage() {
                 setPickerMode("submit")
               }}
             >
-              {order.status === "in_rework" || order.status === "rejected"
-                ? "Transfer"
-                : "Submit for approval"}
+              Submit for approval
             </AdminPrimaryButton>
           ) : null}
           {order.can_restart_transfer ? (
@@ -963,9 +989,7 @@ export function TransferOrderDetailPage() {
         }
         confirmLabel={
           pickerMode === "submit"
-            ? order.status === "in_rework" || order.status === "rejected"
-              ? "Transfer"
-              : "Submit"
+            ? "Submit"
             : engineReceive
               ? "Receive & assign next"
               : "Receive & assign CF"
@@ -994,11 +1018,7 @@ export function TransferOrderDetailPage() {
                 { assigned_to: userId },
               )
               applyOrder(res)
-              toast.success(
-                order.status === "in_rework" || order.status === "rejected"
-                  ? "Transfer submitted for approval."
-                  : "Transfer order submitted for approval.",
-              )
+              toast.success("Transfer order submitted for approval.")
             } catch (e) {
               toast.error(e instanceof ApiError ? e.message : "Action failed")
             } finally {

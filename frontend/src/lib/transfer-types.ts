@@ -112,6 +112,7 @@ export type TransferOrderDetail = {
   can_cf_confirm: boolean
   can_cf_close: boolean
   can_edit: boolean
+  can_resume?: boolean
   can_delete: boolean
   can_archive: boolean
   can_restart_transfer: boolean
@@ -127,7 +128,6 @@ export const TRANSFER_STATUS_TABS = [
 export const TRANSFER_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "draft", label: "Draft" },
   { value: "pending_approval", label: "Pending approval" },
-  { value: "in_rework", label: "In rework" },
   { value: "approved_by_cf", label: "Approved — pending receive" },
   { value: "received_by_cc2", label: "Received" },
   { value: "confirmed_by_cf", label: "Confirmed by CF" },
@@ -147,7 +147,7 @@ export function transferStatusLabel(status: string): string {
     pending_approval: "Pending approval",
     assigned_to_cf: "Pending approval",
     rejected: "Rejected",
-    in_rework: "In rework",
+    in_rework: "Rejected", // legacy; normalized to rejected
     approved_by_cf: "Approved — pending receive",
     received_by_cc2: "Received",
     confirmed_by_cf: "Confirmed by CF",

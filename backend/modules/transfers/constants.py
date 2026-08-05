@@ -17,8 +17,12 @@ TRANSFER_ENTITY_TYPES = frozenset({ENTITY_TYPE})
 
 ACTION_SUBMIT = "transfer.submit"
 
-EDITABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED, STATUS_IN_REWORK})
-SUBMITTABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED, STATUS_IN_REWORK})
+EDITABLE_STATUSES = frozenset({STATUS_DRAFT})
+SUBMITTABLE_STATUSES = frozenset({STATUS_DRAFT})
+# Rejected (and legacy in_rework) → Restart returns the order to draft to start over.
+RESUMABLE_STATUSES = frozenset({STATUS_REJECTED, STATUS_IN_REWORK})
+ARCHIVABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED, STATUS_IN_REWORK})
+CREATOR_ACTION_STATUSES = EDITABLE_STATUSES | RESUMABLE_STATUSES
 PENDING_APPROVAL_STATUSES = frozenset({STATUS_PENDING_APPROVAL, STATUS_ASSIGNED_TO_CF})
 
 # Post-approval stages are not rejectable — once approved, receive/confirm/close only.
@@ -83,7 +87,7 @@ STATUS_LABELS: dict[str, str] = {
     STATUS_PENDING_APPROVAL: "Pending approval",
     STATUS_ASSIGNED_TO_CF: "Pending approval",
     STATUS_REJECTED: "Rejected",
-    STATUS_IN_REWORK: "In rework",
+    STATUS_IN_REWORK: "Rejected",  # legacy; normalized to rejected
     STATUS_APPROVED_BY_CF: "Approved — pending receive",
     STATUS_RECEIVED_BY_CC2: "Received",
     STATUS_CONFIRMED_BY_CF: "Confirmed by CF",

@@ -6,6 +6,7 @@ from modules.transfers.constants import (
     ACTIVE_STATUSES,
     EDITABLE_STATUSES,
     REJECTABLE_STATUSES,
+    RESUMABLE_STATUSES,
     STATUS_APPROVED_BY_CF,
     STATUS_CANCELLED,
     STATUS_CLOSED,
@@ -22,8 +23,11 @@ from modules.transfers.service import _strip_or_none
 
 def test_happy_path_statuses() -> None:
     assert STATUS_DRAFT in EDITABLE_STATUSES
-    assert STATUS_IN_REWORK in EDITABLE_STATUSES
-    assert STATUS_IN_REWORK in SUBMITTABLE_STATUSES
+    assert STATUS_DRAFT in SUBMITTABLE_STATUSES
+    assert STATUS_REJECTED in RESUMABLE_STATUSES
+    assert STATUS_IN_REWORK in RESUMABLE_STATUSES  # legacy
+    assert STATUS_REJECTED not in EDITABLE_STATUSES
+    assert STATUS_IN_REWORK not in EDITABLE_STATUSES
     path = [
         STATUS_DRAFT,
         STATUS_PENDING_APPROVAL,
@@ -46,18 +50,17 @@ def test_happy_path_statuses() -> None:
     assert STATUS_CONFIRMED_BY_CF not in REJECTABLE_STATUSES
     assert STATUS_CLOSED not in REJECTABLE_STATUSES
     assert not REJECTABLE_STATUSES
-    # Pre-receive approve reject → creator rework (draft-like edit/resubmit).
-    reject_branch = [STATUS_PENDING_APPROVAL, STATUS_IN_REWORK]
-    assert reject_branch == ["pending_approval", "in_rework"]
+    # Pre-receive approve reject → rejected; creator Restart → draft → submit.
+    reject_branch = [STATUS_PENDING_APPROVAL, STATUS_REJECTED, STATUS_DRAFT]
+    assert reject_branch == ["pending_approval", "rejected", "draft"]
     # Post-receive confirm reject → same order back to receiver (not draft / not new order id).
     receiver_reject_branch = [STATUS_RECEIVED_BY_CC2, STATUS_APPROVED_BY_CF]
     assert receiver_reject_branch == ["received_by_cc2", "approved_by_cf"]
-    # Receiver may restart full approve flow on same order id → in_rework → resubmit.
-    restart_branch = [STATUS_APPROVED_BY_CF, STATUS_IN_REWORK, STATUS_PENDING_APPROVAL]
-    assert restart_branch == ["approved_by_cf", "in_rework", "pending_approval"]
+    # Receiver may restart full approve flow on same order id → draft → resubmit.
+    restart_branch = [STATUS_APPROVED_BY_CF, STATUS_DRAFT, STATUS_PENDING_APPROVAL]
+    assert restart_branch == ["approved_by_cf", "draft", "pending_approval"]
     # List inbox tabs: action-first — Needs my action / Done / All.
     assert {"needs_action", "done", "all"} == {"needs_action", "done", "all"}
-    assert STATUS_REJECTED in EDITABLE_STATUSES
     assert _strip_or_none("  x  ") == "x"
     assert _strip_or_none("   ") is None
     # Plain draft → hard delete; editable with workflow history → archive (cancelled).

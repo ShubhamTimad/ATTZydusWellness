@@ -189,6 +189,7 @@ class TransferOrderDetail(BaseModel):
     can_cf_confirm: bool = False
     can_cf_close: bool = False
     can_edit: bool = False
+    can_resume: bool = False
     can_delete: bool = False
     can_archive: bool = False
     # After CF reject returns to receiver: restart full approve flow on same order id.

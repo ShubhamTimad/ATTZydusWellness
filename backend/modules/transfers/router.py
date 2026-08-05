@@ -255,6 +255,29 @@ def submit_order(
         raise _http(e) from e
 
 
+@router.post("/{order_id}/resume", response_model=TransferOrderDetail)
+def resume_rejected_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "transfer.create",
+                "transfer.submit",
+                "transfer.manage",
+            )
+        ),
+    ],
+) -> TransferOrderDetail:
+    """Rejected → draft so the creator can edit and submit again from the start."""
+    try:
+        return svc.resume_rejected_order(order_id, actor_user_id=int(current.subject))
+    except Exception as e:
+        raise _http(e) from e
+
+
 @router.post("/{order_id}/restart-transfer", response_model=TransferOrderDetail)
 def restart_transfer(
     order_id: int,

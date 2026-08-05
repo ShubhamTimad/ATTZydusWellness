@@ -933,13 +933,13 @@ class ApprovalEngineService:
                 t.status = "closed"
                 t.closed_at = now
 
-            # Physical / disposal: terminal rejected on the order (creator resumes there).
+            # Physical / disposal / transfer-to-creator: terminal rejected (resume to draft).
             # Do not open a creator rework task / leave the approval request in_rework.
             if str(req.entity_type) in (
                 "physical_order_creation",
                 "physical_order_closure",
                 *DISPOSAL_ENTITY_TYPES,
-            ):
+            ) or transfer_return_to == "creator":
                 req.status = "rejected"
                 self._db.commit()
                 return self.get_request(req.id)
