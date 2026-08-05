@@ -13,6 +13,7 @@ import {
   AdminStatusBadge,
 } from "@/components/layout/admin-ui"
 import { UserAuditLog, type UserTimelineEvent } from "@/components/users/user-audit-log"
+import { UserCostCentersDisplay } from "@/components/users/user-cost-centers"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -52,15 +53,6 @@ function formatOrgList(
         : []
   if (list.length === 0) return "—"
   return list.map((d) => (d.code ? `${d.code} — ${d.name}` : d.name)).join(", ")
-}
-
-function formatCostCenters(
-  items: { code: string; name: string }[] | undefined,
-  fallback: { code: string; name: string } | null,
-): string {
-  const list = items && items.length > 0 ? items : fallback ? [fallback] : []
-  if (list.length === 0) return "—"
-  return list.map((c) => `${c.code} — ${c.name}`).join(", ")
 }
 
 function formatDateTime(iso: string | undefined): string {
@@ -287,7 +279,12 @@ export function UserViewPage() {
                 />
                 <AdminDetailField
                   label="Cost centers"
-                  value={formatCostCenters(user.cost_centers, user.cost_center)}
+                  value={
+                    <UserCostCentersDisplay
+                      items={user.cost_centers}
+                      fallback={user.cost_center}
+                    />
+                  }
                 />
                 <AdminDetailField
                   label="Status"

@@ -20,6 +20,7 @@ import {
 } from "@/components/layout/list-page-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
+import { UserCostCentersDisplay } from "@/components/users/user-cost-centers"
 import { getJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
 
@@ -45,14 +46,6 @@ type UserPublic = {
 function joinNames(items: { name: string }[] | undefined, fallback: string | null | undefined): string {
   if (items && items.length > 0) return items.map((i) => i.name).join(", ")
   return fallback ?? "—"
-}
-
-function joinCostCenters(
-  items: { code: string; name: string }[] | undefined,
-  fallback: { code: string; name: string } | null | undefined,
-): string {
-  if (items && items.length > 0) return items.map((c) => `${c.code} — ${c.name}`).join(", ")
-  return fallback ? `${fallback.code} — ${fallback.name}` : "—"
 }
 
 export function UsersPage() {
@@ -141,7 +134,9 @@ export function UsersPage() {
                   <AdminTableCell>
                     {joinNames(u.departments, u.department?.name ?? null)}
                   </AdminTableCell>
-                  <AdminTableCell>{joinCostCenters(u.cost_centers, u.cost_center)}</AdminTableCell>
+                  <AdminTableCell>
+                    <UserCostCentersDisplay items={u.cost_centers} fallback={u.cost_center} />
+                  </AdminTableCell>
                   <AdminTableCell>
                     <AdminStatusBadge active={u.is_active} />
                   </AdminTableCell>

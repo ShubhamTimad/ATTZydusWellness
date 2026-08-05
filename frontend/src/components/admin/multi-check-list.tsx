@@ -7,7 +7,7 @@ export function MultiCheckList({
   disabled,
   emptyLabel,
 }: {
-  options: { id: number; label: string }[]
+  options: { id: number; label: string; title?: string }[]
   values: string[]
   onChange: (next: string[]) => void
   disabled?: boolean
@@ -37,7 +37,11 @@ export function MultiCheckList({
         const id = String(opt.id)
         const checked = selected.has(id)
         return (
-          <label key={opt.id} className="flex cursor-pointer items-center gap-2 text-sm">
+          <label
+            key={opt.id}
+            className="flex cursor-pointer items-center gap-2 text-sm"
+            title={opt.title}
+          >
             <input
               type="checkbox"
               className="size-4 accent-primary"

@@ -343,7 +343,11 @@ export function UserEditPage() {
               <div className="space-y-2">
                 <Label>Cost centers (optional)</Label>
                 <MultiCheckList
-                  options={costCenters.map((c) => ({ id: c.id, label: `${c.code} — ${c.name}` }))}
+                  options={costCenters.map((c) => ({
+                    id: c.id,
+                    label: c.code,
+                    title: `${c.code} — ${c.name}`,
+                  }))}
                   values={form.watch("cost_center_ids")}
                   onChange={(next) => form.setValue("cost_center_ids", next, { shouldDirty: true })}
                   disabled={user.is_superuser || plantIds.length === 0}
