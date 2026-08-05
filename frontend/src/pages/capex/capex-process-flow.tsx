@@ -17,6 +17,28 @@ function phaseFor(step: CapexProgressStep, currentStepKey: string): Phase {
   return "upcoming"
 }
 
+function connectorClass(
+  from: Phase | null,
+  to: Phase | null,
+  edge: "left" | "right",
+): string {
+  if (edge === "left" && from == null) return "bg-transparent"
+  if (edge === "right" && to == null) return "bg-transparent"
+  // Bounce-back: active receive → rejected CF uses a red connector.
+  if (
+    (from === "current" && to === "rejected") ||
+    (from === "rejected" && to === "current") ||
+    (from === "completed" && to === "rejected") ||
+    (from === "rejected" && to === "completed")
+  ) {
+    return "bg-destructive/70"
+  }
+  if (from === "completed" || to === "completed" || from === "rejected" || to === "rejected") {
+    return "bg-primary/60"
+  }
+  return "bg-border"
+}
+
 /** Standard horizontal process flow: numbered nodes + connectors. */
 export function CapexProcessFlow({ steps, currentStepKey }: Props) {
   return (
@@ -24,20 +46,19 @@ export function CapexProcessFlow({ steps, currentStepKey }: Props) {
       {steps.map((step, index) => {
         const phase = phaseFor(step, currentStepKey)
         const isLast = index === steps.length - 1
-        const prevPhase = index > 0 ? phaseFor(steps[index - 1], currentStepKey) : null
-        const leftFilled = index > 0 && (prevPhase === "completed" || phase === "completed" || phase === "rejected")
-        const rightFilled = !isLast && phase === "completed"
+        const prevPhase = index > 0 ? phaseFor(steps[index - 1]!, currentStepKey) : null
+        const nextPhase = !isLast ? phaseFor(steps[index + 1]!, currentStepKey) : null
 
         return (
           <li
-            key={step.key}
+            key={`${step.key}-${index}`}
             className={cn("flex min-w-[5.25rem] flex-1 flex-col items-center sm:min-w-[6rem]")}
             aria-current={phase === "current" ? "step" : undefined}
             title={step.detail ? `${step.label} — ${step.detail}` : step.label}
           >
             <div className="flex w-full items-center">
               <div
-                className={cn("h-0.5 flex-1", index === 0 ? "bg-transparent" : leftFilled ? "bg-primary/60" : "bg-border")}
+                className={cn("h-0.5 flex-1", connectorClass(prevPhase, phase, "left"))}
                 aria-hidden
               />
               <div
@@ -59,7 +80,10 @@ export function CapexProcessFlow({ steps, currentStepKey }: Props) {
                 )}
               </div>
               <div
-                className={cn("h-0.5 flex-1", isLast ? "bg-transparent" : rightFilled ? "bg-primary/60" : "bg-border")}
+                className={cn(
+                  "h-0.5 flex-1",
+                  connectorClass(phase, nextPhase, "right"),
+                )}
                 aria-hidden
               />
             </div>

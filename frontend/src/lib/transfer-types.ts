@@ -238,6 +238,42 @@ export function buildTransferProgress(detail: TransferOrderDetail): {
     else if (status === "closed") currentStepKey = "closed"
     else if (isRejected) currentStepKey = "rejected"
 
+    // CF reject returned to receiver: show rejector as done (X), active on receive again.
+    const bounceRun = transferReturnedToReceiver(detail) ? transferBounceRejectRun(detail) : null
+    const bounceSteps = bounceRun?.workflow_steps
+    const bounceReject = bounceSteps?.find((s) => s.phase === "rejected")
+    if (bounceSteps && bounceReject) {
+      currentStepKey = "approved_by_cf"
+      for (const s of bounceSteps) {
+        if (Number(s.step_order) > Number(bounceReject.step_order)) continue
+        const kind = stepKindOf(s)
+        const key =
+          kind === "close"
+            ? "closed"
+            : kind === "receive"
+              ? "approved_by_cf"
+              : kind === "confirm"
+                ? "received_by_cc2"
+                : `approved_by_${s.step_order}`
+        const isReceive = kind === "receive"
+        const isRejectStep = Number(s.step_order) === Number(bounceReject.step_order)
+        const stepStatus = isReceive ? "active" : isRejectStep ? "rejected" : "completed"
+        const role = shortTransferRoleLabel(s.approver_role_name)
+        steps.push({
+          key,
+          label: isRejectStep
+            ? `Rejected — ${role}`
+            : isReceive
+              ? role
+              : progressLabelForStep({ ...s, phase: "completed" }),
+          status: stepStatus,
+          detail: s.assigned_user_name ?? null,
+          approver_slots: [],
+        })
+      }
+      return { steps, currentStepKey }
+    }
+
     for (const s of workflowSteps) {
       const kind = stepKindOf(s)
       const key =
@@ -488,6 +524,24 @@ function currentTransferWorkflowSteps(
   if (currentRun?.workflow_steps?.length) return currentRun.workflow_steps
   if (panel?.workflow_steps?.length) return panel.workflow_steps
   return defaultTransferApprovalSteps()
+}
+
+/** Prior attempt that ended in CF reject (order returned to destination receive). */
+function transferBounceRejectRun(
+  detail: TransferOrderDetail,
+): NonNullable<TransferApprovalPanel["workflow_runs"]>[number] | null {
+  const runs = detail.approval_panel?.workflow_runs ?? []
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const run = runs[i]
+    if (run?.workflow_steps?.some((s) => s.phase === "rejected")) return run
+  }
+  return null
+}
+
+function transferReturnedToReceiver(detail: TransferOrderDetail): boolean {
+  return (
+    detail.status === "approved_by_cf" && Boolean((detail.rejection_reason || "").trim())
+  )
 }
 
 function defaultTransferApprovalSteps(): NonNullable<TransferApprovalPanel["workflow_steps"]> {

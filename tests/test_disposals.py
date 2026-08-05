@@ -60,6 +60,8 @@ def _order(status: str, *, assets, order_id: int = 1, assigned_to: int | None = 
         assigned_by=None,
         assigned_at=None,
         created_by=2,
+        receiver_user_id=8,
+        approval_request_id=None,
         remarks=None,
         rejection_comment=None,
         closed_at=None,
@@ -198,10 +200,69 @@ def test_final_approval_without_scrapyard_user_is_blocked():
 def test_reject_sends_order_to_rejected_for_creator():
     order = _order("pending_approval", assets=[_asset()])
     db = MagicMock()
-    db.get.return_value = order
-    reject_disposal_approval(db, order_id=1, approver_user_id=9, comment="  wrong assets  ")
+    db.scalar.return_value = order
+    assert (
+        reject_disposal_approval(db, order_id=1, approver_user_id=9, comment="  wrong assets  ")
+        == "creator"
+    )
     assert order.status == STATUS_REJECTED
     assert order.rejection_comment == "wrong assets"
+    assert order.assigned_to == order.created_by
+
+
+def test_cf_reject_returns_to_receiver_for_location_edits():
+    asset = _asset()
+    asset.location.functional_location = "NEW-FL"
+    asset.location.actual_location = "NEW-AL"
+    asset.financial.cost_center = "CC-SCRAP"
+    order = _order(STATUS_PENDING_CF_CLOSE, assets=[asset], assigned_to=11)
+    order.items[0].from_cost_center_code = "CC-100"
+    order.items[0].from_functional_location = "OLD-FL"
+    order.items[0].from_actual_location = "OLD-AL"
+    db = MagicMock()
+    db.scalar.return_value = order
+    assert (
+        reject_disposal_approval(db, order_id=1, approver_user_id=9, comment="fix locs")
+        == "receiver"
+    )
+    assert order.status == STATUS_PENDING_RECEIPT
+    assert order.assigned_to == order.receiver_user_id
+    assert order.rejection_comment == "fix locs"
+    assert asset.location.functional_location == "OLD-FL"
+    assert asset.location.actual_location == "OLD-AL"
+    assert asset.financial.cost_center == "CC-100"
+
+
+def test_cf_reject_recovers_receiver_from_receive_audit():
+    asset = _asset()
+    order = _order(STATUS_PENDING_CF_CLOSE, assets=[asset], assigned_to=11)
+    order.receiver_user_id = None
+    order.items[0].from_cost_center_code = "CC-100"
+    order.items[0].from_functional_location = "OLD-FL"
+    order.items[0].from_actual_location = "OLD-AL"
+    audit = SimpleNamespace(
+        action="received",
+        actor_user_id=8,
+        new_value={"status": STATUS_PENDING_CF_CLOSE},
+    )
+    db = MagicMock()
+    db.scalar.side_effect = [order]
+    db.scalars.return_value.all.return_value = [audit]
+    assert reject_disposal_approval(db, order_id=1, approver_user_id=9, comment="bounce") == "receiver"
+    assert order.status == STATUS_PENDING_RECEIPT
+    assert order.receiver_user_id == 8
+    assert order.assigned_to == 8
+
+
+def test_receiver_reject_sends_order_to_rejected_for_creator():
+    order = _order(STATUS_PENDING_RECEIPT, assets=[_asset()], assigned_to=8)
+    db = MagicMock()
+    db.scalar.return_value = order
+    assert (
+        reject_disposal_approval(db, order_id=1, approver_user_id=8, comment="cannot receive")
+        == "creator"
+    )
+    assert order.status == STATUS_REJECTED
     assert order.assigned_to == order.created_by
 
 

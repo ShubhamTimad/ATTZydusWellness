@@ -836,9 +836,8 @@ class ApprovalEngineService:
         self._db.flush()
 
         if act == "reject":
-            # Transfer: reject on approve (→ creator rework) or confirm (→ receiver redo receive).
-            # Receive/close stay non-rejectable.
-            # CapEx/disposal close steps are also non-rejectable.
+            # Transfer: reject on approve (→ creator) or confirm (→ receiver redo receive).
+            # CapEx close stays non-rejectable. Disposal close reject returns to receiver.
             transfer_step_kind = (
                 _step_kind(task.step) if str(req.entity_type) in TRANSFER_ENTITY_TYPES else None
             )
@@ -857,6 +856,8 @@ class ApprovalEngineService:
             now = _now_utc()
             task.status = "rejected"
             task.acted_at = now
+            disposal_return_to: str | None = None
+            transfer_return_to: str | None = None
 
             if str(req.entity_type) in ("asset_creation", "asset_import"):
                 from modules.assets.service import reject_asset_after_approval
@@ -898,14 +899,13 @@ class ApprovalEngineService:
                 if task.step is not None:
                     role = self._db.get(Role, int(task.step.approver_role_id))
                     step_role = role.name if role is not None else None
-                reject_disposal_approval(
+                disposal_return_to = reject_disposal_approval(
                     self._db,
                     order_id=int(req.entity_id),
                     approver_user_id=actor_user_id,
                     comment=comment,
                     step_role_name=step_role,
                 )
-            transfer_return_to: str | None = None
             if str(req.entity_type) in TRANSFER_ENTITY_TYPES:
                 from modules.transfers.service import reject_transfer_approval
 
@@ -933,19 +933,19 @@ class ApprovalEngineService:
                 t.status = "closed"
                 t.closed_at = now
 
-            # Physical / disposal / transfer-to-creator: terminal rejected (resume to draft).
+            # Physical / disposal-to-creator / transfer-to-creator: terminal rejected (resume to draft).
             # Do not open a creator rework task / leave the approval request in_rework.
             if str(req.entity_type) in (
                 "physical_order_creation",
                 "physical_order_closure",
-                *DISPOSAL_ENTITY_TYPES,
-            ) or transfer_return_to == "creator":
+            ) or transfer_return_to == "creator" or disposal_return_to == "creator":
                 req.status = "rejected"
                 self._db.commit()
                 return self.get_request(req.id)
 
-            # Post-receive transfer reject: same order stays pending, reopen receive for custodian.
-            if transfer_return_to == "receiver":
+            # Post-receive transfer/disposal reject: reopen receive for the receiver.
+            if transfer_return_to == "receiver" or disposal_return_to == "receiver":
+                from modules.disposals.model import AssetDisposalOrder
                 from modules.transfers.model import AssetTransferOrder
 
                 wf = self._db.scalar(
@@ -960,17 +960,36 @@ class ApprovalEngineService:
                     None,
                 )
                 if receive_step is None:
-                    raise ApprovalError("Transfer workflow has no receive step to reopen.")
-                order = self._db.get(AssetTransferOrder, int(req.entity_id))
-                receiver_id = (
-                    int(order.to_asset_custodian_id)
-                    if order is not None and order.to_asset_custodian_id is not None
-                    else None
-                )
-                if receiver_id is None:
-                    raise ApprovalError(
-                        "Destination custodian is missing; cannot return this transfer to the receiver."
+                    # Approve-only disposal workflows use REST receive; order is already
+                    # pending_receipt with the receiver assigned.
+                    if disposal_return_to != "receiver":
+                        raise ApprovalError("Workflow has no receive step to reopen.")
+                    req.status = "pending"
+                    self._db.commit()
+                    return self.get_request(req.id)
+                receiver_id: int | None = None
+                if transfer_return_to == "receiver":
+                    order = self._db.get(AssetTransferOrder, int(req.entity_id))
+                    receiver_id = (
+                        int(order.to_asset_custodian_id)
+                        if order is not None and order.to_asset_custodian_id is not None
+                        else None
                     )
+                    if receiver_id is None:
+                        raise ApprovalError(
+                            "Destination custodian is missing; cannot return this transfer to the receiver."
+                        )
+                else:
+                    order = self._db.get(AssetDisposalOrder, int(req.entity_id))
+                    receiver_id = (
+                        int(order.receiver_user_id)
+                        if order is not None and order.receiver_user_id is not None
+                        else None
+                    )
+                    if receiver_id is None:
+                        raise ApprovalError(
+                            "Receiver is missing; cannot return this disposal for re-receive."
+                        )
                 req.status = "pending"
                 req.current_step = int(receive_step.step_order)
                 self._create_tasks_for_step(req, receive_step, assigned_user_id=receiver_id)

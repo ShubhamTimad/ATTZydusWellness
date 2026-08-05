@@ -7,12 +7,14 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -131,11 +133,14 @@ class ApprovalRequest(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint(
+        # One active (pending / in_rework) request per entity; multiple terminal
+        # rejected/approved rows are allowed (resume → new submit attempt).
+        Index(
+            "uq_approval_requests_entity_active",
             "entity_type",
             "entity_id",
-            "status",
-            name="uq_approval_requests_entity_status",
+            unique=True,
+            postgresql_where=text("status IN ('pending', 'in_rework')"),
         ),
     )
 

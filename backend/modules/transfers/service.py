@@ -1972,6 +1972,7 @@ def apply_transfer_receive(
     comment: str | None = None,
     cost_center_id: int | None = None,
 ) -> None:
+    _ = cost_center_id  # Ignored: destination CC is fixed at submit; receiver sets locations only.
     order = db.get(AssetTransferOrder, order_id)
     if order is None:
         return
@@ -1990,7 +1991,8 @@ def apply_transfer_receive(
         order,
         functional_location=functional_location or "",
         actual_location=actual_location or "",
-        cost_center_id=cost_center_id,
+        # Receiver may only set Actual Location 1/2; destination CC is fixed at submit.
+        cost_center_id=None,
     )
     old_status = order.status
     order.status = STATUS_RECEIVED_BY_CC2

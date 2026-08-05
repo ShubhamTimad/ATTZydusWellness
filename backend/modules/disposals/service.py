@@ -908,6 +908,8 @@ class DisposalOrderService:
         if data.remarks is not None:
             order.remarks = _strip_or_none(data.remarks)
         order.status = STATUS_PENDING_CF_CLOSE
+        if order.receiver_user_id is None:
+            order.receiver_user_id = int(actor_user_id)
         self._assign(order, to_user_id=int(cf_user.id), by_user_id=actor_user_id)
         log_disposal_event(
             self._db,
@@ -1500,6 +1502,7 @@ def apply_disposal_enter_receive(
     old_status = order.status
     order.status = STATUS_PENDING_RECEIPT
     order.rejection_comment = None
+    order.receiver_user_id = int(next_assignee_user_id)
     order.assigned_to = int(next_assignee_user_id)
     order.assigned_by = actor_user_id
     order.assigned_at = datetime.now(timezone.utc)
@@ -1513,6 +1516,7 @@ def apply_disposal_enter_receive(
             "status": order.status,
             "step_role_name": step_role_name,
             "assigned_to": int(next_assignee_user_id),
+            "receiver_user_id": int(next_assignee_user_id),
             "comment": (comment or "").strip() or None,
         },
     )
@@ -1565,6 +1569,9 @@ def apply_disposal_receive(
 
     old_status = order.status
     order.status = STATUS_PENDING_CF_CLOSE
+    # Keep receiver_user_id so a later CF reject can return here for location edits.
+    if order.receiver_user_id is None:
+        order.receiver_user_id = int(actor_user_id)
     order.assigned_to = int(next_assignee_user_id)
     order.assigned_by = actor_user_id
     order.assigned_at = datetime.now(timezone.utc)
@@ -1648,6 +1655,7 @@ def finalize_disposal_approval(
         raise NotFoundError("User", scrapyard_user_id)
     order.status = STATUS_PENDING_RECEIPT
     order.rejection_comment = None
+    order.receiver_user_id = int(receiver.id)
     order.assigned_to = int(receiver.id)
     order.assigned_by = approver_user_id
     order.assigned_at = datetime.now(timezone.utc)
@@ -1660,10 +1668,50 @@ def finalize_disposal_approval(
             "status": order.status,
             "step_role_name": step_role_name,
             "assigned_to": int(receiver.id),
+            "receiver_user_id": int(receiver.id),
             "comment": (comment or "").strip() or None,
         },
     )
     db.commit()
+
+
+def _revert_disposal_assets_after_receive(order: AssetDisposalOrder) -> None:
+    """Restore cost center / locations from line-item snapshots taken at create."""
+    for item in order.items:
+        asset = item.asset
+        if asset is None:
+            continue
+        if item.from_cost_center_code:
+            _ensure_financial(asset).cost_center = item.from_cost_center_code
+        loc = _ensure_location(asset)
+        loc.functional_location = item.from_functional_location
+        loc.actual_location = item.from_actual_location
+
+
+def _resolve_disposal_receiver_id(db: Session, order: AssetDisposalOrder) -> int | None:
+    """Prefer persisted receiver; fall back to last enter-receive / receive assignee."""
+    if order.receiver_user_id is not None:
+        return int(order.receiver_user_id)
+    # Legacy rows created before receiver_user_id existed.
+    from modules.disposals.model import AssetDisposalOrderAudit
+
+    rows = db.scalars(
+        select(AssetDisposalOrderAudit)
+        .where(
+            AssetDisposalOrderAudit.order_id == int(order.id),
+            AssetDisposalOrderAudit.action.in_(("approved", "received")),
+        )
+        .order_by(AssetDisposalOrderAudit.id.desc())
+    ).all()
+    for row in rows:
+        new_val = row.new_value if isinstance(row.new_value, dict) else {}
+        if row.action == "approved" and new_val.get("status") == STATUS_PENDING_RECEIPT:
+            assigned = new_val.get("assigned_to") or new_val.get("receiver_user_id")
+            if assigned is not None:
+                return int(assigned)
+        if row.action == "received" and row.actor_user_id is not None:
+            return int(row.actor_user_id)
+    return None
 
 
 def reject_disposal_approval(
@@ -1673,12 +1721,58 @@ def reject_disposal_approval(
     approver_user_id: int | None,
     comment: str | None,
     step_role_name: str | None = None,
-) -> None:
-    order = db.get(AssetDisposalOrder, order_id)
+) -> str:
+    """Apply reject on the disposal order.
+
+    Returns ``\"receiver\"`` when CF/post-receive reject sends the order back for
+    location edits. Otherwise ``\"creator\"`` (terminal rejected → Restart → draft).
+    """
+    order = db.scalar(
+        select(AssetDisposalOrder)
+        .where(AssetDisposalOrder.id == int(order_id))
+        .options(
+            selectinload(AssetDisposalOrder.items).selectinload(AssetDisposalOrderItem.asset),
+        )
+    )
     if order is None:
-        return
+        return "creator"
+
+    reason = (comment or "").strip() or None
+    old_status = order.status
+    order.rejection_comment = reason
+
+    # After receive: revert locations and reopen receive for the Cost Center User.
+    if old_status == STATUS_PENDING_CF_CLOSE:
+        receiver_id = _resolve_disposal_receiver_id(db, order)
+        if receiver_id is None:
+            raise ConflictError(
+                "Receiver is missing on this disposal order; cannot return it for re-receive."
+            )
+        order.receiver_user_id = receiver_id
+        _revert_disposal_assets_after_receive(order)
+        order.status = STATUS_PENDING_RECEIPT
+        order.closed_at = None
+        order.assigned_to = receiver_id
+        order.assigned_by = approver_user_id
+        order.assigned_at = datetime.now(timezone.utc)
+        log_disposal_event(
+            db,
+            order_id=int(order.id),
+            action="rejected",
+            actor_user_id=approver_user_id,
+            old_value={"status": old_status},
+            new_value={
+                "status": order.status,
+                "comment": reason,
+                "step_role_name": step_role_name,
+                "returned_to": "receiver",
+                "assigned_to": receiver_id,
+            },
+        )
+        return "receiver"
+
+    # Approve-chain or receive-step reject → terminal rejected for the creator.
     order.status = STATUS_REJECTED
-    order.rejection_comment = (comment or "").strip() or None
     if order.created_by is not None:
         order.assigned_to = int(order.created_by)
         order.assigned_by = approver_user_id
@@ -1688,14 +1782,16 @@ def reject_disposal_approval(
         order_id=int(order.id),
         action="rejected",
         actor_user_id=approver_user_id,
+        old_value={"status": old_status},
         new_value={
             "status": order.status,
-            "comment": order.rejection_comment,
+            "comment": reason,
             "step_role_name": step_role_name,
+            "returned_to": "creator",
             "assigned_to": int(order.assigned_to) if order.assigned_to is not None else None,
         },
     )
-    db.commit()
+    return "creator"
 
 
 def log_disposal_step_approved(

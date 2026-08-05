@@ -497,21 +497,19 @@ export function DisposalOrderDetailPage() {
           ) : null}
           {canDecide ? (
             <>
-              {!engineClose ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9"
-                  disabled={busy}
-                  onClick={() => {
-                    setDecisionMode("reject")
-                    setDecisionOpen(true)
-                  }}
-                >
-                  Reject
-                </Button>
-              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9"
+                disabled={busy}
+                onClick={() => {
+                  setDecisionMode("reject")
+                  setDecisionOpen(true)
+                }}
+              >
+                Reject
+              </Button>
               <AdminPrimaryButton
                 type="button"
                 disabled={busy}

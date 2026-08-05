@@ -258,7 +258,6 @@ export function TransferOrderDetailPage() {
           ? {
               to_functional_location: toFunctionalLocation.trim(),
               to_actual_location: toActualLocation.trim(),
-              ...(toCostCenterId ? { to_cost_center_id: Number(toCostCenterId) } : {}),
             }
           : {}),
       })
@@ -287,10 +286,6 @@ export function TransferOrderDetailPage() {
   async function confirmReceiveViaEngine(nextUserId: number) {
     const taskId = myTaskId
     if (!taskId) return
-    if (!toCostCenterId) {
-      toast.error("Select destination cost center before receiving.")
-      return
-    }
     if (!toFunctionalLocation.trim() || !toActualLocation.trim()) {
       toast.error("Select Actual Location 1 and 2 before receiving.")
       return
@@ -302,7 +297,6 @@ export function TransferOrderDetailPage() {
         next_assigned_user_id: nextUserId,
         to_functional_location: toFunctionalLocation.trim(),
         to_actual_location: toActualLocation.trim(),
-        ...(toCostCenterId ? { to_cost_center_id: Number(toCostCenterId) } : {}),
       })
       toast.success("Assets received. Assigned for confirmation.")
       setPickerMode(null)
@@ -466,7 +460,7 @@ export function TransferOrderDetailPage() {
   const destinationDescription = order.can_restart_transfer
     ? "Receive again with updated locations, or click Transfer to change destination and restart the full approval flow on this same order."
     : receiveEditable
-      ? "Edit destination cost center and Actual Location 1 / 2, then receive. Same order id continues — no new transfer is created."
+      ? "Set Actual Location 1 / 2, then receive. Destination cost center stays as approved — same order id continues."
       : draftEditable
         ? "Update destination cost center and asset custodian. Locations are set when the destination custodian receives."
         : "Destination details for this transfer order."
@@ -609,10 +603,6 @@ export function TransferOrderDetailPage() {
               type="button"
               disabled={busy}
               onClick={() => {
-                if (!toCostCenterId) {
-                  toast.error("Select destination cost center before receiving.")
-                  return
-                }
                 if (!toFunctionalLocation.trim() || !toActualLocation.trim()) {
                   toast.error("Select Actual Location 1 and 2 before receiving.")
                   return
@@ -784,16 +774,16 @@ export function TransferOrderDetailPage() {
               <FormField
                 id="to_cc"
                 labelText="Destination cost center"
-                required={draftEditable || receiveEditable}
+                required={draftEditable}
               >
-                {draftEditable || receiveEditable ? (
+                {draftEditable ? (
                   <select
                     id="to_cc"
                     className={adminSelectClass}
                     value={toCostCenterId}
                     onChange={(e) => {
                       setToCostCenterId(e.target.value)
-                      if (draftEditable) setToAssetCustodianId(null)
+                      setToAssetCustodianId(null)
                     }}
                   >
                     <option value="">Select cost center</option>

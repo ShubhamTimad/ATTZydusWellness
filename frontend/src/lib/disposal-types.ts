@@ -216,6 +216,43 @@ export function buildDisposalProgress(detail: DisposalOrderDetail): {
     else if (status === "closed") currentStepKey = "closed"
     else if (isRejected) currentStepKey = "rejected"
 
+    // CF/post-receive reject returned to receiver: show rejector as done (X),
+    // then active/red on the receive step that must act again.
+    const bounceRun = disposalReturnedToReceiver(detail) ? disposalBounceRejectRun(detail) : null
+    const bounceSteps = bounceRun?.workflow_steps
+    const bounceReject = bounceSteps?.find((s) => s.phase === "rejected")
+    if (bounceSteps && bounceReject) {
+      currentStepKey = "pending_receipt"
+      for (const s of bounceSteps) {
+        if (Number(s.step_order) > Number(bounceReject.step_order)) continue
+        const kind = stepKindOf(s)
+        const key =
+          kind === "close"
+            ? "closed"
+            : kind === "receive"
+              ? "pending_receipt"
+              : kind === "confirm"
+                ? "pending_cf_close"
+                : `approved_by_${s.step_order}`
+        const isReceive = kind === "receive"
+        const isRejectStep = Number(s.step_order) === Number(bounceReject.step_order)
+        const stepStatus = isReceive ? "active" : isRejectStep ? "rejected" : "completed"
+        const role = shortDisposalRoleLabel(s.approver_role_name)
+        steps.push({
+          key,
+          label: isRejectStep
+            ? `Rejected — ${role}`
+            : isReceive
+              ? role
+              : progressLabelForStep({ ...s, phase: "completed" }),
+          status: stepStatus,
+          detail: s.assigned_user_name ?? null,
+          approver_slots: [],
+        })
+      }
+      return { steps, currentStepKey }
+    }
+
     for (const s of workflowSteps) {
       const kind = stepKindOf(s)
       const key =
@@ -256,7 +293,8 @@ export function buildDisposalProgress(detail: DisposalOrderDetail): {
 
       // Complete only by this step's phase / order — never by shared role name.
       let stepStatus: string = "upcoming"
-      if (s.phase === "completed" || status === "closed") stepStatus = "completed"
+      if (s.phase === "rejected") stepStatus = "rejected"
+      else if (s.phase === "completed" || status === "closed") stepStatus = "completed"
       else if (s.phase === "current") {
         stepStatus = "active"
         currentStepKey = key
@@ -310,10 +348,18 @@ export function buildDisposalProgress(detail: DisposalOrderDetail): {
 
       steps.push({
         key,
-        label: progressLabelForStep({
-          ...s,
-          phase: stepStatus === "completed" ? "completed" : s.phase,
-        }),
+        label:
+          stepStatus === "rejected"
+            ? `Rejected — ${shortDisposalRoleLabel(s.approver_role_name)}`
+            : progressLabelForStep({
+                ...s,
+                phase:
+                  stepStatus === "completed"
+                    ? "completed"
+                    : stepStatus === "rejected"
+                      ? "rejected"
+                      : s.phase,
+              }),
         status: stepStatus,
         detail: s.assigned_user_name ?? null,
         approver_slots: [],
@@ -452,6 +498,24 @@ function currentDisposalWorkflowSteps(
   if (currentRun?.workflow_steps?.length) return currentRun.workflow_steps
   if (panel?.workflow_steps?.length) return panel.workflow_steps
   return defaultDisposalApprovalSteps(detail.requires_engineering)
+}
+
+/** Prior attempt that ended in reject (CF bounce → receiver still pending_receipt). */
+function disposalBounceRejectRun(
+  detail: DisposalOrderDetail,
+): NonNullable<DisposalApprovalPanel["workflow_runs"]>[number] | null {
+  const runs = detail.approval_panel?.workflow_runs ?? []
+  for (let i = runs.length - 1; i >= 0; i--) {
+    const run = runs[i]
+    if (run?.workflow_steps?.some((s) => s.phase === "rejected")) return run
+  }
+  return null
+}
+
+function disposalReturnedToReceiver(detail: DisposalOrderDetail): boolean {
+  return (
+    detail.status === "pending_receipt" && Boolean((detail.rejection_comment || "").trim())
+  )
 }
 
 function defaultDisposalApprovalSteps(

@@ -42,6 +42,10 @@ class AssetDisposalOrder(Base):
     assigned_to: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # Cost Center User chosen at enter-receive; kept after receive so CF reject can return here.
+    receiver_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     assigned_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -61,6 +65,7 @@ class AssetDisposalOrder(Base):
     from_cost_center = relationship("CostCenterMaster", foreign_keys=[from_cost_center_id])
     creator = relationship("User", foreign_keys=[created_by])
     assignee = relationship("User", foreign_keys=[assigned_to])
+    receiver = relationship("User", foreign_keys=[receiver_user_id])
     items = relationship(
         "AssetDisposalOrderItem", back_populates="order", cascade="all, delete-orphan"
     )
