@@ -23,10 +23,13 @@ from modules.disposals.audit import log_disposal_event
 from modules.disposals.constants import (
     ACTION_SUBMIT,
     ACTION_SUBMIT_WITH_ENGINEERING,
+    ARCHIVABLE_STATUSES,
     ASSIGNEE_LEVEL_ROLES,
+    CREATOR_ACTION_STATUSES,
     EDITABLE_STATUSES,
     ENTITY_TYPE,
     ENTITY_TYPE_WITH_ENGINEERING,
+    RESUMABLE_STATUSES,
     ROLE_TO_ASSIGNEE_LEVEL,
     STATUS_CANCELLED,
     STATUS_CLOSED,
@@ -281,6 +284,16 @@ class DisposalOrderService:
             raise NotFoundError("Disposal order", order_id)
         return order
 
+    def _normalize_legacy_rework_orders(self) -> None:
+        """Fold legacy in_rework rows into rejected (status is no longer used)."""
+        updated = self._db.execute(
+            AssetDisposalOrder.__table__.update()
+            .where(AssetDisposalOrder.status == STATUS_IN_REWORK)
+            .values(status=STATUS_REJECTED)
+        )
+        if getattr(updated, "rowcount", 0):
+            self._db.commit()
+
     def _load_assets(self, asset_ids: list[int]) -> list[AssetMaster]:
         ids = list(dict.fromkeys(int(i) for i in asset_ids))
         if not ids:
@@ -488,7 +501,8 @@ class DisposalOrderService:
         order = self._load_order(order_id)
         if order.status not in EDITABLE_STATUSES:
             raise ConflictError(
-                "Disposal order can only be edited while draft, rejected, or in rework."
+                "Disposal order can only be edited while draft. "
+                "Restart a rejected or in-rework order before making changes."
             )
         before = {
             "remarks": order.remarks,
@@ -533,6 +547,38 @@ class DisposalOrderService:
         self._db.commit()
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
+    def resume_rejected_order(
+        self, order_id: int, *, actor_user_id: int
+    ) -> DisposalOrderDetail:
+        """Rejected / legacy in_rework → draft so the creator starts approval from the beginning."""
+        order = self._load_order(order_id)
+        if order.status not in RESUMABLE_STATUSES:
+            raise ConflictError(
+                "Only a rejected or in-rework disposal order can be restarted."
+            )
+        if not _actor_may_discard_disposal(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the order creator can restart this disposal order.")
+        old_status = order.status
+        old_request_id = (
+            int(order.approval_request_id) if order.approval_request_id is not None else None
+        )
+        order.status = STATUS_DRAFT
+        order.rejection_comment = None
+        order.approval_request_id = None
+        order.assigned_to = int(order.created_by) if order.created_by is not None else None
+        order.assigned_by = actor_user_id
+        order.assigned_at = datetime.now(timezone.utc)
+        log_disposal_event(
+            self._db,
+            order_id=int(order.id),
+            action="restarted",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status, "approval_request_id": old_request_id},
+            new_value={"status": order.status},
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
     def delete_draft_order(self, order_id: int, *, actor_user_id: int) -> None:
         """Hard-delete a plain draft that was never submitted / approved / rejected."""
         order = self._load_order(order_id)
@@ -553,7 +599,7 @@ class DisposalOrderService:
     ) -> DisposalOrderDetail:
         """Archive an editable disposal that already has workflow history."""
         order = self._load_order(order_id)
-        if order.status not in EDITABLE_STATUSES:
+        if order.status not in ARCHIVABLE_STATUSES:
             raise ConflictError(
                 "Only draft, rejected, or in-rework disposal orders can be archived."
             )
@@ -1103,6 +1149,7 @@ class DisposalOrderService:
         assigned_to: str | None = None,
         created_on: date | None = None,
     ) -> DisposalOrderListResponse:
+        self._normalize_legacy_rework_orders()
         tab_key = (tab or "needs_action").strip().lower()
         where = self._list_orders_where(tab_key, viewer_user_id=viewer_user_id)
         where.extend(
@@ -1243,12 +1290,12 @@ class DisposalOrderService:
                 ),
                 and_(
                     AssetDisposalOrder.created_by == uid,
-                    AssetDisposalOrder.status.in_(EDITABLE_STATUSES),
+                    AssetDisposalOrder.status.in_(CREATOR_ACTION_STATUSES),
                 ),
                 and_(
                     AssetDisposalOrder.assigned_to == uid,
                     AssetDisposalOrder.status.in_(
-                        (STATUS_PENDING_RECEIPT, STATUS_PENDING_CF_CLOSE, STATUS_IN_REWORK)
+                        (STATUS_PENDING_RECEIPT, STATUS_PENDING_CF_CLOSE)
                     ),
                 ),
             ),
@@ -1322,6 +1369,7 @@ class DisposalOrderService:
         ]
 
     def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> DisposalOrderDetail:
+        self._normalize_legacy_rework_orders()
         order = self._load_order(order_id)
         viewer = self._db.get(User, viewer_user_id) if viewer_user_id else None
         is_super = bool(viewer is not None and viewer.is_superuser)
@@ -1394,6 +1442,7 @@ class DisposalOrderService:
             approval_panel=panel,
             can_submit=(order.status in SUBMITTABLE_STATUSES) and (is_creator or is_super),
             can_edit=(order.status in EDITABLE_STATUSES) and (is_creator or is_super),
+            can_resume=(order.status in RESUMABLE_STATUSES) and (is_creator or is_super),
             can_receive=_can_disposal_operational_flag(
                 order, panel=panel, legacy_ok=legacy_receive, step_kind="receive"
             ),
@@ -1402,7 +1451,7 @@ class DisposalOrderService:
             ),
             can_delete=_is_plain_disposal_draft(self._db, order) and (is_creator or is_super),
             can_archive=(
-                order.status in EDITABLE_STATUSES
+                order.status in ARCHIVABLE_STATUSES
                 and not _is_plain_disposal_draft(self._db, order)
                 and (is_creator or is_super)
             ),
@@ -1628,7 +1677,7 @@ def reject_disposal_approval(
     order = db.get(AssetDisposalOrder, order_id)
     if order is None:
         return
-    order.status = STATUS_IN_REWORK
+    order.status = STATUS_REJECTED
     order.rejection_comment = (comment or "").strip() or None
     if order.created_by is not None:
         order.assigned_to = int(order.created_by)

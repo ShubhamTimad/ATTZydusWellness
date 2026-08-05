@@ -18,6 +18,7 @@ from modules.disposals.constants import (
     STATUS_IN_REWORK,
     STATUS_PENDING_CF_CLOSE,
     STATUS_PENDING_RECEIPT,
+    STATUS_REJECTED,
 )
 from modules.disposals.schema import (
     CloseDisposalRequest,
@@ -194,13 +195,45 @@ def test_final_approval_without_scrapyard_user_is_blocked():
         finalize_disposal_approval(db, order_id=1, approver_user_id=9, scrapyard_user_id=None)
 
 
-def test_reject_sends_order_back_to_creator_for_rework():
+def test_reject_sends_order_to_rejected_for_creator():
     order = _order("pending_approval", assets=[_asset()])
     db = MagicMock()
     db.get.return_value = order
     reject_disposal_approval(db, order_id=1, approver_user_id=9, comment="  wrong assets  ")
-    assert order.status == STATUS_IN_REWORK
+    assert order.status == STATUS_REJECTED
     assert order.rejection_comment == "wrong assets"
+    assert order.assigned_to == order.created_by
+
+
+def test_resume_rejected_moves_to_draft():
+    order = _order(STATUS_REJECTED, assets=[_asset()])
+    order.approval_request_id = 99
+    order.rejection_comment = "wrong assets"
+    db = MagicMock()
+    db.get.return_value = order
+    svc = DisposalOrderService(db)
+    with patch.object(svc, "_load_order", return_value=order):
+        with patch.object(svc, "get_order", return_value="detail"):
+            assert svc.resume_rejected_order(1, actor_user_id=int(order.created_by)) == "detail"
+    assert order.status == STATUS_DRAFT
+    assert order.approval_request_id is None
+    assert order.rejection_comment is None
+    assert order.assigned_to == order.created_by
+
+
+def test_resume_in_rework_moves_to_draft():
+    order = _order(STATUS_IN_REWORK, assets=[_asset()])
+    order.approval_request_id = 99
+    order.rejection_comment = "fix and resubmit"
+    db = MagicMock()
+    db.get.return_value = order
+    svc = DisposalOrderService(db)
+    with patch.object(svc, "_load_order", return_value=order):
+        with patch.object(svc, "get_order", return_value="detail"):
+            assert svc.resume_rejected_order(1, actor_user_id=int(order.created_by)) == "detail"
+    assert order.status == STATUS_DRAFT
+    assert order.approval_request_id is None
+    assert order.rejection_comment is None
     assert order.assigned_to == order.created_by
 
 

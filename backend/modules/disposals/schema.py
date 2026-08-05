@@ -162,6 +162,7 @@ class DisposalOrderDetail(BaseModel):
     approval_panel: DisposalApprovalPanel | None = None
     can_submit: bool = False
     can_edit: bool = False
+    can_resume: bool = False
     can_receive: bool = False
     can_close: bool = False
     can_delete: bool = False

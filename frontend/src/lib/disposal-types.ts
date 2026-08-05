@@ -77,6 +77,7 @@ export type DisposalOrderDetail = {
   approval_panel: DisposalApprovalPanel | null
   can_submit: boolean
   can_edit: boolean
+  can_resume?: boolean
   can_receive: boolean
   can_close: boolean
   can_delete: boolean
@@ -94,7 +95,6 @@ export const DISPOSAL_STATUS_TABS = [
 export const DISPOSAL_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "draft", label: "Draft" },
   { value: "pending_approval", label: "Pending approval" },
-  { value: "in_rework", label: "In rework" },
   { value: "pending_receipt", label: "Pending receive" },
   { value: "pending_cf_close", label: "Pending CF approval" },
   { value: "closed", label: "Closed" },
@@ -113,7 +113,7 @@ export function disposalStatusLabel(status: string): string {
     draft: "Draft",
     pending_approval: "Pending approval",
     rejected: "Rejected",
-    in_rework: "In rework",
+    in_rework: "Rejected",
     pending_receipt: "Pending receive",
     pending_cf_close: "Pending CF approval",
     closed: "Closed",

@@ -933,9 +933,13 @@ class ApprovalEngineService:
                 t.status = "closed"
                 t.closed_at = now
 
-            # Physical orders: terminal rejected on the order itself (executor restarts there).
+            # Physical / disposal: terminal rejected on the order (creator resumes there).
             # Do not open a creator rework task / leave the approval request in_rework.
-            if str(req.entity_type) in ("physical_order_creation", "physical_order_closure"):
+            if str(req.entity_type) in (
+                "physical_order_creation",
+                "physical_order_closure",
+                *DISPOSAL_ENTITY_TYPES,
+            ):
                 req.status = "rejected"
                 self._db.commit()
                 return self.get_request(req.id)

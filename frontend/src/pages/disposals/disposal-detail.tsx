@@ -135,6 +135,7 @@ export function DisposalOrderDetailPage() {
   const [filterCostCenter, setFilterCostCenter] = React.useState("")
   const [catalog, setCatalog] = React.useState<AssetListItem[]>([])
   const [catalogLoading, setCatalogLoading] = React.useState(false)
+  const [assetPickerOpen, setAssetPickerOpen] = React.useState(false)
 
   const lookupPlantId = order?.can_edit ? editPlantId : (order?.plant_id ?? null)
   const masters = useAssetMasterLookups(lookupPlantId ?? null, null, functionalLocation || null)
@@ -146,6 +147,7 @@ export function DisposalOrderDetailPage() {
     setEditAssets(itemsToEditAssets(res.items))
     setEditPlantId(res.plant_id)
     setFilterCostCenter("")
+    setAssetPickerOpen(false)
   }, [])
 
   const load = React.useCallback(async () => {
@@ -204,8 +206,8 @@ export function DisposalOrderDetailPage() {
   }, [editAssets, masters.costCenters])
 
   React.useEffect(() => {
-    if (!order?.can_edit || editPlantId == null) {
-      setCatalog([])
+    if (!order?.can_edit || !assetPickerOpen || editPlantId == null) {
+      if (!assetPickerOpen) setCatalog([])
       return
     }
     let cancelled = false
@@ -237,7 +239,7 @@ export function DisposalOrderDetailPage() {
       cancelled = true
       window.clearTimeout(handle)
     }
-  }, [order?.can_edit, editPlantId, assetSearch, reservedAssetIds])
+  }, [order?.can_edit, assetPickerOpen, editPlantId, assetSearch, reservedAssetIds])
 
   const filteredCatalog = React.useMemo(() => {
     const cc = filterCostCenter.trim()
@@ -465,6 +467,29 @@ export function DisposalOrderDetailPage() {
               Archive
             </Button>
           ) : null}
+          {order.can_resume ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true)
+                try {
+                  applyOrder(
+                    await postJson(`/admin/disposal-orders/${order.id}/resume`, {}),
+                  )
+                  toast.success("Disposal restarted as draft. Update details, then submit for approval.")
+                } catch (e) {
+                  toast.error(
+                    e instanceof ApiError ? e.message : "Could not restart disposal order",
+                  )
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              Restart
+            </AdminPrimaryButton>
+          ) : null}
           {order.can_submit ? (
             <AdminPrimaryButton type="button" disabled={busy} onClick={() => setPickerMode("submit")}>
               Submit for approval
@@ -672,21 +697,33 @@ export function DisposalOrderDetailPage() {
             title={`Assets (${editAssets.length})`}
             description={
               order.can_edit
-                ? "Change plant if allowed, then pick active approved assets from your cost centers."
+                ? "Selected assets on this order. Use Select other assets to add or change them."
                 : "Assets included on this disposal order."
             }
             headerActions={
               order.can_edit ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8"
-                  disabled={busy || editAssets.length === 0}
-                  onClick={clearEditAssets}
-                >
-                  Clear all
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    disabled={busy || editAssets.length === 0}
+                    onClick={clearEditAssets}
+                  >
+                    Clear all
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={assetPickerOpen ? "secondary" : "outline"}
+                    size="sm"
+                    className="h-8"
+                    disabled={busy}
+                    onClick={() => setAssetPickerOpen((open) => !open)}
+                  >
+                    {assetPickerOpen ? "Hide asset list" : "Select other assets"}
+                  </Button>
+                </div>
               ) : (
                 <Package className="size-4 text-muted-foreground" aria-hidden />
               )
@@ -711,7 +748,7 @@ export function DisposalOrderDetailPage() {
                   {editAssets.length === 0 ? (
                     <AdminTableEmptyRow colSpan={order.can_edit ? 4 : 3}>
                       {order.can_edit
-                        ? "No assets selected — choose from the list below."
+                        ? "No assets selected — click Select other assets to choose."
                         : "No assets"}
                     </AdminTableEmptyRow>
                   ) : (
@@ -747,7 +784,7 @@ export function DisposalOrderDetailPage() {
               </Table>
             </div>
 
-            {order.can_edit ? (
+            {order.can_edit && assetPickerOpen ? (
               <div className="mt-4 space-y-3 border-t border-border/60 pt-4">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <FormField id="edit_plant" labelText="Plant" required>

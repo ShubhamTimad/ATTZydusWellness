@@ -19,8 +19,12 @@ DISPOSAL_ENTITY_TYPES = frozenset({ENTITY_TYPE, ENTITY_TYPE_WITH_ENGINEERING})
 ACTION_SUBMIT = "disposal.submit"
 ACTION_SUBMIT_WITH_ENGINEERING = "disposal.submit_with_engineering"
 
-EDITABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED, STATUS_IN_REWORK})
-SUBMITTABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED, STATUS_IN_REWORK})
+EDITABLE_STATUSES = frozenset({STATUS_DRAFT})
+SUBMITTABLE_STATUSES = frozenset({STATUS_DRAFT})
+# Rejected (and legacy in_rework) → Restart returns the order to draft to start over.
+RESUMABLE_STATUSES = frozenset({STATUS_REJECTED, STATUS_IN_REWORK})
+ARCHIVABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED, STATUS_IN_REWORK})
+CREATOR_ACTION_STATUSES = EDITABLE_STATUSES | RESUMABLE_STATUSES
 
 # Role names used for assignee pools (must match seeded roles). The *next approver* role always
 # comes from the configured workflow steps; these levels only drive the user picker.
@@ -65,7 +69,7 @@ STATUS_LABELS: dict[str, str] = {
     STATUS_DRAFT: "Draft",
     STATUS_PENDING_APPROVAL: "Pending approval",
     STATUS_REJECTED: "Rejected",
-    STATUS_IN_REWORK: "In rework",
+    STATUS_IN_REWORK: "Rejected",  # legacy; normalized to rejected
     STATUS_PENDING_RECEIPT: "Pending receive",
     STATUS_PENDING_CF_CLOSE: "Pending CF approval",
     STATUS_CLOSED: "Closed",

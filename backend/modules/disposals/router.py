@@ -195,6 +195,19 @@ def submit_order(
         raise _http(e) from e
 
 
+@router.post("/{order_id}/resume", response_model=DisposalOrderDetail)
+def resume_rejected_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[DisposalOrderService, Depends(get_disposal_service)],
+    _: Annotated[object, Depends(require_permission("disposal.submit"))],
+) -> DisposalOrderDetail:
+    try:
+        return svc.resume_rejected_order(order_id, actor_user_id=int(current.subject))
+    except Exception as e:
+        raise _http(e) from e
+
+
 @router.post("/{order_id}/reassign", response_model=DisposalOrderDetail)
 def reassign_approver(
     order_id: int,
