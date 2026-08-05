@@ -2430,9 +2430,11 @@ export function AssetsListPage() {
         onOpenChange={setCreateOrderOpen}
         assetIds={eligibleForOrder}
         plantId={
+          validationResult?.plant_id ??
           selectedRows[0]?.plant_id ??
           (filters.plant_id ? Number(filters.plant_id) : null)
         }
+        costCenterId={validationResult?.cost_center_id ?? null}
         resetVerificationAssetIds={resetVerificationAssetIds}
         onCreated={(order) => {
           clearSelection()

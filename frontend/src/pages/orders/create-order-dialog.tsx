@@ -21,8 +21,17 @@ type Props = {
   onOpenChange: (open: boolean) => void
   assetIds: number[]
   plantId?: number | null
+  costCenterId?: number | null
   resetVerificationAssetIds?: number[]
   onCreated: (order: PhysicalOrderDetail) => void
+}
+
+function executorsQuery(plantId?: number | null, costCenterId?: number | null): string {
+  const params = new URLSearchParams()
+  if (plantId != null) params.set("plant_id", String(plantId))
+  if (costCenterId != null) params.set("cost_center_id", String(costCenterId))
+  const q = params.toString()
+  return q ? `?${q}` : ""
 }
 
 export function CreatePhysicalOrderDialog({
@@ -30,6 +39,7 @@ export function CreatePhysicalOrderDialog({
   onOpenChange,
   assetIds,
   plantId,
+  costCenterId,
   resetVerificationAssetIds = [],
   onCreated,
 }: Props) {
@@ -55,8 +65,9 @@ export function CreatePhysicalOrderDialog({
       return
     }
     setLoadingExecutors(true)
-    const q = plantId != null ? `?plant_id=${plantId}` : ""
-    void getJson<ExecutorListResponse>(`/admin/physical-orders/executors${q}`)
+    void getJson<ExecutorListResponse>(
+      `/admin/physical-orders/executors${executorsQuery(plantId, costCenterId)}`,
+    )
       .then((res) => {
         setExecutors(res.items)
         setRoleName(res.role_name)
@@ -68,7 +79,7 @@ export function CreatePhysicalOrderDialog({
         setLoadError(e instanceof ApiError ? e.message : "Could not load assignees from workflow.")
       })
       .finally(() => setLoadingExecutors(false))
-  }, [open, plantId])
+  }, [open, plantId, costCenterId])
 
   async function createAndAssign() {
     if (!assignedTo) {
@@ -153,7 +164,7 @@ export function CreatePhysicalOrderDialog({
             ) : !loadingExecutors && executors.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 {roleName
-                  ? `No users in the "${roleName}" role for this plant.`
+                  ? `No users in the "${roleName}" role for this plant and cost center.`
                   : "Configure the Physical order workflow Assign step first."}
               </p>
             ) : null}

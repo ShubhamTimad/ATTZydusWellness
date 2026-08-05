@@ -294,7 +294,7 @@ export type AssetViewSectionConfig = {
 export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
   {
     id: "information",
-    title: "Asset information",
+    title: "Asset Information",
     rootFields: true,
     keys: [
       "asset_name",
@@ -321,13 +321,11 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
     keys: [
       "functional_location",
       "actual_location",
-      "room",
-      "zone",
     ],
   },
   {
     id: "financial",
-    title: "Financial information",
+    title: "Financial Information",
     keys: [
       "cost_center",
       "cost_center_name",
@@ -345,7 +343,7 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
   },
   {
     id: "inventory",
-    title: "Inventory & verification",
+    title: "Inventory & Verification",
     keys: [
       "inventory_count",
       "physical_count",

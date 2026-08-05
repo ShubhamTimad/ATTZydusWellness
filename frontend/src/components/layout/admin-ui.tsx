@@ -15,9 +15,9 @@ export const adminSelectClass =
 export const adminTextareaClass =
   "min-h-[120px] w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm shadow-sm transition-colors outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15"
 
-/** Compact textarea: 2 lines by default, grows with text, drag corner to enlarge. */
+/** Compact 2-row textarea; drag the corner to expand or shrink. */
 export const adminAutoGrowTextareaClass =
-  "box-border min-h-[3rem] w-full resize-y overflow-x-hidden overflow-y-hidden rounded-lg border border-input bg-background px-3 py-1.5 text-sm leading-5 shadow-sm transition-[border-color,box-shadow] outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15"
+  "box-border min-h-[2.75rem] w-full resize-y rounded-lg border border-input bg-background px-3 py-1.5 text-sm leading-5 shadow-sm transition-[border-color,box-shadow] outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15"
 
 export function AutoGrowTextarea({
   value,
@@ -30,50 +30,13 @@ export function AutoGrowTextarea({
   onChange: (value: string) => void
   minRows?: number
 }) {
-  const ref = React.useRef<HTMLTextAreaElement>(null)
-  /** User-dragged height floor; content can still grow above it. */
-  const manualMinRef = React.useRef(0)
-
-  const syncHeight = React.useCallback(() => {
-    const el = ref.current
-    if (!el) return
-    el.style.height = "0px"
-    const contentH = el.scrollHeight
-    const next = Math.max(contentH, manualMinRef.current)
-    el.style.height = `${next}px`
-  }, [])
-
-  React.useLayoutEffect(() => {
-    syncHeight()
-  }, [value, syncHeight])
-
   return (
     <textarea
       {...props}
-      ref={ref}
       rows={minRows}
       value={value}
       className={cn(adminAutoGrowTextareaClass, className)}
-      onChange={(e) => {
-        onChange(e.target.value)
-        const el = e.currentTarget
-        el.style.height = "0px"
-        const contentH = el.scrollHeight
-        el.style.height = `${Math.max(contentH, manualMinRef.current)}px`
-      }}
-      onMouseUp={() => {
-        const el = ref.current
-        if (!el) return
-        manualMinRef.current = el.offsetHeight
-      }}
-      onBlur={() => {
-        const el = ref.current
-        if (!el) return
-        // Collapse back to content height when leaving the field.
-        manualMinRef.current = 0
-        el.style.height = "0px"
-        el.style.height = `${el.scrollHeight}px`
-      }}
+      onChange={(e) => onChange(e.target.value)}
     />
   )
 }

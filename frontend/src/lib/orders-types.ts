@@ -30,6 +30,8 @@ export type ValidateAssetsResponse = {
     asset_name: string
     cost_center_code?: string | null
   }[]
+  plant_id?: number | null
+  cost_center_id?: number | null
   financial_year_label?: string | null
   financial_year_start?: string | null
   financial_year_end?: string | null
@@ -164,6 +166,7 @@ export type PhysicalOrderDetail = {
   order_number: string
   plant_id: number
   plant_name: string
+  cost_center_id: number
   cost_center_code: string
   cost_center_description: string
   status: string

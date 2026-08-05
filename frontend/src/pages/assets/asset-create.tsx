@@ -346,7 +346,7 @@ export function AssetCreatePage() {
         }}
       >
         <AdminPanel
-          title="Asset information"
+          title="Asset Information"
           description="Core identification fields"
           headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
           contentClassName="px-5 py-5"
@@ -553,21 +553,9 @@ export function AssetCreatePage() {
                   ) : null}
                 </FormField>
               ) : null}
-              {form.rfid_code.trim() && fc.isVisible("tag_color_id") ? (
-                <TagColorSelect
-                  id="tag_color_id"
-                  value={form.tag_color_id}
-                  onChange={(v) => patch({ tag_color_id: v })}
-                  tagColors={masters.tagColors}
-                />
-              ) : null}
               {field(
                 "remark",
-                <FormField
-                  id="remark"
-                  labelText={fc.getLabel("remark", "Asset Remark")}
-                  className="sm:col-span-2 lg:col-span-3"
-                >
+                <FormField id="remark" labelText={fc.getLabel("remark", "Asset Remark")}>
                   <AutoGrowTextarea
                     id="remark"
                     value={form.remark}
@@ -581,7 +569,6 @@ export function AssetCreatePage() {
                 <FormField
                   id="asset_description"
                   labelText={fc.getLabel("asset_description", "Asset Description")}
-                  className="sm:col-span-2 lg:col-span-3"
                 >
                   <AutoGrowTextarea
                     id="asset_description"
@@ -591,13 +578,21 @@ export function AssetCreatePage() {
                   />
                 </FormField>,
               )}
+              {form.rfid_code.trim() && fc.isVisible("tag_color_id") ? (
+                <TagColorSelect
+                  id="tag_color_id"
+                  value={form.tag_color_id}
+                  onChange={(v) => patch({ tag_color_id: v })}
+                  tagColors={masters.tagColors}
+                />
+              ) : null}
             </div>
           </AdminPanel>
 
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
             className="flex h-full flex-col"
-            title="Financial information"
+            title="Financial Information"
             description="Cost, capitalization, and life span"
             headerActions={<DollarSign className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="flex flex-1 flex-col px-5 py-5"
@@ -901,12 +896,18 @@ export function AssetCreatePage() {
                   <Input id="sub_location" value={form.sub_location} onChange={(e) => patch({ sub_location: e.target.value })} />
                 </FormField>,
               )}
-              <FormField id="room" labelText="Room">
-                <Input id="room" value={form.room} onChange={(e) => patch({ room: e.target.value })} />
-              </FormField>
-              <FormField id="zone" labelText="Zone">
-                <Input id="zone" value={form.zone} onChange={(e) => patch({ zone: e.target.value })} />
-              </FormField>
+              {field(
+                "room",
+                <FormField id="room" labelText={fc.getLabel("room", "Room")}>
+                  <Input id="room" value={form.room} onChange={(e) => patch({ room: e.target.value })} />
+                </FormField>,
+              )}
+              {field(
+                "zone",
+                <FormField id="zone" labelText={fc.getLabel("zone", "Zone")}>
+                  <Input id="zone" value={form.zone} onChange={(e) => patch({ zone: e.target.value })} />
+                </FormField>,
+              )}
             </div>
           </AdminPanel>
 

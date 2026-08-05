@@ -54,6 +54,7 @@ import {
 } from "@/lib/orders-types"
 import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
+import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 
 type AssetColumnFilters = {
   asset: string
@@ -208,6 +209,7 @@ export function OrderDetailPage() {
   const [closureRejectVerifiedCodes, setClosureRejectVerifiedCodes] = React.useState<string[]>([])
   const [reassignOpen, setReassignOpen] = React.useState(false)
   const [assignOpen, setAssignOpen] = React.useState(false)
+  const [closureAssignOpen, setClosureAssignOpen] = React.useState(false)
   const [executors, setExecutors] = React.useState<ExecutorUser[]>([])
   const [executorRoleName, setExecutorRoleName] = React.useState<string | null>(null)
   const [reassignTo, setReassignTo] = React.useState("")
@@ -280,7 +282,11 @@ export function OrderDetailPage() {
 
   React.useEffect(() => {
     if ((!reassignOpen && !assignOpen) || !order) return
-    void getJson<ExecutorListResponse>(`/admin/physical-orders/executors?plant_id=${order.plant_id}`)
+    const params = new URLSearchParams({ plant_id: String(order.plant_id) })
+    if (order.cost_center_id != null) {
+      params.set("cost_center_id", String(order.cost_center_id))
+    }
+    void getJson<ExecutorListResponse>(`/admin/physical-orders/executors?${params}`)
       .then((res) => {
         setExecutors(res.items)
         setExecutorRoleName(res.role_name)
@@ -290,7 +296,7 @@ export function OrderDetailPage() {
         setExecutorRoleName(null)
         toast.error(e instanceof ApiError ? e.message : "Could not load executors from workflow.")
       })
-  }, [reassignOpen, assignOpen, order?.plant_id])
+  }, [reassignOpen, assignOpen, order?.plant_id, order?.cost_center_id])
 
   async function runAction(path: string, body?: Record<string, unknown>): Promise<boolean> {
     if (!id) return false
@@ -444,6 +450,10 @@ export function OrderDetailPage() {
         destructive: true,
       })
       if (!ok) return
+    }
+    if (hasClosureWorkflow) {
+      setClosureAssignOpen(true)
+      return
     }
     await runAction("/submit-closure")
   }
@@ -1179,8 +1189,8 @@ export function OrderDetailPage() {
               {executors.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   {executorRoleName
-                    ? `No users in the "${executorRoleName}" role for this plant. Assign that role to users scoped to this plant.`
-                    : "Configure the Physical order workflow (order.complete) with an Assign step and ensure that role has users for this plant."}
+                    ? `No users in the "${executorRoleName}" role for this plant and cost center. Assign that role to users scoped to this cost center.`
+                    : "Configure the Physical order workflow (order.complete) with an Assign step and ensure that role has users for this plant and cost center."}
                 </p>
               ) : null}
             </div>
@@ -1373,6 +1383,22 @@ export function OrderDetailPage() {
         </DialogContent>
       </Dialog>
       {confirmDialog}
+      <CapexAssigneePickerDialog
+        open={closureAssignOpen}
+        onOpenChange={setClosureAssignOpen}
+        assigneesUrl={
+          order
+            ? `/admin/physical-orders/assignees?plant_id=${order.plant_id}&cost_center_id=${order.cost_center_id}`
+            : undefined
+        }
+        roleLabel="Approver"
+        confirmLabel="Complete & submit"
+        busy={busy}
+        onConfirm={async (userId) => {
+          const ok = await runAction("/submit-closure", { assignee_user_id: userId })
+          if (ok) setClosureAssignOpen(false)
+        }}
+      />
     </AdminPage>
   )
 }

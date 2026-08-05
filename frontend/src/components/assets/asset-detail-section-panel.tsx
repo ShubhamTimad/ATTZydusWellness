@@ -177,17 +177,38 @@ export function AssetDetailSectionPanel({
   }
 
   const panelMinHeight = compact ? "min-h-0" : ASSET_VIEW_PANEL_MIN_HEIGHT
+  const gridKeys = keys.filter((k) => !textareaKeys.has(k))
+  const multilineKeys = keys.filter((k) => textareaKeys.has(k))
+
+  const cellProps = {
+    asset,
+    formatFieldLabel,
+    isRequired,
+    readOnlyKeys,
+    dateFields,
+    selectOptions,
+    selectPlaceholders,
+    selectDisabled,
+    tagColors,
+    inventoryDisplay,
+    configId: config.id,
+    fieldValue,
+    readOnlyDisplay,
+    onSection,
+    textareaKeys,
+  } as const
 
   return (
     <AdminPanel
       className={cn(
-        // Fill side-by-side grid cell so Financial | Location match height.
-        // Do not use min-h-0 here — that collapses overflow into following sections.
-        "flex h-full flex-col",
-        panelMinHeight,
+        // Side-by-side Financial|Location: h-full fills the grid row.
+        // Information is full-width — grow with content (no h-full / min-h squeeze).
+        "flex flex-col overflow-visible",
+        config.id !== "information" && "h-full",
+        config.id !== "information" && panelMinHeight,
         className,
       )}
-      contentClassName="flex flex-1 flex-col p-0"
+      contentClassName="overflow-visible p-0"
     >
       <div
         className={cn(
@@ -201,116 +222,76 @@ export function AssetDetailSectionPanel({
         </div>
       </div>
       {editing ? (
-        <div
-          className={cn(
-            "grid gap-[var(--app-form-gap)] p-[var(--app-card-padding)] sm:grid-cols-2 sm:content-start",
-            config.id === "information" && "lg:grid-cols-3",
-          )}
-        >
-          {extra}
-          {keys.map((k, index) => {
-            const multiline = textareaKeys.has(k)
-            // Pair consecutive textareas on one full row (Remark | Description).
-            if (multiline && index > 0 && textareaKeys.has(keys[index - 1])) {
-              return null
-            }
-            if (multiline) {
-              const group: string[] = []
-              for (let i = index; i < keys.length && textareaKeys.has(keys[i]); i++) {
-                group.push(keys[i])
+        <div className="overflow-visible">
+          <div
+            className={cn(
+              "grid gap-[var(--app-form-gap)] p-[var(--app-card-padding)] sm:grid-cols-2 sm:content-start",
+              config.id === "information" && "lg:grid-cols-3",
+              multilineKeys.length > 0 && "pb-0",
+            )}
+          >
+            {extra}
+            {gridKeys.map((k, index) => {
+              // Already rendered on the previous field's CapEx (etc.) trio row.
+              if (extraAfterKeys?.[k] && index > 0) {
+                return null
               }
-              return (
-                <div
-                  key={group.join("-")}
-                  className={cn(
-                    "grid gap-[var(--app-form-gap)] sm:col-span-2 sm:grid-cols-2",
-                    config.id === "information" && "lg:col-span-3",
-                  )}
-                >
-                  {group.map((gk) => (
-                    <EditFieldCell
-                      key={gk}
-                      fieldKey={gk}
-                      asset={asset}
-                      formatFieldLabel={formatFieldLabel}
-                      isRequired={isRequired}
-                      readOnlyKeys={readOnlyKeys}
-                      dateFields={dateFields}
-                      selectOptions={selectOptions}
-                      selectPlaceholders={selectPlaceholders}
-                      selectDisabled={selectDisabled}
-                      tagColors={tagColors}
-                      inventoryDisplay={inventoryDisplay}
-                      configId={config.id}
-                      fieldValue={fieldValue}
-                      readOnlyDisplay={readOnlyDisplay}
-                      onSection={onSection}
-                      textareaKeys={textareaKeys}
-                    />
-                  ))}
-                </div>
-              )
-            }
 
-            const after = extraAfterKeys?.[k]
-            // CapEx (etc.) beside this field on one full row — not pushed to the next row.
-            if (after) {
-              return (
-                <div
-                  key={k}
-                  className={cn(
-                    "grid gap-[var(--app-form-gap)] sm:col-span-2 sm:grid-cols-2",
-                    config.id === "information" && "lg:col-span-3",
-                  )}
-                >
-                  <EditFieldCell
-                    fieldKey={k}
-                    asset={asset}
-                    formatFieldLabel={formatFieldLabel}
-                    isRequired={isRequired}
-                    readOnlyKeys={readOnlyKeys}
-                    dateFields={dateFields}
-                    selectOptions={selectOptions}
-                    selectPlaceholders={selectPlaceholders}
-                    selectDisabled={selectDisabled}
-                    tagColors={tagColors}
-                    inventoryDisplay={inventoryDisplay}
-                    configId={config.id}
-                    fieldValue={fieldValue}
-                    readOnlyDisplay={readOnlyDisplay}
-                    onSection={onSection}
-                    textareaKeys={textareaKeys}
-                  />
-                  {after}
-                </div>
-              )
-            }
+              const nextKey = gridKeys[index + 1]
+              const afterOnNext = nextKey ? extraAfterKeys?.[nextKey] : undefined
+              // Condition + Custodian + CapEx on one row when CapEx is attached to custodian.
+              if (afterOnNext && nextKey) {
+                return (
+                  <div
+                    key={`${k}-${nextKey}`}
+                    className={cn(
+                      "grid gap-[var(--app-form-gap)] sm:col-span-2 sm:grid-cols-2",
+                      config.id === "information" && "lg:col-span-3 lg:grid-cols-3",
+                    )}
+                  >
+                    <EditFieldCell fieldKey={k} {...cellProps} />
+                    <EditFieldCell fieldKey={nextKey} {...cellProps} />
+                    {afterOnNext}
+                  </div>
+                )
+              }
 
-            return (
-              <React.Fragment key={k}>
-                <EditFieldCell
-                  fieldKey={k}
-                  asset={asset}
-                  formatFieldLabel={formatFieldLabel}
-                  isRequired={isRequired}
-                  readOnlyKeys={readOnlyKeys}
-                  dateFields={dateFields}
-                  selectOptions={selectOptions}
-                  selectPlaceholders={selectPlaceholders}
-                  selectDisabled={selectDisabled}
-                  tagColors={tagColors}
-                  inventoryDisplay={inventoryDisplay}
-                  configId={config.id}
-                  fieldValue={fieldValue}
-                  readOnlyDisplay={readOnlyDisplay}
-                  onSection={onSection}
-                  textareaKeys={textareaKeys}
-                />
-                {index === 0 ? extraAfterFirst : null}
-              </React.Fragment>
-            )
-          })}
-          {extraEnd}
+              const after = extraAfterKeys?.[k]
+              if (after) {
+                return (
+                  <div
+                    key={k}
+                    className={cn(
+                      "grid gap-[var(--app-form-gap)] sm:col-span-2 sm:grid-cols-2",
+                      config.id === "information" && "lg:col-span-3",
+                    )}
+                  >
+                    <EditFieldCell fieldKey={k} {...cellProps} />
+                    {after}
+                  </div>
+                )
+              }
+
+              return (
+                <React.Fragment key={k}>
+                  <EditFieldCell fieldKey={k} {...cellProps} />
+                  {index === 0 ? extraAfterFirst : null}
+                </React.Fragment>
+              )
+            })}
+            {extraEnd}
+          </div>
+          {multilineKeys.length > 0 ? (
+            <div
+              className={cn(
+                "grid gap-[var(--app-form-gap)] px-[var(--app-card-padding)] pb-[var(--app-card-padding)] pt-[var(--app-form-gap)] sm:grid-cols-2",
+              )}
+            >
+              {multilineKeys.map((gk) => (
+                <EditFieldCell key={gk} fieldKey={gk} {...cellProps} />
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : (
         <div

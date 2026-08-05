@@ -475,9 +475,11 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
         </Link>
         <Separator className="shrink-0" />
         <div className="flex min-h-0 flex-1 flex-col">
-          {navContent(isSidebarCollapsed)}
+          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
+            {navContent(isSidebarCollapsed)}
+          </div>
           {!isSidebarCollapsed ? (
-            <div className="mt-auto border-t border-border/60 p-3" />
+            <div className="mt-auto shrink-0 border-t border-border/60 p-3" />
           ) : null}
         </div>
       </aside>

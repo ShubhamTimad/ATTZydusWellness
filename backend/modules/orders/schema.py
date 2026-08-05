@@ -42,6 +42,8 @@ class ValidateAssetsResponse(BaseModel):
     not_approved: list[InvalidAssetRef] = Field(default_factory=list)
     plant_mismatch: list[InvalidAssetRef]
     cost_center_mismatch: list[InvalidAssetRef]
+    plant_id: int | None = None
+    cost_center_id: int | None = None
     financial_year_label: str | None = None
     financial_year_start: date | None = None
     financial_year_end: date | None = None
@@ -63,6 +65,12 @@ class SubmitPhysicalOrderRequest(BaseModel):
     """Assign an executor from the workflow role and move Draft → Assigned."""
 
     assigned_to: int = Field(..., ge=1)
+
+
+class SubmitClosureRequest(BaseModel):
+    """Complete execution and hand off to a named closure approver when a workflow is mapped."""
+
+    assignee_user_id: int | None = Field(default=None, ge=1)
 
 
 class PhysicalOrderItemPublic(BaseModel):

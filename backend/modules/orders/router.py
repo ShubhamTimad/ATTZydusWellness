@@ -20,6 +20,7 @@ from modules.orders.schema import (
     RejectOrderRequest,
     ScanAssetRequest,
     ScanAssetResponse,
+    SubmitClosureRequest,
     SubmitPhysicalOrderRequest,
     UpdatePhysicalOrderRequest,
     ValidateAssetsRequest,
@@ -55,9 +56,36 @@ def list_executors(
         None,
         description="Limit to users in the workflow role who belong to this plant.",
     ),
+    cost_center_id: int | None = Query(
+        None,
+        description="Limit to users in the workflow role scoped to this cost center.",
+    ),
 ) -> ExecutorListResponse:
     try:
-        return svc.list_executors(plant_id=plant_id)
+        return svc.list_executors(plant_id=plant_id, cost_center_id=cost_center_id)
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.get("/assignees", response_model=ExecutorListResponse)
+def list_assignees(
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.execute", "order.approve", "order.create", "order.manage")),
+    ],
+    plant_id: int | None = Query(
+        None,
+        description="Limit to users in the first Approve-step role who belong to this plant.",
+    ),
+    cost_center_id: int | None = Query(
+        None,
+        description="Limit to users scoped to this cost center.",
+    ),
+) -> ExecutorListResponse:
+    """Users in the first Approve step of the Physical order workflow (closure handoff)."""
+    try:
+        return svc.list_assignees(plant_id=plant_id, cost_center_id=cost_center_id)
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
@@ -378,9 +406,15 @@ def submit_closure(
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[object, Depends(require_permission("order.execute"))],
+    body: SubmitClosureRequest = SubmitClosureRequest(),
 ) -> PhysicalOrderDetail:
     try:
-        return svc.submit_closure(order_id, actor_user_id=int(current.subject))
+        assignee = int(body.assignee_user_id) if body.assignee_user_id is not None else None
+        return svc.submit_closure(
+            order_id,
+            actor_user_id=int(current.subject),
+            assignee_user_id=assignee,
+        )
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
