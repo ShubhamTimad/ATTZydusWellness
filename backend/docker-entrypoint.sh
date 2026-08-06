@@ -24,5 +24,10 @@ echo "Ensuring bootstrap superuser (only if none exists)..."
 python /app/scripts/ensure_bootstrap_superuser.py
 
 BACKEND_PORT="${BACKEND_PORT:-9005}"
-echo "Starting API on port ${BACKEND_PORT}..."
+ROOT_PATH="${ROOT_PATH:-}"
+echo "Starting API on port ${BACKEND_PORT}${ROOT_PATH:+ (root_path=${ROOT_PATH})}..."
+# --root-path makes Swagger UI request /api/openapi.json when nginx mounts the API at /api/
+if [ -n "$ROOT_PATH" ]; then
+  exec uvicorn app.main:app --host 0.0.0.0 --port "${BACKEND_PORT}" --app-dir backend --root-path "$ROOT_PATH"
+fi
 exec uvicorn app.main:app --host 0.0.0.0 --port "${BACKEND_PORT}" --app-dir backend

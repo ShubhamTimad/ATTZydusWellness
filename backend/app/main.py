@@ -15,7 +15,11 @@ from modules.platform.auth.session_idle_middleware import SessionIdleMiddleware
 from db.session import SessionLocal
 from modules.rbac_sync import sync_all_modules_to_db
 
-app = FastAPI()
+# Behind nginx, the API is mounted at /api/ (see frontend/nginx.conf). Swagger UI
+# must fetch /api/openapi.json; without root_path it requests /openapi.json and
+# gets the SPA HTML → "definition does not specify a valid version field".
+_root_path = (os.getenv("ROOT_PATH") or "").strip().rstrip("/")
+app = FastAPI(root_path=_root_path)
 app.add_middleware(AdminAuditMiddleware)
 app.add_middleware(SessionIdleMiddleware)
 app.add_middleware(

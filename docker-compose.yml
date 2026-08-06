@@ -45,6 +45,8 @@ services:
       FRONTEND_APP_URL: ${FRONTEND_APP_URL:-http://localhost:8083}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8083}
       FRONTEND_ADMIN_URL: ${FRONTEND_ADMIN_URL:-http://localhost:8083/admin}
+      # Public URL prefix of the API (nginx location /api/). Leave empty for bare uvicorn.
+      ROOT_PATH: ${ROOT_PATH:-/api}
       ENFORCE_SUPERUSER_ON_ADMIN: ${ENFORCE_SUPERUSER_ON_ADMIN:-false}
       SYNC_MODULES_ON_STARTUP: ${SYNC_MODULES_ON_STARTUP:-true}
       SEED_SYSTEM_EMAIL_TEMPLATES: ${SEED_SYSTEM_EMAIL_TEMPLATES:-true}
