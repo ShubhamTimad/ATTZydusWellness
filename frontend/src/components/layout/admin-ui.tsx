@@ -15,9 +15,9 @@ export const adminSelectClass =
 export const adminTextareaClass =
   "min-h-[120px] w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm shadow-sm transition-colors outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15"
 
-/** Compact 2-row textarea; drag the corner to expand or shrink. */
+/** Compact textarea that grows with content; drag the corner to expand further. */
 export const adminAutoGrowTextareaClass =
-  "box-border min-h-[2.75rem] w-full resize-y rounded-lg border border-input bg-background px-3 py-1.5 text-sm leading-5 shadow-sm transition-[border-color,box-shadow] outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15"
+  "box-border min-h-[2.75rem] w-full resize-y break-words rounded-lg border border-input bg-background px-3 py-1.5 text-sm leading-5 shadow-sm transition-[border-color,box-shadow] outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:bg-muted/40 disabled:opacity-50"
 
 export function AutoGrowTextarea({
   value,
@@ -30,9 +30,19 @@ export function AutoGrowTextarea({
   onChange: (value: string) => void
   minRows?: number
 }) {
+  const ref = React.useRef<HTMLTextAreaElement>(null)
+
+  React.useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = "0px"
+    el.style.height = `${el.scrollHeight}px`
+  }, [value, minRows])
+
   return (
     <textarea
       {...props}
+      ref={ref}
       rows={minRows}
       value={value}
       className={cn(adminAutoGrowTextareaClass, className)}

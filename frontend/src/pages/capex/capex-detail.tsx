@@ -12,8 +12,8 @@ import {
   AdminPanel,
   AdminPillBadge,
   AdminPrimaryButton,
+  AutoGrowTextarea,
   adminSwitchRowClass,
-  adminTextareaClass,
 } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -507,59 +507,73 @@ export function CapexDetailPage() {
         >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <FormField id="asset_name" labelText="Name of the Asset" required={!readOnly}>
-              <Input
+              <AutoGrowTextarea
                 id="asset_name"
                 value={form.asset_name}
                 disabled={readOnly}
-                onChange={(e) => patch({ asset_name: e.target.value })}
+                minRows={1}
+                className="min-h-9"
+                onChange={(next) => patch({ asset_name: next })}
               />
             </FormField>
             <FormField id="equipment_tag_no" labelText="User Equipment Tag No.">
-              <Input
+              <AutoGrowTextarea
                 id="equipment_tag_no"
                 value={form.equipment_tag_no ?? ""}
                 disabled={readOnly}
-                onChange={(e) => patch({ equipment_tag_no: e.target.value })}
+                minRows={1}
+                className="min-h-9"
+                onChange={(next) => patch({ equipment_tag_no: next })}
               />
             </FormField>
             <FormField id="asset_specifications" labelText="Asset Specifications">
-              <Input
+              <AutoGrowTextarea
                 id="asset_specifications"
                 value={form.asset_specifications ?? ""}
                 disabled={readOnly}
-                onChange={(e) => patch({ asset_specifications: e.target.value })}
+                minRows={1}
+                className="min-h-9"
+                onChange={(next) => patch({ asset_specifications: next })}
               />
             </FormField>
             <FormField id="party_name" labelText="Name of the party">
-              <Input
+              <AutoGrowTextarea
                 id="party_name"
                 value={form.party_name ?? ""}
                 disabled={readOnly}
-                onChange={(e) => patch({ party_name: e.target.value })}
+                minRows={1}
+                className="min-h-9"
+                onChange={(next) => patch({ party_name: next })}
               />
             </FormField>
             <FormField id="department" labelText="Department">
-              <Input
+              <AutoGrowTextarea
                 id="department"
                 value={form.department ?? ""}
                 disabled={readOnly}
-                onChange={(e) => patch({ department: e.target.value })}
+                minRows={1}
+                className="min-h-9"
+                onChange={(next) => patch({ department: next })}
               />
             </FormField>
             <FormField id="installation_location" labelText="Location of Installation">
-              <Input
+              <AutoGrowTextarea
                 id="installation_location"
                 value={form.installation_location ?? ""}
                 disabled={readOnly}
-                onChange={(e) => patch({ installation_location: e.target.value })}
+                minRows={1}
+                className="min-h-9"
+                onChange={(next) => patch({ installation_location: next })}
               />
             </FormField>
             <FormField id="department_head" labelText="Name of the Department Head">
-              <Input
+              <AutoGrowTextarea
                 id="department_head"
                 value={form.department_head ?? ""}
                 disabled={readOnly}
-                onChange={(e) => patch({ department_head: e.target.value })}
+                minRows={1}
+                className="min-h-9"
+                onChange={(next) => patch({ department_head: next })}
               />
             </FormField>
             <FormField id="installation_date" labelText="Date of Installation">
@@ -572,20 +586,23 @@ export function CapexDetailPage() {
               />
             </FormField>
             <FormField id="auc_code" labelText="AUC code">
-              <Input
+              <AutoGrowTextarea
                 id="auc_code"
                 value={form.auc_code ?? ""}
                 disabled={readOnly}
-                onChange={(e) => patch({ auc_code: e.target.value })}
-                className="font-mono"
+                minRows={1}
+                className="min-h-9 font-mono"
+                onChange={(next) => patch({ auc_code: next })}
               />
             </FormField>
             <FormField id="useful_life" labelText="Useful life of assets">
-              <Input
+              <AutoGrowTextarea
                 id="useful_life"
                 value={form.useful_life ?? ""}
                 disabled={readOnly}
-                onChange={(e) => patch({ useful_life: e.target.value })}
+                minRows={1}
+                className="min-h-9"
+                onChange={(next) => patch({ useful_life: next })}
               />
             </FormField>
             <FormField
@@ -593,13 +610,13 @@ export function CapexDetailPage() {
               labelText="Comment on the functioning of the Asset"
               className="sm:col-span-2"
             >
-              <textarea
+              <AutoGrowTextarea
                 id="functioning_comment"
-                className={cn(adminTextareaClass, "min-h-[80px]")}
                 value={form.functioning_comment ?? ""}
                 disabled={readOnly}
-                onChange={(e) => patch({ functioning_comment: e.target.value })}
-                rows={3}
+                minRows={3}
+                className="min-h-[80px]"
+                onChange={(next) => patch({ functioning_comment: next })}
               />
             </FormField>
             {hasPermission("capitalization.submit_with_engineering") || form.requires_engineering ? (

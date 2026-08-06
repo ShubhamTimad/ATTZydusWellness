@@ -345,20 +345,42 @@ export function CapexListPage() {
                         <AdminTableCell>
                           <Link
                             to={`/dashboard/capitalization/${row.id}`}
-                            className="font-medium text-primary hover:underline"
+                            className="block max-w-[12rem] truncate font-medium text-primary hover:underline"
+                            title={row.form_number}
                             onClick={(e) => e.stopPropagation()}
                           >
                             {row.form_number}
                           </Link>
                         </AdminTableCell>
-                        <AdminTableCell>{row.asset_name}</AdminTableCell>
-                        <AdminTableCell>{row.department ?? "—"}</AdminTableCell>
+                        <AdminTableCell>
+                          <span
+                            className="block max-w-[16rem] truncate"
+                            title={row.asset_name}
+                          >
+                            {row.asset_name}
+                          </span>
+                        </AdminTableCell>
+                        <AdminTableCell>
+                          <span
+                            className="block max-w-[12rem] truncate"
+                            title={row.department ?? undefined}
+                          >
+                            {row.department ?? "—"}
+                          </span>
+                        </AdminTableCell>
                         <AdminTableCell>
                           <AdminPillBadge tone={capexStatusPillTone(row.status)}>
                             {capexStatusLabel(row.status)}
                           </AdminPillBadge>
                         </AdminTableCell>
-                        <AdminTableCell>{row.created_by_name ?? "—"}</AdminTableCell>
+                        <AdminTableCell>
+                          <span
+                            className="block max-w-[12rem] truncate"
+                            title={row.created_by_name ?? undefined}
+                          >
+                            {row.created_by_name ?? "—"}
+                          </span>
+                        </AdminTableCell>
                       </AdminTableBodyRow>
                     ))
                   )}
