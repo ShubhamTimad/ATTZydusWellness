@@ -173,6 +173,15 @@ jobs:
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
 
+            echo "===== disk before cleanup ====="
+            df -h / || true
+            # Free space from old images/build cache (never --volumes: that would wipe DB data).
+            docker container prune -f || true
+            docker image prune -af || true
+            docker builder prune -af || true
+            echo "===== disk after cleanup ====="
+            df -h / || true
+
             PREVIOUS_SHA="$(git rev-parse HEAD)"
 
             git fetch origin
