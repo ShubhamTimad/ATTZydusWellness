@@ -68,12 +68,19 @@ def list_assignees(
         False,
         description="When true (or level/role_id omitted), return first-step role of transfer.submit workflow",
     ),
+    order_id: int | None = Query(
+        None,
+        ge=1,
+        description="When set, apply the picker step's org_scope against this order's cost centers",
+    ),
 ) -> TransferAssigneeListResponse:
     try:
         if role_id is not None:
-            return svc.list_assignees_by_role_id(role_id=role_id)
+            return svc.list_assignees_by_role_id(role_id=role_id, order_id=order_id)
         if for_submit or level is None:
-            return svc.list_assignees_for_action(action_code=ACTION_SUBMIT)
+            return svc.list_assignees_for_action(
+                action_code=ACTION_SUBMIT, order_id=order_id
+            )
         return svc.list_assignees(level=level)
     except Exception as e:
         raise _http(e) from e

@@ -15,6 +15,7 @@ import {
   AdminTableBodyRow,
 } from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -67,6 +68,7 @@ type Row = {
   name?: string
   description: string
   is_active: boolean
+  is_scrapyard?: boolean
   parent_label?: string | null
   plant_label?: string | null
 }
@@ -98,6 +100,7 @@ export function HierarchicalMasterPanel({
   const [description, setDescription] = React.useState("")
   const [plantId, setPlantId] = React.useState("")
   const [parentId, setParentId] = React.useState("")
+  const [isScrapyard, setIsScrapyard] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
 
   const canCreate = hasPermission("masters.create")
@@ -110,7 +113,7 @@ export function HierarchicalMasterPanel({
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
   async function load() {
-    const data = await getJson<Record<string, unknown>[]>(`${base}?active_only=false`)
+    const data = await getJson<Record<string, unknown>[]>(`${base}?active_only=true`)
     setRows(
       data.map((r) => ({
         id: Number(r.id),
@@ -118,6 +121,7 @@ export function HierarchicalMasterPanel({
         name: r.name != null ? String(r.name) : undefined,
         description: String(r.description ?? ""),
         is_active: Boolean(r.is_active),
+        is_scrapyard: Boolean(r.is_scrapyard),
         parent_label:
           kind === "profit-center"
             ? [r.cost_center_code, r.plant_code].filter(Boolean).join(" / ") || null
@@ -172,6 +176,7 @@ export function HierarchicalMasterPanel({
     setDescription("")
     setPlantId("")
     setParentId("")
+    setIsScrapyard(false)
     setCreateOpen(true)
   }
 
@@ -182,6 +187,7 @@ export function HierarchicalMasterPanel({
     setDescription(row.description)
     setPlantId("")
     setParentId("")
+    setIsScrapyard(Boolean(row.is_scrapyard))
   }
 
   function buildCreatePayload() {
@@ -191,10 +197,10 @@ export function HierarchicalMasterPanel({
       description: description.trim() || undefined,
     }
     if (kind === "functional-location") {
-      return { ...payload, plant_id: Number(plantId) }
+      return { ...payload, plant_id: Number(plantId), is_scrapyard: isScrapyard }
     }
     if (kind === "cost-center") {
-      return { ...payload, plant_id: Number(plantId) }
+      return { ...payload, plant_id: Number(plantId), is_scrapyard: isScrapyard }
     }
     if (kind === "profit-center") {
       return { ...payload, cost_center_id: Number(parentId) }
@@ -203,11 +209,15 @@ export function HierarchicalMasterPanel({
   }
 
   function buildUpdatePayload() {
-    return {
+    const payload: Record<string, unknown> = {
       code: code.trim(),
       name: name.trim(),
       description: description.trim(),
     }
+    if (kind === "cost-center" || kind === "functional-location") {
+      payload.is_scrapyard = isScrapyard
+    }
+    return payload
   }
 
   async function saveCreate() {
@@ -288,7 +298,9 @@ export function HierarchicalMasterPanel({
   const parentColumn =
     kind === "profit-center" ? "Cost center" : kind === "actual-location" ? "Functional location" : null
   const descriptionColumnLabel = hierarchyDescriptionLabel(kind)
-  const tableColSpan = (parentColumn ? 6 : 5) + (showActions ? 1 : 0)
+  const showScrapyardCol = kind === "cost-center" || kind === "functional-location"
+  const tableColSpan =
+    (parentColumn ? 6 : 5) + (showScrapyardCol ? 1 : 0) + (showActions ? 1 : 0)
 
   const addButton = canCreate ? (
     <AdminPrimaryButton type="button" className="h-8 gap-1.5" onClick={openCreate}>
@@ -308,6 +320,7 @@ export function HierarchicalMasterPanel({
               <AdminTableHeadCell>{descriptionColumnLabel}</AdminTableHeadCell>
               <AdminTableHeadCell>Plant</AdminTableHeadCell>
               {parentColumn ? <AdminTableHeadCell>{parentColumn}</AdminTableHeadCell> : null}
+              {showScrapyardCol ? <AdminTableHeadCell>Scrapyard</AdminTableHeadCell> : null}
               <AdminTableHeadCell>Status</AdminTableHeadCell>
               {showActions ? <AdminTableHeadCell className="w-24"> </AdminTableHeadCell> : null}
             </AdminTableHeaderRow>
@@ -331,6 +344,11 @@ export function HierarchicalMasterPanel({
                   {parentColumn ? (
                     <AdminTableCell className="text-xs text-muted-foreground">
                       {row.parent_label ?? "—"}
+                    </AdminTableCell>
+                  ) : null}
+                  {showScrapyardCol ? (
+                    <AdminTableCell className="text-xs">
+                      {row.is_scrapyard ? "Yes" : "—"}
                     </AdminTableCell>
                   ) : null}
                   <AdminTableCell className="text-xs">{row.is_active ? "Active" : "Inactive"}</AdminTableCell>
@@ -386,6 +404,8 @@ export function HierarchicalMasterPanel({
         setPlantId={setPlantId}
         parentId={parentId}
         setParentId={setParentId}
+        isScrapyard={isScrapyard}
+        setIsScrapyard={setIsScrapyard}
         saving={saving}
         onSave={() => void saveCreate()}
         isCreate
@@ -408,6 +428,8 @@ export function HierarchicalMasterPanel({
         setPlantId={setPlantId}
         parentId={parentId}
         setParentId={setParentId}
+        isScrapyard={isScrapyard}
+        setIsScrapyard={setIsScrapyard}
         saving={saving}
         onSave={() => void saveEdit()}
         isCreate={false}
@@ -436,6 +458,8 @@ function HierarchyDialog({
   setPlantId,
   parentId,
   setParentId,
+  isScrapyard,
+  setIsScrapyard,
   saving,
   onSave,
   isCreate,
@@ -458,6 +482,8 @@ function HierarchyDialog({
   setPlantId: (v: string) => void
   parentId: string
   setParentId: (v: string) => void
+  isScrapyard: boolean
+  setIsScrapyard: (v: boolean) => void
   saving: boolean
   onSave: () => void
   isCreate: boolean
@@ -574,6 +600,23 @@ function HierarchyDialog({
               placeholder={kind === "functional-location" || kind === "actual-location" ? "Optional details about this location" : "Optional details"}
             />
           </div>
+          {kind === "cost-center" || kind === "functional-location" ? (
+            <label className="flex items-start gap-2 rounded-md border px-3 py-2 text-sm">
+              <Checkbox
+                checked={isScrapyard}
+                onCheckedChange={(v) => setIsScrapyard(v === true)}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-medium">Scrapyard</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  {kind === "cost-center"
+                    ? "Available as disposal destination cost center for this plant."
+                    : "Available as Actual Location 1 when receiving a disposal into the scrapyard."}
+                </span>
+              </span>
+            </label>
+          ) : null}
         </div>
         <div className="dialog-footer-actions">
           <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>

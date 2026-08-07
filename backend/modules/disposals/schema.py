@@ -11,6 +11,8 @@ class CreateDisposalOrderRequest(BaseModel):
     asset_ids: list[int] = Field(min_length=1)
     remarks: str | None = None
     requires_engineering: bool = False
+    # Scrapyard destination (must be is_scrapyard); required when submit=true.
+    to_cost_center_id: int | None = Field(default=None, ge=1)
     assignee_user_id: int | None = Field(default=None, ge=1)
     submit: bool = False
 
@@ -19,6 +21,7 @@ class UpdateDisposalOrderRequest(BaseModel):
     remarks: str | None = None
     requires_engineering: bool | None = None
     asset_ids: list[int] | None = None
+    to_cost_center_id: int | None = Field(default=None, ge=1)
 
 
 class SubmitDisposalOrderRequest(BaseModel):
@@ -34,12 +37,19 @@ class ReassignDisposalRequest(BaseModel):
 
 
 class ReceiveDisposalRequest(BaseModel):
-    """Receiver: set scrapyard cost center + locations, then pick the CF who will approve and close."""
+    """Receiver: set scrapyard Actual Location 1/2, then pick the CF who will approve and close.
+
+    Scrapyard cost center is fixed on the order at submit; ``cost_center_id`` is ignored if sent.
+    """
 
     assigned_to: int = Field(ge=1, description="Central Finance user for final approve + close")
     functional_location: str = Field(min_length=1, max_length=255)
     actual_location: str = Field(min_length=1, max_length=255)
-    cost_center_id: int = Field(ge=1)
+    cost_center_id: int | None = Field(
+        default=None,
+        ge=1,
+        description="Ignored — order scrapyard cost center is used.",
+    )
     remarks: str | None = None
 
 
@@ -144,6 +154,9 @@ class DisposalOrderDetail(BaseModel):
     from_cost_center_id: int | None = None
     from_cost_center_code: str | None = None
     from_cost_center_description: str | None = None
+    to_cost_center_id: int | None = None
+    to_cost_center_code: str | None = None
+    to_cost_center_description: str | None = None
     requires_engineering: bool
     status: str
     remarks: str | None = None

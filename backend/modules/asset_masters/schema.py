@@ -201,6 +201,7 @@ class CostCenterCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=512)
     plant_id: int
+    is_scrapyard: bool = False
 
     @field_validator("code")
     @classmethod
@@ -213,6 +214,7 @@ class CostCenterUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=512)
     is_active: bool | None = None
+    is_scrapyard: bool | None = None
 
     @field_validator("code")
     @classmethod
@@ -233,6 +235,7 @@ class CostCenterPublic(BaseModel):
     plant_code: str | None = None
     plant_name: str | None = None
     is_active: bool
+    is_scrapyard: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -242,6 +245,7 @@ class FunctionalLocationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=512)
     plant_id: int
+    is_scrapyard: bool = False
 
     @field_validator("code")
     @classmethod
@@ -254,6 +258,7 @@ class FunctionalLocationUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=512)
     is_active: bool | None = None
+    is_scrapyard: bool | None = None
 
     @field_validator("code")
     @classmethod
@@ -274,6 +279,7 @@ class FunctionalLocationPublic(BaseModel):
     plant_code: str | None = None
     plant_name: str | None = None
     is_active: bool
+    is_scrapyard: bool = False
     created_at: datetime
     updated_at: datetime
 

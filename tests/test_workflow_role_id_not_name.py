@@ -29,6 +29,15 @@ def test_frontend_next_assignee_urls_prefer_role_id() -> None:
         assert 'assignees?level=central_finance' not in src
 
 
+def test_transfer_disposal_assignee_urls_pass_order_id() -> None:
+    for rel in (
+        "frontend/src/pages/disposals/disposal-detail.tsx",
+        "frontend/src/pages/transfers/transfer-detail.tsx",
+    ):
+        src = _read(rel)
+        assert "order_id=" in src
+
+
 def test_progress_labels_do_not_map_role_synonyms() -> None:
     disposal = _read("frontend/src/lib/disposal-types.ts")
     assert 'n.includes("finance")' not in disposal

@@ -94,6 +94,8 @@ class ApprovalStep(Base):
     required_approvals: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     # approve | receive | confirm | close — transfer (and similar) operational steps in the chain.
     step_kind: Mapped[str] = mapped_column(String(32), nullable=False, server_default="approve")
+    # source | destination | null — null/blank = all users in the step role (no CC filter).
+    org_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     workflow = relationship("ApprovalWorkflow", back_populates="steps")
 

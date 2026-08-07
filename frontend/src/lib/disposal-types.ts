@@ -59,6 +59,9 @@ export type DisposalOrderDetail = {
   from_cost_center_id: number | null
   from_cost_center_code: string | null
   from_cost_center_description: string | null
+  to_cost_center_id: number | null
+  to_cost_center_code: string | null
+  to_cost_center_description: string | null
   requires_engineering: boolean
   status: string
   remarks: string | null

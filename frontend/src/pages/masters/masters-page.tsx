@@ -53,14 +53,14 @@ export function MastersPage() {
         <WorkspaceTabsContent value="categories" className={TAB_PANEL}>
           <MasterCrudPanel
             title="Asset category"
-            listUrl="/admin/asset-masters/categories?active_only=false"
+            listUrl="/admin/asset-masters/categories?active_only=true"
             kind="category"
           />
         </WorkspaceTabsContent>
         <WorkspaceTabsContent value="asset-classes" className={TAB_PANEL}>
           <MasterCrudPanel
             title="Asset class"
-            listUrl="/admin/asset-masters/asset-classes?active_only=false"
+            listUrl="/admin/asset-masters/asset-classes?active_only=true"
             kind="code-name"
           />
         </WorkspaceTabsContent>
@@ -90,14 +90,14 @@ export function MastersPage() {
           <WorkspaceTabsContent value="tag-colors" className={TAB_PANEL}>
             <MasterCrudPanel
               title="Tag color"
-              listUrl="/admin/asset-masters/tag-colors?active_only=false"
+              listUrl="/admin/asset-masters/tag-colors?active_only=true"
               kind="tag-color"
             />
           </WorkspaceTabsContent>
           <WorkspaceTabsContent value="asset-conditions" className={TAB_PANEL}>
             <MasterCrudPanel
               title="Asset condition"
-              listUrl="/admin/asset-masters/asset-conditions?active_only=false"
+              listUrl="/admin/asset-masters/asset-conditions?active_only=true"
               kind="code-name"
             />
           </WorkspaceTabsContent>

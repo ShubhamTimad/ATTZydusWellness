@@ -78,10 +78,15 @@ export function DisposalOrderCreatePage() {
   const [browseMore, setBrowseMore] = React.useState(false)
   const [requiresEngineering, setRequiresEngineering] = React.useState(false)
   const [remarks, setRemarks] = React.useState("")
+  const [toCostCenterId, setToCostCenterId] = React.useState("")
   const [busy, setBusy] = React.useState(false)
   const [pickerOpen, setPickerOpen] = React.useState(false)
 
   const masters = useAssetMasterLookups(plantId)
+  const scrapyardCostCenters = React.useMemo(
+    () => masters.costCenters.filter((cc) => Boolean(cc.is_scrapyard) && cc.is_active !== false),
+    [masters.costCenters],
+  )
   const selectedIds = React.useMemo(() => new Set(selected.map((a) => a.id)), [selected])
   const canSubmitWithEngineering = hasPermission("disposal.submit_with_engineering")
 
@@ -199,6 +204,10 @@ export function DisposalOrderCreatePage() {
       toast.error("Add at least one asset.")
       return
     }
+    if (submit && !toCostCenterId) {
+      toast.error("Select a scrapyard cost center.")
+      return
+    }
     if (submit && assigneeUserId == null) {
       setPickerOpen(true)
       return
@@ -209,6 +218,7 @@ export function DisposalOrderCreatePage() {
         asset_ids: selected.map((a) => a.id),
         remarks: remarks.trim() || null,
         requires_engineering: requiresEngineering,
+        to_cost_center_id: toCostCenterId ? Number(toCostCenterId) : null,
         assignee_user_id: assigneeUserId ?? null,
         submit,
       })
@@ -264,6 +274,7 @@ export function DisposalOrderCreatePage() {
                     setSelected([])
                     setAssetSearch("")
                     setBrowseMore(false)
+                    setToCostCenterId("")
                   }}
                 >
                   <option value="">Select plant</option>
@@ -403,11 +414,36 @@ export function DisposalOrderCreatePage() {
 
           <AdminPanel
             title="2. Disposal details"
-            description="Choose the approval route and add any notes for the approvers."
+            description="Pick the scrapyard destination, approval route, and notes for approvers."
             headerActions={<PackageX className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4">
+              <FormField id="scrapyard_cc" labelText="Scrapyard cost center" required>
+                <select
+                  id="scrapyard_cc"
+                  className={adminSelectClass}
+                  value={toCostCenterId}
+                  disabled={plantId == null}
+                  onChange={(e) => setToCostCenterId(e.target.value)}
+                >
+                  <option value="">
+                    {plantId == null
+                      ? "Select plant first"
+                      : scrapyardCostCenters.length === 0
+                        ? "No scrapyard cost centers for this plant"
+                        : "Select scrapyard"}
+                  </option>
+                  {scrapyardCostCenters.map((cc) => (
+                    <option key={cc.id} value={String(cc.id)}>
+                      {cc.code} — {cc.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Mark cost centers as scrapyard under Asset Masters → Cost centers.
+                </p>
+              </FormField>
               {canSubmitWithEngineering ? (
                 <label
                   htmlFor="requires_engineering"

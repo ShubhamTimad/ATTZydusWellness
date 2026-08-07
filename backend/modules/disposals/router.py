@@ -89,15 +89,22 @@ def list_assignees(
         None,
         description="When set, return users in the mapped disposal workflow's first-step role.",
     ),
+    order_id: int | None = Query(
+        None,
+        ge=1,
+        description="When set, apply the picker step's org_scope against this order's cost centers",
+    ),
 ) -> DisposalAssigneeListResponse:
     try:
         if role_id is not None:
-            return svc.list_assignees_by_role_id(role_id=role_id)
+            return svc.list_assignees_by_role_id(role_id=role_id, order_id=order_id)
         if requires_engineering is not None:
             action_code, _entity = action_and_entity_for_order(
                 requires_engineering=bool(requires_engineering)
             )
-            return svc.list_assignees_for_action(action_code=action_code)
+            return svc.list_assignees_for_action(
+                action_code=action_code, order_id=order_id
+            )
         return svc.list_assignees(level=level or "hod")
     except Exception as e:
         raise _http(e) from e

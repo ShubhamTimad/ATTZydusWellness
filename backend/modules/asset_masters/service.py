@@ -338,12 +338,15 @@ class AssetMastersService:
         *,
         plant_id: int | None = None,
         active_only: bool = True,
+        scrapyard_only: bool = False,
         viewer_user_id: int | None = None,
     ) -> list[CostCenterPublic]:
         scope = self._viewer_scope(viewer_user_id)
         stmt = select(CostCenterMaster).order_by(CostCenterMaster.code)
         if active_only:
             stmt = stmt.where(CostCenterMaster.is_active.is_(True))
+        if scrapyard_only:
+            stmt = stmt.where(CostCenterMaster.is_scrapyard.is_(True))
         if plant_id is not None:
             if scope.plant_ids is not None and int(plant_id) not in scope.plant_ids:
                 return []
@@ -371,6 +374,7 @@ class AssetMastersService:
             description=description,
             plant_id=data.plant_id,
             is_active=True,
+            is_scrapyard=bool(data.is_scrapyard),
         )
         self._db.add(row)
         try:
@@ -393,6 +397,8 @@ class AssetMastersService:
             row.description = data.description.strip()
         if data.is_active is not None:
             row.is_active = data.is_active
+        if data.is_scrapyard is not None:
+            row.is_scrapyard = bool(data.is_scrapyard)
         try:
             self._db.commit()
         except IntegrityError as exc:
@@ -595,6 +601,7 @@ class AssetMastersService:
         *,
         plant_id: int | None = None,
         active_only: bool = True,
+        scrapyard_only: bool = False,
         viewer_user_id: int | None = None,
     ) -> list[FunctionalLocationPublic]:
         scope = self._viewer_scope(viewer_user_id)
@@ -604,6 +611,8 @@ class AssetMastersService:
         stmt = select(FunctionalLocationMaster).order_by(FunctionalLocationMaster.code)
         if active_only:
             stmt = stmt.where(FunctionalLocationMaster.is_active.is_(True))
+        if scrapyard_only:
+            stmt = stmt.where(FunctionalLocationMaster.is_scrapyard.is_(True))
         if plant_id is not None:
             if plant_scope is not None and int(plant_id) not in plant_scope:
                 return []
@@ -625,6 +634,7 @@ class AssetMastersService:
             description=description,
             plant_id=data.plant_id,
             is_active=True,
+            is_scrapyard=bool(data.is_scrapyard),
         )
         self._db.add(row)
         try:
@@ -651,6 +661,8 @@ class AssetMastersService:
             row.description = data.description.strip()
         if data.is_active is not None:
             row.is_active = data.is_active
+        if data.is_scrapyard is not None:
+            row.is_scrapyard = bool(data.is_scrapyard)
         try:
             self._db.commit()
         except IntegrityError as exc:
@@ -791,6 +803,7 @@ class AssetMastersService:
             plant_code=plant.code if plant else None,
             plant_name=plant.name if plant else None,
             is_active=row.is_active,
+            is_scrapyard=bool(getattr(row, "is_scrapyard", False)),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -806,6 +819,7 @@ class AssetMastersService:
             plant_code=plant.code if plant else None,
             plant_name=plant.name if plant else None,
             is_active=row.is_active,
+            is_scrapyard=bool(getattr(row, "is_scrapyard", False)),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

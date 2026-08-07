@@ -11,6 +11,8 @@ ApprovalRequestStatus = Literal["pending", "approved", "rejected", "in_rework"]
 ApprovalTaskStatus = Literal["pending", "approved", "rejected", "open", "closed"]
 ApprovalActionType = Literal["approve", "reject"]
 ApprovalStepKind = Literal["approve", "receive", "confirm", "close", "assign"]
+# Blank / null = all role users; source / destination = filter by order CC.
+ApprovalOrgScope = Literal["source", "destination"]
 
 
 class ApprovalWorkflowCreate(BaseModel):
@@ -28,6 +30,8 @@ class ApprovalStepUpdate(BaseModel):
     approver_role_id: int | None = Field(default=None, ge=1)
     required_approvals: int | None = Field(default=None, ge=1)
     step_kind: ApprovalStepKind | None = None
+    # null / omit / "" → clear (all role users). "source" | "destination" → CC filter.
+    org_scope: ApprovalOrgScope | None = None
 
 
 class ApprovalWorkflowPublic(BaseModel):
@@ -46,6 +50,7 @@ class ApprovalStepCreate(BaseModel):
     approver_role_id: int = Field(ge=1)
     required_approvals: int = Field(default=1, ge=1)
     step_kind: ApprovalStepKind = "approve"
+    org_scope: ApprovalOrgScope | None = None
 
 
 class ApprovalStepPublic(BaseModel):
@@ -57,6 +62,7 @@ class ApprovalStepPublic(BaseModel):
     approver_role_id: int
     required_approvals: int
     step_kind: ApprovalStepKind = "approve"
+    org_scope: ApprovalOrgScope | None = None
 
 
 class ApprovalWorkflowDetail(ApprovalWorkflowPublic):

@@ -319,10 +319,15 @@ def list_cost_centers(
     _: Annotated[object, Depends(_COST_CENTER_READ)],
     plant_id: int | None = Query(None),
     active_only: bool = Query(True),
+    scrapyard_only: bool = Query(
+        False,
+        description="When true, only cost centers marked is_scrapyard (disposal destination).",
+    ),
 ) -> list[CostCenterPublic]:
     return svc.list_cost_centers(
         plant_id=plant_id,
         active_only=active_only,
+        scrapyard_only=scrapyard_only,
         viewer_user_id=int(current.subject),
     )
 
@@ -475,10 +480,15 @@ def list_functional_locations(
     _: Annotated[object, Depends(_MASTER_READ)],
     plant_id: int | None = Query(None),
     active_only: bool = Query(True),
+    scrapyard_only: bool = Query(
+        False,
+        description="When true, only functional locations marked is_scrapyard (disposal receive).",
+    ),
 ) -> list[FunctionalLocationPublic]:
     return svc.list_functional_locations(
         plant_id=plant_id,
         active_only=active_only,
+        scrapyard_only=scrapyard_only,
         viewer_user_id=int(current.subject),
     )
 

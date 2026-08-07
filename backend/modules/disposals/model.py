@@ -30,6 +30,10 @@ class AssetDisposalOrder(Base):
     from_cost_center_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("cost_center_masters.id", ondelete="SET NULL"), nullable=True
     )
+    # Scrapyard destination (cost_center_masters.is_scrapyard); set at create/edit, used at receive.
+    to_cost_center_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("cost_center_masters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     requires_engineering: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
@@ -63,6 +67,7 @@ class AssetDisposalOrder(Base):
 
     plant = relationship("OrgUnit", foreign_keys=[plant_id])
     from_cost_center = relationship("CostCenterMaster", foreign_keys=[from_cost_center_id])
+    to_cost_center = relationship("CostCenterMaster", foreign_keys=[to_cost_center_id])
     creator = relationship("User", foreign_keys=[created_by])
     assignee = relationship("User", foreign_keys=[assigned_to])
     receiver = relationship("User", foreign_keys=[receiver_user_id])

@@ -15,6 +15,7 @@ export type CostCenterMaster = {
   plant_code: string | null
   plant_name: string | null
   is_active: boolean
+  is_scrapyard?: boolean
 }
 
 /** @deprecated Use CostCenterMaster */
@@ -29,6 +30,7 @@ export type FunctionalLocationMaster = {
   plant_code: string | null
   plant_name: string | null
   is_active: boolean
+  is_scrapyard?: boolean
 }
 
 export type ProfitCenterMaster = {

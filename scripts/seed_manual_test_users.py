@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Create demo accounts with distinct roles for manual testing.
+"""Seed the shared demo user roster (roles + all five cost centers).
+
+Each user is assigned to the plant and to **every** active canonical cost center:
+  CC-4100, CC-4200, CC-4300 (Scrapyard), CC-4400, CC-5100
 
 Run from the project root::
 
-    ./venv/bin/python scripts/seed_dummy_data.py   # roles + plant (if needed)
+    ./venv/bin/python scripts/seed_dummy_data.py
+    ./venv/bin/python scripts/seed_disposal_workflows.py   # CFM, MD, Store Person
     ./venv/bin/python scripts/seed_manual_test_users.py
 
 Default password: ``ChangeMe@123`` (override with ``--password``).
 
-Users are created active immediately (bypasses user-creation approval flow).
+Also writes ``scripts/demo_users.md``.
 """
 
 from __future__ import annotations
@@ -18,7 +22,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-_BACKEND_ROOT = Path(__file__).resolve().parents[1] / "backend"
+_ROOT = Path(__file__).resolve().parents[1]
+_BACKEND_ROOT = _ROOT / "backend"
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
@@ -26,34 +31,51 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+import db.models  # noqa: F401
 from core.password_policy import PasswordPolicyError, validate_password
 from core.security import hash_password
 from db.session import SessionLocal
+from modules.asset_masters.model import CostCenterMaster
 from modules.platform.org_units.model import OrgUnit
-from modules.rbac_association import user_org_unit
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
-
-import db.models  # noqa: F401
+from modules.rbac_association import user_cost_center, user_org_unit
 
 TAKEDA_PLANT_CODE = "TAKEDA"
 DEFAULT_PASSWORD = "ChangeMe@123"
+OUT_MD = Path(__file__).resolve().parent / "demo_users.md"
 
-# email, phone, full_name, role name (from seed_dummy_data.py)
-DEMO_USERS: list[tuple[str, str, str, str]] = [
-    ("hr@demo.com", "+15552000001", "HR Demo", "HR Admin"),
-    ("approver@demo.com", "+15552000002", "Approver Demo", "Approver"),
-    ("plantmgr@demo.com", "+15552000003", "Plant Manager Demo", "Plant Manager"),
-    ("operator@demo.com", "+15552000004", "Operator Demo", "Operator"),
-    # Physical verification order executors (order.view + order.execute)
-    ("executor1@demo.com", "+15552000011", "Alex Rivera", "Physical Order Executor"),
-    ("executor2@demo.com", "+15552000012", "Sam Okonkwo", "Physical Order Executor"),
-    ("executor3@demo.com", "+15552000013", "Priya Sharma", "Physical Order Executor"),
-    ("executor4@demo.com", "+15552000014", "Jordan Lee", "Physical Order Executor"),
-    # Asset transfer / CapEx (CC1, CC2, CF)
-    ("cc1@demo.com", "+15552000021", "CC1 Transfer User", "Cost Center User"),
-    ("cc2@demo.com", "+15552000022", "CC2 Transfer User", "Cost Center User"),
-    ("cf@demo.com", "+15552000023", "Central Finance Demo", "Central Finance"),
+CANONICAL_CC_CODES = ("CC-4100", "CC-4200", "CC-4300", "CC-4400", "CC-5100")
+
+# name, email, username, role names (multi-role allowed)
+DEMO_USERS: list[tuple[str, str, str, tuple[str, ...]]] = [
+    ("HR Demo", "hr@demo.com", "hr", ("HR Admin",)),
+    (
+        "Approver Demo",
+        "approver@demo.com",
+        "approver",
+        ("Approver", "Central Finance", "Department HOD"),
+    ),
+    ("Plant Manager Demo", "plantmgr@demo.com", "plantmgr", ("Plant Manager",)),
+    ("Operator Demo", "operator@demo.com", "operator", ("Operator",)),
+    (
+        "Alex Rivera",
+        "rashi.magar@timadit.com",
+        "executor1",
+        ("Cost Center User", "Engineering", "Physical Order Executor"),
+    ),
+    ("Sam Okonkwo", "executor2@demo.com", "executor2", ("Physical Order Executor",)),
+    ("Priya Sharma", "executor3@demo.com", "executor3", ("Physical Order Executor",)),
+    ("Jordan Lee", "executor4@demo.com", "executor4", ("Physical Order Executor",)),
+    ("CC1 Cost Center User", "cc1@demo.com", "cc1", ("Cost Center User",)),
+    ("CC2 Cost Center User", "cc2@demo.com", "cc2", ("Cost Center User",)),
+    ("Cost Center User Demo", "ccuser@demo.com", "ccuser", ("Cost Center User",)),
+    ("Department HOD Demo", "hod@demo.com", "hod", ("Department HOD",)),
+    ("Engineering Demo", "engineering@demo.com", "engineering", ("Engineering",)),
+    ("Central Finance Demo", "cf@demo.com", "cf", ("Central Finance",)),
+    ("CFM Demo", "cfm@demo.com", "cfm", ("CFM",)),
+    ("MD Demo", "md@demo.com", "md", ("MD",)),
+    ("Store Person Demo", "store@demo.com", "store", ("Store Person",)),
 ]
 
 
@@ -70,6 +92,20 @@ def _demo_plant(db: Session) -> OrgUnit | None:
     return db.scalars(select(OrgUnit).where(OrgUnit.type == "PLANT").order_by(OrgUnit.id.asc())).first()
 
 
+def _canonical_cost_centers(db: Session, *, plant_id: int) -> list[CostCenterMaster]:
+    return list(
+        db.scalars(
+            select(CostCenterMaster)
+            .where(
+                CostCenterMaster.plant_id == int(plant_id),
+                CostCenterMaster.code.in_(CANONICAL_CC_CODES),
+                CostCenterMaster.is_active.is_(True),
+            )
+            .order_by(CostCenterMaster.code.asc())
+        ).all()
+    )
+
+
 def _upsert_user(
     db: Session,
     *,
@@ -78,10 +114,10 @@ def _upsert_user(
     phone: str,
     full_name: str,
     password: str,
-    role: Role,
+    roles: list[Role],
     org: OrgUnit,
+    cost_center_ids: list[int],
 ) -> tuple[User, str]:
-    """Return (user, status) where status is 'created' | 'updated' | 'unchanged'."""
     now = datetime.now(timezone.utc)
     email_norm = email.strip().lower()
     existing = db.scalar(select(User).where(User.email == email_norm))
@@ -89,33 +125,24 @@ def _upsert_user(
         existing = db.scalar(select(User).where(User.username == username))
 
     if existing is not None:
-        changed = False
-        if existing.full_name != full_name:
-            existing.full_name = full_name
-            changed = True
-        if existing.phone != phone:
-            existing.phone = phone
-            changed = True
-        if existing.username != username:
-            existing.username = username
-            changed = True
-        if not existing.is_active:
-            existing.is_active = True
-            changed = True
+        existing.full_name = full_name
+        existing.phone = phone
+        existing.username = username
+        existing.email = email_norm
+        existing.is_active = True
         existing.hashed_password = hash_password(password)
         existing.password_changed_at = now
-        changed = True
-
-        role_ids = {int(r.id) for r in existing.roles}
-        if role.id not in role_ids:
-            existing.roles.clear()
+        existing.roles.clear()
+        for role in roles:
             existing.roles.append(role)
-            changed = True
-
         db.execute(delete(user_org_unit).where(user_org_unit.c.user_id == existing.id))
         db.execute(user_org_unit.insert().values(user_id=existing.id, org_unit_id=org.id))
-
-        return existing, "updated" if changed else "unchanged"
+        db.execute(delete(user_cost_center).where(user_cost_center.c.user_id == existing.id))
+        for cc_id in cost_center_ids:
+            db.execute(
+                user_cost_center.insert().values(user_id=existing.id, cost_center_id=int(cc_id))
+            )
+        return existing, "updated"
 
     user = User(
         full_name=full_name,
@@ -127,21 +154,53 @@ def _upsert_user(
         is_active=True,
         is_superuser=False,
     )
-    user.roles.append(role)
+    for role in roles:
+        user.roles.append(role)
     db.add(user)
     db.flush()
-
     db.execute(user_org_unit.insert().values(user_id=user.id, org_unit_id=org.id))
+    for cc_id in cost_center_ids:
+        db.execute(user_cost_center.insert().values(user_id=user.id, cost_center_id=int(cc_id)))
     return user, "created"
 
 
+def _write_md(password: str, cc_labels: list[str]) -> None:
+    lines = [
+        "# Demo users",
+        "",
+        f"**Password for all accounts:** `{password}`",
+        "",
+        "Each user is assigned to the plant and to **all** of these cost centers:",
+        "",
+    ]
+    for label in cc_labels:
+        lines.append(f"- {label}")
+    lines += [
+        "",
+        "| Name | Email | Username | Role(s) |",
+        "|---|---|---|---|",
+    ]
+    for full_name, email, username, role_names in DEMO_USERS:
+        lines.append(
+            f"| {full_name} | `{email}` | `{username}` | {', '.join(role_names)} |"
+        )
+    lines += [
+        "",
+        "Regenerate with:",
+        "",
+        "```bash",
+        "./venv/bin/python scripts/seed_manual_test_users.py",
+        "```",
+        "",
+    ]
+    OUT_MD.write_text("\n".join(lines), encoding="utf-8")
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Seed demo users (one per role).")
-    parser.add_argument(
-        "--password",
-        default=DEFAULT_PASSWORD,
-        help=f"Plain password for all users (default: {DEFAULT_PASSWORD!r}).",
+    parser = argparse.ArgumentParser(
+        description="Seed demo users with roles and all canonical cost centers."
     )
+    parser.add_argument("--password", default=DEFAULT_PASSWORD)
     args = parser.parse_args()
 
     try:
@@ -160,20 +219,44 @@ def main() -> int:
             )
             return 4
 
+        ccs = _canonical_cost_centers(db, plant_id=int(org.id))
+        found = {cc.code for cc in ccs}
+        missing = [c for c in CANONICAL_CC_CODES if c not in found]
+        if missing:
+            print(
+                f"error: missing cost centers {missing}. Run scripts/seed_dummy_data.py first.",
+                file=sys.stderr,
+            )
+            return 4
+        cc_ids = [int(cc.id) for cc in ccs]
+        cc_labels = [
+            f"{cc.code}"
+            + (" Scrapyard" if bool(getattr(cc, "is_scrapyard", False)) else "")
+            + (f" — {cc.name}" if cc.name else "")
+            for cc in ccs
+        ]
+
         print(f"Plant: {org.name!r} (id={org.id}, code={org.code!r})")
+        print(f"Cost centers: {', '.join(cc.code for cc in ccs)}")
         print(f"Password for all accounts: {args.password!r}")
         print()
 
-        for email, phone, full_name, role_name in DEMO_USERS:
-            role = _role_by_name(db, role_name)
-            if role is None:
-                print(
-                    f"error: role {role_name!r} not found. Run scripts/seed_dummy_data.py first.",
-                    file=sys.stderr,
-                )
-                return 3
+        phone_seq = 2000001
+        for full_name, email, username, role_names in DEMO_USERS:
+            roles: list[Role] = []
+            for role_name in role_names:
+                role = _role_by_name(db, role_name)
+                if role is None:
+                    print(
+                        f"error: role {role_name!r} not found. "
+                        "Run seed_dummy_data.py / seed_disposal_workflows.py first.",
+                        file=sys.stderr,
+                    )
+                    return 3
+                roles.append(role)
 
-            username = email.split("@", 1)[0]
+            phone = f"+1555{phone_seq:07d}"
+            phone_seq += 1
             try:
                 user, status = _upsert_user(
                     db,
@@ -182,8 +265,9 @@ def main() -> int:
                     phone=phone,
                     full_name=full_name,
                     password=args.password,
-                    role=role,
+                    roles=roles,
                     org=org,
+                    cost_center_ids=cc_ids,
                 )
                 db.commit()
                 db.refresh(user)
@@ -193,12 +277,14 @@ def main() -> int:
                 return 5
 
             print(
-                f"{status}: id={user.id}  email={user.email}  username={user.username}  "
-                f"role={role_name!r}  active={user.is_active}"
+                f"{status}: {user.email:<32}  {user.username:<12}  "
+                f"{', '.join(role_names)}"
             )
 
+        _write_md(args.password, cc_labels)
         print()
-        print("Sign in with email + password.")
+        print(f"Wrote {OUT_MD.relative_to(_ROOT)}")
+        print(f"Created/updated {len(DEMO_USERS)} users on {len(cc_ids)} cost centers.")
     finally:
         db.close()
 

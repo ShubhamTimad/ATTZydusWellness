@@ -42,6 +42,8 @@ type StepRow = {
   approver_role_id: number
   required_approvals: number
   step_kind?: string
+  /** null / omit = all users in role; source | destination = filter by order CC */
+  org_scope?: string | null
 }
 
 const STEP_KINDS: { value: string; label: string }[] = [
@@ -52,9 +54,20 @@ const STEP_KINDS: { value: string; label: string }[] = [
   { value: "close", label: "Close" },
 ]
 
+const ORG_SCOPES: { value: string; label: string }[] = [
+  { value: "", label: "All (no CC filter)" },
+  { value: "source", label: "Source cost center" },
+  { value: "destination", label: "Destination cost center" },
+]
+
 function stepKindLabel(kind: string | undefined): string {
   const k = (kind || "approve").toLowerCase()
   return STEP_KINDS.find((x) => x.value === k)?.label ?? k
+}
+
+function orgScopeLabel(scope: string | null | undefined): string {
+  const v = (scope || "").trim().toLowerCase()
+  return ORG_SCOPES.find((x) => x.value === v)?.label ?? "All (no CC filter)"
 }
 
 type WorkflowDetail = {
@@ -153,6 +166,7 @@ export function WorkflowAssignmentPage() {
   const [newRoleId, setNewRoleId] = React.useState("")
   const [newRequired, setNewRequired] = React.useState("1")
   const [newStepKind, setNewStepKind] = React.useState("approve")
+  const [newOrgScope, setNewOrgScope] = React.useState("")
 
   const [loading, setLoading] = React.useState(true)
   const [creatingWf, setCreatingWf] = React.useState(false)
@@ -299,11 +313,13 @@ export function WorkflowAssignmentPage() {
         approver_role_id: rid,
         required_approvals: req >= 1 ? req : 1,
         step_kind: newStepKind || "approve",
+        org_scope: newOrgScope || null,
       })
       toast.success("Level added.")
       setNewRoleId("")
       setNewRequired("1")
       setNewStepKind("approve")
+      setNewOrgScope("")
       await load()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not add level.")
@@ -312,7 +328,13 @@ export function WorkflowAssignmentPage() {
     }
   }
 
-  async function onSaveStep(step: StepRow, roleId: string, required: string, kind: string) {
+  async function onSaveStep(
+    step: StepRow,
+    roleId: string,
+    required: string,
+    kind: string,
+    orgScope: string,
+  ) {
     if (!canEditSteps) return
     const wid = Number(selectedId)
     setStepSavingId(step.id)
@@ -321,6 +343,7 @@ export function WorkflowAssignmentPage() {
         approver_role_id: Number(roleId),
         required_approvals: Math.max(1, Number(required) || 1),
         step_kind: kind || "approve",
+        org_scope: orgScope || null,
       })
       toast.success("Level saved.")
       await load()
@@ -465,6 +488,7 @@ export function WorkflowAssignmentPage() {
                     <TableHead className="w-16">Level</TableHead>
                     <TableHead>Role</TableHead>
                     <TableHead className="w-32">Kind</TableHead>
+                    <TableHead className="w-40">Org scope</TableHead>
                     <TableHead className="w-28">Required</TableHead>
                     {canEditSteps ? <TableHead className="w-32 text-right">Actions</TableHead> : null}
                   </TableRow>
@@ -479,14 +503,16 @@ export function WorkflowAssignmentPage() {
                         roles={roles}
                         canEdit={canEditSteps}
                         saving={stepSavingId === s.id}
-                        onSave={(roleId, req, kind) => void onSaveStep(s, roleId, req, kind)}
+                        onSave={(roleId, req, kind, orgScope) =>
+                          void onSaveStep(s, roleId, req, kind, orgScope)
+                        }
                         onDelete={() => void onDeleteStep(s.id)}
                       />
                     ))}
                   {(selectedWf.steps ?? []).length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={canEditSteps ? 5 : 4}
+                        colSpan={canEditSteps ? 6 : 5}
                         className="text-sm text-muted-foreground"
                       >
                         No levels yet.
@@ -523,6 +549,20 @@ export function WorkflowAssignmentPage() {
                   >
                     {STEP_KINDS.map((k) => (
                       <option key={k.value} value={k.value}>
+                        {k.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="w-44 space-y-1.5">
+                  <Label>Org scope</Label>
+                  <select
+                    className={adminSelectClass}
+                    value={newOrgScope}
+                    onChange={(e) => setNewOrgScope(e.target.value)}
+                  >
+                    {ORG_SCOPES.map((k) => (
+                      <option key={k.value || "all"} value={k.value}>
                         {k.label}
                       </option>
                     ))}
@@ -698,18 +738,20 @@ function StepEditRow({
   roles: RoleListItem[]
   canEdit: boolean
   saving: boolean
-  onSave: (roleId: string, required: string, kind: string) => void
+  onSave: (roleId: string, required: string, kind: string, orgScope: string) => void
   onDelete: () => void
 }) {
   const [roleId, setRoleId] = React.useState(String(step.approver_role_id))
   const [required, setRequired] = React.useState(String(step.required_approvals))
   const [kind, setKind] = React.useState(step.step_kind || "approve")
+  const [orgScope, setOrgScope] = React.useState(step.org_scope || "")
 
   React.useEffect(() => {
     setRoleId(String(step.approver_role_id))
     setRequired(String(step.required_approvals))
     setKind(step.step_kind || "approve")
-  }, [step.id, step.approver_role_id, step.required_approvals, step.step_kind])
+    setOrgScope(step.org_scope || "")
+  }, [step.id, step.approver_role_id, step.required_approvals, step.step_kind, step.org_scope])
 
   if (!canEdit) {
     return (
@@ -717,6 +759,7 @@ function StepEditRow({
         <TableCell>{step.step_order}</TableCell>
         <TableCell>{roleName(roles, step.approver_role_id)}</TableCell>
         <TableCell>{stepKindLabel(step.step_kind)}</TableCell>
+        <TableCell>{orgScopeLabel(step.org_scope)}</TableCell>
         <TableCell>{step.required_approvals}</TableCell>
       </TableRow>
     )
@@ -752,6 +795,19 @@ function StepEditRow({
         </select>
       </TableCell>
       <TableCell>
+        <select
+          className={cn(adminSelectClass, "h-9")}
+          value={orgScope}
+          onChange={(e) => setOrgScope(e.target.value)}
+        >
+          {ORG_SCOPES.map((k) => (
+            <option key={k.value || "all"} value={k.value}>
+              {k.label}
+            </option>
+          ))}
+        </select>
+      </TableCell>
+      <TableCell>
         <Input
           type="number"
           min={1}
@@ -766,7 +822,7 @@ function StepEditRow({
           size="sm"
           variant="outline"
           disabled={saving}
-          onClick={() => onSave(roleId, required, kind)}
+          onClick={() => onSave(roleId, required, kind, orgScope)}
         >
           {saving ? "…" : "Save"}
         </Button>

@@ -6,7 +6,11 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from core.permissions import get_flat_permission_codes_for_user
-from modules.asset_masters.model import CostCenterMaster
+from modules.asset_masters.model import (
+    ActualLocationMaster,
+    CostCenterMaster,
+    FunctionalLocationMaster,
+)
 from modules.assets.lifecycle import (
     is_operational,
     mark_disposed,
@@ -67,7 +71,12 @@ from modules.disposals.schema import (
 from modules.errors import ConflictError, NotFoundError
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
-from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow
+from modules.platform.approvals.model import (
+    ApprovalRequest,
+    ApprovalStep,
+    ApprovalTask,
+    ApprovalWorkflow,
+)
 from modules.platform.approvals.service import ApprovalEngineService, ApprovalError
 from modules.platform.org_units.model import OrgUnit
 from modules.platform.roles.model import Role
@@ -169,16 +178,49 @@ def _ensure_financial(asset: AssetMaster) -> AssetFinancialInformation:
     return asset.financial
 
 
-def _users_in_role(db: Session, role_id: int) -> list[User]:
-    return list(
-        db.scalars(
-            select(User)
-            .select_from(user_role)
-            .join(User, User.id == user_role.c.user_id)
-            .where(user_role.c.role_id == int(role_id), User.is_active.is_(True))
-            .order_by(User.full_name.asc(), User.id.asc())
-        ).all()
+def require_scrapyard_locations(
+    db: Session,
+    *,
+    plant_id: int,
+    functional_location: str,
+    actual_location: str,
+) -> tuple[str, str]:
+    """Actual Location 1/2 must be an active scrapyard FL + child AL for the plant."""
+    fl_code = functional_location.strip()
+    al_code = actual_location.strip()
+    if not fl_code or not al_code:
+        raise ConflictError("Actual Location 1 and Actual Location 2 are required.")
+    fl = db.scalar(
+        select(FunctionalLocationMaster).where(
+            FunctionalLocationMaster.plant_id == int(plant_id),
+            FunctionalLocationMaster.code == fl_code,
+        )
     )
+    if fl is None:
+        raise ConflictError("Actual Location 1 was not found for this plant.")
+    if not bool(fl.is_active):
+        raise ConflictError("Actual Location 1 is inactive.")
+    if not bool(getattr(fl, "is_scrapyard", False)):
+        raise ConflictError(
+            "Receive locations must be scrapyard Actual Location 1 / 2 for this plant."
+        )
+    al = db.scalar(
+        select(ActualLocationMaster).where(
+            ActualLocationMaster.functional_location_id == int(fl.id),
+            ActualLocationMaster.code == al_code,
+        )
+    )
+    if al is None:
+        raise ConflictError("Actual Location 2 must belong to the selected scrapyard location.")
+    if not bool(al.is_active):
+        raise ConflictError("Actual Location 2 is inactive.")
+    return fl.code, al.code
+
+
+def _users_in_role(db: Session, role_id: int) -> list[User]:
+    from modules.platform.approvals.org_scope import users_in_role
+
+    return users_in_role(db, role_id)
 
 
 def _first_step_role(db: Session, workflow: ApprovalWorkflow) -> Role:
@@ -276,6 +318,7 @@ class DisposalOrderService:
                 .selectinload(AssetMaster.financial),
                 selectinload(AssetDisposalOrder.plant),
                 selectinload(AssetDisposalOrder.from_cost_center),
+                selectinload(AssetDisposalOrder.to_cost_center),
                 selectinload(AssetDisposalOrder.creator),
                 selectinload(AssetDisposalOrder.assignee),
             )
@@ -360,6 +403,30 @@ class DisposalOrderService:
                 f"Only active, approved assets can be disposed: {sample}{more}."
             )
 
+    def _require_scrapyard_cost_center(
+        self, *, plant_id: int, cost_center_id: int
+    ) -> CostCenterMaster:
+        cc = self._db.get(CostCenterMaster, int(cost_center_id))
+        if cc is None:
+            raise NotFoundError("Cost center", cost_center_id)
+        if int(cc.plant_id) != int(plant_id):
+            raise ConflictError("Scrapyard cost center must belong to the same plant as the assets.")
+        if not bool(getattr(cc, "is_scrapyard", False)):
+            raise ConflictError("Selected cost center is not marked as a scrapyard.")
+        if not bool(cc.is_active):
+            raise ConflictError("Scrapyard cost center is inactive.")
+        return cc
+
+    def _require_scrapyard_locations(
+        self, *, plant_id: int, functional_location: str, actual_location: str
+    ) -> tuple[str, str]:
+        return require_scrapyard_locations(
+            self._db,
+            plant_id=plant_id,
+            functional_location=functional_location,
+            actual_location=actual_location,
+        )
+
     def _resolve_from_cost_center(self, assets: list[AssetMaster]) -> CostCenterMaster | None:
         codes = {c for a in assets if (c := _asset_cost_center(a))}
         if len(codes) != 1:
@@ -404,6 +471,75 @@ class DisposalOrderService:
 
     # -------------------------------------------------------------- assignees
 
+    def _picker_step_for_order(
+        self, order: AssetDisposalOrder, *, first_step: bool = False
+    ) -> ApprovalStep | None:
+        if order.approval_request_id is not None and not first_step:
+            req = self._db.scalar(
+                select(ApprovalRequest)
+                .where(ApprovalRequest.id == int(order.approval_request_id))
+                .options(
+                    selectinload(ApprovalRequest.workflow).selectinload(ApprovalWorkflow.steps)
+                )
+            )
+            if req is not None and req.workflow is not None and str(req.status) == "pending":
+                steps = sorted(req.workflow.steps or [], key=lambda s: int(s.step_order))
+                current = next(
+                    (s for s in steps if int(s.step_order) == int(req.current_step)),
+                    None,
+                )
+                if current is not None:
+                    return next(
+                        (s for s in steps if int(s.step_order) == int(current.step_order) + 1),
+                        None,
+                    )
+        wf = None
+        if order.approval_request_id is not None:
+            req = self._db.get(ApprovalRequest, int(order.approval_request_id))
+            if req is not None:
+                wf = self._db.scalar(
+                    select(ApprovalWorkflow)
+                    .where(ApprovalWorkflow.id == int(req.workflow_id))
+                    .options(selectinload(ApprovalWorkflow.steps))
+                )
+        if wf is None:
+            action_code, _ = action_and_entity_for_order(
+                requires_engineering=bool(getattr(order, "requires_engineering", False))
+            )
+            wf = get_workflow_for_action(self._db, action_code)
+        if wf is None or not wf.steps:
+            return None
+        return sorted(wf.steps, key=lambda s: int(s.step_order))[0]
+
+    def _assignee_pool(
+        self,
+        *,
+        role_id: int,
+        order: AssetDisposalOrder | None = None,
+        step: ApprovalStep | None = None,
+    ) -> tuple[Role, list[User]]:
+        from modules.platform.approvals.org_scope import (
+            filter_users_by_cost_center,
+            resolve_scoped_cost_center_id,
+        )
+
+        role = self._db.get(Role, int(role_id))
+        if role is None:
+            raise NotFoundError("Role", role_id)
+        users = _users_in_role(self._db, int(role.id))
+        if order is not None and step is not None:
+            cc_id = resolve_scoped_cost_center_id(
+                getattr(step, "org_scope", None),
+                source_cost_center_id=(
+                    int(order.from_cost_center_id) if order.from_cost_center_id else None
+                ),
+                destination_cost_center_id=(
+                    int(order.to_cost_center_id) if order.to_cost_center_id else None
+                ),
+            )
+            users = filter_users_by_cost_center(users, cost_center_id=cc_id)
+        return role, users
+
     def list_assignees(self, *, level: str) -> DisposalAssigneeListResponse:
         role_name = ASSIGNEE_LEVEL_ROLES.get(level.strip().lower())
         if role_name is None:
@@ -412,39 +548,55 @@ class DisposalOrderService:
         role = self._db.scalar(select(Role).where(Role.name == role_name))
         if role is None:
             raise ConflictError(f"Role {role_name!r} is not configured.")
+        _role, users = self._assignee_pool(role_id=int(role.id))
         return DisposalAssigneeListResponse(
             role_name=role_name,
             items=[
                 DisposalAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
-                for u in _users_in_role(self._db, int(role.id))
+                for u in users
             ],
         )
 
-    def list_assignees_by_role_id(self, *, role_id: int) -> DisposalAssigneeListResponse:
-        role = self._db.get(Role, int(role_id))
-        if role is None:
-            raise NotFoundError("Role", role_id)
+    def list_assignees_by_role_id(
+        self, *, role_id: int, order_id: int | None = None
+    ) -> DisposalAssigneeListResponse:
+        order = self._load_order(int(order_id)) if order_id is not None else None
+        step = self._picker_step_for_order(order) if order is not None else None
+        rid = int(step.approver_role_id) if step is not None else int(role_id)
+        role, users = self._assignee_pool(role_id=rid, order=order, step=step)
         return DisposalAssigneeListResponse(
             role_name=str(role.name),
             items=[
                 DisposalAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
-                for u in _users_in_role(self._db, int(role.id))
+                for u in users
             ],
         )
 
-    def list_assignees_for_action(self, *, action_code: str) -> DisposalAssigneeListResponse:
+    def list_assignees_for_action(
+        self, *, action_code: str, order_id: int | None = None
+    ) -> DisposalAssigneeListResponse:
         """Users in the first step role of the workflow mapped to this disposal action."""
-        wf = get_workflow_for_action(self._db, action_code)
-        if wf is None or not wf.steps:
-            raise ConflictError(
-                "No active disposal approval workflow is configured. Contact an administrator."
-            )
-        role = _first_step_role(self._db, wf)
+        order = self._load_order(int(order_id)) if order_id is not None else None
+        step = (
+            self._picker_step_for_order(order, first_step=True)
+            if order is not None
+            else None
+        )
+        if step is None:
+            wf = get_workflow_for_action(self._db, action_code)
+            if wf is None or not wf.steps:
+                raise ConflictError(
+                    "No active disposal approval workflow is configured. Contact an administrator."
+                )
+            step = sorted(wf.steps, key=lambda s: int(s.step_order))[0]
+        role, users = self._assignee_pool(
+            role_id=int(step.approver_role_id), order=order, step=step
+        )
         return DisposalAssigneeListResponse(
             role_name=str(role.name),
             items=[
                 DisposalAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
-                for u in _users_in_role(self._db, int(role.id))
+                for u in users
             ],
         )
 
@@ -459,10 +611,18 @@ class DisposalOrderService:
         if plant_id is None:
             raise ConflictError("Selected assets must have a plant.")
         from_cc = self._resolve_from_cost_center(assets)
+        to_cc = None
+        if data.to_cost_center_id is not None:
+            to_cc = self._require_scrapyard_cost_center(
+                plant_id=int(plant_id), cost_center_id=int(data.to_cost_center_id)
+            )
+        if data.submit and to_cc is None:
+            raise ConflictError("Select a scrapyard cost center before submitting.")
         order = AssetDisposalOrder(
             order_number=self._next_order_number(),
             plant_id=int(plant_id),
             from_cost_center_id=int(from_cc.id) if from_cc is not None else None,
+            to_cost_center_id=int(to_cc.id) if to_cc is not None else None,
             requires_engineering=bool(data.requires_engineering),
             created_by=actor_user_id,
             status=STATUS_DRAFT,
@@ -481,6 +641,7 @@ class DisposalOrderService:
                 "order_number": order.order_number,
                 "assets": [a.asset_code or str(a.id) for a in assets],
                 "requires_engineering": bool(order.requires_engineering),
+                "to_cost_center": to_cc.code if to_cc is not None else None,
             },
         )
         if data.submit:
@@ -508,12 +669,24 @@ class DisposalOrderService:
             "remarks": order.remarks,
             "requires_engineering": bool(order.requires_engineering),
             "asset_count": len(order.items),
+            "to_cost_center_id": (
+                int(order.to_cost_center_id) if order.to_cost_center_id else None
+            ),
         }
         patch = data.model_dump(exclude_unset=True)
         if "remarks" in patch:
             order.remarks = _strip_or_none(patch["remarks"])
         if patch.get("requires_engineering") is not None:
             order.requires_engineering = bool(patch["requires_engineering"])
+        if "to_cost_center_id" in patch:
+            if patch["to_cost_center_id"] is None:
+                order.to_cost_center_id = None
+            else:
+                to_cc = self._require_scrapyard_cost_center(
+                    plant_id=int(order.plant_id),
+                    cost_center_id=int(patch["to_cost_center_id"]),
+                )
+                order.to_cost_center_id = int(to_cc.id)
         if patch.get("asset_ids") is not None:
             previous_assets = self._order_assets(order)
             assets = self._load_assets(patch["asset_ids"])
@@ -530,6 +703,16 @@ class DisposalOrderService:
             added_assets = [a for a in assets if int(a.id) not in old_ids]
             self._restore_assets_active(removed_assets)
             order.from_cost_center_id = int(from_cc.id) if from_cc is not None else None
+            # Plant may have changed — drop scrapyard if it no longer fits.
+            if order.to_cost_center_id is not None:
+                try:
+                    to_cc = self._require_scrapyard_cost_center(
+                        plant_id=int(order.plant_id),
+                        cost_center_id=int(order.to_cost_center_id),
+                    )
+                    order.to_cost_center_id = int(to_cc.id)
+                except ConflictError:
+                    order.to_cost_center_id = None
             self._replace_items(order, assets)
             self._mark_assets_pending_disposal(added_assets)
         log_disposal_event(
@@ -542,6 +725,9 @@ class DisposalOrderService:
                 "remarks": order.remarks,
                 "requires_engineering": bool(order.requires_engineering),
                 "asset_count": len(order.items),
+                "to_cost_center_id": (
+                    int(order.to_cost_center_id) if order.to_cost_center_id else None
+                ),
             },
         )
         self._db.commit()
@@ -685,6 +871,11 @@ class DisposalOrderService:
         self._assert_assets_match_order_reservation(
             assets, reserved_asset_ids={int(a.id) for a in assets}
         )
+        if order.to_cost_center_id is None:
+            raise ConflictError("Select a scrapyard cost center before submitting.")
+        self._require_scrapyard_cost_center(
+            plant_id=int(order.plant_id), cost_center_id=int(order.to_cost_center_id)
+        )
 
         action_code, entity_type = action_and_entity_for_order(
             requires_engineering=bool(order.requires_engineering)
@@ -694,13 +885,14 @@ class DisposalOrderService:
             raise ConflictError(
                 "No active disposal approval workflow is configured. Contact an administrator."
             )
-        first_role = _first_step_role(self._db, wf)
-        if not any(
-            int(u.id) == int(assignee_user_id)
-            for u in _users_in_role(self._db, int(first_role.id))
-        ):
+        first_step = sorted(wf.steps, key=lambda s: int(s.step_order))[0]
+        first_role, pool = self._assignee_pool(
+            role_id=int(first_step.approver_role_id), order=order, step=first_step
+        )
+        if not any(int(u.id) == int(assignee_user_id) for u in pool):
             raise ConflictError(
-                f"Selected user is not an active member of role {first_role.name!r}."
+                f"Selected user is not an active member of role {first_role.name!r} "
+                "for this step's cost center scope."
             )
 
         engine = ApprovalEngineService(self._db)
@@ -878,22 +1070,23 @@ class DisposalOrderService:
         ):
             raise ConflictError("Only the assigned receiver can receive this disposal order.")
 
-        cc = self._db.get(CostCenterMaster, int(data.cost_center_id))
-        if cc is None:
-            raise NotFoundError("Cost center", data.cost_center_id)
-        if int(cc.plant_id) != int(order.plant_id):
-            raise ConflictError(
-                "Receive cost center must belong to the same plant as the assets."
-            )
+        if order.to_cost_center_id is None:
+            raise ConflictError("Scrapyard cost center must be set on the order before receive.")
+        cc = self._require_scrapyard_cost_center(
+            plant_id=int(order.plant_id), cost_center_id=int(order.to_cost_center_id)
+        )
+        # Destination CC is fixed at submit; ignore any client override.
+        order.to_cost_center_id = int(cc.id)
 
         cf_user = self._db.get(User, int(data.assigned_to))
         if cf_user is None or not cf_user.is_active:
             raise NotFoundError("User", data.assigned_to)
 
-        functional_location = data.functional_location.strip()
-        actual_location = data.actual_location.strip()
-        if not functional_location or not actual_location:
-            raise ConflictError("Actual Location 1 and Actual Location 2 are required.")
+        functional_location, actual_location = self._require_scrapyard_locations(
+            plant_id=int(order.plant_id),
+            functional_location=data.functional_location,
+            actual_location=data.actual_location,
+        )
 
         for item in order.items:
             asset = item.asset
@@ -1413,6 +1606,13 @@ class DisposalOrderService:
             from_cost_center_description=(
                 order.from_cost_center.description if order.from_cost_center else None
             ),
+            to_cost_center_id=(
+                int(order.to_cost_center_id) if order.to_cost_center_id else None
+            ),
+            to_cost_center_code=order.to_cost_center.code if order.to_cost_center else None,
+            to_cost_center_description=(
+                order.to_cost_center.description if order.to_cost_center else None
+            ),
             requires_engineering=bool(order.requires_engineering),
             status=order.status,
             remarks=order.remarks,
@@ -1534,7 +1734,7 @@ def apply_disposal_receive(
     step_role_name: str | None = None,
     comment: str | None = None,
 ) -> None:
-    """Receive step: set destination CC + Actual Location 1/2, hand to CF."""
+    """Receive step: keep order scrapyard CC, set scrapyard Actual Location 1/2, hand to CF."""
     order = db.scalar(
         select(AssetDisposalOrder)
         .where(AssetDisposalOrder.id == int(order_id))
@@ -1544,19 +1744,27 @@ def apply_disposal_receive(
     )
     if order is None:
         return
-    if cost_center_id is None:
-        raise ConflictError("Select the destination cost center when receiving.")
-    cc = db.get(CostCenterMaster, int(cost_center_id))
+    # Destination scrapyard is fixed at submit; ignore client cost_center_id.
+    _ = cost_center_id
+    if order.to_cost_center_id is None:
+        raise ConflictError("Scrapyard cost center must be set on the order before receive.")
+    cc = db.get(CostCenterMaster, int(order.to_cost_center_id))
     if cc is None:
-        raise NotFoundError("Cost center", cost_center_id)
+        raise NotFoundError("Cost center", order.to_cost_center_id)
     if int(cc.plant_id) != int(order.plant_id):
         raise ConflictError(
             "Receive cost center must belong to the same plant as the assets."
         )
-    fl = (functional_location or "").strip()
-    al = (actual_location or "").strip()
-    if not fl or not al:
-        raise ConflictError("Actual Location 1 and Actual Location 2 are required.")
+    if not bool(getattr(cc, "is_scrapyard", False)):
+        raise ConflictError("Selected cost center is not marked as a scrapyard.")
+    if not bool(cc.is_active):
+        raise ConflictError("Scrapyard cost center is inactive.")
+    fl, al = require_scrapyard_locations(
+        db,
+        plant_id=int(order.plant_id),
+        functional_location=functional_location or "",
+        actual_location=actual_location or "",
+    )
 
     for item in order.items:
         asset = item.asset
@@ -1568,6 +1776,7 @@ def apply_disposal_receive(
         _ensure_financial(asset).cost_center = cc.code
 
     old_status = order.status
+    order.to_cost_center_id = int(cc.id)
     order.status = STATUS_PENDING_CF_CLOSE
     # Keep receiver_user_id so a later CF reject can return here for location edits.
     if order.receiver_user_id is None:

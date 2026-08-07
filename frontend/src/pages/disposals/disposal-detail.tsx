@@ -126,7 +126,7 @@ export function DisposalOrderDetailPage() {
   const [decisionMode, setDecisionMode] = React.useState<"approve" | "reject">("approve")
   const [requiresEngineering, setRequiresEngineering] = React.useState(false)
   const [remarks, setRemarks] = React.useState("")
-  const [costCenterId, setCostCenterId] = React.useState("")
+  const [toCostCenterId, setToCostCenterId] = React.useState("")
   const [functionalLocation, setFunctionalLocation] = React.useState("")
   const [actualLocation, setActualLocation] = React.useState("")
   const [editAssets, setEditAssets] = React.useState<DisposalOrderItem[]>([])
@@ -139,11 +139,23 @@ export function DisposalOrderDetailPage() {
 
   const lookupPlantId = order?.can_edit ? editPlantId : (order?.plant_id ?? null)
   const masters = useAssetMasterLookups(lookupPlantId ?? null, null, functionalLocation || null)
+  const scrapyardCostCenters = React.useMemo(
+    () => masters.costCenters.filter((cc) => Boolean(cc.is_scrapyard) && cc.is_active !== false),
+    [masters.costCenters],
+  )
+  const scrapyardFunctionalLocations = React.useMemo(
+    () =>
+      masters.functionalLocations.filter(
+        (fl) => Boolean(fl.is_scrapyard) && fl.is_active !== false,
+      ),
+    [masters.functionalLocations],
+  )
 
   const applyOrder = React.useCallback((res: DisposalOrderDetail) => {
     setOrder(res)
     setRequiresEngineering(res.requires_engineering)
     setRemarks(res.remarks ?? "")
+    setToCostCenterId(res.to_cost_center_id != null ? String(res.to_cost_center_id) : "")
     setEditAssets(itemsToEditAssets(res.items))
     setEditPlantId(res.plant_id)
     setFilterCostCenter("")
@@ -284,12 +296,17 @@ export function DisposalOrderDetailPage() {
       toast.error("Keep at least one asset on the disposal order.")
       return
     }
+    if (!toCostCenterId) {
+      toast.error("Select a scrapyard cost center.")
+      return
+    }
     await run(
       () =>
         patchJson(`/admin/disposal-orders/${order.id}`, {
           remarks: remarks.trim() || null,
           requires_engineering: requiresEngineering,
           asset_ids: editAssets.map((a) => a.asset_id),
+          to_cost_center_id: Number(toCostCenterId),
         }),
       "Disposal order saved.",
     )
@@ -316,8 +333,8 @@ export function DisposalOrderDetailPage() {
     if (!taskId) return
     const kind = (order?.approval_panel?.current_step_kind || "approve").toLowerCase()
     if (decisionMode === "approve" && kind === "receive") {
-      if (!costCenterId || !functionalLocation.trim() || !actualLocation.trim()) {
-        toast.error("Select cost center and Actual Location 1 / 2 before receiving.")
+      if (!functionalLocation.trim() || !actualLocation.trim()) {
+        toast.error("Select Actual Location 1 and 2 before receiving.")
         return
       }
     }
@@ -331,7 +348,6 @@ export function DisposalOrderDetailPage() {
           : {}),
         ...(decisionMode === "approve" && kind === "receive"
           ? {
-              to_cost_center_id: Number(costCenterId),
               to_functional_location: functionalLocation.trim(),
               to_actual_location: actualLocation.trim(),
             }
@@ -491,7 +507,21 @@ export function DisposalOrderDetailPage() {
             </AdminPrimaryButton>
           ) : null}
           {order.can_submit ? (
-            <AdminPrimaryButton type="button" disabled={busy} onClick={() => setPickerMode("submit")}>
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (!toCostCenterId) {
+                  toast.error("Select a scrapyard cost center and save before submitting.")
+                  return
+                }
+                if (order.to_cost_center_id !== Number(toCostCenterId)) {
+                  toast.error("Save the scrapyard cost center before submitting.")
+                  return
+                }
+                setPickerMode("submit")
+              }}
+            >
               Submit for approval
             </AdminPrimaryButton>
           ) : null}
@@ -515,8 +545,8 @@ export function DisposalOrderDetailPage() {
                 disabled={busy}
                 onClick={() => {
                   if (engineReceive) {
-                    if (!costCenterId || !functionalLocation.trim() || !actualLocation.trim()) {
-                      toast.error("Select cost center and Actual Location 1 / 2 first.")
+                    if (!functionalLocation.trim() || !actualLocation.trim()) {
+                      toast.error("Select Actual Location 1 and 2 first.")
                       return
                     }
                     if (panel?.needs_next_assignee) {
@@ -537,8 +567,8 @@ export function DisposalOrderDetailPage() {
               type="button"
               disabled={busy}
               onClick={() => {
-                if (!costCenterId || !functionalLocation.trim() || !actualLocation.trim()) {
-                  toast.error("Select cost center, Actual Location 1 and Actual Location 2 first.")
+                if (!functionalLocation.trim() || !actualLocation.trim()) {
+                  toast.error("Select Actual Location 1 and 2 first.")
                   return
                 }
                 setPickerMode("receive")
@@ -635,6 +665,44 @@ export function DisposalOrderDetailPage() {
                     by your cost centers, then pick a new set.
                   </p>
                 ) : null}
+              </FormField>
+
+              <FormField id="to_scrapyard_cc" labelText="Scrapyard cost center" required={order.can_edit}>
+                {order.can_edit ? (
+                  <>
+                    <select
+                      id="to_scrapyard_cc"
+                      className={adminSelectClass}
+                      value={toCostCenterId}
+                      onChange={(e) => setToCostCenterId(e.target.value)}
+                    >
+                      <option value="">
+                        {scrapyardCostCenters.length === 0
+                          ? "No scrapyard cost centers for this plant"
+                          : "Select scrapyard"}
+                      </option>
+                      {scrapyardCostCenters.map((cc) => (
+                        <option key={cc.id} value={String(cc.id)}>
+                          {costCenterLabel(cc)}
+                          {cc.code ? ` (${cc.code})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Destination for disposal; only cost centers marked scrapyard are listed.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm">
+                    {order.to_cost_center_code
+                      ? `${order.to_cost_center_code}${
+                          order.to_cost_center_description
+                            ? ` — ${order.to_cost_center_description}`
+                            : ""
+                        }`
+                      : "—"}
+                  </p>
+                )}
               </FormField>
 
               <label
@@ -901,25 +969,20 @@ export function DisposalOrderDetailPage() {
         {receiveEditable ? (
           <AdminPanel
             title="Receive"
-            description="Set the cost center and Actual Location 1 / 2, then choose the next approver (usually Central Finance) who will close this order."
+            description="Scrapyard cost center is fixed from submit. Set scrapyard Actual Location 1 / 2, then choose the next approver (usually Central Finance) who will close this order."
             contentClassName="px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <FormField id="scrap_cc" labelText="Cost center" required>
-                <select
-                  id="scrap_cc"
-                  className={adminSelectClass}
-                  value={costCenterId}
-                  onChange={(e) => setCostCenterId(e.target.value)}
-                >
-                  <option value="">Select cost center</option>
-                  {masters.costCenters.map((cc) => (
-                    <option key={cc.id} value={String(cc.id)}>
-                      {costCenterLabel(cc)}
-                      {cc.code ? ` (${cc.code})` : ""}
-                    </option>
-                  ))}
-                </select>
+              <FormField id="scrap_cc" labelText="Scrapyard cost center">
+                <p className="text-sm">
+                  {order.to_cost_center_code
+                    ? `${order.to_cost_center_code}${
+                        order.to_cost_center_description
+                          ? ` — ${order.to_cost_center_description}`
+                          : ""
+                      }`
+                    : "—"}
+                </p>
               </FormField>
               <FormField id="scrap_loc1" labelText="Actual Location 1" required>
                 <select
@@ -931,8 +994,12 @@ export function DisposalOrderDetailPage() {
                     setActualLocation("")
                   }}
                 >
-                  <option value="">Select location</option>
-                  {masters.functionalLocations.map((l) => (
+                  <option value="">
+                    {scrapyardFunctionalLocations.length === 0
+                      ? "No scrapyard locations for this plant"
+                      : "Select location"}
+                  </option>
+                  {scrapyardFunctionalLocations.map((l) => (
                     <option key={l.id} value={l.code}>
                       {functionalLocationLabel(l)}
                     </option>
@@ -1013,9 +1080,9 @@ export function DisposalOrderDetailPage() {
         assigneesUrl={
           pickerMode === "receive"
             ? panel?.next_assignee_role_id
-              ? `/admin/disposal-orders/assignees?role_id=${panel.next_assignee_role_id}`
+              ? `/admin/disposal-orders/assignees?role_id=${panel.next_assignee_role_id}&order_id=${order.id}`
               : undefined
-            : `/admin/disposal-orders/assignees?requires_engineering=${requiresEngineering ? "true" : "false"}`
+            : `/admin/disposal-orders/assignees?requires_engineering=${requiresEngineering ? "true" : "false"}&order_id=${order.id}`
         }
         roleLabel={
           pickerMode === "receive"
@@ -1040,7 +1107,6 @@ export function DisposalOrderDetailPage() {
                 await postJson(`/approvals/tasks/${taskId}/action`, {
                   action: "approve",
                   next_assigned_user_id: userId,
-                  to_cost_center_id: Number(costCenterId),
                   to_functional_location: functionalLocation.trim(),
                   to_actual_location: actualLocation.trim(),
                 })
@@ -1058,7 +1124,6 @@ export function DisposalOrderDetailPage() {
               () =>
                 postJson(`/admin/disposal-orders/${order.id}/receive`, {
                   assigned_to: userId,
-                  cost_center_id: Number(costCenterId),
                   functional_location: functionalLocation.trim(),
                   actual_location: actualLocation.trim(),
                   remarks: remarks.trim() || null,
@@ -1098,7 +1163,7 @@ export function DisposalOrderDetailPage() {
         nextStepRoleName={panel?.next_step_role_name ?? null}
         assigneesUrl={
           panel?.next_assignee_role_id
-            ? `/admin/disposal-orders/assignees?role_id=${panel.next_assignee_role_id}`
+            ? `/admin/disposal-orders/assignees?role_id=${panel.next_assignee_role_id}&order_id=${order.id}`
             : undefined
         }
         onConfirm={confirmDecision}

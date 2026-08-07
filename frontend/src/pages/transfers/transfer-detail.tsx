@@ -968,9 +968,9 @@ export function TransferOrderDetailPage() {
         assigneesUrl={
           pickerMode === "cc2_assign"
             ? panel?.next_assignee_role_id
-              ? `/admin/transfer-orders/assignees?role_id=${panel.next_assignee_role_id}`
+              ? `/admin/transfer-orders/assignees?role_id=${panel.next_assignee_role_id}&order_id=${order.id}`
               : undefined
-            : "/admin/transfer-orders/assignees?for_submit=true"
+            : `/admin/transfer-orders/assignees?for_submit=true&order_id=${order.id}`
         }
         roleLabel={
           pickerMode === "cc2_assign"
@@ -1055,7 +1055,7 @@ export function TransferOrderDetailPage() {
         nextStepRoleName={panel?.next_step_role_name ?? null}
         assigneesUrl={
           panel?.next_assignee_role_id
-            ? `/admin/transfer-orders/assignees?role_id=${panel.next_assignee_role_id}`
+            ? `/admin/transfer-orders/assignees?role_id=${panel.next_assignee_role_id}&order_id=${order.id}`
             : undefined
         }
         onConfirm={confirmDecision}

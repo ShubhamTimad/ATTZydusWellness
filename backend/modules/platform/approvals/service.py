@@ -130,7 +130,10 @@ class ApprovalWorkflowService:
         approver_role_id: int,
         required_approvals: int,
         step_kind: str = "approve",
+        org_scope: str | None = None,
     ) -> ApprovalStep:
+        from modules.platform.approvals.org_scope import normalize_org_scope
+
         wf = self.get_workflow(workflow_id)
         if wf.is_active:
             raise ConflictError("Deactivate the workflow before adding or changing levels.")
@@ -146,6 +149,7 @@ class ApprovalWorkflowService:
             raise ConflictError(
                 "step_kind must be one of: approve, receive, confirm, close, assign."
             )
+        scope = normalize_org_scope(org_scope)
         existing_orders = [s.step_order for s in wf.steps]
         if step_order in existing_orders:
             raise ConflictError("That level number already exists.")
@@ -155,6 +159,7 @@ class ApprovalWorkflowService:
             approver_role_id=approver_role_id,
             required_approvals=required_approvals,
             step_kind=kind,
+            org_scope=scope,
         )
         self._db.add(step)
         self._db.commit()
@@ -184,7 +189,10 @@ class ApprovalWorkflowService:
         approver_role_id: int | None = None,
         required_approvals: int | None = None,
         step_kind: str | None = None,
+        org_scope: str | None | object = ...,
     ) -> ApprovalStep:
+        from modules.platform.approvals.org_scope import normalize_org_scope
+
         step = self._db.get(ApprovalStep, step_id)
         if step is None:
             raise NotFoundError("ApprovalStep", step_id)
@@ -207,6 +215,11 @@ class ApprovalWorkflowService:
                     "step_kind must be one of: approve, receive, confirm, close, assign."
                 )
             step.step_kind = kind
+        if org_scope is not ...:
+            # Explicit null / "" clears scope → all role users.
+            step.org_scope = normalize_org_scope(
+                None if org_scope is None else str(org_scope)
+            )
         self._db.commit()
         self._db.refresh(step)
         return step
@@ -359,6 +372,28 @@ class ApprovalEngineService:
                 raise ConflictError(
                     f"Selected user is not an active member of role {role.name!r}."
                 )
+            from modules.platform.approvals.org_scope import (
+                cost_center_id_for_step,
+                user_matches_cost_center,
+                users_in_role,
+            )
+
+            try:
+                cc_id = cost_center_id_for_step(
+                    self._db,
+                    entity_type=str(req.entity_type),
+                    entity_id=int(req.entity_id),
+                    org_scope=getattr(step, "org_scope", None),
+                )
+            except ConflictError:
+                raise
+            if cc_id is not None:
+                scoped = users_in_role(self._db, int(step.approver_role_id))
+                match = next((u for u in scoped if int(u.id) == uid), None)
+                if match is None or not user_matches_cost_center(match, cc_id):
+                    raise ConflictError(
+                        f"Selected user is not in role {role.name!r} for this step's cost center."
+                    )
             assignee_user_id = uid
             assignee_role_id = None
 

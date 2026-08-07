@@ -96,6 +96,7 @@ def add_step(
             approver_role_id=payload.approver_role_id,
             required_approvals=payload.required_approvals,
             step_kind=payload.step_kind,
+            org_scope=payload.org_scope,
         )
         return {"id": step.id}
     except NotFoundError as exc:
@@ -111,19 +112,18 @@ def update_step(
     payload: ApprovalStepUpdate,
     svc: Annotated[ApprovalWorkflowService, Depends(get_workflow_service)],
 ) -> dict:
-    if (
-        payload.approver_role_id is None
-        and payload.required_approvals is None
-        and payload.step_kind is None
-    ):
+    fields_set = payload.model_fields_set
+    if not fields_set:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to update.")
     try:
-        step = svc.update_step(
-            step_id,
-            approver_role_id=payload.approver_role_id,
-            required_approvals=payload.required_approvals,
-            step_kind=payload.step_kind,
-        )
+        kwargs: dict = {
+            "approver_role_id": payload.approver_role_id,
+            "required_approvals": payload.required_approvals,
+            "step_kind": payload.step_kind,
+        }
+        if "org_scope" in fields_set:
+            kwargs["org_scope"] = payload.org_scope
+        step = svc.update_step(step_id, **kwargs)
         if int(step.workflow_id) != workflow_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Step not found.")
         return {"id": step.id}

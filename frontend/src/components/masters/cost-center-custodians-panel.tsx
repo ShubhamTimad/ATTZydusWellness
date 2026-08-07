@@ -65,7 +65,7 @@ export function CostCenterCustodiansPanel({ plants }: { plants: PlantOption[] })
       return
     }
     void getJson<CostCenterMaster[]>(
-      `/admin/asset-masters/cost-centers?plant_id=${plantId}&active_only=false`,
+      `/admin/asset-masters/cost-centers?plant_id=${plantId}&active_only=true`,
     )
       .then(setCostCenters)
       .catch(() => {
