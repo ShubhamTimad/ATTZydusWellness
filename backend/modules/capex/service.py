@@ -24,6 +24,7 @@ from modules.capex.constants import (
     SUBMITTABLE_STATUSES,
     capex_needs_next_assignee,
 )
+from modules.asset_masters.model import CostCenterMaster
 from modules.capex.audit import log_capex_event
 from modules.capex.model import CapitalizationForm, CapitalizationFormAudit
 from modules.capex.schema import (
@@ -46,7 +47,6 @@ from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, Appr
 from modules.platform.approvals.service import ApprovalEngineService, ApprovalError
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
-from modules.rbac_association import user_role
 from modules.platform.tasks.schema import TaskApprovalStepLinePublic
 from modules.platform.tasks.service import (
     _build_workflow_steps_for_request,
@@ -116,15 +116,15 @@ def _actor_may_discard_capex(form: CapitalizationForm, *, actor_user_id: int, db
     return viewer is not None and bool(viewer.is_superuser)
 
 
-def _users_in_role(db: Session, role_id: int) -> list[User]:
-    return list(
-        db.scalars(
-            select(User)
-            .select_from(user_role)
-            .join(User, User.id == user_role.c.user_id)
-            .where(user_role.c.role_id == int(role_id), User.is_active.is_(True))
-            .order_by(User.full_name.asc(), User.id.asc())
-        ).all()
+def _users_in_role(db: Session, role_id: int, *, cost_center_id: int | None = None) -> list[User]:
+    """Active members of the role, narrowed to a cost center when the form names one.
+
+    Same rule as the order modules: a user with no cost centers covers their whole plant.
+    """
+    from modules.platform.approvals.org_scope import filter_users_by_cost_center, users_in_role
+
+    return filter_users_by_cost_center(
+        users_in_role(db, int(role_id)), cost_center_id=cost_center_id
     )
 
 
@@ -199,6 +199,7 @@ def _snapshot_fields(form: CapitalizationForm) -> dict[str, Any]:
         "auc_code": form.auc_code,
         "useful_life": form.useful_life,
         "requires_engineering": bool(form.requires_engineering),
+        "cost_center_id": form.cost_center_id,
     }
 
 
@@ -230,11 +231,22 @@ class CapexFormService:
             .options(
                 selectinload(CapitalizationForm.creator),
                 selectinload(CapitalizationForm.asset),
+                selectinload(CapitalizationForm.cost_center),
             )
         )
         if row is None:
             raise NotFoundError("CapitalizationForm", form_id)
         return row
+
+    def _validated_cost_center_id(self, cost_center_id: int | None) -> int | None:
+        if cost_center_id is None:
+            return None
+        cc = self._db.get(CostCenterMaster, int(cost_center_id))
+        if cc is None:
+            raise NotFoundError("CostCenterMaster", cost_center_id)
+        if not bool(cc.is_active):
+            raise ConflictError(f"Cost center {cc.code!r} is inactive.")
+        return int(cc.id)
 
     def _approval_panel(
         self, form: CapitalizationForm, *, viewer_user_id: int | None
@@ -550,6 +562,9 @@ class CapexFormService:
             auc_code=form.auc_code,
             useful_life=form.useful_life,
             requires_engineering=bool(form.requires_engineering),
+            cost_center_id=form.cost_center_id,
+            cost_center_code=form.cost_center.code if form.cost_center is not None else None,
+            cost_center_name=form.cost_center.name if form.cost_center is not None else None,
             approval_request_id=form.approval_request_id,
             asset_id=form.asset_id,
             asset_code=asset.asset_code if asset is not None else None,
@@ -725,7 +740,9 @@ class CapexFormService:
     def get_form(self, form_id: int, *, viewer_user_id: int | None = None) -> CapexFormDetail:
         return self._to_detail(self._load(form_id), viewer_user_id=viewer_user_id)
 
-    def list_assignees(self, *, level: str) -> CapexAssigneeListResponse:
+    def list_assignees(
+        self, *, level: str, cost_center_id: int | None = None
+    ) -> CapexAssigneeListResponse:
         role_name = ASSIGNEE_LEVEL_ROLES.get(level.strip().lower())
         if role_name is None:
             raise ConflictError(
@@ -734,7 +751,7 @@ class CapexFormService:
         role = self._db.scalar(select(Role).where(Role.name == role_name))
         if role is None:
             raise ConflictError(f"Role {role_name!r} is not configured.")
-        users = _users_in_role(self._db, int(role.id))
+        users = _users_in_role(self._db, int(role.id), cost_center_id=cost_center_id)
         return CapexAssigneeListResponse(
             role_name=role_name,
             items=[
@@ -747,12 +764,14 @@ class CapexFormService:
             ],
         )
 
-    def list_assignees_by_role_id(self, *, role_id: int) -> CapexAssigneeListResponse:
+    def list_assignees_by_role_id(
+        self, *, role_id: int, cost_center_id: int | None = None
+    ) -> CapexAssigneeListResponse:
         """Users in a workflow step role — keyed by role id so renames do not break the picker."""
         role = self._db.get(Role, int(role_id))
         if role is None:
             raise NotFoundError("Role", role_id)
-        users = _users_in_role(self._db, int(role.id))
+        users = _users_in_role(self._db, int(role.id), cost_center_id=cost_center_id)
         return CapexAssigneeListResponse(
             role_name=str(role.name),
             items=[
@@ -765,7 +784,9 @@ class CapexFormService:
             ],
         )
 
-    def list_assignees_for_action(self, *, action_code: str) -> CapexAssigneeListResponse:
+    def list_assignees_for_action(
+        self, *, action_code: str, cost_center_id: int | None = None
+    ) -> CapexAssigneeListResponse:
         """Users in the first step role of the workflow mapped to this CapEx action."""
         wf = get_workflow_for_action(self._db, action_code)
         if wf is None or not wf.steps:
@@ -773,7 +794,7 @@ class CapexFormService:
                 "No active CapEx approval workflow is configured. Contact an administrator."
             )
         role = _first_step_role(self._db, wf)
-        users = _users_in_role(self._db, int(role.id))
+        users = _users_in_role(self._db, int(role.id), cost_center_id=cost_center_id)
         return CapexAssigneeListResponse(
             role_name=str(role.name),
             items=[
@@ -802,6 +823,7 @@ class CapexFormService:
             auc_code=_strip_or_none(data.auc_code),
             useful_life=_strip_or_none(data.useful_life),
             requires_engineering=bool(data.requires_engineering),
+            cost_center_id=self._validated_cost_center_id(data.cost_center_id),
             created_by=actor_user_id,
         )
         self._db.add(form)
@@ -840,6 +862,8 @@ class CapexFormService:
                 form.requires_engineering = bool(value)
             elif key == "installation_date":
                 form.installation_date = value
+            elif key == "cost_center_id":
+                form.cost_center_id = self._validated_cost_center_id(value)
             elif isinstance(value, str) or value is None:
                 setattr(form, key, _strip_or_none(value) if isinstance(value, str) else None)
             else:
@@ -980,9 +1004,12 @@ class CapexFormService:
         role_id = int(pending.step.approver_role_id)
         role = self._db.get(Role, role_id)
         role_name = role.name if role is not None else "Approvers"
-        role_users = engine._users_for_role(role_id)
+        role_users = _users_in_role(self._db, role_id, cost_center_id=form.cost_center_id)
         if not any(int(u.id) == int(assignee_user_id) for u in role_users):
-            raise ConflictError(f"Selected user is not an active member of role {role_name!r}.")
+            scope = " for this cost center" if form.cost_center_id is not None else ""
+            raise ConflictError(
+                f"Selected user is not an active member of role {role_name!r}{scope}."
+            )
 
         old_id = int(pending.assigned_user_id) if pending.assigned_user_id is not None else None
         old_name = _user_display(self._db, old_id)
@@ -1053,10 +1080,13 @@ class CapexFormService:
             )
 
         first_role = _first_step_role(self._db, wf)
-        role_users = _users_in_role(self._db, int(first_role.id))
+        role_users = _users_in_role(
+            self._db, int(first_role.id), cost_center_id=form.cost_center_id
+        )
         if not any(int(u.id) == int(assignee_user_id) for u in role_users):
+            scope = " for this cost center" if form.cost_center_id is not None else ""
             raise ConflictError(
-                f"Selected user is not an active member of role {first_role.name!r}."
+                f"Selected user is not an active member of role {first_role.name!r}{scope}."
             )
 
         engine = ApprovalEngineService(self._db)

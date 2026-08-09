@@ -69,6 +69,8 @@ export type PhysicalOrderListItem = {
   assigned_to_name: string | null
   created_by_name: string | null
   created_at: string
+  needs_my_action?: boolean
+  my_action_label?: string | null
 }
 
 export type PhysicalOrderListResponse = {
@@ -244,16 +246,14 @@ export const ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "cancelled", label: "Archived" },
 ]
 
-/** Inbox-style list tabs (All / Needs my action / Done). */
+/** Inbox-style list tabs (All / Needs my action). */
 export const ORDER_STATUS_TABS: OrderListTab[] = [
   { key: "all", label: "All" },
   { key: "needs_action", label: "Needs my action" },
-  { key: "done", label: "Done" },
 ]
 
 export function orderTabEmptyMessage(tab: string): string {
   if (tab === "needs_action") return "Nothing waiting on you right now."
-  if (tab === "done") return "No closed or archived orders."
   return "No physical orders."
 }
 

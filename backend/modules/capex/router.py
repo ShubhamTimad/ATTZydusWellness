@@ -78,16 +78,23 @@ def list_assignees(
         None,
         description="When set, return users in the mapped CapEx workflow's first-step role.",
     ),
+    cost_center_id: int | None = Query(
+        None,
+        ge=1,
+        description="Narrow the pool to users covering this cost center (the form's cost center).",
+    ),
 ) -> CapexAssigneeListResponse:
     try:
         if role_id is not None:
-            return svc.list_assignees_by_role_id(role_id=role_id)
+            return svc.list_assignees_by_role_id(role_id=role_id, cost_center_id=cost_center_id)
         if requires_engineering is not None:
             action_code, _ = action_and_entity_for_form(
                 requires_engineering=bool(requires_engineering)
             )
-            return svc.list_assignees_for_action(action_code=action_code)
-        return svc.list_assignees(level=level or "hod")
+            return svc.list_assignees_for_action(
+                action_code=action_code, cost_center_id=cost_center_id
+            )
+        return svc.list_assignees(level=level or "hod", cost_center_id=cost_center_id)
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except NotFoundError as e:

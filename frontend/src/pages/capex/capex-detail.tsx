@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils"
 
 import { CapexAssigneePickerDialog } from "./capex-assignee-picker-dialog"
 import { CapexAuditLog } from "./capex-audit-log"
+import { CapexCostCenterSelect } from "./capex-cost-center-select"
 import { CapexDecisionDialog } from "./capex-decision-dialog"
 import { printCapexForm } from "./capex-print-form"
 import { CapexProcessFlow } from "./capex-process-flow"
@@ -80,6 +81,7 @@ function detailToForm(d: CapexFormDetail): CapexFormWritePayload {
     auc_code: d.auc_code ?? "",
     useful_life: d.useful_life ?? "",
     requires_engineering: d.requires_engineering,
+    cost_center_id: d.cost_center_id,
   }
 }
 
@@ -101,6 +103,7 @@ function toPayload(form: CapexFormWritePayload): CapexFormWritePayload {
     auc_code: clean(form.auc_code),
     useful_life: clean(form.useful_life),
     requires_engineering: Boolean(form.requires_engineering),
+    cost_center_id: form.cost_center_id ?? null,
   }
 }
 
@@ -192,6 +195,9 @@ export function CapexDetailPage() {
   )
   const reassignRoleId = detail?.approval_panel?.current_assignee_role_id ?? null
   const reassignRoleName = detail?.approval_panel?.current_step_role_name ?? "Approver"
+  // Unsaved edits win: submit patches the form before it submits.
+  const pickerCostCenterId = form?.cost_center_id ?? detail?.cost_center_id ?? null
+  const costCenterParam = pickerCostCenterId ? `&cost_center_id=${pickerCostCenterId}` : ""
 
   const toolbarActions = React.useMemo(() => {
     const actions: AssetActionItem[] = [
@@ -556,6 +562,18 @@ export function CapexDetailPage() {
                 onChange={(next) => patch({ department: next })}
               />
             </FormField>
+            <FormField id="cost_center_id" labelText="Cost center">
+              <CapexCostCenterSelect
+                value={form.cost_center_id}
+                disabled={readOnly}
+                fallbackLabel={
+                  detail.cost_center_code
+                    ? `${detail.cost_center_code} — ${detail.cost_center_name ?? ""}`.trim()
+                    : null
+                }
+                onChange={(next) => patch({ cost_center_id: next })}
+              />
+            </FormField>
             <FormField id="installation_location" labelText="Location of Installation">
               <AutoGrowTextarea
                 id="installation_location"
@@ -698,7 +716,7 @@ export function CapexDetailPage() {
       <CapexAssigneePickerDialog
         open={submitAssignOpen}
         onOpenChange={setSubmitAssignOpen}
-        assigneesUrl={`/admin/capitalization-forms/assignees?requires_engineering=${(form?.requires_engineering ?? detail?.requires_engineering) ? "true" : "false"}`}
+        assigneesUrl={`/admin/capitalization-forms/assignees?requires_engineering=${(form?.requires_engineering ?? detail?.requires_engineering) ? "true" : "false"}${costCenterParam}`}
         roleLabel="Approver"
         confirmLabel="Submit"
         busy={saving}
@@ -721,7 +739,7 @@ export function CapexDetailPage() {
         nextStepRoleName={nextStepRoleName}
         assigneesUrl={
           nextAssigneeRoleId
-            ? `/admin/capitalization-forms/assignees?role_id=${nextAssigneeRoleId}`
+            ? `/admin/capitalization-forms/assignees?role_id=${nextAssigneeRoleId}${costCenterParam}`
             : undefined
         }
         onConfirm={confirmDecision}
@@ -732,7 +750,7 @@ export function CapexDetailPage() {
         onOpenChange={setReassignOpen}
         assigneesUrl={
           reassignRoleId
-            ? `/admin/capitalization-forms/assignees?role_id=${reassignRoleId}`
+            ? `/admin/capitalization-forms/assignees?role_id=${reassignRoleId}${costCenterParam}`
             : undefined
         }
         roleLabel={reassignRoleName}

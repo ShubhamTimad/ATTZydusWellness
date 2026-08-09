@@ -117,7 +117,10 @@ def update_asset_list_columns(
 def list_assets(
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
     current: Annotated[CurrentUser, Depends(get_current_user)],
-    _: Annotated[object, Depends(require_permission("asset.view"))],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("asset.view", "mobile.asset.view")),
+    ],
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
     search: str | None = Query(None),
@@ -431,7 +434,10 @@ def get_asset(
     asset_id: int,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
-    _: Annotated[object, Depends(require_permission("asset.view"))],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("asset.view", "mobile.asset.view")),
+    ],
 ) -> AssetDetailPublic:
     try:
         return svc.get_asset(asset_id, viewer_user_id=int(current.subject))
@@ -443,7 +449,10 @@ def get_asset(
 def get_asset_image(
     asset_id: int,
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
-    _: Annotated[object, Depends(require_permission("asset.view"))],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("asset.view", "mobile.asset.view")),
+    ],
 ) -> Response:
     try:
         content, content_type, _filename = svc.get_asset_image(asset_id)
@@ -463,7 +472,15 @@ async def upload_asset_image(
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
     _: Annotated[
         object,
-        Depends(require_any_permission("asset.update", "asset.manage", "asset.create")),
+        Depends(
+            require_any_permission(
+                "asset.update",
+                "asset.manage",
+                "asset.create",
+                "mobile.asset.view",
+                "mobile.asset.scan",
+            )
+        ),
     ],
     file: UploadFile = File(...),
 ) -> AssetImagePublic:

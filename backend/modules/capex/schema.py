@@ -20,6 +20,9 @@ class CapexFormFields(BaseModel):
     auc_code: str | None = Field(default=None, max_length=128)
     useful_life: str | None = Field(default=None, max_length=64)
     requires_engineering: bool = False
+    cost_center_id: int | None = Field(
+        default=None, ge=1, description="Scopes the approver pool to this cost center."
+    )
 
 
 class CapexFormCreateRequest(CapexFormFields):
@@ -40,6 +43,7 @@ class CapexFormUpdateRequest(BaseModel):
     auc_code: str | None = Field(default=None, max_length=128)
     useful_life: str | None = Field(default=None, max_length=64)
     requires_engineering: bool | None = None
+    cost_center_id: int | None = Field(default=None, ge=1)
 
 
 class CapexSubmitRequest(BaseModel):
@@ -140,6 +144,9 @@ class CapexFormDetail(BaseModel):
     auc_code: str | None
     useful_life: str | None
     requires_engineering: bool
+    cost_center_id: int | None = None
+    cost_center_code: str | None = None
+    cost_center_name: str | None = None
     approval_request_id: int | None
     asset_id: int | None
     asset_code: str | None = None

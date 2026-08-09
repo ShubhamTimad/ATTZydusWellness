@@ -33,13 +33,14 @@ import {
   ORDER_STATUS_TABS,
   orderStatusLabel,
   orderStatusPillTone,
+  orderTabEmptyMessage,
   type PhysicalOrderListResponse,
 } from "@/lib/orders-types"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
 const columnFilterControlClass = "h-8 w-full min-w-[6rem] text-xs"
-const DEFAULT_TAB = "needs_action"
+const DEFAULT_TAB = "all"
 
 type OrderColumnFilters = {
   order_number: string
@@ -158,6 +159,8 @@ export function OrdersListPage() {
   }
 
   const items = data?.items ?? []
+  const showYourTurn = items.some((r) => r.needs_my_action && r.my_action_label)
+  const colSpan = 8 + (showYourTurn ? 1 : 0)
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -276,6 +279,7 @@ export function OrdersListPage() {
                     <AdminTableHeadCell>Cost center</AdminTableHeadCell>
                     <AdminTableHeadCell>Assets</AdminTableHeadCell>
                     <AdminTableHeadCell>Status</AdminTableHeadCell>
+                    {showYourTurn ? <AdminTableHeadCell>Your turn</AdminTableHeadCell> : null}
                     <AdminTableHeadCell>Assigned to</AdminTableHeadCell>
                     <AdminTableHeadCell>Created by</AdminTableHeadCell>
                     <AdminTableHeadCell>Created</AdminTableHeadCell>
@@ -365,6 +369,9 @@ export function OrdersListPage() {
                           ))}
                         </select>
                       </AdminTableHeadCell>
+                      {showYourTurn ? (
+                        <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
+                      ) : null}
                       <AdminTableHeadCell className="px-2 py-1.5">
                         <Input
                           value={columnFilterInputs.assigned_to}
@@ -403,13 +410,16 @@ export function OrdersListPage() {
                 </TableHeader>
                 <TableBody>
                   {loading ? (
-                    <AdminTableEmptyRow colSpan={8}>Loading orders…</AdminTableEmptyRow>
+                    <AdminTableEmptyRow colSpan={colSpan}>Loading orders…</AdminTableEmptyRow>
                   ) : items.length === 0 ? (
-                    <AdminTableEmptyRow colSpan={8}>No orders in this tab.</AdminTableEmptyRow>
+                    <AdminTableEmptyRow colSpan={colSpan}>
+                      {orderTabEmptyMessage(tab)}
+                    </AdminTableEmptyRow>
                   ) : (
                     items.map((row) => (
                       <AdminTableBodyRow
                         key={row.id}
+                        className={cn(row.needs_my_action && "bg-primary/[0.03]")}
                         onClick={() => navigate(String(row.id))}
                       >
                         <AdminTableCell className="font-mono text-xs font-medium">
@@ -428,6 +438,15 @@ export function OrdersListPage() {
                             {orderStatusLabel(row.status)}
                           </AdminPillBadge>
                         </AdminTableCell>
+                        {showYourTurn ? (
+                          <AdminTableCell>
+                            {row.my_action_label ? (
+                              <AdminPillBadge tone="warning">{row.my_action_label}</AdminPillBadge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </AdminTableCell>
+                        ) : null}
                         <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>
                         <AdminTableCell>{row.created_by_name ?? "—"}</AdminTableCell>
                         <AdminTableCell>

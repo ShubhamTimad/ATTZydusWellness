@@ -28,6 +28,9 @@ class CapitalizationForm(Base):
     auc_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     useful_life: Mapped[str | None] = mapped_column(String(64), nullable=True)
     requires_engineering: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    cost_center_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("cost_center_masters.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     approval_request_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("approval_requests.id", ondelete="SET NULL"), nullable=True
@@ -46,6 +49,7 @@ class CapitalizationForm(Base):
 
     creator = relationship("User", foreign_keys=[created_by])
     asset = relationship("AssetMaster", foreign_keys=[asset_id])
+    cost_center = relationship("CostCenterMaster", foreign_keys=[cost_center_id])
     audit_events = relationship(
         "CapitalizationFormAudit",
         back_populates="form",

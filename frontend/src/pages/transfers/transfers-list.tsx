@@ -44,7 +44,7 @@ import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
 const columnFilterControlClass = "h-8 w-full min-w-[6rem] text-xs"
-const DEFAULT_TAB = "needs_action"
+const DEFAULT_TAB = "all"
 
 type TransferColumnFilters = {
   order_number: string

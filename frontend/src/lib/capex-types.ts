@@ -116,6 +116,9 @@ export type CapexFormDetail = {
   auc_code: string | null
   useful_life: string | null
   requires_engineering: boolean
+  cost_center_id: number | null
+  cost_center_code: string | null
+  cost_center_name: string | null
   approval_request_id: number | null
   asset_id: number | null
   asset_code: string | null
@@ -142,12 +145,12 @@ export type CapexFormWritePayload = {
   auc_code?: string | null
   useful_life?: string | null
   requires_engineering: boolean
+  cost_center_id?: number | null
 }
 
 export const CAPEX_STATUS_TABS = [
   { key: "all", label: "All" },
   { key: "needs_action", label: "Needs my action" },
-  { key: "done", label: "Done" },
 ] as const
 
 /** Lifecycle status filter for the CapEx list Status column (not inbox tabs). */
@@ -162,7 +165,6 @@ export const CAPEX_STATUS_FILTERS: { value: string; label: string }[] = [
 
 export function capexTabEmptyMessage(tab: string): string {
   if (tab === "needs_action") return "Nothing waiting on you right now."
-  if (tab === "done") return "No approved or archived forms."
   return "No capitalization forms."
 }
 

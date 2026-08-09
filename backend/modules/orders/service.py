@@ -1491,7 +1491,23 @@ class PhysicalOrderService:
                 .limit(page_size)
             ).all()
         has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
-        items = [self._to_list_item(o, has_closure_workflow=has_closure_workflow) for o in rows]
+        from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
+
+        pending_ids = {
+            int(x)
+            for x in self._db.scalars(
+                pending_approval_request_ids_for_viewer(self._db, int(viewer_id))
+            ).all()
+            if x is not None
+        }
+        items = [
+            self._to_list_item(
+                o,
+                has_closure_workflow=has_closure_workflow,
+                action_label=self._row_action_label(o, int(viewer_id), pending_ids),
+            )
+            for o in rows
+        ]
         tab_counts = {
             key: int(
                 self._db.scalar(
@@ -1552,11 +1568,41 @@ class PhysicalOrderService:
         base = self._apply_viewer_org_scope(base, viewer_user_id=viewer_id)
         return base
 
+    def _row_action_label(
+        self, order: PhysicalOrder, viewer_id: int, pending_request_ids: set[int]
+    ) -> str | None:
+        """Short label for what this viewer should do next, mirroring the needs_action tab."""
+        uid = int(viewer_id)
+        if order.status in (ORDER_STATUS_CLOSED, ORDER_STATUS_CANCELLED):
+            return None
+        is_creator = order.created_by is not None and int(order.created_by) == uid
+        if is_creator and order.status in _EDITABLE_PHYSICAL_STATUSES:
+            return "Submit" if order.status == ORDER_STATUS_DRAFT else "Resubmit"
+        if (
+            order.approval_request_id is not None
+            and int(order.approval_request_id) in pending_request_ids
+        ):
+            return "Approve"
+        if order.assigned_to is not None and int(order.assigned_to) == uid:
+            if (
+                order.status in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED)
+                and order.completed_at is None
+            ):
+                return "Start"
+            if order.status == ORDER_STATUS_IN_PROGRESS:
+                return "Verify"
+            if order.status == ORDER_STATUS_PENDING_CLOSURE:
+                return "Approve"
+            if order.status in (ORDER_STATUS_COMPLETED, ORDER_STATUS_APPROVED):
+                return "Close"
+        return None
+
     def _to_list_item(
         self,
         order: PhysicalOrder,
         *,
         has_closure_workflow: bool = False,
+        action_label: str | None = None,
     ) -> PhysicalOrderListItem:
         cc = order.cost_center
         return PhysicalOrderListItem(
@@ -1574,6 +1620,8 @@ class PhysicalOrderService:
             assigned_to_name=order.assignee.full_name if order.assignee else None,
             created_by_name=order.creator.full_name if order.creator else None,
             created_at=order.created_at,
+            needs_my_action=action_label is not None,
+            my_action_label=action_label,
         )
 
     def _apply_viewer_org_scope(self, base: Any, *, viewer_user_id: int) -> Any:

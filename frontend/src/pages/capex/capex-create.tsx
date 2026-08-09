@@ -22,6 +22,7 @@ import { hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
 import { CapexAssigneePickerDialog } from "./capex-assignee-picker-dialog"
+import { CapexCostCenterSelect } from "./capex-cost-center-select"
 
 const EMPTY: CapexFormWritePayload = {
   asset_name: "",
@@ -36,6 +37,7 @@ const EMPTY: CapexFormWritePayload = {
   auc_code: "",
   useful_life: "",
   requires_engineering: false,
+  cost_center_id: null,
 }
 
 function FormField({
@@ -80,6 +82,7 @@ function toPayload(form: CapexFormWritePayload): CapexFormWritePayload {
     auc_code: clean(form.auc_code),
     useful_life: clean(form.useful_life),
     requires_engineering: Boolean(form.requires_engineering),
+    cost_center_id: form.cost_center_id ?? null,
   }
 }
 
@@ -233,6 +236,12 @@ export function CapexCreatePage() {
                 onChange={(next) => patch({ department: next })}
               />
             </FormField>
+            <FormField id="cost_center_id" labelText="Cost center">
+              <CapexCostCenterSelect
+                value={form.cost_center_id}
+                onChange={(next) => patch({ cost_center_id: next })}
+              />
+            </FormField>
             <FormField id="installation_location" labelText="Location of Installation">
               <AutoGrowTextarea
                 id="installation_location"
@@ -343,7 +352,7 @@ export function CapexCreatePage() {
       <CapexAssigneePickerDialog
         open={assignOpen}
         onOpenChange={setAssignOpen}
-        assigneesUrl={`/admin/capitalization-forms/assignees?requires_engineering=${form.requires_engineering ? "true" : "false"}`}
+        assigneesUrl={`/admin/capitalization-forms/assignees?requires_engineering=${form.requires_engineering ? "true" : "false"}${form.cost_center_id ? `&cost_center_id=${form.cost_center_id}` : ""}`}
         roleLabel="Approver"
         confirmLabel="Submit"
         busy={saving}

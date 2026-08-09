@@ -102,6 +102,8 @@ class PhysicalOrderListItem(BaseModel):
     assigned_to_name: str | None
     created_by_name: str | None
     created_at: datetime
+    needs_my_action: bool = False
+    my_action_label: str | None = None
 
 
 class PhysicalOrderListResponse(BaseModel):

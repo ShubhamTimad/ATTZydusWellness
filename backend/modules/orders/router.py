@@ -94,7 +94,10 @@ def list_assignees(
 def list_orders(
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     current: Annotated[CurrentUser, Depends(get_current_user)],
-    _: Annotated[object, Depends(require_permission("order.view"))],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.view", "mobile.order.view")),
+    ],
     tab: str = Query("needs_action"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),

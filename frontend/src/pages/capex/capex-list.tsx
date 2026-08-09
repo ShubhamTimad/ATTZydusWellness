@@ -59,7 +59,7 @@ const DEFAULT_COLUMN_FILTERS: CapexColumnFilters = {
 
 export function CapexListPage() {
   const navigate = useNavigate()
-  const [tab, setTab] = React.useState("needs_action")
+  const [tab, setTab] = React.useState("all")
   const [page, setPage] = React.useState(1)
   const [data, setData] = React.useState<CapexFormListResponse | null>(null)
   const [loading, setLoading] = React.useState(false)

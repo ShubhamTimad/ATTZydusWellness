@@ -95,8 +95,20 @@ def entity_cost_center_ids(
     et = (entity_type or "").strip()
     eid = int(entity_id)
 
+    from modules.capex.constants import ENTITY_TYPE as CAPEX_ENTITY_TYPE
+    from modules.capex.constants import ENTITY_TYPE_WITH_ENGINEERING as CAPEX_ENTITY_TYPE_ENG
     from modules.disposals.constants import DISPOSAL_ENTITY_TYPES
     from modules.transfers.constants import TRANSFER_ENTITY_TYPES
+
+    if et in (CAPEX_ENTITY_TYPE, CAPEX_ENTITY_TYPE_ENG):
+        from modules.capex.model import CapitalizationForm
+
+        form = db.get(CapitalizationForm, eid)
+        if form is None or form.cost_center_id is None:
+            return None, None
+        # A CapEx form has one cost center; it answers both source and destination scopes.
+        cc = int(form.cost_center_id)
+        return cc, cc
 
     if et in TRANSFER_ENTITY_TYPES:
         from modules.transfers.model import AssetTransferOrder

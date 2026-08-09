@@ -121,7 +121,6 @@ export type TransferOrderDetail = {
 export const TRANSFER_STATUS_TABS = [
   { key: "all", label: "All" },
   { key: "needs_action", label: "Needs my action" },
-  { key: "done", label: "Done" },
 ] as const
 
 /** Lifecycle status filter for the transfer list Status column (not inbox tabs). */
@@ -138,7 +137,6 @@ export const TRANSFER_STATUS_FILTERS: { value: string; label: string }[] = [
 
 export function transferTabEmptyMessage(tab: string): string {
   if (tab === "needs_action") return "Nothing waiting on you right now."
-  if (tab === "done") return "No completed or cancelled transfers."
   return "No transfer orders."
 }
 export function transferStatusLabel(status: string): string {

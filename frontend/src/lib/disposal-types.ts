@@ -91,7 +91,6 @@ export type DisposalOrderDetail = {
 export const DISPOSAL_STATUS_TABS = [
   { key: "all", label: "All" },
   { key: "needs_action", label: "Needs my action" },
-  { key: "done", label: "Done" },
 ] as const
 
 /** Lifecycle status filter for the disposal list Status column (not inbox tabs). */
@@ -107,7 +106,6 @@ export const DISPOSAL_STATUS_FILTERS: { value: string; label: string }[] = [
 
 export function disposalTabEmptyMessage(tab: string): string {
   if (tab === "needs_action") return "Nothing waiting on you right now."
-  if (tab === "done") return "No completed or archived disposals."
   return "No disposal orders."
 }
 

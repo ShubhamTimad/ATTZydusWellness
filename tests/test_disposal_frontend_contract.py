@@ -19,8 +19,8 @@ def test_status_tabs_match_backend_tabs() -> None:
     block = re.search(r"DISPOSAL_STATUS_TABS = \[(.*?)\] as const", _ts_source(), re.S)
     assert block is not None, "DISPOSAL_STATUS_TABS not found"
     keys = re.findall(r'key:\s*"([^"]+)"', block.group(1))
-    # UI shows the action-first trio; backend may keep legacy status keys too.
-    assert set(keys) == {"all", "needs_action", "done"}
+    # UI shows the action-first pair; backend may keep legacy status keys too.
+    assert set(keys) == {"all", "needs_action"}
     assert set(keys) <= set(_TAB_STATUSES)
 
 

@@ -52,6 +52,7 @@ _COST_CENTER_READ = require_any_permission(
     "asset.view",
     "users.create",
     "users.update",
+    "capitalization.view",
 )
 _MASTER_WRITE_CREATE = require_permission("masters.create")
 _MASTER_WRITE_UPDATE = require_permission("masters.update")
