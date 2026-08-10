@@ -236,9 +236,8 @@ export function UsersPage() {
             </AdminTableHeaderRow>
             {columnFiltersOpen ? (
               <AdminTableHeaderRow className="border-b bg-muted/20 hover:bg-muted/20">
-                <AdminTableHeadCell className="px-2 py-1.5" colSpan={2}>
-                  <span className="text-xs text-muted-foreground">Use search for name / email / phone</span>
-                </AdminTableHeadCell>
+                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
+                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
                 <AdminTableHeadCell className="px-2 py-1.5">
                   <select
                     className={cn(adminSelectClass, columnFilterControlClass)}
@@ -256,7 +255,9 @@ export function UsersPage() {
                     ))}
                   </select>
                 </AdminTableHeadCell>
-                <AdminTableHeadCell className="px-2 py-1.5" colSpan={3} />
+                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
+                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
+                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
                 <AdminTableHeadCell className="px-2 py-1.5">
                   <select
                     className={cn(adminSelectClass, columnFilterControlClass)}
@@ -274,7 +275,7 @@ export function UsersPage() {
                     <option value="inactive">Inactive</option>
                   </select>
                 </AdminTableHeadCell>
-                <AdminTableHeadCell className="px-2 py-1.5" />
+                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
               </AdminTableHeaderRow>
             ) : null}
           </TableHeader>
