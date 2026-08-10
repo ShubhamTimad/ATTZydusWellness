@@ -223,9 +223,10 @@ export function OrderDetailPage() {
     hasPermission("order.create") ||
     hasPermission("order.manage")
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (opts?: { quiet?: boolean }) => {
     if (!id) return
-    setLoading(true)
+    const quiet = Boolean(opts?.quiet)
+    if (!quiet) setLoading(true)
     try {
       const [res, me] = await Promise.all([
         getJson<PhysicalOrderDetail>(`/admin/physical-orders/${id}`),
@@ -236,12 +237,31 @@ export function OrderDetailPage() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load order")
     } finally {
-      setLoading(false)
+      if (!quiet) setLoading(false)
     }
   }, [id])
 
   React.useEffect(() => {
     void load()
+  }, [load])
+
+  // Asset Master RFID is live on the API; refresh when returning to this tab/page
+  // so Expected RFID / the items table are not stuck on a stale client copy.
+  React.useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") void load({ quiet: true })
+    }
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) void load({ quiet: true })
+    }
+    document.addEventListener("visibilitychange", refresh)
+    window.addEventListener("focus", refresh)
+    window.addEventListener("pageshow", onPageShow)
+    return () => {
+      document.removeEventListener("visibilitychange", refresh)
+      window.removeEventListener("focus", refresh)
+      window.removeEventListener("pageshow", onPageShow)
+    }
   }, [load])
 
   React.useEffect(() => {
@@ -1092,6 +1112,7 @@ export function OrderDetailPage() {
                         if (!scannable) return
                         setSelectedScanItemId(item.id)
                         setScanValue("")
+                        void load({ quiet: true })
                       }}
                     >
                       {showRowSelection ? (

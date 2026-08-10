@@ -72,7 +72,15 @@ def list_assignees(
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[
         object,
-        Depends(require_any_permission("order.execute", "order.approve", "order.create", "order.manage")),
+        Depends(
+            require_any_permission(
+                "order.execute",
+                "order.approve",
+                "order.create",
+                "order.manage",
+                "mobile.order.execute",
+            )
+        ),
     ],
     plant_id: int | None = Query(
         None,
@@ -146,7 +154,10 @@ def get_order(
     order_id: int,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
-    _: Annotated[object, Depends(require_permission("order.view"))],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.view", "mobile.order.view")),
+    ],
 ) -> PhysicalOrderDetail:
     try:
         return svc.get_order(order_id, viewer_user_id=int(current.subject))
@@ -373,7 +384,10 @@ def start_order(
     order_id: int,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
-    _: Annotated[object, Depends(require_permission("order.execute"))],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.execute", "mobile.order.execute")),
+    ],
 ) -> PhysicalOrderDetail:
     try:
         return svc.start_order(order_id, actor_user_id=int(current.subject))
@@ -388,7 +402,14 @@ def restart_rejected_order(
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[
         object,
-        Depends(require_any_permission("order.execute", "order.create", "order.update")),
+        Depends(
+            require_any_permission(
+                "order.execute",
+                "order.create",
+                "order.update",
+                "mobile.order.execute",
+            )
+        ),
     ],
 ) -> PhysicalOrderDetail:
     try:
@@ -403,7 +424,16 @@ def scan_asset(
     body: ScanAssetRequest,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
-    _: Annotated[object, Depends(require_permission("order.execute"))],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "order.execute",
+                "mobile.order.execute",
+                "mobile.order.scan",
+            )
+        ),
+    ],
 ) -> ScanAssetResponse:
     try:
         return svc.scan_asset(
@@ -422,7 +452,10 @@ def submit_closure(
     order_id: int,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
-    _: Annotated[object, Depends(require_permission("order.execute"))],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.execute", "mobile.order.execute")),
+    ],
     body: SubmitClosureRequest = SubmitClosureRequest(),
 ) -> PhysicalOrderDetail:
     try:

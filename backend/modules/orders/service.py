@@ -1362,9 +1362,11 @@ class PhysicalOrderService:
                 PhysicalOrder.status.in_(
                     (
                         ORDER_STATUS_ASSIGNED,
+                        ORDER_STATUS_APPROVED,
                         ORDER_STATUS_IN_PROGRESS,
                         ORDER_STATUS_PENDING_CLOSURE,
                         ORDER_STATUS_COMPLETED,
+                        ORDER_STATUS_REJECTED,
                     )
                 ),
             )
@@ -2496,10 +2498,20 @@ class PhysicalOrderService:
         order.completed_at = _now_utc()
         wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
         if wf:
-            if assignee_user_id is None:
-                raise ConflictError("Select an approver before completing this order.")
+            # Mobile (and other clients) may omit assignee; default to first valid approver.
+            resolved_assignee = assignee_user_id
+            if resolved_assignee is None:
+                pool = self.list_assignees(
+                    plant_id=int(order.plant_id),
+                    cost_center_id=int(order.cost_center_id),
+                )
+                if not pool.items:
+                    raise ConflictError(
+                        "No approver is available for this plant and cost center."
+                    )
+                resolved_assignee = int(pool.items[0].id)
             self._assert_valid_closure_assignee(
-                int(assignee_user_id),
+                int(resolved_assignee),
                 plant_id=int(order.plant_id),
                 cost_center_id=int(order.cost_center_id),
             )
@@ -2511,14 +2523,14 @@ class PhysicalOrderService:
                     order,
                     actor_user_id=actor_user_id,
                     workflow=wf,
-                    assigned_user_id=int(assignee_user_id),
+                    assigned_user_id=int(resolved_assignee),
                 )
             elif existing and str(existing.status) in ("in_rework", "rejected"):
                 self._db.flush()
                 req, _ = engine.resubmit_rejected_request(
                     request_id=int(existing.id),
                     actor_user_id=actor_user_id,
-                    assigned_user_id=int(assignee_user_id),
+                    assigned_user_id=int(resolved_assignee),
                 )
                 log_order_event(
                     self._db,
@@ -2528,7 +2540,7 @@ class PhysicalOrderService:
                     new_value={
                         "approval_request_id": int(req.id),
                         "resubmitted": True,
-                        "assignee_user_id": int(assignee_user_id),
+                        "assignee_user_id": int(resolved_assignee),
                     },
                 )
                 self._db.commit()
@@ -2540,7 +2552,7 @@ class PhysicalOrderService:
                     entity_id=int(order.id),
                     payload=self._order_payload(order, action_code=ACTION_COMPLETE),
                     created_by=actor_user_id,
-                    assigned_user_id=int(assignee_user_id),
+                    assigned_user_id=int(resolved_assignee),
                 )
             order.approval_request_id = int(req.id)
             log_order_event(
@@ -2550,7 +2562,7 @@ class PhysicalOrderService:
                 actor_user_id=actor_user_id,
                 new_value={
                     "approval_request_id": int(req.id),
-                    "assignee_user_id": int(assignee_user_id),
+                    "assignee_user_id": int(resolved_assignee),
                 },
             )
         else:
