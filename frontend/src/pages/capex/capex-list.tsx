@@ -133,8 +133,9 @@ export function CapexListPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
-    <AdminPage fullWidth dense className="w-full">
+    <AdminPage fullWidth dense viewportFill className="w-full gap-[var(--app-grid-gap)]">
       <ListPageHeader
+        className="shrink-0"
         title="Capitalization forms"
         description="Request and track asset capitalization approvals."
         actions={
@@ -152,8 +153,9 @@ export function CapexListPage() {
           setTab(v)
           setPage(1)
         }}
+        className="min-h-0 flex-1"
       >
-        <WorkspaceTabsList>
+        <WorkspaceTabsList className="shrink-0">
           {CAPEX_STATUS_TABS.map((t) => {
             const count = data?.tab_counts?.[t.key]
             const highlight = t.key === "needs_action" && typeof count === "number" && count > 0
@@ -181,7 +183,7 @@ export function CapexListPage() {
 
         {CAPEX_STATUS_TABS.map((t) => (
           <WorkspaceTabsContent key={t.key} value={t.key} className="flex min-h-0 flex-1 flex-col gap-[var(--app-grid-gap)]">
-            <div className="app-list-toolbar">
+            <div className="app-list-toolbar shrink-0">
               <div className="relative min-w-[16rem] flex-1">
                 <Search
                   className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
@@ -241,6 +243,7 @@ export function CapexListPage() {
             </div>
 
             <AdminDataTable
+              className="min-h-0 flex-1"
               footer={
                 <AdminTablePagination
                   page={page}
