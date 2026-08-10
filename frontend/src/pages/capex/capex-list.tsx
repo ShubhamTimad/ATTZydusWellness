@@ -253,7 +253,7 @@ export function CapexListPage() {
                 />
               }
             >
-              <Table>
+              <Table className="app-table-head-sticky">
                 <TableHeader>
                   <AdminTableHeaderRow>
                     <AdminTableHeadCell>Form number</AdminTableHeadCell>

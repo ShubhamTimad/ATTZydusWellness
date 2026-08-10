@@ -163,3 +163,51 @@ def test_missing_role_fails(db: Session) -> None:
                 org_unit_id=plant.id,
             )
         )
+
+
+def test_list_users_search_and_filters(db: Session) -> None:
+    plant = OrgUnit(name="Plant A", code="PLT-A", type="PLANT")
+    role_a = Role(name="Operator", description=None)
+    role_b = Role(name="Viewer", description=None)
+    db.add_all([plant, role_a, role_b])
+    db.commit()
+    db.refresh(plant)
+    db.refresh(role_a)
+    db.refresh(role_b)
+
+    svc = UserService(db)
+    alice = svc.create_user(
+        UserCreate(
+            full_name="Alice Example",
+            username="alice.example",
+            phone="9876543210",
+            email="alice@example.com",
+            role_id=role_a.id,
+            org_unit_ids=[plant.id],
+        )
+    )
+    bob = svc.create_user(
+        UserCreate(
+            full_name="Bob Other",
+            username="bob.other",
+            phone="9876543211",
+            email="bob@example.com",
+            role_id=role_b.id,
+            org_unit_ids=[plant.id],
+        )
+    )
+    bob.is_active = False
+    db.commit()
+
+    by_name = svc.list_users(search="Alice")
+    assert [u.id for u in by_name] == [alice.id]
+
+    by_email = svc.list_users(search="bob@example")
+    assert [u.id for u in by_email] == [bob.id]
+
+    active = svc.list_users(is_active=True)
+    assert alice.id in {u.id for u in active}
+    assert bob.id not in {u.id for u in active}
+
+    by_role = svc.list_users(role_id=role_b.id)
+    assert [u.id for u in by_role] == [bob.id]

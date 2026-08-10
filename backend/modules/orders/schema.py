@@ -262,3 +262,19 @@ class ScanAssetResponse(BaseModel):
     item: PhysicalOrderItemPublic
     verified_count: int
     total_count: int
+
+
+class BulkScanAssetRequest(BaseModel):
+    scan_values: list[str] = Field(..., min_length=1)
+
+
+class BulkScanAssetFailure(BaseModel):
+    scan_value: str
+    message: str
+
+
+class BulkScanAssetResponse(BaseModel):
+    items: list[PhysicalOrderItemPublic]
+    failures: list[BulkScanAssetFailure]
+    verified_count: int
+    total_count: int

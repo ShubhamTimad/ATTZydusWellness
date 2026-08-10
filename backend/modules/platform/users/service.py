@@ -267,14 +267,32 @@ class UserService:
             maybe_send_mfa_setup_for_user(self._db, reloaded)
         return reloaded
 
-    def list_users(self, *, offset: int = 0, limit: int = 50) -> list[User]:
-        stmt = (
-            select(User)
-            .options(*self._user_load_options())
-            .order_by(User.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-        )
+    def list_users(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        search: str | None = None,
+        is_active: bool | None = None,
+        role_id: int | None = None,
+    ) -> list[User]:
+        stmt = select(User).options(*self._user_load_options())
+        q = (search or "").strip()
+        if q:
+            like = f"%{q}%"
+            stmt = stmt.where(
+                or_(
+                    User.full_name.ilike(like),
+                    User.username.ilike(like),
+                    User.email.ilike(like),
+                    User.phone.ilike(like),
+                )
+            )
+        if is_active is not None:
+            stmt = stmt.where(User.is_active.is_(bool(is_active)))
+        if role_id is not None:
+            stmt = stmt.where(User.roles.any(Role.id == int(role_id)))
+        stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(limit)
         return list(self._db.scalars(stmt).all())
 
     def update_user(

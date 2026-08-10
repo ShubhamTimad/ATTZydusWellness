@@ -11,6 +11,8 @@ from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.errors import ConflictError, NotFoundError
 from modules.orders.schema import (
+    BulkScanAssetRequest,
+    BulkScanAssetResponse,
     CreatePhysicalOrderRequest,
     ExecutorListResponse,
     ItemIdsRequest,
@@ -440,6 +442,34 @@ def scan_asset(
             order_id,
             scan_value=body.scan_value,
             item_id=body.item_id,
+            actor_user_id=int(current.subject),
+        )
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.post("/{order_id}/scan-bulk", response_model=BulkScanAssetResponse)
+def scan_assets_bulk(
+    order_id: int,
+    body: BulkScanAssetRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "order.execute",
+                "mobile.order.execute",
+                "mobile.order.scan",
+            )
+        ),
+    ],
+) -> BulkScanAssetResponse:
+    try:
+        return svc.scan_assets_bulk(
+            order_id,
+            scan_values=body.scan_values,
             actor_user_id=int(current.subject),
         )
     except (ConflictError, NotFoundError) as e:

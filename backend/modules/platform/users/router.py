@@ -67,8 +67,17 @@ def list_users(
     _: Annotated[object, Depends(require_permission("users.view"))],
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    search: str | None = Query(None, description="Match name, username, email, or phone"),
+    is_active: bool | None = Query(None, description="Filter by active status"),
+    role_id: int | None = Query(None, ge=1, description="Filter by role id"),
 ) -> list[User]:
-    return svc.list_users(offset=skip, limit=limit)
+    return svc.list_users(
+        offset=skip,
+        limit=limit,
+        search=search,
+        is_active=is_active,
+        role_id=role_id,
+    )
 
 
 @router.patch("/{user_id}", response_model=UserPublic)

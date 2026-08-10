@@ -44,6 +44,8 @@ from modules.orders.model import PhysicalOrder, PhysicalOrderAudit, PhysicalOrde
 from modules.orders.progress import build_order_progress, enrich_audit_rows
 from modules.orders.schema import (
     ActiveOrderConflict,
+    BulkScanAssetFailure,
+    BulkScanAssetResponse,
     CreatePhysicalOrderRequest,
     ExecutorListResponse,
     ExecutorUserPublic,
@@ -2471,6 +2473,137 @@ class PhysicalOrderService:
         return ScanAssetResponse(
             item=self._to_item_public(item),
             verified_count=physically_verified,
+            total_count=len(order.items),
+        )
+
+    def scan_assets_bulk(
+        self,
+        order_id: int,
+        *,
+        scan_values: list[str],
+        actor_user_id: int,
+    ) -> BulkScanAssetResponse:
+        """Verify many RFID tags in one request (single load + single commit)."""
+        order = self._db.scalar(
+            select(PhysicalOrder)
+            .where(PhysicalOrder.id == order_id)
+            .options(
+                selectinload(PhysicalOrder.items)
+                .selectinload(PhysicalOrderItem.asset)
+                .selectinload(AssetMaster.inventory),
+            )
+        )
+        if order is None:
+            raise NotFoundError("PhysicalOrder", order_id)
+        self._assert_order_in_viewer_scope(order, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_IN_PROGRESS:
+            raise ConflictError("Order is not in progress.")
+        if order.assigned_to != actor_user_id:
+            raise ConflictError("Only the assigned executor can scan assets.")
+
+        # Preserve first occurrence order while de-duplicating.
+        seen: set[str] = set()
+        unique_values: list[str] = []
+        for raw in scan_values:
+            val = (raw or "").strip().upper()
+            if not val or val in seen:
+                continue
+            seen.add(val)
+            unique_values.append(val)
+
+        by_rfid: dict[str, PhysicalOrderItem] = {}
+        for item in order.items:
+            asset = item.asset
+            if not asset:
+                continue
+            rfid = (asset.rfid_code or "").strip().upper()
+            if rfid and rfid not in by_rfid:
+                by_rfid[rfid] = item
+
+        now = _now_utc()
+        success_items: list[PhysicalOrderItem] = []
+        failures: list[BulkScanAssetFailure] = []
+
+        for val in unique_values:
+            item = by_rfid.get(val)
+            if item is None:
+                failures.append(
+                    BulkScanAssetFailure(
+                        scan_value=val,
+                        message="Tag not found on this order",
+                    )
+                )
+                continue
+
+            if self._is_physically_verified(item):
+                success_items.append(item)
+                continue
+
+            asset = item.asset
+            if asset is None:
+                failures.append(
+                    BulkScanAssetFailure(
+                        scan_value=val,
+                        message="Asset not found for this line item",
+                    )
+                )
+                continue
+
+            rfid = (asset.rfid_code or "").strip().upper()
+            if not rfid:
+                failures.append(
+                    BulkScanAssetFailure(
+                        scan_value=val,
+                        message="Asset has no RFID code attached",
+                    )
+                )
+                continue
+            if rfid != val:
+                failures.append(
+                    BulkScanAssetFailure(
+                        scan_value=val,
+                        message="Scanned RFID does not match this asset's RFID code",
+                    )
+                )
+                continue
+
+            item.verification_status = ITEM_STATUS_APPROVED
+            item.scan_time = now
+            item.verified_by = actor_user_id
+            item.rejection_reason = None
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="asset_verified",
+                actor_user_id=actor_user_id,
+                new_value={
+                    "asset_id": int(item.asset_id),
+                    "asset_code": asset.asset_code,
+                    "rfid_code": rfid,
+                    "bulk": True,
+                },
+            )
+            success_items.append(item)
+
+        self._db.commit()
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        user_name_fn = self._cached_user_name_fn()
+        # Deduplicate success rows by item id while keeping response order.
+        seen_item_ids: set[int] = set()
+        public_items: list[PhysicalOrderItemPublic] = []
+        for item in success_items:
+            item_id = int(item.id)
+            if item_id in seen_item_ids:
+                continue
+            seen_item_ids.add(item_id)
+            # Reload from committed order for fresh public mapping.
+            live = next((i for i in order.items if int(i.id) == item_id), item)
+            public_items.append(self._to_item_public(live, user_name_fn=user_name_fn))
+
+        return BulkScanAssetResponse(
+            items=public_items,
+            failures=failures,
+            verified_count=self._physically_verified_count(order.items),
             total_count=len(order.items),
         )
 
