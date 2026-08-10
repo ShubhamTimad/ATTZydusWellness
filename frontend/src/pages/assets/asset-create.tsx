@@ -36,6 +36,7 @@ import {
 import { cn } from "@/lib/utils"
 import {
   blockNonNegativeNumberKeys,
+  sanitizeAssetNumberInput,
   sanitizeNonNegativeNumericInput,
 } from "@/lib/asset-master-fields"
 
@@ -395,7 +396,7 @@ export function AssetCreatePage() {
                   <Input
                     id="asset_code"
                     value={form.asset_code}
-                    onChange={(e) => patch({ asset_code: e.target.value })}
+                    onChange={(e) => patch({ asset_code: sanitizeAssetNumberInput(e.target.value) })}
                     className="font-mono uppercase"
                   />
                 </FormField>,
@@ -427,7 +428,9 @@ export function AssetCreatePage() {
                   <Input
                     id="combined_asset_number"
                     value={form.combined_asset_number}
-                    onChange={(e) => patch({ combined_asset_number: e.target.value })}
+                    onChange={(e) =>
+                      patch({ combined_asset_number: sanitizeAssetNumberInput(e.target.value) })
+                    }
                     className="font-mono uppercase"
                   />
                 </FormField>,

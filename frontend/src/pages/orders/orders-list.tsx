@@ -248,7 +248,7 @@ export function OrdersListPage() {
               {activeColumnFilterCount > 0 || search.trim() ? (
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   className={listToolbarBtnClass}
                   onClick={clearFilters}

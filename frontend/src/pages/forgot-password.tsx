@@ -116,7 +116,7 @@ export function ForgotPasswordPage() {
                 id="forgot-email"
                 type="email"
                 autoComplete="email"
-                placeholder="you@company.com"
+                placeholder="Enter your email address"
                 value={email}
                 onChange={(ev) => setEmail(ev.target.value)}
                 disabled={isSubmitting}

@@ -293,7 +293,7 @@ function CompactTimeline({
   return (
     <div className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
       <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5">
-        <h3 className="text-sm font-semibold">{title ?? "Approval progress"}</h3>
+        <h3 className="text-sm font-semibold">{title ?? "Approval Progress"}</h3>
       </div>
       <div className="px-4 py-3">
         {sections.map((section, idx) => {
@@ -367,7 +367,7 @@ export function ApprovalWorkflowTimeline({
   return (
     <div className="rounded-xl border border-border/80 bg-card text-card-foreground shadow-sm">
       <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5">
-        <h3 className="text-sm font-semibold">{title ?? "Approval progress"}</h3>
+        <h3 className="text-sm font-semibold">{title ?? "Approval Progress"}</h3>
         <p className="text-xs text-muted-foreground">
           {visibleSteps[0]?.total_steps ?? steps[0].total_steps}{" "}
           {(visibleSteps[0]?.total_steps ?? steps[0].total_steps) === 1 ? "level" : "levels"} in this

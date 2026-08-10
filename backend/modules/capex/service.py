@@ -165,6 +165,7 @@ _AUDIT_LABELS: dict[str, str] = {
     "linked_to_asset": "Linked to asset",
     "unlinked_from_asset": "Unlinked from asset",
     "archived": "Form archived",
+    "unarchived": "Form unarchived",
 }
 
 
@@ -580,6 +581,9 @@ class CapexFormService:
                 and not _is_plain_capex_draft(self._db, form)
                 and (is_creator or is_super)
             ),
+            can_unarchive=(
+                form.status == STATUS_CANCELLED and (is_creator or is_super)
+            ),
         )
 
     def _form_payload(self, form: CapitalizationForm, *, action_code: str) -> dict[str, Any]:
@@ -652,7 +656,10 @@ class CapexFormService:
             count_stmt = count_stmt.where(clause)
         status_q = (status or "").strip().lower()
         if status_q:
-            clause = CapitalizationForm.status == status_q
+            if status_q in (STATUS_REJECTED, STATUS_IN_REWORK):
+                clause = CapitalizationForm.status.in_((STATUS_REJECTED, STATUS_IN_REWORK))
+            else:
+                clause = CapitalizationForm.status == status_q
             stmt = stmt.where(clause)
             count_stmt = count_stmt.where(clause)
         if created_by and created_by.strip():
@@ -938,6 +945,43 @@ class CapexFormService:
         )
         self._db.commit()
         return self._to_detail(self._load(form_id), viewer_user_id=actor_user_id)
+
+    def unarchive_form(self, form_id: int, *, actor_user_id: int) -> CapexFormDetail:
+        form = self._load(form_id)
+        if form.status != STATUS_CANCELLED:
+            raise ConflictError("Only archived capitalization forms can be unarchived.")
+        if not _actor_may_discard_capex(form, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the form creator can unarchive this capitalization form.")
+
+        restore = self._status_before_archive(int(form.id), allowed=EDITABLE_STATUSES)
+        old_status = form.status
+        form.status = restore
+        log_capex_event(
+            self._db,
+            form_id=int(form.id),
+            action="unarchived",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status},
+            new_value={"status": form.status},
+        )
+        self._db.commit()
+        return self._to_detail(self._load(form_id), viewer_user_id=actor_user_id)
+
+    def _status_before_archive(self, form_id: int, *, allowed: frozenset[str]) -> str:
+        row = self._db.scalar(
+            select(CapitalizationFormAudit)
+            .where(
+                CapitalizationFormAudit.form_id == form_id,
+                CapitalizationFormAudit.action == "archived",
+            )
+            .order_by(CapitalizationFormAudit.id.desc())
+            .limit(1)
+        )
+        if row is not None and isinstance(row.old_value, dict):
+            prev = str(row.old_value.get("status") or "").strip().lower()
+            if prev in allowed:
+                return prev
+        return STATUS_DRAFT
 
     def submit_form(
         self,

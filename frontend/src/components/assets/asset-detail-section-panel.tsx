@@ -16,6 +16,8 @@ import {
   blockNonNegativeNumberKeys,
   isAssetMasterDateField,
   isAssetMasterNumberField,
+  isAssetNumberField,
+  sanitizeAssetNumberInput,
   sanitizeNonNegativeNumericInput,
 } from "@/lib/asset-master-fields"
 import type { AssetViewSectionConfig } from "@/lib/asset-master-fields"
@@ -500,9 +502,16 @@ function EditFieldCell({
         />
       ) : (
         <Input
-          className={cn(mono && "font-mono")}
+          className={cn(mono && "font-mono", isAssetNumberField(k) && "uppercase")}
           value={val}
-          onChange={(e) => onSection(k, e.target.value || null)}
+          onChange={(e) =>
+            onSection(
+              k,
+              isAssetNumberField(k)
+                ? sanitizeAssetNumberInput(e.target.value) || null
+                : e.target.value || null,
+            )
+          }
         />
       )}
     </div>

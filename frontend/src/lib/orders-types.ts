@@ -196,6 +196,7 @@ export type PhysicalOrderDetail = {
   approval_notice?: PhysicalOrderApprovalNotice | null
   can_delete?: boolean
   can_archive?: boolean
+  can_unarchive?: boolean
 }
 
 export type OrdersDashboardModule = {
@@ -235,7 +236,7 @@ export const ASSET_PHYSICAL_ORDER_STATUS_FILTERS: { value: string; label: string
 /** Lifecycle status filter for the orders list Status column (not inbox tabs). */
 export const ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "draft", label: "Draft" },
-  { value: "pending_approval", label: "Pending approval" },
+  { value: "pending_approval", label: "Pending Approval" },
   { value: "approved", label: "Approved" },
   { value: "assigned", label: "Assigned" },
   { value: "in_progress", label: "In progress" },
@@ -249,7 +250,7 @@ export const ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
 /** Inbox-style list tabs (All / Needs my action). */
 export const ORDER_STATUS_TABS: OrderListTab[] = [
   { key: "all", label: "All" },
-  { key: "needs_action", label: "Needs my action" },
+  { key: "needs_action", label: "Needs My Action" },
 ]
 
 export function orderTabEmptyMessage(tab: string): string {
@@ -259,7 +260,7 @@ export function orderTabEmptyMessage(tab: string): string {
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
-  pending_approval: "Pending approval",
+  pending_approval: "Pending Approval",
   approved: "Approved",
   assigned: "Assigned",
   pending_closure_approval: "Completed",

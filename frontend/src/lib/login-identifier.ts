@@ -13,11 +13,11 @@ export function loginRequestFields(identifier: string, password: string): {
 
 export function validateLoginIdentifier(identifier: string): string | null {
   const id = identifier.trim()
-  if (!id) return "Email or username is required."
+  if (!id) return "Email is required."
   if (id.includes("@")) {
     const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(id)
     return ok ? null : "Enter a valid email address."
   }
-  if (id.length < 3) return "Username must be at least 3 characters."
+  if (id.length < 3) return "Enter a valid email address."
   return null
 }

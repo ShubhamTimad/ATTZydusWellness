@@ -7,7 +7,11 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from modules.assets.field_definitions import required_import_field_errors
+from modules.assets.field_definitions import (
+    ASSET_NUMBER_SPECIAL_CHARS_MSG,
+    asset_number_has_special_chars,
+    required_import_field_errors,
+)
 from modules.assets.import_parser import is_blank_import_row
 from modules.assets.import_master_resolve import ImportMasterLookups
 from modules.assets.import_row_mapper import normalize_import_row
@@ -226,7 +230,9 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
         field_errors.update(required_import_field_errors(row.data, db=db))
 
         can = _cell_str(row.data.get("combined_asset_number")).upper()
-        if can:
+        if can and asset_number_has_special_chars(can):
+            field_errors["combined_asset_number"] = ASSET_NUMBER_SPECIAL_CHARS_MSG
+        elif can:
             if len(cans_in_file.get(can, [])) > 1:
                 field_errors["combined_asset_number"] = "Duplicate Combined Asset No in this file."
                 duplicate_combined_asset_number = True
@@ -240,6 +246,8 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
                 duplicate_combined_asset_number = True
 
         code = _cell_str(row.data.get("asset_code")).upper()
+        if code and asset_number_has_special_chars(code):
+            field_errors["asset_code"] = ASSET_NUMBER_SPECIAL_CHARS_MSG
 
         rfid = _cell_str(row.data.get("rfid_code"))
         if rfid:

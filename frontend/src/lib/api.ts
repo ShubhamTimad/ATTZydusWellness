@@ -108,11 +108,20 @@ async function ensureFreshAccessToken(): Promise<string | null> {
   return refreshed ?? token
 }
 
-function fieldLabelFromLoc(loc: unknown): string | null {
+const FIELD_ERROR_LABELS: Record<string, string> = {
+  equipment_tag_no: "User Equipment Tag Number",
+}
+
+function fieldKeyFromLoc(loc: unknown): string | null {
   if (!Array.isArray(loc)) return null
   const parts = loc.filter((p): p is string => typeof p === "string" && p !== "body" && p !== "query")
-  const key = parts[parts.length - 1]
+  return parts[parts.length - 1] ?? null
+}
+
+function fieldLabelFromLoc(loc: unknown): string | null {
+  const key = fieldKeyFromLoc(loc)
   if (!key) return null
+  if (FIELD_ERROR_LABELS[key]) return FIELD_ERROR_LABELS[key]
   return key
     .split("_")
     .map((w) => (w.length ? w[0]!.toUpperCase() + w.slice(1) : w))
@@ -132,8 +141,24 @@ function formatFastapiValidationDetail(detail: unknown[]): string | null {
       type === "string_too_short" ||
       /field required/i.test(msg) ||
       /at least 1 character/i.test(msg)
+    const tooLong =
+      type === "string_too_long" ||
+      /at most \d+ characters/i.test(msg) ||
+      /should have at most/i.test(msg)
     if (label && required) {
       parts.push(`${label} is required.`)
+    } else if (label && tooLong) {
+      const ctx = (item as { ctx?: { max_length?: unknown } }).ctx
+      const maxRaw = ctx?.max_length
+      const max =
+        typeof maxRaw === "number"
+          ? maxRaw
+          : Number((/at most (\d+)/i.exec(msg) ?? [])[1] || 0) || null
+      parts.push(
+        max != null
+          ? `${label} cannot exceed ${max} characters.`
+          : `${label} cannot exceed the maximum length.`,
+      )
     } else if (label) {
       parts.push(`${label}: ${msg}`)
     } else {

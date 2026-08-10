@@ -212,7 +212,7 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
         "tabs": [
             {
                 "key": "capitalization",
-                "title": "Capitalization forms",
+                "title": "Capitalization Forms",
                 "actions": [
                     "view",
                     "create",

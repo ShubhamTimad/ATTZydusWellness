@@ -67,14 +67,14 @@ function phaseFor(
 function displayLabel(step: OrderLifecycleStep, orderStatus?: string, isCurrent?: boolean): string {
   if (step.key === "rejected") return "Rejected"
   if (isCurrent && orderStatus === "pending_approval" && step.key === "approved") {
-    return "Pending approval"
+    return "Pending Approval"
   }
   if (
     isCurrent &&
     (orderStatus === "completed" || orderStatus === "pending_closure_approval") &&
     step.key === "closure_approved"
   ) {
-    return "Pending approval"
+    return "Pending Approval"
   }
   if (isCurrent && orderStatus === "draft" && step.key === "order_created") {
     return "Draft"
@@ -89,7 +89,7 @@ function displayLabel(step: OrderLifecycleStep, orderStatus?: string, isCurrent?
       orderStatus === "pending_closure_approval" ||
       step.status === "active"
     ) {
-      return "Pending approval"
+      return "Pending Approval"
     }
     return "Approved"
   }

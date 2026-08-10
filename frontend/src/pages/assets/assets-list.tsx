@@ -1915,7 +1915,7 @@ export function AssetsListPage() {
               </div>
             </div>
             <div className="mt-[var(--app-grid-gap)] flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-[var(--app-grid-gap)]">
-              <Button type="button" variant="ghost" size="sm" className="h-9" onClick={clearFilters}>
+              <Button type="button" variant="outline" size="sm" className="h-9" onClick={clearFilters}>
                 Clear all
               </Button>
               <Button
@@ -1995,7 +1995,7 @@ export function AssetsListPage() {
                 }}
               />
             ) : null}
-            <Button type="button" variant="link" className="h-auto px-1 text-xs" onClick={clearFilters}>
+            <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={clearFilters}>
               Clear all
             </Button>
           </div>

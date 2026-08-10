@@ -61,6 +61,8 @@ export function disposalAuditHeadline(ev: DisposalOrderAudit): string {
       return step ? `Closed — ${step}` : "Closed"
     case "archived":
       return "Archived"
+    case "unarchived":
+      return "Unarchived"
     default:
       return ev.action.replaceAll("_", " ")
   }

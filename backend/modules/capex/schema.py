@@ -158,6 +158,7 @@ class CapexFormDetail(BaseModel):
     approval_panel: CapexApprovalPanel | None = None
     can_delete: bool = False
     can_archive: bool = False
+    can_unarchive: bool = False
 
 
 class CapexAuditChange(BaseModel):

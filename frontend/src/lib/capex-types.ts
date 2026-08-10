@@ -130,6 +130,7 @@ export type CapexFormDetail = {
   approval_panel?: CapexApprovalPanel | null
   can_delete?: boolean
   can_archive?: boolean
+  can_unarchive?: boolean
 }
 
 export type CapexFormWritePayload = {
@@ -150,16 +151,15 @@ export type CapexFormWritePayload = {
 
 export const CAPEX_STATUS_TABS = [
   { key: "all", label: "All" },
-  { key: "needs_action", label: "Needs my action" },
+  { key: "needs_action", label: "Needs My Action" },
 ] as const
 
 /** Lifecycle status filter for the CapEx list Status column (not inbox tabs). */
 export const CAPEX_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "draft", label: "Draft" },
-  { value: "pending_approval", label: "Pending approval" },
+  { value: "pending_approval", label: "Pending Approval" },
   { value: "approved", label: "Approved" },
-  { value: "rejected", label: "Rejected" },
-  { value: "in_rework", label: "Rejected" },
+  { value: "rejected", label: "Rejected" }, // includes legacy in_rework
   { value: "cancelled", label: "Archived" },
 ]
 
@@ -171,7 +171,7 @@ export function capexTabEmptyMessage(tab: string): string {
 export function capexStatusLabel(status: string): string {
   const map: Record<string, string> = {
     draft: "Draft",
-    pending_approval: "Pending approval",
+    pending_approval: "Pending Approval",
     approved: "Approved",
     rejected: "Rejected",
     in_rework: "Rejected",

@@ -85,18 +85,19 @@ export type DisposalOrderDetail = {
   can_close: boolean
   can_delete: boolean
   can_archive: boolean
+  can_unarchive?: boolean
 }
 
 /** Primary list tabs (must match _TAB_STATUSES UI keys in backend). */
 export const DISPOSAL_STATUS_TABS = [
   { key: "all", label: "All" },
-  { key: "needs_action", label: "Needs my action" },
+  { key: "needs_action", label: "Needs My Action" },
 ] as const
 
 /** Lifecycle status filter for the disposal list Status column (not inbox tabs). */
 export const DISPOSAL_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "draft", label: "Draft" },
-  { value: "pending_approval", label: "Pending approval" },
+  { value: "pending_approval", label: "Pending Approval" },
   { value: "pending_receipt", label: "Pending receive" },
   { value: "pending_cf_close", label: "Pending CF approval" },
   { value: "closed", label: "Closed" },
@@ -112,7 +113,7 @@ export function disposalTabEmptyMessage(tab: string): string {
 export function disposalStatusLabel(status: string): string {
   const map: Record<string, string> = {
     draft: "Draft",
-    pending_approval: "Pending approval",
+    pending_approval: "Pending Approval",
     rejected: "Rejected",
     in_rework: "Rejected",
     pending_receipt: "Pending receive",

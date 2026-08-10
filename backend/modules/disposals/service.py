@@ -829,6 +829,59 @@ class DisposalOrderService:
         self._db.commit()
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
+    def unarchive_order(self, order_id: int, *, actor_user_id: int) -> DisposalOrderDetail:
+        """Restore an archived disposal to its pre-archive editable status."""
+        order = self._load_order(order_id)
+        if order.status != STATUS_CANCELLED:
+            raise ConflictError("Only archived disposal orders can be unarchived.")
+        if not _actor_may_discard_disposal(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the order creator can unarchive this disposal order.")
+
+        restore = self._status_before_archive(int(order.id), allowed=ARCHIVABLE_STATUSES)
+        assets = self._order_assets(order)
+        blocked = [
+            a.asset_code or str(a.id)
+            for a in assets
+            if not is_operational(a.lifecycle_status)
+        ]
+        if blocked:
+            raise ConflictError(
+                "Cannot unarchive: these assets are no longer available — "
+                + ", ".join(blocked)
+            )
+        self._mark_assets_pending_disposal(assets)
+        old_status = order.status
+        order.status = restore
+        log_disposal_event(
+            self._db,
+            order_id=int(order.id),
+            action="unarchived",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status},
+            new_value={
+                "status": order.status,
+                "pending_disposal_assets": [a.asset_code or str(a.id) for a in assets],
+            },
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def _status_before_archive(self, order_id: int, *, allowed: frozenset[str]) -> str:
+        row = self._db.scalar(
+            select(AssetDisposalOrderAudit)
+            .where(
+                AssetDisposalOrderAudit.order_id == order_id,
+                AssetDisposalOrderAudit.action == "archived",
+            )
+            .order_by(AssetDisposalOrderAudit.id.desc())
+            .limit(1)
+        )
+        if row is not None and isinstance(row.old_value, dict):
+            prev = str(row.old_value.get("status") or "").strip().lower()
+            if prev in allowed:
+                return prev
+        return STATUS_DRAFT
+
     # ---------------------------------------------------------------- submit
 
     def submit_order(
@@ -1656,6 +1709,9 @@ class DisposalOrderService:
                 order.status in ARCHIVABLE_STATUSES
                 and not _is_plain_disposal_draft(self._db, order)
                 and (is_creator or is_super)
+            ),
+            can_unarchive=(
+                order.status == STATUS_CANCELLED and (is_creator or is_super)
             ),
         )
 

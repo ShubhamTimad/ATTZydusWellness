@@ -20,7 +20,7 @@ import { persistAuthFromMe } from "@/lib/permissions"
 const loginSchema = z.object({
   identifier: z
     .string()
-    .min(1, "Email or username is required")
+    .min(1, "Email is required")
     .superRefine((val, ctx) => {
       const err = validateLoginIdentifier(val)
       if (err) ctx.addIssue({ code: "custom", message: err })
@@ -221,11 +221,11 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
         ) : (
           <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
             <div className="app-form-field">
-              <Label htmlFor="identifier">Email or username</Label>
+              <Label htmlFor="identifier">Email Address</Label>
               <Input
                 id="identifier"
-                type="text"
-                autoComplete="username"
+                type="email"
+                autoComplete="email"
                 placeholder="admin@example.com"
                 aria-invalid={!!form.formState.errors.identifier}
                 className="h-11"
@@ -250,6 +250,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
               <PasswordInput
                 id="password"
                 autoComplete="current-password"
+                placeholder="Enter your password"
                 aria-invalid={!!form.formState.errors.password}
                 className="h-11"
                 {...form.register("password")}

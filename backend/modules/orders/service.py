@@ -1791,6 +1791,9 @@ class PhysicalOrderService:
                 and not _is_plain_physical_draft(self._db, order)
                 and (is_creator or is_super)
             ),
+            can_unarchive=(
+                order.status == ORDER_STATUS_CANCELLED and (is_creator or is_super)
+            ),
         )
 
     def delete_draft_order(self, order_id: int, *, actor_user_id: int) -> None:
@@ -1843,6 +1846,43 @@ class PhysicalOrderService:
         )
         self._db.commit()
         return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def unarchive_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_CANCELLED:
+            raise ConflictError("Only archived physical orders can be unarchived.")
+        if not _actor_may_discard_physical(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the order creator can unarchive this physical order.")
+
+        restore = self._status_before_archive(int(order.id), allowed=_EDITABLE_PHYSICAL_STATUSES)
+        old_status = order.status
+        order.status = restore
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="unarchived",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status},
+            new_value={"status": order.status},
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def _status_before_archive(self, order_id: int, *, allowed: frozenset[str]) -> str:
+        row = self._db.scalar(
+            select(PhysicalOrderAudit)
+            .where(
+                PhysicalOrderAudit.order_id == order_id,
+                PhysicalOrderAudit.action == "archived",
+            )
+            .order_by(PhysicalOrderAudit.id.desc())
+            .limit(1)
+        )
+        if row is not None and isinstance(row.old_value, dict):
+            prev = str(row.old_value.get("status") or "").strip().lower()
+            if prev in allowed:
+                return prev
+        return ORDER_STATUS_DRAFT
 
     def update_order(
         self,

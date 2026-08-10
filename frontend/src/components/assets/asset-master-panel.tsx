@@ -12,6 +12,8 @@ import {
   blockNonNegativeNumberKeys,
   isAssetMasterDateField,
   isAssetMasterNumberField,
+  isAssetNumberField,
+  sanitizeAssetNumberInput,
   sanitizeNonNegativeNumericInput,
   type AssetMasterFieldDef,
 } from "@/lib/asset-master-fields"
@@ -258,7 +260,9 @@ function FieldEditor({
           setValue(
             numberField
               ? sanitizeNonNegativeNumericInput(e.target.value, def.key === "life_span") || null
-              : e.target.value || null,
+              : isAssetNumberField(def.key)
+                ? sanitizeAssetNumberInput(e.target.value) || null
+                : e.target.value || null,
           )
         }
       />

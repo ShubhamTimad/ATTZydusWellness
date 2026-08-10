@@ -31,7 +31,7 @@ export function assetStatusLabel(lifecycleStatus: string, approvalStatus: string
   if (lifecycle === "deactivated") return "Inactive"
   const approval = (approvalStatus || "").toLowerCase()
   if (approval === "draft") return "Draft"
-  if (approval === "pending") return "Pending approval"
+  if (approval === "pending") return "Pending Approval"
   if (approval === "rejected") return "Rejected"
   if (approval === "approved") return "Approved"
   if (isAssetActive(lifecycleStatus, approvalStatus) || approval === "not_required") {
@@ -50,7 +50,7 @@ export const ASSET_STATUS_FILTER_OPTIONS = [
   },
   {
     value: "pending",
-    label: "Pending approval",
+    label: "Pending Approval",
     approval_status: "pending",
     lifecycle_status: "",
   },
@@ -173,7 +173,7 @@ export function canSubmitForApproval(lifecycleStatus: string, approvalStatus: st
 export const ASSET_APPROVAL_STATUS_TABS = [
   { key: "all", label: "All", approval_status: "" },
   { key: "draft", label: "Draft", approval_status: "draft" },
-  { key: "pending", label: "Pending approval", approval_status: "pending" },
+  { key: "pending", label: "Pending Approval", approval_status: "pending" },
   { key: "rejected", label: "Rejected", approval_status: "rejected" },
   { key: "approved", label: "Approved", approval_status: "approved" },
 ] as const

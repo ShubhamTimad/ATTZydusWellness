@@ -245,17 +245,17 @@ export function DisposalOrdersListPage() {
               ) : null}
             </Button>
 
-            {activeColumnFilterCount > 0 || search.trim() ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className={listToolbarBtnClass}
-                onClick={clearFilters}
-              >
-                Clear
-              </Button>
-            ) : null}
+              {activeColumnFilterCount > 0 || search.trim() ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={listToolbarBtnClass}
+                  onClick={clearFilters}
+                >
+                  Clear
+                </Button>
+              ) : null}
           </div>
 
           <AdminDataTable

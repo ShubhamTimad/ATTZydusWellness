@@ -44,6 +44,7 @@ export type TransferOrderListItem = {
   created_at: string
   can_delete?: boolean
   can_archive?: boolean
+  can_unarchive?: boolean
   needs_my_action?: boolean
   my_action_label?: string | null
 }
@@ -115,18 +116,19 @@ export type TransferOrderDetail = {
   can_resume?: boolean
   can_delete: boolean
   can_archive: boolean
+  can_unarchive?: boolean
   can_restart_transfer: boolean
 }
 
 export const TRANSFER_STATUS_TABS = [
   { key: "all", label: "All" },
-  { key: "needs_action", label: "Needs my action" },
+  { key: "needs_action", label: "Needs My Action" },
 ] as const
 
 /** Lifecycle status filter for the transfer list Status column (not inbox tabs). */
 export const TRANSFER_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "draft", label: "Draft" },
-  { value: "pending_approval", label: "Pending approval" },
+  { value: "pending_approval", label: "Pending Approval" },
   { value: "approved_by_cf", label: "Approved — pending receive" },
   { value: "received_by_cc2", label: "Received" },
   { value: "confirmed_by_cf", label: "Confirmed by CF" },
@@ -142,8 +144,8 @@ export function transferTabEmptyMessage(tab: string): string {
 export function transferStatusLabel(status: string): string {
   const map: Record<string, string> = {
     draft: "Draft",
-    pending_approval: "Pending approval",
-    assigned_to_cf: "Pending approval",
+    pending_approval: "Pending Approval",
+    assigned_to_cf: "Pending Approval",
     rejected: "Rejected",
     in_rework: "Rejected", // legacy; normalized to rejected
     approved_by_cf: "Approved — pending receive",

@@ -238,6 +238,19 @@ def archive_order(
         raise _http(e) from e
 
 
+@router.post("/{order_id}/unarchive", response_model=TransferOrderDetail)
+def unarchive_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[object, Depends(require_any_permission("transfer.create", "transfer.manage"))],
+) -> TransferOrderDetail:
+    try:
+        return svc.unarchive_order(order_id, actor_user_id=int(current.subject))
+    except Exception as e:
+        raise _http(e) from e
+
+
 @router.post("/{order_id}/submit", response_model=TransferOrderDetail)
 def submit_order(
     order_id: int,

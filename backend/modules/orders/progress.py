@@ -57,6 +57,7 @@ _AUDIT_LABELS: dict[str, str] = {
     "execution_items_rejected": "Line items rejected during execution",
     "closure_items_rejected": "Line items rejected at closure review",
     "archived": "Order archived",
+    "unarchived": "Order unarchived",
 }
 
 

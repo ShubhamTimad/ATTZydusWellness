@@ -594,6 +594,39 @@ export function OrderDetailPage() {
               Archive
             </Button>
           ) : null}
+          {order.can_unarchive ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={async () => {
+                const ok = await confirmAsk({
+                  title: "Unarchive physical order?",
+                  description:
+                    "Restore this physical order so you can edit and resubmit it.",
+                  confirmLabel: "Unarchive",
+                })
+                if (!ok) return
+                setBusy(true)
+                try {
+                  setOrder(
+                    await postJson(`/admin/physical-orders/${order.id}/unarchive`, {}),
+                  )
+                  toast.success("Physical order unarchived.")
+                } catch (e) {
+                  toast.error(
+                    e instanceof ApiError ? e.message : "Could not unarchive physical order",
+                  )
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              Unarchive
+            </Button>
+          ) : null}
           {canReassign ? (
             <Button
               type="button"
@@ -934,7 +967,7 @@ export function OrderDetailPage() {
             {activeAssetColumnFilterCount > 0 || assetSearch.trim() ? (
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 className={listToolbarBtnClass}
                 onClick={clearAssetFilters}

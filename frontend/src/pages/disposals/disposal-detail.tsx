@@ -483,6 +483,39 @@ export function DisposalOrderDetailPage() {
               Archive
             </Button>
           ) : null}
+          {order.can_unarchive ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={async () => {
+                const ok = await confirmAsk({
+                  title: "Unarchive disposal order?",
+                  description:
+                    "Restore this disposal order and lock its assets again so you can continue.",
+                  confirmLabel: "Unarchive",
+                })
+                if (!ok) return
+                setBusy(true)
+                try {
+                  applyOrder(
+                    await postJson(`/admin/disposal-orders/${order.id}/unarchive`, {}),
+                  )
+                  toast.success("Disposal order unarchived.")
+                } catch (e) {
+                  toast.error(
+                    e instanceof ApiError ? e.message : "Could not unarchive disposal order",
+                  )
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              Unarchive
+            </Button>
+          ) : null}
           {order.can_resume ? (
             <AdminPrimaryButton
               type="button"

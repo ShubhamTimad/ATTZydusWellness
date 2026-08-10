@@ -185,6 +185,21 @@ def archive_form(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
+@router.post("/{form_id}/unarchive", response_model=CapexFormDetail)
+def unarchive_form(
+    form_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[CapexFormService, Depends(get_capex_service)],
+    _: Annotated[object, Depends(require_permission("capitalization.update"))],
+) -> CapexFormDetail:
+    try:
+        return svc.unarchive_form(form_id, actor_user_id=int(current.subject))
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
 @router.post("/{form_id}/submit", response_model=CapexFormDetail)
 def submit_form(
     form_id: int,

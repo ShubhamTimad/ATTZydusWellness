@@ -2,7 +2,30 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+# Letters, digits, hyphen only — no spaces or other punctuation.
+_ASSET_NUMBER_RE = re.compile(r"^[A-Za-z0-9\-]+$")
+ASSET_NUMBER_SPECIAL_CHARS_MSG = "Special characters are not allowed."
+
+
+def asset_number_has_special_chars(value: str) -> bool:
+    """True when a non-empty asset / combined asset number has disallowed characters."""
+    s = value.strip()
+    return bool(s) and _ASSET_NUMBER_RE.fullmatch(s) is None
+
+
+def normalize_asset_number_field(value: str | None) -> str | None:
+    """Strip, uppercase, and reject special characters. Empty → None."""
+    if value is None:
+        return None
+    s = value.strip().upper()
+    if not s:
+        return None
+    if asset_number_has_special_chars(s):
+        raise ValueError(ASSET_NUMBER_SPECIAL_CHARS_MSG)
+    return s
 
 # Excel headers (case-insensitive) -> canonical import key
 IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {

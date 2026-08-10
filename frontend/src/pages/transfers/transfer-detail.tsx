@@ -413,6 +413,25 @@ export function TransferOrderDetailPage() {
     }
   }
 
+  async function unarchiveTransferOrder() {
+    if (!order) return
+    const ok = await confirmAsk({
+      title: "Unarchive transfer order?",
+      description: "Restore this transfer order so you can edit and resubmit it.",
+      confirmLabel: "Unarchive",
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      applyOrder(await postJson(`/admin/transfer-orders/${order.id}/unarchive`, {}))
+      toast.success("Transfer order unarchived.")
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not unarchive transfer order")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function restartTransfer() {
     if (!order) return
     const ok = await confirmAsk({
@@ -505,6 +524,18 @@ export function TransferOrderDetailPage() {
               onClick={() => void archiveTransferOrder()}
             >
               Archive
+            </Button>
+          ) : null}
+          {order.can_unarchive ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={() => void unarchiveTransferOrder()}
+            >
+              Unarchive
             </Button>
           ) : null}
           {order.can_resume ? (
@@ -717,7 +748,7 @@ export function TransferOrderDetailPage() {
                   : null}
             </p>
           </div>
-          {(order.can_delete || order.can_archive) && (
+          {(order.can_delete || order.can_archive || order.can_unarchive) && (
             <div className="flex flex-wrap items-center gap-2">
               {order.can_delete ? (
                 <Button
@@ -741,6 +772,18 @@ export function TransferOrderDetailPage() {
                   onClick={() => void archiveTransferOrder()}
                 >
                   Archive
+                </Button>
+              ) : null}
+              {order.can_unarchive ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  disabled={busy}
+                  onClick={() => void unarchiveTransferOrder()}
+                >
+                  Unarchive
                 </Button>
               ) : null}
             </div>

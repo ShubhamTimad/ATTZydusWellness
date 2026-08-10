@@ -196,6 +196,25 @@ export function TransferOrdersListPage() {
       } finally {
         setBusyId(null)
       }
+      return
+    }
+    if (row.can_unarchive) {
+      const ok = await confirmAsk({
+        title: "Unarchive transfer order?",
+        description: `Restore ${row.order_number} so you can edit and resubmit it?`,
+        confirmLabel: "Unarchive",
+      })
+      if (!ok) return
+      setBusyId(row.id)
+      try {
+        await postJson(`/admin/transfer-orders/${row.id}/unarchive`, {})
+        toast.success("Transfer order unarchived.")
+        await load()
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Could not unarchive transfer order")
+      } finally {
+        setBusyId(null)
+      }
     }
   }
 
@@ -204,7 +223,7 @@ export function TransferOrdersListPage() {
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const counts = data?.tab_counts ?? {}
-  const showDiscard = items.some((r) => r.can_delete || r.can_archive)
+  const showDiscard = items.some((r) => r.can_delete || r.can_archive || r.can_unarchive)
   const showYourTurn = items.some((r) => r.needs_my_action && r.my_action_label)
   const colSpan = 8 + (showYourTurn ? 1 : 0) + (showDiscard ? 1 : 0)
   const plantScopedCenters = columnFilterInputs.plant_id
@@ -311,17 +330,17 @@ export function TransferOrdersListPage() {
               ) : null}
             </Button>
 
-            {activeColumnFilterCount > 0 || search.trim() ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className={listToolbarBtnClass}
-                onClick={clearFilters}
-              >
-                Clear
-              </Button>
-            ) : null}
+              {activeColumnFilterCount > 0 || search.trim() ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={listToolbarBtnClass}
+                  onClick={clearFilters}
+                >
+                  Clear
+                </Button>
+              ) : null}
           </div>
 
           <AdminDataTable
@@ -530,7 +549,7 @@ export function TransferOrdersListPage() {
                       </AdminTableCell>
                       {showDiscard ? (
                         <AdminTableCell className="text-right">
-                          {row.can_delete || row.can_archive ? (
+                          {row.can_delete || row.can_archive || row.can_unarchive ? (
                             <Button
                               type="button"
                               variant={row.can_delete ? "destructive" : "outline"}
@@ -542,7 +561,7 @@ export function TransferOrdersListPage() {
                                 void discardRow(row)
                               }}
                             >
-                              {row.can_delete ? "Delete" : "Archive"}
+                              {row.can_delete ? "Delete" : row.can_archive ? "Archive" : "Unarchive"}
                             </Button>
                           ) : null}
                         </AdminTableCell>

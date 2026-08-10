@@ -109,6 +109,7 @@ class TransferOrderListItem(BaseModel):
     created_at: datetime
     can_delete: bool = False
     can_archive: bool = False
+    can_unarchive: bool = False
     needs_my_action: bool = False
     my_action_label: str | None = None
 
@@ -192,5 +193,6 @@ class TransferOrderDetail(BaseModel):
     can_resume: bool = False
     can_delete: bool = False
     can_archive: bool = False
+    can_unarchive: bool = False
     # After CF reject returns to receiver: restart full approve flow on same order id.
     can_restart_transfer: bool = False

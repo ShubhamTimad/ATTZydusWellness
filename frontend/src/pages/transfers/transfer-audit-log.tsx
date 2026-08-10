@@ -18,6 +18,7 @@ const ACTION_LABELS: Record<string, string> = {
   cf_confirmed: "Confirmed by CF",
   cf_closed: "Closed",
   archived: "Archived",
+  unarchived: "Unarchived",
 }
 
 const FIELD_LABELS: Record<string, string> = {

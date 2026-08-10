@@ -953,6 +953,44 @@ class TransferOrderService:
         self._db.commit()
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
+    def unarchive_order(self, order_id: int, *, actor_user_id: int) -> TransferOrderDetail:
+        """Restore an archived transfer to its pre-archive editable status."""
+        order = self._load_order(order_id)
+        if order.status != STATUS_CANCELLED:
+            raise ConflictError("Only archived transfer orders can be unarchived.")
+        if not _actor_may_discard_transfer(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the order creator can unarchive this transfer order.")
+
+        restore = self._status_before_archive(int(order.id), allowed=ARCHIVABLE_STATUSES)
+        old_status = order.status
+        order.status = restore
+        _log(
+            self._db,
+            order_id=int(order.id),
+            action="unarchived",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status},
+            new_value={"status": order.status},
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def _status_before_archive(self, order_id: int, *, allowed: frozenset[str]) -> str:
+        row = self._db.scalar(
+            select(AssetTransferOrderAudit)
+            .where(
+                AssetTransferOrderAudit.order_id == order_id,
+                AssetTransferOrderAudit.action == "archived",
+            )
+            .order_by(AssetTransferOrderAudit.id.desc())
+            .limit(1)
+        )
+        if row is not None and isinstance(row.old_value, dict):
+            prev = str(row.old_value.get("status") or "").strip().lower()
+            if prev in allowed:
+                return prev
+        return STATUS_DRAFT
+
     def restart_transfer_for_resubmit(
         self, order_id: int, *, actor_user_id: int
     ) -> TransferOrderDetail:
@@ -1376,6 +1414,7 @@ class TransferOrderService:
                     can_archive=bool(
                         may_discard and r.status in ARCHIVABLE_STATUSES and not plain
                     ),
+                    can_unarchive=bool(may_discard and r.status == STATUS_CANCELLED),
                     needs_my_action=action_label is not None,
                     my_action_label=action_label,
                 )
@@ -1908,6 +1947,13 @@ class TransferOrderService:
                 viewer_user_id is not None
                 and order.status in ARCHIVABLE_STATUSES
                 and not _is_plain_transfer_draft(self._db, order)
+                and _actor_may_discard_transfer(
+                    order, actor_user_id=int(viewer_user_id), db=self._db
+                )
+            ),
+            can_unarchive=(
+                viewer_user_id is not None
+                and order.status == STATUS_CANCELLED
                 and _actor_may_discard_transfer(
                     order, actor_user_id=int(viewer_user_id), db=self._db
                 )

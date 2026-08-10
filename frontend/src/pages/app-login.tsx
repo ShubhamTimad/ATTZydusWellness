@@ -184,7 +184,7 @@ export function AppLoginPage() {
         description={
           step === "otp"
             ? "Enter the 6-digit code from your authenticator app to finish signing in."
-            : "Sign in with your email or username to open the dashboard."
+            : "Sign in with your email to open the dashboard."
         }
       >
         {error ? (
@@ -197,12 +197,12 @@ export function AppLoginPage() {
         {step === "password" ? (
           <form onSubmit={onSubmitPassword} className="space-y-4">
             <div className="app-form-field">
-              <Label htmlFor="identifier">Email or username</Label>
+              <Label htmlFor="identifier">Email Address</Label>
               <Input
                 id="identifier"
-                type="text"
-                autoComplete="username"
-                placeholder="you@company.com"
+                type="email"
+                autoComplete="email"
+                placeholder="Enter your email address"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 disabled={isSubmitting}
@@ -227,6 +227,7 @@ export function AppLoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
+                placeholder="Enter your password"
                 disabled={isSubmitting}
                 className="h-11"
                 required

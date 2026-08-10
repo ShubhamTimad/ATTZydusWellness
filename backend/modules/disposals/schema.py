@@ -180,3 +180,4 @@ class DisposalOrderDetail(BaseModel):
     can_close: bool = False
     can_delete: bool = False
     can_archive: bool = False
+    can_unarchive: bool = False

@@ -13,6 +13,7 @@ from modules.disposals.constants import (
     ACTION_SUBMIT_WITH_ENGINEERING,
     ENTITY_TYPE,
     ENTITY_TYPE_WITH_ENGINEERING,
+    STATUS_CANCELLED,
     STATUS_CLOSED,
     STATUS_DRAFT,
     STATUS_IN_REWORK,
@@ -131,6 +132,24 @@ def test_archive_draft_reactivates_assets():
     assert order.status == "cancelled"
     assert asset.lifecycle_status == "active"
     db.delete.assert_not_called()
+    db.commit.assert_called_once()
+
+
+def test_unarchive_order_marks_assets_pending_disposal():
+    asset = _asset()
+    asset.lifecycle_status = "active"
+    order = _order(STATUS_CANCELLED, assets=[asset], assigned_to=None)
+    audit = SimpleNamespace(old_value={"status": STATUS_DRAFT})
+    db = MagicMock()
+    db.scalar.return_value = audit
+    svc = DisposalOrderService(db)
+    with patch.object(svc, "_load_order", return_value=order):
+        with patch.object(svc, "get_order", return_value="detail"):
+            with patch("modules.disposals.service._actor_may_discard_disposal", return_value=True):
+                result = svc.unarchive_order(1, actor_user_id=2)
+    assert result == "detail"
+    assert order.status == STATUS_DRAFT
+    assert asset.lifecycle_status == LIFECYCLE_PENDING_DISPOSAL
     db.commit.assert_called_once()
 
 

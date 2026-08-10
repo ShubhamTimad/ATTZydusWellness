@@ -448,6 +448,39 @@ export function CapexDetailPage() {
               Archive
             </Button>
           ) : null}
+          {detail.can_unarchive ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={saving || acting || reassigning}
+              onClick={async () => {
+                const ok = await confirmAsk({
+                  title: "Unarchive capitalization form?",
+                  description:
+                    "Restore this capitalization form so you can edit and resubmit it.",
+                  confirmLabel: "Unarchive",
+                })
+                if (!ok) return
+                setSaving(true)
+                try {
+                  setDetail(
+                    await postJson(`/admin/capitalization-forms/${detail.id}/unarchive`, {}),
+                  )
+                  toast.success("Capitalization form unarchived.")
+                } catch (e) {
+                  toast.error(
+                    e instanceof ApiError ? e.message : "Could not unarchive capitalization form",
+                  )
+                } finally {
+                  setSaving(false)
+                }
+              }}
+            >
+              Unarchive
+            </Button>
+          ) : null}
           {canReassign ? (
             <Button
               type="button"

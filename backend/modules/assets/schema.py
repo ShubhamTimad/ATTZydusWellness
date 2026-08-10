@@ -4,8 +4,9 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from modules.assets.field_definitions import normalize_asset_number_field
 from modules.platform.tasks.schema import TaskApprovalStepLinePublic
 
 
@@ -111,6 +112,13 @@ class AssetCreateRequest(BaseModel):
     financial: AssetFinancialPayload | None = None
     inventory: AssetInventoryPayload | None = None
 
+    @field_validator("asset_code", "combined_asset_number", mode="before")
+    @classmethod
+    def _asset_numbers_no_special(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return normalize_asset_number_field(str(value))
+
 
 class AssetUpdateRequest(BaseModel):
     asset_name: str | None = Field(default=None, min_length=1, max_length=255)
@@ -134,6 +142,13 @@ class AssetUpdateRequest(BaseModel):
     location: AssetLocationPayload | None = None
     financial: AssetFinancialPayload | None = None
     inventory: AssetInventoryPayload | None = None
+
+    @field_validator("asset_code", "combined_asset_number", mode="before")
+    @classmethod
+    def _asset_numbers_no_special(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        return normalize_asset_number_field(str(value))
 
 class AssetRfidAttachRequest(BaseModel):
     rfid_code: str = Field(..., min_length=1, max_length=128)

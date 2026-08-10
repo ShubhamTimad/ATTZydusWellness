@@ -208,6 +208,15 @@ export function sanitizeNonNegativeNumericInput(raw: string, integer = false): s
   return s
 }
 
+/** Asset Number / Combined Asset No: letters, digits, hyphen only (no special chars). */
+export function sanitizeAssetNumberInput(raw: string): string {
+  return raw.replace(/[^A-Za-z0-9-]/g, "").toUpperCase()
+}
+
+export function isAssetNumberField(key: string): boolean {
+  return key === "asset_code" || key === "combined_asset_number"
+}
+
 /** Prevent typing signs / scientific notation into non-negative number inputs. */
 export function blockNonNegativeNumberKeys(e: { key: string; preventDefault: () => void }) {
   if (e.key === "-" || e.key === "e" || e.key === "E" || e.key === "+") e.preventDefault()

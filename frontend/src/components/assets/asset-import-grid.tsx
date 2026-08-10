@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 import { adminSelectClass } from "@/components/layout/admin-ui"
 import type { AssetImportColumn } from "@/lib/asset-master-fields"
+import { isAssetNumberField, sanitizeAssetNumberInput } from "@/lib/asset-master-fields"
 import { buildImportGridColumns, useAssetFieldConfig } from "@/lib/use-asset-field-config"
 
 export type ImportGridRow = {
@@ -100,13 +101,19 @@ const ImportCell = React.memo(function ImportCell({
       <input
         type={colKind === "date" ? "date" : "text"}
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={(e) =>
+          onChange(
+            isAssetNumberField(colKey) ? sanitizeAssetNumberInput(e.target.value) : e.target.value,
+          )
+        }
         title={error}
         className={cn(
           "h-8 w-full min-w-[7rem] rounded-sm border border-transparent bg-background px-2 text-foreground shadow-none outline-none focus:border-primary/40 focus:ring-1 focus:ring-primary/30",
           error &&
             "border-destructive/70 bg-destructive/10 text-destructive focus:border-destructive focus:ring-destructive/30",
-          (colKey === "asset_code" || colKey === "rfid_code") && "font-mono",
+          (colKey === "asset_code" || colKey === "combined_asset_number" || colKey === "rfid_code") &&
+            "font-mono",
+          isAssetNumberField(colKey) && "uppercase",
         )}
       />
       {error ? (

@@ -1,6 +1,6 @@
 import * as React from "react"
 import { ListFilter, PlusIcon, Search, X } from "lucide-react"
-import { Link, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
@@ -191,7 +191,7 @@ export function CapexListPage() {
                   id="capex-search"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search by form number, asset, department, or creator…"
+                  placeholder="Search by Form No., Asset Name, Department, Status or Created By"
                   className="w-full pl-9"
                   aria-label="Search capitalization forms"
                 />
@@ -230,7 +230,7 @@ export function CapexListPage() {
               {activeColumnFilterCount > 0 || search.trim() ? (
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   className={listToolbarBtnClass}
                   onClick={clearFilters}
@@ -343,14 +343,12 @@ export function CapexListPage() {
                         onClick={() => navigate(`/dashboard/capitalization/${row.id}`)}
                       >
                         <AdminTableCell>
-                          <Link
-                            to={`/dashboard/capitalization/${row.id}`}
-                            className="block max-w-[12rem] truncate font-medium text-primary hover:underline"
+                          <span
+                            className="block max-w-[12rem] truncate font-medium"
                             title={row.form_number}
-                            onClick={(e) => e.stopPropagation()}
                           >
                             {row.form_number}
-                          </Link>
+                          </span>
                         </AdminTableCell>
                         <AdminTableCell>
                           <span
