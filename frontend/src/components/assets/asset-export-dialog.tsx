@@ -19,6 +19,7 @@ import {
   ASSET_EXPORT_FIELD_GROUPS,
   ASSET_EXPORT_FIELD_LABELS,
   ASSET_REGISTER_DEFAULT_FIELDS,
+  ASSET_REGISTER_PDF_FIELDS,
 } from "@/lib/asset-master-fields"
 import type { AssetListTab, AssetFySubTab } from "@/pages/assets/assets-list"
 import { categoryLabel, plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
@@ -179,7 +180,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
   }
 
   async function runExport() {
-    const fields = isPdf ? [...ASSET_REGISTER_DEFAULT_FIELDS] : [...selectedFields]
+    const fields = isPdf ? [...ASSET_REGISTER_PDF_FIELDS] : [...selectedFields]
     if (fields.length === 0) {
       toast.error("Select at least one field to export.")
       return
@@ -229,7 +230,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
           <DialogDescription>
             {isRegister
               ? isPdf
-                ? "Set filters, then download the PDF. Columns are fixed to the default register fields."
+                ? "Set filters, then download an A4 PDF with the register columns."
                 : "Set filters and choose columns. Default fields are selected first."
               : "Filter by plant and location masters, then choose columns for the Excel file."}
           </DialogDescription>

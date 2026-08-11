@@ -3,10 +3,19 @@ import { toast } from "sonner"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
+import { TAKEDA_LOGO_SRC } from "@/components/layout/app-brand-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import { AdminPanel, AdminPrimaryButton, adminSwitchRowClass } from "@/components/layout/admin-ui"
 import {
@@ -15,7 +24,7 @@ import {
   WorkspaceTabsList,
   WorkspaceTabsTrigger,
 } from "@/components/layout/list-page-ui"
-import { getJson, postJson, putJson } from "@/lib/api"
+import { getJson, postBlob, postJson, putJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
 
 export type PasswordPolicy = {
@@ -58,6 +67,27 @@ type FinancialYearSettings = {
   period_end: string
 }
 
+type DocumentFormatSettings = {
+  org_name: string
+  product_name: string
+  confidential_line: string
+  excel_include_title: boolean
+  signatures: {
+    capex: boolean
+    reports: boolean
+    transfer: boolean
+    disposal: boolean
+  }
+}
+
+const DEFAULT_DOCUMENT_FORMAT: DocumentFormatSettings = {
+  org_name: "Takeda",
+  product_name: "Asset Tagging & Tracking",
+  confidential_line: "Confidential — internal use only",
+  excel_include_title: true,
+  signatures: { capex: true, reports: false, transfer: false, disposal: false },
+}
+
 const MONTHS = [
   { value: 1, label: "January" },
   { value: 2, label: "February" },
@@ -87,14 +117,20 @@ export function SettingsPage() {
   const [savingEmail, setSavingEmail] = React.useState(false)
   const [testingEmail, setTestingEmail] = React.useState(false)
   const [testToEmail, setTestToEmail] = React.useState("")
-  const [tab, setTab] = React.useState<"auth" | "password" | "email" | "financial">("auth")
+  const [tab, setTab] = React.useState<"auth" | "password" | "email" | "financial" | "documents">("auth")
   const [financialYear, setFinancialYear] = React.useState<FinancialYearSettings | null>(null)
   const [savingFinancialYear, setSavingFinancialYear] = React.useState(false)
+  const [documentFormat, setDocumentFormat] = React.useState<DocumentFormatSettings | null>(null)
+  const [savingDocuments, setSavingDocuments] = React.useState(false)
+  const [previewing, setPreviewing] = React.useState<"pdf" | "xlsx" | null>(null)
+  const [preview, setPreview] = React.useState<
+    { kind: "pdf"; url: string } | { kind: "xlsx"; blob: Blob } | null
+  >(null)
 
   async function load() {
     setLoadError(null)
     try {
-      const [data, auth, email, fy, idle] = await Promise.all([
+      const [data, auth, email, fy, idle, docs] = await Promise.all([
         getJson<PasswordPolicy>("/admin/settings/password-policy"),
         getJson<AuthPolicy>("/admin/settings/auth-policy").catch(() => null),
         getJson<EmailDelivery>("/admin/settings/email-delivery").catch(() => null),
@@ -102,12 +138,16 @@ export function SettingsPage() {
         getJson<SessionIdleSettings>("/admin/settings/session-idle").catch(() => ({
           idle_timeout_minutes: 10,
         })),
+        getJson<DocumentFormatSettings>("/admin/settings/document-format").catch(
+          () => DEFAULT_DOCUMENT_FORMAT,
+        ),
       ])
       setPolicy(data)
       setAuthPolicy(auth)
       setEmailDelivery(email)
       setFinancialYear(fy)
       setSessionIdle(idle)
+      setDocumentFormat(docs)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load settings")
       setPolicy(null)
@@ -138,6 +178,48 @@ export function SettingsPage() {
     }
   }
 
+  function closeFormatPreview() {
+    setPreview((current) => {
+      if (current?.kind === "pdf") URL.revokeObjectURL(current.url)
+      return null
+    })
+  }
+
+  async function previewDocumentFormat(fmt: "pdf" | "xlsx") {
+    if (!documentFormat) return
+    setPreviewing(fmt)
+    try {
+      const blob = await postBlob(`/admin/settings/document-format/preview?fmt=${fmt}`, documentFormat)
+      setPreview((current) => {
+        if (current?.kind === "pdf") URL.revokeObjectURL(current.url)
+        return fmt === "pdf" ? { kind: "pdf", url: URL.createObjectURL(blob) } : { kind: "xlsx", blob }
+      })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Preview failed")
+    } finally {
+      setPreviewing(null)
+    }
+  }
+
+  async function saveDocumentFormat() {
+    if (!documentFormat) return
+    setSavingDocuments(true)
+    toast.loading("Saving…", { id: "docs-save" })
+    try {
+      const updated = await putJson<DocumentFormatSettings>(
+        "/admin/settings/document-format",
+        documentFormat,
+      )
+      setDocumentFormat(updated)
+      toast.success("Saved", { id: "docs-save" })
+      closeFormatPreview()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed", { id: "docs-save" })
+    } finally {
+      setSavingDocuments(false)
+    }
+  }
+
   if (!policy && loadError) {
     return (
       <Alert variant="destructive">
@@ -157,12 +239,13 @@ export function SettingsPage() {
 
   return (
     <AdminPage fullWidth description="Security, authentication, and organization-wide email delivery.">
-      <WorkspaceTabs value={tab} onValueChange={(v) => setTab(v as "auth" | "password" | "email" | "financial")}>
+      <WorkspaceTabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
         <WorkspaceTabsList>
           <WorkspaceTabsTrigger value="auth">Authentication</WorkspaceTabsTrigger>
           <WorkspaceTabsTrigger value="password">Password policy</WorkspaceTabsTrigger>
           <WorkspaceTabsTrigger value="email">Email delivery</WorkspaceTabsTrigger>
           <WorkspaceTabsTrigger value="financial">Financial year</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="documents">PDF & Excel</WorkspaceTabsTrigger>
         </WorkspaceTabsList>
 
         <WorkspaceTabsContent value="auth" className="space-y-4">
@@ -678,6 +761,242 @@ export function SettingsPage() {
               </>
             )}
           </AdminPanel>
+        </WorkspaceTabsContent>
+
+        <WorkspaceTabsContent value="documents" className="space-y-4">
+          <AdminPanel
+            title="PDF & Excel format"
+            description="Edit the fields, preview PDF or Excel with those unsaved values, then save when it looks right. Logo, header and footer wrap every report page — the table sits between them."
+            contentClassName="space-y-4 px-5 py-5"
+          >
+            {!documentFormat ? (
+              <p className="text-sm text-muted-foreground">Loading document format…</p>
+            ) : (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="doc_org_name">Organisation</Label>
+                    <Input
+                      id="doc_org_name"
+                      value={documentFormat.org_name}
+                      onChange={(e) =>
+                        setDocumentFormat((p) => (p ? { ...p, org_name: e.target.value } : p))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="doc_product_name">Product name</Label>
+                    <Input
+                      id="doc_product_name"
+                      value={documentFormat.product_name}
+                      onChange={(e) =>
+                        setDocumentFormat((p) => (p ? { ...p, product_name: e.target.value } : p))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="doc_confidential">Confidential line</Label>
+                    <Input
+                      id="doc_confidential"
+                      value={documentFormat.confidential_line}
+                      onChange={(e) =>
+                        setDocumentFormat((p) => (p ? { ...p, confidential_line: e.target.value } : p))
+                      }
+                    />
+                  </div>
+                </div>
+                <Separator />
+                <p className="text-sm font-medium">Signature blocks</p>
+                <p className="text-xs text-muted-foreground">
+                  When on, name and date lines sit above the footer for the creator and each approve step.
+                </p>
+                {(
+                  [
+                    ["capex", "Capitalization form"],
+                    ["reports", "Reports (PDF & Excel)"],
+                    ["transfer", "Transfer print"],
+                    ["disposal", "Disposal print"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <div key={key} className={adminSwitchRowClass}>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">{label}</div>
+                    </div>
+                    <Switch
+                      checked={documentFormat.signatures[key]}
+                      onCheckedChange={(v) =>
+                        setDocumentFormat((p) =>
+                          p
+                            ? {
+                                ...p,
+                                signatures: { ...p.signatures, [key]: Boolean(v) },
+                              }
+                            : p,
+                        )
+                      }
+                    />
+                  </div>
+                ))}
+                <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={previewing !== null}
+                    onClick={() => void previewDocumentFormat("pdf")}
+                  >
+                    {previewing === "pdf" ? "Preparing…" : "Preview PDF"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={previewing !== null}
+                    onClick={() => void previewDocumentFormat("xlsx")}
+                  >
+                    {previewing === "xlsx" ? "Preparing…" : "Preview Excel"}
+                  </Button>
+                  <AdminPrimaryButton
+                    type="button"
+                    disabled={savingDocuments || !canWriteSettings}
+                    onClick={() => void saveDocumentFormat()}
+                  >
+                    {savingDocuments ? "Saving…" : "Save document format"}
+                  </AdminPrimaryButton>
+                </div>
+              </>
+            )}
+          </AdminPanel>
+          <Dialog
+            open={preview !== null}
+            onOpenChange={(open) => {
+              if (!open) closeFormatPreview()
+            }}
+          >
+            <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-4xl">
+              <DialogHeader className="px-5 pt-5 pb-3">
+                <DialogTitle>{preview?.kind === "xlsx" ? "Excel preview" : "PDF preview"}</DialogTitle>
+                <DialogDescription>
+                  This uses your current fields, not the last saved settings. Save when it looks right.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 overflow-auto px-5 pb-2">
+                {preview?.kind === "pdf" ? (
+                  <iframe
+                    title="PDF preview"
+                    src={preview.url}
+                    className="h-[min(70vh,720px)] w-full rounded-md border bg-muted"
+                  />
+                ) : preview?.kind === "xlsx" && documentFormat ? (
+                  <div className="overflow-auto rounded-md border bg-background text-sm">
+                    <div className="flex items-start justify-between gap-4 border-b-2 border-[#E1242A] px-4 py-3">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <img
+                          src={TAKEDA_LOGO_SRC}
+                          alt=""
+                          className="h-9 w-auto max-w-[120px] object-contain object-left"
+                        />
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+                            {documentFormat.product_name}
+                          </p>
+                          <p className="text-base font-semibold">Sample report</p>
+                          <p className="text-xs text-muted-foreground">Preview of current (unsaved) format</p>
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right text-xs text-muted-foreground">
+                        <div>Generated: {new Date().toLocaleString()}</div>
+                      </div>
+                    </div>
+                    <div className="px-4 py-3">
+                      <p className="mb-2 text-xs text-muted-foreground">Records: 2</p>
+                      <table className="w-full border-collapse text-left">
+                        <thead>
+                          <tr className="bg-muted">
+                            {["Asset name", "Plant", "Status"].map((h) => (
+                              <th key={h} className="border px-2 py-1.5 font-semibold">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            ["Filling line 1", "Goa", "Active"],
+                            ["HVAC unit", "Goa", "Active"],
+                          ].map((row) => (
+                            <tr key={row.join("-")}>
+                              {row.map((cell) => (
+                                <td key={cell} className="border px-2 py-1.5">
+                                  {cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="mt-6 grid grid-cols-3 gap-4">
+                        {[
+                          { label: "Signature of User", name: "A. Sharma", date: "11.08.2026" },
+                          { label: "Signature of Plant Head", name: "", date: "" },
+                          { label: "Signature of Finance", name: "", date: "" },
+                        ].map((s) => (
+                          <div key={s.label} className="min-w-0 text-xs">
+                            <div className="mb-2 font-semibold">{s.label}:</div>
+                            <div className="mb-2 min-h-8 border-b border-foreground/80 pb-1 italic">
+                              {s.name || "\u00a0"}
+                            </div>
+                            <div>
+                              Name: <strong>{s.name}</strong>
+                            </div>
+                            <div>
+                              Date: <strong>{s.date}</strong>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-start justify-between gap-4 border-t px-4 py-2 text-xs">
+                      <div>
+                        <div className="font-semibold">
+                          {documentFormat.org_name} · {documentFormat.product_name}
+                        </div>
+                        <div className="text-muted-foreground">{documentFormat.confidential_line}</div>
+                      </div>
+                      <div className="text-right text-muted-foreground">
+                        <div>Page 1 of 1</div>
+                        <div>Generated by</div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <DialogFooter className="px-5 py-4" showCloseButton>
+                {preview?.kind === "xlsx" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      if (preview.kind !== "xlsx") return
+                      const url = URL.createObjectURL(preview.blob)
+                      const a = document.createElement("a")
+                      a.href = url
+                      a.download = "document-format-preview.xlsx"
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    }}
+                  >
+                    Download .xlsx
+                  </Button>
+                ) : null}
+                <AdminPrimaryButton
+                  type="button"
+                  disabled={savingDocuments || !canWriteSettings}
+                  onClick={() => void saveDocumentFormat()}
+                >
+                  {savingDocuments ? "Saving…" : "Looks good — save"}
+                </AdminPrimaryButton>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </WorkspaceTabsContent>
       </WorkspaceTabs>
     </AdminPage>

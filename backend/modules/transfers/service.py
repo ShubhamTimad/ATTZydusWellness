@@ -518,7 +518,7 @@ class TransferOrderService:
         )
 
     def list_destination_cost_centers(self, *, plant_id: int) -> list[TransferDestinationCostCenter]:
-        """All active cost centers on the plant — destination is not limited to the creator's CCs."""
+        """Active plant CCs except scrapyards — destination is not limited to the creator's CCs."""
         plant = self._db.get(OrgUnit, int(plant_id))
         if plant is None or plant.type != "PLANT":
             raise NotFoundError("Plant", plant_id)
@@ -528,6 +528,7 @@ class TransferOrderService:
                 .where(
                     CostCenterMaster.plant_id == int(plant_id),
                     CostCenterMaster.is_active.is_(True),
+                    CostCenterMaster.is_scrapyard.is_(False),
                 )
                 .order_by(CostCenterMaster.code.asc())
             ).all()
@@ -711,6 +712,8 @@ class TransferOrderService:
     def _assert_destination_differs(
         self, assets: list[AssetMaster], to_cc: CostCenterMaster
     ) -> None:
+        if bool(getattr(to_cc, "is_scrapyard", False)):
+            raise ConflictError("Scrapyard cost centers cannot be a transfer destination.")
         source_codes = {c for a in assets if (c := _asset_cost_center(a))}
         if to_cc.code in source_codes:
             raise ConflictError(

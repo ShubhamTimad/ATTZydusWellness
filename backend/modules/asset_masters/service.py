@@ -347,17 +347,22 @@ class AssetMastersService:
             stmt = stmt.where(CostCenterMaster.is_active.is_(True))
         if scrapyard_only:
             stmt = stmt.where(CostCenterMaster.is_scrapyard.is_(True))
+        # Disposal destination: any operator on the plant can pick a scrapyard CC
+        # without being assigned to it.
+        restrict_to_assigned_ccs = not scrapyard_only
         if plant_id is not None:
             if scope.plant_ids is not None and int(plant_id) not in scope.plant_ids:
                 return []
-            if scope.cost_center_keys is not None:
+            if restrict_to_assigned_ccs and scope.cost_center_keys is not None:
                 allowed = {pid for pid, _ in scope.cost_center_keys}
                 if allowed and int(plant_id) not in allowed:
                     return []
             stmt = stmt.where(CostCenterMaster.plant_id == plant_id)
-        elif scope.plant_ids is not None and scope.cost_center_ids is None:
+        elif scope.plant_ids is not None and (
+            scrapyard_only or scope.cost_center_ids is None
+        ):
             stmt = stmt.where(CostCenterMaster.plant_id.in_(scope.plant_ids))
-        if scope.cost_center_ids is not None:
+        if restrict_to_assigned_ccs and scope.cost_center_ids is not None:
             if not scope.cost_center_ids:
                 return []
             stmt = stmt.where(CostCenterMaster.id.in_(scope.cost_center_ids))

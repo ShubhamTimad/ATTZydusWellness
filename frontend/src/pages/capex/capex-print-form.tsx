@@ -1,10 +1,25 @@
 import { TAKEDA_LOGO_SRC } from "@/components/layout/app-brand-mark"
+import { getJson } from "@/lib/api"
 import {
   capexStatusLabel,
   type CapexApprovalStepLine,
   type CapexFormDetail,
   type CapexWorkflowRun,
 } from "@/lib/capex-types"
+
+type DocumentFormatSettings = {
+  org_name: string
+  product_name: string
+  confidential_line: string
+  signatures: { capex: boolean }
+}
+
+const DEFAULT_DOCUMENT_FORMAT: DocumentFormatSettings = {
+  org_name: "Takeda",
+  product_name: "Asset Tagging & Tracking",
+  confidential_line: "Confidential — internal use only",
+  signatures: { capex: true },
+}
 
 type SignBlock = {
   roleLabel: string
@@ -121,10 +136,23 @@ function formRows(detail: CapexFormDetail) {
 }
 
 /** Opens the native system print dialog (printer or Save as PDF). No custom preview. */
-export function printCapexForm(detail: CapexFormDetail): void {
+export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
   const printedAt = formatPrintDateTime()
   const rows = formRows(detail)
-  const signs = buildSignBlocks(detail)
+  const [chrome, me] = await Promise.all([
+    getJson<DocumentFormatSettings>("/admin/settings/document-format").catch(
+      () => DEFAULT_DOCUMENT_FORMAT,
+    ),
+    getJson<{ full_name?: string }>("/me").catch(() => ({ full_name: "" })),
+  ])
+  const org = escapeHtml(chrome.org_name.trim() || DEFAULT_DOCUMENT_FORMAT.org_name)
+  const product = escapeHtml(chrome.product_name.trim() || DEFAULT_DOCUMENT_FORMAT.product_name)
+  const confidential = escapeHtml(
+    chrome.confidential_line.trim() || DEFAULT_DOCUMENT_FORMAT.confidential_line,
+  )
+  const generatedBy = escapeHtml((me.full_name || "").trim())
+  const showSigns = chrome.signatures?.capex !== false
+  const signs = showSigns ? buildSignBlocks(detail) : []
   const logoUrl = new URL(TAKEDA_LOGO_SRC, window.location.origin).href
   const status = escapeHtml(capexStatusLabel(detail.status))
 
@@ -154,18 +182,19 @@ export function printCapexForm(detail: CapexFormDetail): void {
     })
     .join("")
 
-  /* Keep header/footer copy in sync with backend/modules/reports/pdf_chrome.py */
+  /* Keep header/footer copy in sync with backend/modules/reports/pdf_chrome.py.
+     One table: thead/tfoot repeat; data+signatures are real rows so they are not sliced. */
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>&#8203;</title>
   <style>
-    @page { size: A4 portrait; margin: 12mm 14mm; }
+    @page { size: A4 portrait; margin: 0; }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
-      padding: 0;
+      padding: 0 14mm;
       background: #fff;
       color: #111827;
       font-family: "Times New Roman", Times, Georgia, serif;
@@ -174,15 +203,24 @@ export function printCapexForm(detail: CapexFormDetail): void {
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-    table.chrome { width: 100%; border-collapse: collapse; }
-    table.chrome > thead > tr > td,
-    table.chrome > tfoot > tr > td { padding: 0; }
-    .doc-header {
-      padding: 0 2px 10px;
-      margin: 0 0 14px;
+    table.print {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    table.print > thead { display: table-header-group; }
+    table.print > tfoot { display: table-footer-group; }
+    table.print > tbody > tr:not(.push) {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    tr.push td { border: 0; padding: 0; height: 1px; font-size: 0; line-height: 0; }
+    .banner {
+      padding: 12mm 0 8px;
       border-bottom: 2px solid #E1242A;
       font-family: Helvetica, Arial, sans-serif;
     }
+    tr.gap td { height: 12px; border: 0; padding: 0; }
     .doc-header-row {
       display: flex;
       justify-content: space-between;
@@ -231,72 +269,60 @@ export function printCapexForm(detail: CapexFormDetail): void {
       color: #6B7280;
     }
     .meta strong { color: #111827; font-weight: 650; }
-    .form-body { margin: 0 0 8px; }
-    table.form {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-      font-size: 10.5pt;
-    }
-    table.form th, table.form td {
+    th.col, td.c-no, td.c-part, td.c-det {
       border: 1px solid #111;
       padding: 8px 10px;
       vertical-align: top;
       word-wrap: break-word;
       overflow-wrap: anywhere;
     }
-    table.form th {
+    th.col {
       background: #ececec;
       font-weight: 700;
       text-align: left;
       font-size: 10pt;
       padding: 9px 10px;
     }
-    table.form tbody tr td {
-      min-height: 1.6em;
-    }
     .c-no { width: 12%; text-align: center; }
     .c-part { width: 38%; }
     .c-det { width: 50%; }
+    tr.sig-row td {
+      border: 0;
+      padding: 22px 0 8px;
+    }
     .sigs {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 18px;
-      margin: 28px 2px 0;
-      padding: 8px 0 4px;
-      page-break-inside: avoid;
+      gap: 14px;
+      font-family: Helvetica, Arial, sans-serif;
     }
     .sig-block {
       flex: 1 1 0;
       min-width: 0;
-      font-size: 9.5pt;
+      font-size: 8.5pt;
       overflow: hidden;
       padding: 0 2px;
     }
     .sig-label {
       font-weight: 700;
-      margin-bottom: 10px;
-      font-size: 9.5pt;
+      margin-bottom: 8px;
+      font-size: 8pt;
       line-height: 1.3;
     }
     .sig-mark {
-      min-height: 32px;
-      font-family: "Segoe Script", "Brush Script MT", "Apple Chancery", cursive;
-      font-size: 14pt;
+      min-height: 22px;
+      font-family: Times, "Times New Roman", Georgia, serif;
+      font-size: 11pt;
       font-style: italic;
       border-bottom: 1px solid #111;
-      margin-bottom: 8px;
-      padding-bottom: 4px;
+      margin-bottom: 6px;
+      padding-bottom: 2px;
     }
     .sig-mark.empty { color: transparent; }
-    .sig-line {
-      margin-top: 4px;
-      line-height: 1.4;
-    }
+    .sig-line { margin-top: 4px; line-height: 1.4; }
     .doc-footer {
-      margin-top: 12px;
-      padding: 8px 2px 0;
+      padding: 8px 0 12mm;
       border-top: 0.6pt solid #D1D5DB;
       font-family: Helvetica, Arial, sans-serif;
       font-size: 8pt;
@@ -312,73 +338,75 @@ export function printCapexForm(detail: CapexFormDetail): void {
   </style>
 </head>
 <body>
-  <table class="chrome">
+  <table class="print">
     <thead>
-      <tr><td>
-        <header class="doc-header">
+      <tr>
+        <td colspan="3" class="banner">
           <div class="doc-header-row">
             <div class="brand">
               <div class="brand-logo">
-                <img src="${escapeHtml(logoUrl)}" alt="Takeda" />
+                <img src="${escapeHtml(logoUrl)}" alt="" />
               </div>
               <div class="brand-text">
-                <div class="product">Asset Tagging &amp; Tracking</div>
+                <div class="product">${product}</div>
                 <div class="title">Asset Capitalisation Form</div>
                 <div class="sub">${escapeHtml(detail.form_number)} · ${status}</div>
               </div>
             </div>
             <div class="meta">
               <div>Generated: <strong>${escapeHtml(printedAt)}</strong></div>
-              <div>Confidential — internal use only</div>
             </div>
           </div>
-        </header>
-      </td></tr>
+        </td>
+      </tr>
+      <tr class="gap"><td colspan="3"></td></tr>
+      <tr>
+        <th class="col c-no">Sr. No.</th>
+        <th class="col c-part">Particulars</th>
+        <th class="col c-det">Details</th>
+      </tr>
     </thead>
     <tbody>
-      <tr><td>
-        <div class="form-body">
-          <table class="form">
-            <thead>
-              <tr>
-                <th class="c-no">Sr. No.</th>
-                <th class="c-part">Particulars</th>
-                <th class="c-det">Details</th>
-              </tr>
-            </thead>
-            <tbody>${tableRows}</tbody>
-          </table>
-        </div>
-        <div class="sigs">${signCols}</div>
-      </td></tr>
+      ${tableRows}
+      <tr class="push"><td colspan="3"></td></tr>
+      ${
+        showSigns
+          ? `<tr class="sig-row"><td colspan="3"><div class="sigs">${signCols}</div></td></tr>`
+          : ""
+      }
     </tbody>
     <tfoot>
-      <tr><td>
-        <footer class="doc-footer">
-          <div class="left">
-            <div><strong>Takeda · Asset Tagging &amp; Tracking</strong></div>
-            <div>Confidential — internal use only</div>
+      <tr>
+        <td colspan="3">
+          <div class="doc-footer">
+            <div class="left">
+              <div><strong>${org} · ${product}</strong></div>
+              <div>${confidential}</div>
+            </div>
+            <div class="right">
+              <div>${generatedBy ? `Generated by ${generatedBy}` : "Generated by —"}</div>
+            </div>
           </div>
-          <div class="right">
-            <div>System-generated</div>
-          </div>
-        </footer>
-      </td></tr>
+        </td>
+      </tr>
     </tfoot>
   </table>
 </body>
 </html>`
 
   const FRAME_ID = "capex-print-frame"
+  const HIDDEN =
+    "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none"
+  const A4 =
+    "position:fixed;left:0;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none;z-index:-1"
   let iframe = document.getElementById(FRAME_ID) as HTMLIFrameElement | null
   if (!iframe) {
     iframe = document.createElement("iframe")
     iframe.id = FRAME_ID
     iframe.setAttribute("aria-hidden", "true")
-    iframe.style.cssText =
-      "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none"
     document.body.appendChild(iframe)
   }
+  iframe.style.cssText = A4
 
   const win = iframe.contentWindow
   const doc = iframe.contentDocument
@@ -389,7 +417,6 @@ export function printCapexForm(detail: CapexFormDetail): void {
   doc.open()
   doc.write(html)
   doc.close()
-  // Empty <title> falls back to the parent app title ("Takeda") in Chrome print headers.
   doc.title = "\u200B"
 
   const trigger = () => {
@@ -398,12 +425,49 @@ export function printCapexForm(detail: CapexFormDetail): void {
       win.print()
     } catch {
       throw new Error("Unable to open the system print dialog.")
+    } finally {
+      iframe.style.cssText = HIDDEN
     }
   }
 
-  if (doc.readyState === "complete") {
-    window.setTimeout(trigger, 150)
-  } else {
-    win.addEventListener("load", () => window.setTimeout(trigger, 150), { once: true })
+  const pinBottom = () => {
+    const pageH = iframe.clientHeight
+    const thead = doc.querySelector("table.print > thead")
+    const tfoot = doc.querySelector("table.print > tfoot")
+    const pushCell = doc.querySelector("tr.push td") as HTMLTableCellElement | null
+    if (!thead || !tfoot || !pushCell || pageH < 100) {
+      trigger()
+      return
+    }
+    let dataH = 0
+    doc.querySelectorAll("table.print > tbody > tr:not(.push):not(.sig-row)").forEach((tr) => {
+      dataH += tr.getBoundingClientRect().height
+    })
+    const theadH = thead.getBoundingClientRect().height
+    const tfootH = tfoot.getBoundingClientRect().height
+    const sig = doc.querySelector("tr.sig-row")
+    const sigH = sig ? sig.getBoundingClientRect().height : 0
+    const avail = pageH - theadH - tfootH
+    if (avail > 0) {
+      const leftover = dataH % avail
+      const usedOnLast = leftover === 0 && dataH > 0 ? 0 : leftover
+      let pushH = avail - usedOnLast - sigH
+      if (pushH < 0) pushH = Math.max(0, avail - sigH)
+      pushCell.style.height = `${Math.floor(pushH)}px`
+    }
+    window.setTimeout(trigger, 80)
   }
+
+  const start = () => {
+    const img = doc.querySelector(".brand-logo img") as HTMLImageElement | null
+    if (img && !img.complete) {
+      img.addEventListener("load", () => window.setTimeout(pinBottom, 50), { once: true })
+      img.addEventListener("error", () => window.setTimeout(pinBottom, 50), { once: true })
+      return
+    }
+    window.setTimeout(pinBottom, 50)
+  }
+
+  if (doc.readyState === "complete") start()
+  else win.addEventListener("load", start, { once: true })
 }

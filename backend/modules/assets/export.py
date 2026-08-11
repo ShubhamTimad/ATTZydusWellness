@@ -11,8 +11,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-from modules.assets.field_definitions import ASSET_EXPORT_FIELD_LABELS
+from modules.assets.field_definitions import ASSET_EXPORT_FIELD_LABELS, ASSET_REGISTER_PDF_LABELS
 from modules.assets.model import AssetMaster
+from modules.reports.pdf_chrome import apply_xlsx_print_chrome, write_xlsx_header
 
 
 def _format_cell(value: Any) -> str | int | float | None:
@@ -42,7 +43,7 @@ def asset_export_value(asset: AssetMaster, field: str) -> Any:
 
     values: dict[str, Any] = {
         "asset_name": asset.asset_name,
-        "asset_class_code": asset_class.code if asset_class else asset.asset_class,
+        "asset_class_code": (asset_class.name or asset_class.code) if asset_class else asset.asset_class,
         "asset_type": asset.asset_type,
         "asset_code": asset.asset_code,
         "combined_asset_number": asset.combined_asset_number,
@@ -93,38 +94,59 @@ def asset_export_value(asset: AssetMaster, field: str) -> Any:
     return values.get(field)
 
 
-def build_asset_export_xlsx(assets: list[AssetMaster], fields: list[str]) -> bytes:
+def build_asset_export_xlsx(
+    assets: list[AssetMaster], fields: list[str], *, generated_by: str = ""
+) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "Assets"
 
     headers = [ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title()) for key in fields]
-    ws.append(headers)
-    for col_idx, _ in enumerate(headers, start=1):
-        cell = ws.cell(row=1, column=col_idx)
-        cell.font = Font(bold=True)
+    ncols = max(len(headers), 4)
+    count = len(assets)
+    write_xlsx_header(
+        ws,
+        title="Asset register",
+        subtitle=f"{count} asset{'s' if count != 1 else ''}",
+        ncols=ncols,
+    )
+    ws.append([])
+    ws.append(headers + [""] * (ncols - len(headers)))
+    header_row = ws.max_row
+    for col_idx in range(1, len(headers) + 1):
+        ws.cell(row=header_row, column=col_idx).font = Font(bold=True)
 
     for asset in assets:
-        ws.append([_format_cell(asset_export_value(asset, key)) for key in fields])
+        row = [_format_cell(asset_export_value(asset, key)) for key in fields]
+        row.extend([None] * (ncols - len(row)))
+        ws.append(row)
 
     for col_idx, key in enumerate(fields, start=1):
+        if col_idx <= 2:
+            continue
         letter = get_column_letter(col_idx)
         max_len = len(headers[col_idx - 1])
-        for row in ws.iter_rows(min_col=col_idx, max_col=col_idx, min_row=2):
-            val = row[0].value
+        for excel_row in ws.iter_rows(min_col=col_idx, max_col=col_idx, min_row=header_row + 1):
+            val = excel_row[0].value
             if val is not None:
                 max_len = max(max_len, min(len(str(val)), 48))
         ws.column_dimensions[letter].width = max(10, min(max_len + 2, 42))
 
+    apply_xlsx_print_chrome(ws, ncols=ncols, generated_by=generated_by)
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
 
 
-def build_asset_export_pdf(assets: list[AssetMaster], fields: list[str]) -> bytes:
+def build_asset_export_pdf(
+    assets: list[AssetMaster], fields: list[str], *, generated_by: str = ""
+) -> bytes:
     from modules.reports.export import ReportDocument, build_pdf
 
-    headers = [ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title()) for key in fields]
+    headers = [
+        ASSET_REGISTER_PDF_LABELS.get(key) or ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title())
+        for key in fields
+    ]
     rows: list[list[str]] = []
     for asset in assets:
         row: list[str] = []
@@ -138,5 +160,7 @@ def build_asset_export_pdf(assets: list[AssetMaster], fields: list[str]) -> byte
             subtitle=f"{len(rows)} asset{'s' if len(rows) != 1 else ''}",
             headers=headers,
             rows=rows,
+            generated_by=generated_by,
+            force_portrait=True,
         )
     )

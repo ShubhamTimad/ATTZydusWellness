@@ -28,6 +28,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
+import type { CostCenterMaster } from "@/lib/masters-types"
 import {
   buildDisposalProgress,
   disposalStatusLabel,
@@ -139,10 +140,7 @@ export function DisposalOrderDetailPage() {
 
   const lookupPlantId = order?.can_edit ? editPlantId : (order?.plant_id ?? null)
   const masters = useAssetMasterLookups(lookupPlantId ?? null, null, functionalLocation || null)
-  const scrapyardCostCenters = React.useMemo(
-    () => masters.costCenters.filter((cc) => Boolean(cc.is_scrapyard) && cc.is_active !== false),
-    [masters.costCenters],
-  )
+  const [scrapyardCostCenters, setScrapyardCostCenters] = React.useState<CostCenterMaster[]>([])
   const scrapyardFunctionalLocations = React.useMemo(
     () =>
       masters.functionalLocations.filter(
@@ -187,6 +185,23 @@ export function DisposalOrderDetailPage() {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  React.useEffect(() => {
+    if (lookupPlantId == null) {
+      setScrapyardCostCenters([])
+      return
+    }
+    void getJson<CostCenterMaster[]>(
+      `/admin/asset-masters/cost-centers?plant_id=${lookupPlantId}&active_only=true&scrapyard_only=true`,
+    )
+      .then(setScrapyardCostCenters)
+      .catch(() => setScrapyardCostCenters([]))
+  }, [lookupPlantId])
+
+  React.useEffect(() => {
+    if (!order?.can_edit || toCostCenterId || scrapyardCostCenters.length !== 1) return
+    setToCostCenterId(String(scrapyardCostCenters[0]!.id))
+  }, [order?.can_edit, scrapyardCostCenters, toCostCenterId])
 
   const selectedIds = React.useMemo(() => new Set(editAssets.map((a) => a.asset_id)), [editAssets])
 
@@ -898,6 +913,7 @@ export function DisposalOrderDetailPage() {
                         setEditAssets([])
                         setFilterCostCenter("")
                         setAssetSearch("")
+                        setToCostCenterId("")
                       }}
                     >
                       <option value="">Select plant</option>

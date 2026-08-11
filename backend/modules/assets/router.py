@@ -277,6 +277,7 @@ def export_assets(
 @router.get("/fy-verification/export")
 def export_fy_verification(
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     _: Annotated[object, Depends(require_permission("asset.view"))],
     format: str = Query("xlsx", alias="format", pattern="^(?i)(xlsx|pdf)$"),
     fy_verification: str | None = Query("all"),
@@ -296,6 +297,7 @@ def export_fy_verification(
         plant_id=plant_id,
         category_id=category_id,
         search=search,
+        generated_by_user_id=int(current.subject),
     )
     return Response(
         content=content,

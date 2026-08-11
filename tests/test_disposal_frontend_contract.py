@@ -53,6 +53,15 @@ def test_synthetic_trailers_skipped_for_operational_kinds() -> None:
     assert "stepKindOf" in src
 
 
+def test_disposal_forms_load_scrapyard_cost_centers_without_assignment_scope() -> None:
+    root = Path(__file__).resolve().parents[1] / "frontend/src/pages/disposals"
+    create = (root / "disposal-create.tsx").read_text(encoding="utf-8")
+    detail = (root / "disposal-detail.tsx").read_text(encoding="utf-8")
+    marker = "scrapyard_only=true"
+    assert marker in create
+    assert marker in detail
+
+
 def test_rework_picker_keeps_pending_disposal_assets_on_same_order() -> None:
     """Removing an asset in rework must still allow re-adding it while it stays pending_disposal."""
     detail = (

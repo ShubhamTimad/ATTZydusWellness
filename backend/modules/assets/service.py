@@ -1871,10 +1871,13 @@ class AssetMasterService:
         rows = list(self._db.scalars(base.limit(max_rows)).unique().all())
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
         fmt = file_format.lower()
+        from modules.reports.export import actor_display_name
+
+        generated_by = actor_display_name(self._db, viewer_user_id)
         if fmt == "pdf":
-            content = build_asset_export_pdf(rows, export_fields)
+            content = build_asset_export_pdf(rows, export_fields, generated_by=generated_by)
             return content, f"asset-register-{stamp}.pdf", "application/pdf"
-        content = build_asset_export_xlsx(rows, export_fields)
+        content = build_asset_export_xlsx(rows, export_fields, generated_by=generated_by)
         filename = f"assets-export-{stamp}.xlsx"
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         return content, filename, media_type
@@ -1905,8 +1908,16 @@ class AssetMasterService:
         plant_id: int | None = None,
         category_id: int | None = None,
         search: str | None = None,
+        generated_by_user_id: int | None = None,
     ) -> tuple[bytes, str, str]:
-        from modules.reports.export import ReportDocument, build_pdf, build_xlsx, content_type_for_format, report_filename
+        from modules.reports.export import (
+            ReportDocument,
+            actor_display_name,
+            build_pdf,
+            build_xlsx,
+            content_type_for_format,
+            report_filename,
+        )
 
         export_mode = (fy_verification or "all").strip().lower()
         if export_mode not in {"verified", "pending", "all"}:
@@ -1991,6 +2002,7 @@ class AssetMasterService:
             summary=summary,
             headers=headers,
             rows=rows,
+            generated_by=actor_display_name(self._db, generated_by_user_id),
         )
         normalized = (fmt or "xlsx").strip().lower()
         if normalized == "pdf":

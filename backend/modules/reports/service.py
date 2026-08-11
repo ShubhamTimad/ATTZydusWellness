@@ -19,7 +19,6 @@ from modules.orders.constants import (
 )
 from modules.orders.model import PhysicalOrder
 from modules.platform.org_units.model import OrgUnit
-from modules.platform.users.model import User
 from modules.assets.fy_verification import resolve_verification_window, verified_asset_ids_in_window
 from modules.platform.settings.financial_year import resolve_financial_year_period
 from modules.reports.export import ReportDocument
@@ -89,15 +88,14 @@ class ReportService:
             )
         raise ValueError(f"Unknown report: {report_key}")
 
+    def _generated_by_name(self, user_id: int | None) -> str:
+        from modules.reports.export import actor_display_name
+
+        return actor_display_name(self._db, user_id)
+
     def _generated_by_label(self, user_id: int | None) -> str:
-        if user_id is None:
-            return "—"
-        user = self._db.get(User, user_id)
-        if user is None:
-            return "—"
-        if user.email:
-            return f"{user.full_name} ({user.email})"
-        return user.full_name
+        name = self._generated_by_name(user_id)
+        return name or "—"
 
     def _plant_filter_label(self, plant_id: int | None) -> str:
         if plant_id is None:
@@ -202,6 +200,7 @@ class ReportService:
             summary=summary,
             headers=headers,
             rows=data,
+            generated_by=self._generated_by_name(generated_by_user_id),
         )
 
     def _orders_base_query(self, *, plant_id: int | None, status: str | None):
@@ -275,6 +274,7 @@ class ReportService:
             summary=summary,
             headers=headers,
             rows=data,
+            generated_by=self._generated_by_name(generated_by_user_id),
         )
 
 

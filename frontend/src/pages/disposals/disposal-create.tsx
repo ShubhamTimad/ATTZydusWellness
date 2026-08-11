@@ -26,6 +26,7 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import type { DisposalOrderDetail } from "@/lib/disposal-types"
+import type { CostCenterMaster } from "@/lib/masters-types"
 import { hasPermission } from "@/lib/permissions"
 import { plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
@@ -83,10 +84,7 @@ export function DisposalOrderCreatePage() {
   const [pickerOpen, setPickerOpen] = React.useState(false)
 
   const masters = useAssetMasterLookups(plantId)
-  const scrapyardCostCenters = React.useMemo(
-    () => masters.costCenters.filter((cc) => Boolean(cc.is_scrapyard) && cc.is_active !== false),
-    [masters.costCenters],
-  )
+  const [scrapyardCostCenters, setScrapyardCostCenters] = React.useState<CostCenterMaster[]>([])
   const selectedIds = React.useMemo(() => new Set(selected.map((a) => a.id)), [selected])
   const canSubmitWithEngineering = hasPermission("disposal.submit_with_engineering")
 
@@ -137,6 +135,23 @@ export function DisposalOrderCreatePage() {
     if (plantId != null || masters.plants.length !== 1) return
     setPlantId(masters.plants[0]!.id)
   }, [plantId, masters.plants])
+
+  React.useEffect(() => {
+    if (plantId == null) {
+      setScrapyardCostCenters([])
+      return
+    }
+    void getJson<CostCenterMaster[]>(
+      `/admin/asset-masters/cost-centers?plant_id=${plantId}&active_only=true&scrapyard_only=true`,
+    )
+      .then(setScrapyardCostCenters)
+      .catch(() => setScrapyardCostCenters([]))
+  }, [plantId])
+
+  React.useEffect(() => {
+    if (toCostCenterId || scrapyardCostCenters.length !== 1) return
+    setToCostCenterId(String(scrapyardCostCenters[0]!.id))
+  }, [scrapyardCostCenters, toCostCenterId])
 
   React.useEffect(() => {
     if (!showCatalog || plantId == null) {

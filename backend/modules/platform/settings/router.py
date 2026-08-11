@@ -1,13 +1,17 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
+from core.auth import CurrentUser, get_current_user
 from core.permissions import require_any_permission, require_permission
 from db.session import get_db
+
 from modules.platform.settings.schema import (
     AuthPolicyPublic,
+    DocumentFormatPublic,
     EmailDeliveryPublic,
     EmailDeliveryTestRequest,
     FinancialYearSettingsPublic,
@@ -139,3 +143,60 @@ def put_financial_year(
     _: SettingsWrite,
 ) -> FinancialYearSettingsPublic:
     return svc.put_financial_year(payload)
+
+
+@router.get("/document-format", response_model=DocumentFormatPublic)
+def get_document_format(
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: SettingsRead,
+) -> DocumentFormatPublic:
+    return svc.get_document_format()
+
+
+@router.put("/document-format", response_model=DocumentFormatPublic)
+def put_document_format(
+    payload: DocumentFormatPublic,
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: SettingsWrite,
+) -> DocumentFormatPublic:
+    return svc.put_document_format(payload)
+
+
+@router.post("/document-format/preview")
+def preview_document_format(
+    payload: DocumentFormatPublic,
+    _: SettingsRead,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    fmt: Annotated[str, Query(pattern="^(pdf|xlsx)$")] = "pdf",
+) -> Response:
+    from modules.platform.settings.document_format import previewing
+    from modules.reports.export import ReportDocument, actor_display_name, build_pdf, build_xlsx, content_type_for_format
+
+    try:
+        user_id = int(current.subject)
+    except (TypeError, ValueError):
+        user_id = None
+    sample = ReportDocument(
+        title="Sample report",
+        subtitle="Preview of current (unsaved) format",
+        headers=["Asset name", "Plant", "Status"],
+        rows=[["Filling line 1", "Goa", "Active"], ["HVAC unit", "Goa", "Active"]],
+        summary=(("Records", "2"),),
+        show_signatures=True,
+        signature_blocks=(
+            ("Signature of User", "A. Sharma", "11.08.2026"),
+            ("Signature of Plant Head", "", ""),
+            ("Signature of Finance", "", ""),
+        ),
+        generated_by=actor_display_name(db, user_id),
+    )
+    with previewing(payload):
+        content = build_xlsx(sample) if fmt == "xlsx" else build_pdf(sample)
+    filename = "document-format-preview.xlsx" if fmt == "xlsx" else "document-format-preview.pdf"
+    disposition = "attachment" if fmt == "xlsx" else "inline"
+    return Response(
+        content=content,
+        media_type=content_type_for_format(fmt),
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+    )

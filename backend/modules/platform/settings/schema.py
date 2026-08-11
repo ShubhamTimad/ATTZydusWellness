@@ -58,6 +58,25 @@ class SessionIdleSettingsPublic(BaseModel):
     )
 
 
+class DocumentSignatureFlags(BaseModel):
+    """Which print/PDF flows render approval signature lines above the footer."""
+
+    capex: bool = True
+    reports: bool = False
+    transfer: bool = False
+    disposal: bool = False
+
+
+class DocumentFormatPublic(BaseModel):
+    """Shared PDF/Excel header-footer copy. Used by reports and CapEx print."""
+
+    org_name: str = Field(default="Takeda", max_length=80)
+    product_name: str = Field(default="Asset Tagging & Tracking", max_length=120)
+    confidential_line: str = Field(default="Confidential — internal use only", max_length=160)
+    excel_include_title: bool = True
+    signatures: DocumentSignatureFlags = Field(default_factory=DocumentSignatureFlags)
+
+
 class FinancialYearSettingsPublic(BaseModel):
     """Inclusive start date; end is the day before the next year's start."""
 

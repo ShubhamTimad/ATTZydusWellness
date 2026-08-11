@@ -21,7 +21,7 @@ export type TransferOrderStatus =
   | "closed"
   | "cancelled"
 
-/** Plant cost centers for transfer destination (not scoped to the viewer's CCs). */
+/** Plant cost centers for transfer destination (not viewer-scoped; scrapyards excluded). */
 export type TransferDestinationCostCenter = {
   id: number
   code: string

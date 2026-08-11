@@ -329,7 +329,30 @@ ASSET_IMPORT_TEMPLATE_FIELDS: list[str] = [
     "life_span",
 ]
 
-# Asset register report — fixed PDF columns / Excel pre-selection.
+# Asset register PDF — fixed A4 columns.
+ASSET_REGISTER_PDF_FIELDS: list[str] = [
+    "asset_name",
+    "asset_class_code",
+    "category_code",
+    "combined_asset_number",
+    "cost_center",
+    "asset_custodian_code",
+    "asset_condition_code",
+    "gross_block",
+]
+
+ASSET_REGISTER_PDF_LABELS: dict[str, str] = {
+    "asset_name": "Asset Name",
+    "asset_class_code": "Asset Class",
+    "category_code": "Asset Category",
+    "combined_asset_number": "Combined Asset No",
+    "cost_center": "Cost Center",
+    "asset_custodian_code": "Asset Custodian",
+    "asset_condition_code": "Physical Condition",
+    "gross_block": "APC-IGAAP",
+}
+
+# Asset register Excel pre-selection.
 ASSET_REGISTER_DEFAULT_FIELDS: list[str] = [
     "asset_name",
     "asset_description",

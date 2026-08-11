@@ -390,6 +390,24 @@ export async function deleteJson(
   }
 }
 
+export async function postBlob(path: string, body: object): Promise<Blob> {
+  const res = await fetchWithAuth({
+    path,
+    init: {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    const data = parseResponseBody(text)
+    maybeDispatchAuthLogout(res.status, data, path)
+    throw new ApiError(parseErrorMessage(data, res.status), res.status, data)
+  }
+  return res.blob()
+}
+
 export async function getBlob(path: string): Promise<Blob> {
   const res = await fetchWithAuth({ path, init: { method: "GET" } })
   if (!res.ok) {

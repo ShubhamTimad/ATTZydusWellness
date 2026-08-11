@@ -400,7 +400,19 @@ export const ASSET_EXPORT_FIELD_LABELS: Record<string, string> = {
   current_apc_igaap: "Current APC-IGAAP",
 }
 
-/** Pre-checked columns when opening Asset register. */
+/** Fixed columns for Asset register PDF (A4 portrait). */
+export const ASSET_REGISTER_PDF_FIELDS = [
+  "asset_name",
+  "asset_class_code",
+  "category_code",
+  "combined_asset_number",
+  "cost_center",
+  "asset_custodian_code",
+  "asset_condition_code",
+  "gross_block",
+] as const
+
+/** Pre-checked columns when opening Asset register Excel. */
 export const ASSET_REGISTER_DEFAULT_FIELDS = [
   "asset_name",
   "asset_description",

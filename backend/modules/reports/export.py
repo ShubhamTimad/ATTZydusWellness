@@ -21,7 +21,10 @@ from modules.reports.pdf_chrome import (
     FOOTER_BAND,
     HEADER_BAND,
     PAGE_MARGIN,
+    SIG_BAND,
+    apply_xlsx_print_chrome,
     format_generated_at,
+    write_xlsx_header,
 )
 
 ROW_ALT = colors.HexColor("#F8FAFC")
@@ -34,6 +37,15 @@ MAX_COL_WIDTH = 110
 
 _COMPACT_HEADERS = frozenset({"plant", "status", "scans in period", "scans", "fy status"})
 _MEDIUM_HEADERS = frozenset({"asset code", "rfid code", "rfid", "last verification", "scan time", "created at", "completed at"})
+_ID_HEADERS = frozenset({
+    "asset class",
+    "asset category",
+    "combined asset no",
+    "cost center",
+    "asset custodian",
+    "physical condition",
+    "apc-igaap",
+})
 _FLEXIBLE_HEADERS = frozenset({"asset name", "order number", "rejection reason", "description", "functional location", "actual location"})
 
 
@@ -43,8 +55,14 @@ def _header_key(header: str) -> str:
 
 def _column_bounds(header: str, available_width: float) -> tuple[float, float]:
     key = _header_key(header)
+    if key == "asset name":
+        return 64, min(available_width * 0.20, 96)
+    if key == "asset class":
+        return 68, 102
     if key in _FLEXIBLE_HEADERS:
-        return 72, available_width * 0.45
+        return 64, available_width * 0.32
+    if key in _ID_HEADERS:
+        return 56, 84
     if key in _COMPACT_HEADERS:
         return 28, 58
     if key in _MEDIUM_HEADERS or "verification" in key or "date" in key:
@@ -59,6 +77,21 @@ class ReportDocument:
     headers: list[str]
     rows: list[list[str]]
     summary: tuple[tuple[str, str], ...] = ()
+    show_signatures: bool | None = None
+    signature_blocks: tuple[tuple[str, str, str], ...] = ()
+    generated_by: str = ""
+    force_portrait: bool = False
+
+
+def actor_display_name(db, user_id: int | None) -> str:
+    if user_id is None:
+        return ""
+    from modules.platform.users.model import User
+
+    user = db.get(User, user_id)
+    if user is None:
+        return ""
+    return (user.full_name or user.email or "").strip()
 
 
 def _safe_cell(value: str | None) -> str:
@@ -92,7 +125,6 @@ def _pdf_styles() -> dict[str, ParagraphStyle]:
             leading=9,
             textColor=colors.HexColor("#111827"),
             alignment=TA_LEFT,
-            wordWrap="LTR",
         ),
         "summary_label": ParagraphStyle(
             "ReportSummaryLabel",
@@ -125,13 +157,17 @@ def _column_weights(headers: list[str], rows: list[list[str]]) -> list[float]:
     weights: list[float] = []
     for idx, header in enumerate(headers):
         key = _header_key(header)
-        content_cap = 80 if key == "asset name" else 48
+        content_cap = 22 if key == "asset name" else 18 if key in _ID_HEADERS else 48
         max_len = len(header)
         for row in rows:
             if idx < len(row):
                 cell = _safe_cell(row[idx])
                 max_len = max(max_len, min(len(cell), content_cap))
-        if key in _FLEXIBLE_HEADERS:
+        if key == "asset name":
+            max_len = min(max(max_len, 16), 22)
+        if key in _ID_HEADERS:
+            max_len = max(max_len, 14)
+        if key in _FLEXIBLE_HEADERS and key != "asset name":
             max_len = max(max_len, 24)
         if key in _COMPACT_HEADERS:
             max_len = min(max_len, 10)
@@ -173,13 +209,16 @@ def _column_widths(headers: list[str], rows: list[list[str]], available_width: f
 
     remainder = available_width - sum(widths)
     if abs(remainder) > 0.5:
-        flex_indices = [i for i, header in enumerate(headers) if _header_key(header) in _FLEXIBLE_HEADERS]
-        if flex_indices:
-            flex_weight = sum(weights[i] for i in flex_indices) or 1.0
-            for i in flex_indices:
-                widths[i] += remainder * (weights[i] / flex_weight)
-        elif widths:
-            widths[0] += remainder
+        sink = [
+            i
+            for i in range(len(widths))
+            if (remainder > 0 and widths[i] < maxs[i] - 0.5) or (remainder < 0 and widths[i] > mins[i] + 0.5)
+        ]
+        if not sink:
+            sink = list(range(len(widths)))
+        share = remainder / len(sink)
+        for i in sink:
+            widths[i] += share
 
     return widths
 
@@ -216,30 +255,39 @@ def _pdf_data_table(
 
 
 def build_xlsx(document: ReportDocument) -> bytes:
+    from modules.platform.settings.document_format import get_document_format
+
     wb = Workbook()
     ws = wb.active
     ws.title = "Report"
-
-    ws.append([document.title])
-    ws.append([document.subtitle])
-    ws["A1"].font = Font(bold=True, size=14)
-    ws["A2"].font = Font(size=10)
+    ncols = max(len(document.headers), 4)
+    write_xlsx_header(ws, title=document.title, subtitle=document.subtitle, ncols=ncols)
 
     if document.summary:
         ws.append([])
         for label, value in document.summary:
             ws.append([label, value])
-        for row_idx in range(4, 4 + len(document.summary)):
-            ws[f"A{row_idx}"].font = Font(bold=True)
+            ws[f"A{ws.max_row}"].font = Font(bold=True)
 
     ws.append([])
-    ws.append(document.headers)
+    padded_headers = list(document.headers) + [""] * (ncols - len(document.headers))
+    ws.append(padded_headers)
     header_row = ws.max_row
-    for cell in ws[header_row]:
+    for cell in ws[header_row][: len(document.headers)]:
         cell.font = Font(bold=True)
 
     for row in document.rows:
-        ws.append([_safe_cell(v) for v in row])
+        cells = [_safe_cell(v) for v in row]
+        cells.extend([""] * (ncols - len(cells)))
+        ws.append(cells)
+
+    show_sigs = (
+        document.show_signatures
+        if document.show_signatures is not None
+        else get_document_format().signatures.reports
+    )
+    if show_sigs:
+        _xlsx_signature_rows(ws, document.signature_blocks)
 
     for col_idx, header in enumerate(document.headers, start=1):
         key = _header_key(header)
@@ -253,11 +301,26 @@ def build_xlsx(document: ReportDocument) -> bytes:
             width_cap = 16
         else:
             width_cap = 48
-        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, width_cap)
+        if col_idx > 2:
+            ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, width_cap)
 
+    apply_xlsx_print_chrome(ws, ncols=ncols, generated_by=document.generated_by)
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def _xlsx_signature_rows(ws, blocks: tuple[tuple[str, str, str], ...]) -> None:
+    items = blocks or (("Prepared by", "", ""), ("Approved by", "", ""))
+    ws.append([])
+    ws.append([label for label, _n, _d in items])
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True, size=9)
+    ws.append([name or "" for _l, name, _d in items])
+    for cell in ws[ws.max_row]:
+        cell.font = Font(italic=True, size=11)
+    ws.append([f"Name: {name}" if name else "Name:" for _l, name, _d in items])
+    ws.append([f"Date: {date}" if date else "Date:" for _l, _n, date in items])
 
 
 def _pdf_summary_block(
@@ -297,16 +360,24 @@ def _pdf_summary_block(
 
 
 def build_pdf(document: ReportDocument) -> bytes:
+    from modules.platform.settings.document_format import get_document_format
+
     buf = io.BytesIO()
-    page_size = landscape(A4) if len(document.headers) > 4 else A4
+    page_size = A4 if document.force_portrait or len(document.headers) <= 4 else landscape(A4)
     generated_at = format_generated_at()
+    show_sigs = (
+        document.show_signatures
+        if document.show_signatures is not None
+        else get_document_format().signatures.reports
+    )
+    bottom = PDF_MARGIN + FOOTER_BAND + (SIG_BAND if show_sigs else 0)
     pdf = SimpleDocTemplate(
         buf,
         pagesize=page_size,
         leftMargin=PDF_MARGIN,
         rightMargin=PDF_MARGIN,
         topMargin=PDF_MARGIN + HEADER_BAND,
-        bottomMargin=PDF_MARGIN + FOOTER_BAND,
+        bottomMargin=bottom,
     )
     styles = _pdf_styles()
     available_width = page_size[0] - pdf.leftMargin - pdf.rightMargin
@@ -327,6 +398,9 @@ def build_pdf(document: ReportDocument) -> bytes:
             header_title=document.title,
             header_subtitle=document.subtitle,
             generated_at=generated_at,
+            generated_by=document.generated_by,
+            signature_blocks=document.signature_blocks,
+            show_signatures=show_sigs,
             **kwargs,
         )
 

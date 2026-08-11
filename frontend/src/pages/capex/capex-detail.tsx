@@ -228,11 +228,9 @@ export function CapexDetailPage() {
   function handleToolbarAction(actionId: string) {
     if (actionId === "print") {
       if (!detail) return
-      try {
-        printCapexForm(detail)
-      } catch (e) {
+      void printCapexForm(detail).catch((e) => {
         toast.error(e instanceof Error ? e.message : "Unable to open print dialog.")
-      }
+      })
       return
     }
     if (actionId === "save") {

@@ -19,7 +19,7 @@ class TransferAssigneeListResponse(BaseModel):
 
 
 class TransferDestinationCostCenter(BaseModel):
-    """Plant cost centers for transfer destination (not scoped to the viewer's CCs)."""
+    """Plant cost centers for transfer destination (not viewer-scoped; scrapyards excluded)."""
 
     id: int
     code: str

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -15,6 +17,7 @@ from modules.platform.settings.lookup import clear_setting_cache
 from modules.platform.settings.model import Setting
 from modules.platform.settings.schema import (
     AuthPolicyPublic,
+    DocumentFormatPublic,
     EmailDeliveryPublic,
     FinancialYearSettingsPublic,
     PasswordPolicyPublic,
@@ -189,6 +192,26 @@ class SettingsService:
         self._db.commit()
         clear_setting_cache(*[k for k, _ in mapping])
         return self.get_financial_year()
+
+    def get_document_format(self) -> DocumentFormatPublic:
+        from modules.platform.settings.document_format import get_document_format
+
+        return get_document_format()
+
+    def put_document_format(self, payload: DocumentFormatPublic) -> DocumentFormatPublic:
+        from modules.platform.settings.document_format import SETTING_KEY
+
+        cleaned = DocumentFormatPublic(
+            org_name=payload.org_name.strip() or "Takeda",
+            product_name=payload.product_name.strip() or "Asset Tagging & Tracking",
+            confidential_line=payload.confidential_line.strip() or "Confidential — internal use only",
+            excel_include_title=payload.excel_include_title,
+            signatures=payload.signatures,
+        )
+        self._upsert(SETTING_KEY, json.dumps(cleaned.model_dump(), separators=(",", ":")))
+        self._db.commit()
+        clear_setting_cache(SETTING_KEY)
+        return cleaned
 
     def _stored_smtp_password(self) -> str | None:
         row = self._db.scalar(select(Setting).where(Setting.key == "smtp.password"))
