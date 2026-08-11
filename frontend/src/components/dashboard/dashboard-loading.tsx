@@ -1,15 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton"
 
-function HeroSkeleton() {
-  return (
-    <div className="app-grid app-grid-3">
-      {Array.from({ length: 3 }).map((_, i) => (
-        <Skeleton key={i} className="h-[9.5rem] rounded-[var(--app-radius-surface)]" />
-      ))}
-    </div>
-  )
-}
-
 function PanelSkeleton({ kpiCount = 4, chartCount = 0 }: { kpiCount?: number; chartCount?: 0 | 1 | 2 }) {
   return (
     <div className="app-panel overflow-hidden">
@@ -46,7 +36,6 @@ function PanelSkeleton({ kpiCount = 4, chartCount = 0 }: { kpiCount?: number; ch
 export function DashboardLoading() {
   return (
     <div className="flex flex-col gap-[var(--app-section-gap)]">
-      <HeroSkeleton />
       <PanelSkeleton kpiCount={4} chartCount={2} />
       <div className="grid gap-[var(--app-section-gap)] xl:grid-cols-2">
         <PanelSkeleton kpiCount={3} />

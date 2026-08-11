@@ -35,7 +35,7 @@ export function DashboardPanel({
       ) : null}
 
       <div className="app-panel-header relative shrink-0">
-        <div className="flex min-w-0 items-start gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           {Icon && theme ? (
             <div
               className={cn(
@@ -47,80 +47,13 @@ export function DashboardPanel({
             </div>
           ) : null}
           <div className="min-w-0">
-            {theme?.tag ? (
-              <span className="inline-flex rounded-full border border-border/60 bg-background/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                {theme.tag}
-              </span>
-            ) : null}
-            <h2 className={cn("app-panel-title", theme?.tag && "mt-1")}>{title}</h2>
+            <h2 className="app-panel-title">{title}</h2>
             {description ? <p className="app-panel-description mt-0.5">{description}</p> : null}
           </div>
         </div>
       </div>
       <div className="app-dashboard-panel-body relative flex min-h-0 flex-1 flex-col">{children}</div>
     </section>
-  )
-}
-
-export function HeroStatCard({
-  theme,
-  label,
-  value,
-  hint,
-  compact = false,
-}: {
-  theme: DashboardPanelTheme
-  label: string
-  value: React.ReactNode
-  hint?: string
-  compact?: boolean
-}) {
-  const Icon = theme.icon
-
-  return (
-    <div
-      className={cn(
-        "app-hero-stat relative overflow-hidden rounded-[var(--app-radius-surface)] border shadow-[var(--app-shadow-surface)]",
-        theme.surface,
-      )}
-    >
-      <div className={cn("h-0.5 w-full bg-gradient-to-r", theme.accentBar)} aria-hidden />
-      {theme.pattern ? (
-        <div className={cn("pointer-events-none absolute inset-0", theme.pattern)} aria-hidden />
-      ) : null}
-      <div className={cn("relative", compact ? "p-3.5" : "p-5")}>
-        <div className={cn("min-w-0", compact ? "space-y-2" : "space-y-3")}>
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "flex items-center justify-center rounded-lg ring-1 ring-inset",
-                compact ? "size-8" : "size-10 rounded-xl",
-                theme.iconWrap,
-              )}
-            >
-              <Icon className={compact ? "size-4" : "size-5"} aria-hidden />
-            </div>
-            <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-              {theme.tag}
-            </span>
-          </div>
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">{label}</p>
-            <p
-              className={cn(
-                "mt-0.5 font-semibold tracking-tight text-foreground tabular-nums",
-                compact ? "text-2xl" : "text-3xl sm:text-4xl",
-              )}
-            >
-              {value}
-            </p>
-            {hint ? (
-              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">{hint}</p>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
   )
 }
 
@@ -163,6 +96,39 @@ export function KpiCard({
 
 export function KpiGrid({ children, className }: { children: React.ReactNode; className?: string }) {
   return <div className={cn("app-grid app-grid-kpi", className)}>{children}</div>
+}
+
+export function StatBreakdown({
+  items,
+}: {
+  items: { label: string; value: React.ReactNode; share?: number; color: string }[]
+}) {
+  return (
+    <ul className="space-y-3">
+      {items.map((item) => {
+        const share = item.share == null ? null : Math.max(0, Math.min(100, item.share))
+        return (
+          <li key={item.label} className="space-y-1.5">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+                {item.label}
+              </span>
+              <span className="text-sm font-semibold tabular-nums text-foreground">{item.value}</span>
+            </div>
+            {share != null && share > 0 ? (
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted/70">
+                <div
+                  className="h-full rounded-full transition-[width] duration-500"
+                  style={{ width: `${share}%`, backgroundColor: item.color }}
+                />
+              </div>
+            ) : null}
+          </li>
+        )
+      })}
+    </ul>
+  )
 }
 
 export function StatChipRow({ children, className }: { children: React.ReactNode; className?: string }) {

@@ -172,10 +172,6 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .app-hero-stat {
-    background-color: var(--card);
-  }
-
   .app-chart-card {
     border-radius: var(--app-radius-surface);
     border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);

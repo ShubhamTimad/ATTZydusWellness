@@ -375,6 +375,8 @@ export type AssetAuditEvent = {
 export type AssetsDashboardModule = {
   total_assets: number
   active_assets: number
+  approved_assets: number
+  verified_in_fy: number
   rfid_tagged: number
   rfid_not_tagged: number
   rfid_coverage_pct: number
@@ -403,5 +405,6 @@ export type ItDashboardModule = {
   active_users: number
   inactive_users: number
   new_users_last_7_days: number
-  users_by_role: { role: string; count: number }[]
+  without_role: number
+  mfa_pending: number
 }

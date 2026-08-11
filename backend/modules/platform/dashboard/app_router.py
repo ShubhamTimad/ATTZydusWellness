@@ -27,9 +27,9 @@ from modules.assets.fy_verification import (
     resolve_verification_window,
 )
 from modules.platform.settings.financial_year import financial_year_period_for
+from modules.platform.mfa.model import UserMfa
 from modules.platform.users.model import User
 from modules.platform.users.scope import load_viewer_org_scope
-from modules.platform.roles.model import Role
 from modules.rbac_association import user_role
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -76,6 +76,35 @@ def _rfid_asset_filters():
         AssetMaster.rfid_code.isnot(None),
         AssetMaster.rfid_code != "",
     )
+
+
+def _approved_asset_filters():
+    return (
+        *_active_asset_filters(),
+        AssetMaster.approval_status.in_(("approved", "not_required")),
+    )
+
+
+def _approved_fy_core(db: Session) -> tuple[int, int, Any, Any]:
+    approved_total = int(
+        db.scalar(select(func.count()).select_from(AssetMaster).where(*_approved_asset_filters())) or 0
+    )
+    period = financial_year_period_for()
+    verified_in_fy_cond = and_(
+        AssetInventoryInformation.last_verification_date.isnot(None),
+        AssetInventoryInformation.last_verification_date >= period.start,
+        AssetInventoryInformation.last_verification_date <= period.end,
+    )
+    verified_in_fy = int(
+        db.scalar(
+            select(func.count())
+            .select_from(AssetMaster)
+            .join(AssetInventoryInformation, AssetInventoryInformation.asset_id == AssetMaster.id)
+            .where(*_approved_asset_filters(), verified_in_fy_cond)
+        )
+        or 0
+    )
+    return approved_total, verified_in_fy, period, verified_in_fy_cond
 
 
 def _has_rfid_condition():
@@ -182,10 +211,21 @@ def _assets_module(db: Session) -> dict[str, Any]:
         db.scalar(select(func.count()).select_from(AssetMaster).where(*_active_asset_filters())) or 0
     )
     rfid_tagged = int(
+        db.scalar(
+            select(func.count())
+            .select_from(AssetMaster)
+            .where(
+                AssetMaster.deleted_at.is_(None),
+                _has_rfid_condition(),
+            )
+        )
+        or 0
+    )
+    rfid_tagged_active = int(
         db.scalar(select(func.count()).select_from(AssetMaster).where(*_rfid_asset_filters())) or 0
     )
-    rfid_not_tagged = max(active_assets - rfid_tagged, 0)
-    rfid_coverage_pct = round((rfid_tagged / active_assets) * 100, 1) if active_assets else 0.0
+    rfid_not_tagged = max(active_assets - rfid_tagged_active, 0)
+    rfid_coverage_pct = round((rfid_tagged_active / active_assets) * 100, 1) if active_assets else 0.0
     pending_approvals = int(
         db.scalar(
             select(func.count())
@@ -253,9 +293,26 @@ def _assets_module(db: Session) -> dict[str, Any]:
         .group_by(OrgUnit.name)
         .order_by(func.sum(case((_has_rfid_condition(), 1), else_=0)).desc())
     ).all()
+    approved_assets = int(
+        db.scalar(
+            select(func.count())
+            .select_from(
+                select(AssetMaster.id)
+                .where(
+                    AssetMaster.deleted_at.is_(None),
+                    func.lower(func.trim(AssetMaster.approval_status)) == "approved",
+                )
+                .subquery()
+            )
+        )
+        or 0
+    )
+    _, verified_in_fy, _, _ = _approved_fy_core(db)
     return {
         "total_assets": total_assets,
         "active_assets": active_assets,
+        "approved_assets": approved_assets,
+        "verified_in_fy": verified_in_fy,
         "rfid_tagged": rfid_tagged,
         "rfid_not_tagged": rfid_not_tagged,
         "rfid_coverage_pct": rfid_coverage_pct,
@@ -275,28 +332,10 @@ def _assets_module(db: Session) -> dict[str, Any]:
     }
 
 
-def _financial_year_module(db: Session, *, rfid_tagged: int | None = None) -> dict[str, Any]:
-    if rfid_tagged is None:
-        rfid_tagged = int(
-            db.scalar(select(func.count()).select_from(AssetMaster).where(*_rfid_asset_filters())) or 0
-        )
-    period = financial_year_period_for()
-    verified_in_fy_cond = and_(
-        AssetInventoryInformation.last_verification_date.isnot(None),
-        AssetInventoryInformation.last_verification_date >= period.start,
-        AssetInventoryInformation.last_verification_date <= period.end,
-    )
-    verified_in_fy = int(
-        db.scalar(
-            select(func.count())
-            .select_from(AssetMaster)
-            .join(AssetInventoryInformation, AssetInventoryInformation.asset_id == AssetMaster.id)
-            .where(*_rfid_asset_filters(), verified_in_fy_cond)
-        )
-        or 0
-    )
-    pending_fy_verification = max(rfid_tagged - verified_in_fy, 0)
-    coverage_pct = round((verified_in_fy / rfid_tagged) * 100, 1) if rfid_tagged else 0.0
+def _financial_year_module(db: Session) -> dict[str, Any]:
+    approved_total, verified_in_fy, period, verified_in_fy_cond = _approved_fy_core(db)
+    pending_fy_verification = max(approved_total - verified_in_fy, 0)
+    coverage_pct = round((verified_in_fy / approved_total) * 100, 1) if approved_total else 0.0
     total_fy_verification_events = count_total_verification_events(
         db, resolve_verification_window(period)
     )
@@ -310,7 +349,7 @@ def _financial_year_module(db: Session, *, rfid_tagged: int | None = None) -> di
         .join(AssetInventoryInformation, AssetInventoryInformation.asset_id == AssetMaster.id)
         .join(AssetLocationInformation, AssetLocationInformation.asset_id == AssetMaster.id, isouter=True)
         .join(OrgUnit, OrgUnit.id == AssetLocationInformation.plant_id, isouter=True)
-        .where(*_rfid_asset_filters())
+        .where(*_approved_asset_filters())
         .group_by(OrgUnit.name)
         .order_by(func.sum(case((~verified_in_fy_cond, 1), else_=0)).desc())
     ).all()
@@ -318,7 +357,7 @@ def _financial_year_module(db: Session, *, rfid_tagged: int | None = None) -> di
         "label": period.label,
         "start": period.start.isoformat(),
         "end": period.end.isoformat(),
-        "total_rfid_assets": rfid_tagged,
+        "total_rfid_assets": approved_total,
         "verified_in_fy": verified_in_fy,
         "pending_fy_verification": pending_fy_verification,
         "total_fy_verification_events": total_fy_verification_events,
@@ -335,7 +374,7 @@ def _financial_year_module(db: Session, *, rfid_tagged: int | None = None) -> di
 
 
 def _it_module(db: Session) -> dict[str, Any]:
-    """IT admin section: user account health (active / inactive, roles, recent creates)."""
+    """IT admin section: user account health (active, inactive, onboarding, MFA, roles)."""
     total = int(db.scalar(select(func.count()).select_from(User)) or 0)
     active = int(
         db.scalar(select(func.count()).select_from(User).where(User.is_active.is_(True))) or 0
@@ -350,22 +389,31 @@ def _it_module(db: Session) -> dict[str, Any]:
         )
         or 0
     )
-    by_role_rows = db.execute(
-        select(Role.name, func.count(user_role.c.user_id.distinct()))
-        .select_from(user_role)
-        .join(Role, Role.id == user_role.c.role_id)
-        .group_by(Role.name)
-        .order_by(func.count(user_role.c.user_id.distinct()).desc())
-    ).all()
+    assigned = select(user_role.c.user_id)
+    without_role = int(
+        db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.is_active.is_(True), User.id.not_in(assigned))
+        )
+        or 0
+    )
+    mfa_done = select(UserMfa.user_id).where(UserMfa.setup_completed.is_(True))
+    mfa_pending = int(
+        db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.is_active.is_(True), User.id.not_in(mfa_done))
+        )
+        or 0
+    )
     return {
         "total_users": total,
         "active_users": active,
         "inactive_users": inactive,
         "new_users_last_7_days": new_users,
-        "users_by_role": [
-            {"role": str(name or "Unassigned"), "count": int(count)}
-            for name, count in by_role_rows
-        ],
+        "without_role": without_role,
+        "mfa_pending": mfa_pending,
     }
 
 
@@ -441,10 +489,7 @@ def get_dashboard_summary(
     if can_assets:
         modules["assets"] = _assets_module(db)
     if can_fy:
-        rfid_tagged = None
-        if "assets" in modules:
-            rfid_tagged = int(modules["assets"]["rfid_tagged"])
-        modules["financial_year"] = _financial_year_module(db, rfid_tagged=rfid_tagged)
+        modules["financial_year"] = _financial_year_module(db)
     if can_transfers:
         modules["transfers"] = _workflow_order_module(
             db, AssetTransferOrder, closed=_TRANSFER_CLOSED, action=_TRANSFER_OPEN_ACTION

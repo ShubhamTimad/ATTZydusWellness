@@ -2,7 +2,6 @@ import * as React from "react"
 
 import { AssetDashboard } from "@/components/dashboard/asset-dashboard"
 import { DashboardLoading } from "@/components/dashboard/dashboard-loading"
-import { HeroStatCard } from "@/components/dashboard/dashboard-kpi"
 import { DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
 import { FinancialYearDashboard } from "@/components/dashboard/financial-year-dashboard"
 import { ItDashboard } from "@/components/dashboard/it-dashboard"
@@ -28,7 +27,6 @@ import {
 } from "@/lib/dashboard-permissions"
 import type { OrdersDashboardModule } from "@/lib/orders-types"
 import { hasPermission } from "@/lib/permissions"
-import { cn } from "@/lib/utils"
 
 type DashboardSummary = {
   modules: {
@@ -81,85 +79,6 @@ export function DashboardPage() {
   const it = canIt ? summary?.modules?.it : undefined
   const hasAny = Boolean(orders || assets || fy || transfers || disposals || it)
 
-  const heroCards: React.ReactNode[] = []
-  if (orders) {
-    const open =
-      orders.pending_approval +
-      orders.assigned +
-      orders.in_progress +
-      orders.pending_closure_approval
-    heroCards.push(
-      <HeroStatCard
-        key="orders"
-        compact
-        theme={DASHBOARD_THEMES.heroOrders}
-        label="Open PV orders"
-        value={open}
-        hint={`${orders.total_orders} total`}
-      />,
-    )
-  }
-  if (transfers) {
-    heroCards.push(
-      <HeroStatCard
-        key="transfers"
-        compact
-        theme={DASHBOARD_THEMES.heroTransfers}
-        label="Open transfers"
-        value={transfers.open}
-        hint={`${transfers.total} total · ${transfers.awaiting_action} action`}
-      />,
-    )
-  }
-  if (disposals) {
-    heroCards.push(
-      <HeroStatCard
-        key="disposals"
-        compact
-        theme={DASHBOARD_THEMES.heroDisposals}
-        label="Open disposals"
-        value={disposals.open}
-        hint={`${disposals.total} total · ${disposals.awaiting_action} action`}
-      />,
-    )
-  }
-  if (assets) {
-    heroCards.push(
-      <HeroStatCard
-        key="assets"
-        compact
-        theme={DASHBOARD_THEMES.heroAssets}
-        label="RFID tagged"
-        value={assets.rfid_tagged}
-        hint={`${assets.rfid_coverage_pct}% coverage`}
-      />,
-    )
-  }
-  if (fy) {
-    heroCards.push(
-      <HeroStatCard
-        key="fy"
-        compact
-        theme={DASHBOARD_THEMES.heroFy}
-        label="FY coverage"
-        value={`${fy.coverage_pct}%`}
-        hint={`${fy.verified_in_fy} verified`}
-      />,
-    )
-  }
-  if (it) {
-    heroCards.push(
-      <HeroStatCard
-        key="it"
-        compact
-        theme={DASHBOARD_THEMES.heroIt}
-        label="Active users"
-        value={it.active_users}
-        hint={`${it.inactive_users} inactive`}
-      />,
-    )
-  }
-
   return (
     <div className="app-page flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
       <div className="shrink-0 border-b border-border/60 pb-3">
@@ -193,22 +112,6 @@ export function DashboardPage() {
 
       {!loading && hasAny ? (
         <div className="flex flex-col gap-4">
-          {heroCards.length > 0 ? (
-            <div
-              className={cn(
-                "grid gap-3",
-                heroCards.length <= 2 && "grid-cols-1 sm:grid-cols-2",
-                heroCards.length === 3 && "grid-cols-1 sm:grid-cols-3",
-                heroCards.length === 4 && "grid-cols-2 xl:grid-cols-4",
-                heroCards.length === 5 && "grid-cols-2 md:grid-cols-3 xl:grid-cols-5",
-                heroCards.length === 6 && "grid-cols-2 md:grid-cols-3",
-                heroCards.length > 6 && "grid-cols-2 md:grid-cols-3 xl:grid-cols-4",
-              )}
-            >
-              {heroCards}
-            </div>
-          ) : null}
-
           {orders || fy ? (
             <div className="grid items-stretch gap-4 xl:grid-cols-2">
               {orders ? <OrdersDashboard data={orders} /> : null}
@@ -217,7 +120,7 @@ export function DashboardPage() {
           ) : null}
 
           {transfers || disposals ? (
-            <div className="grid items-start gap-4 xl:grid-cols-2">
+            <div className="grid items-stretch gap-4 xl:grid-cols-2">
               {transfers ? (
                 <WorkflowOrdersDashboard
                   title="Asset transfers"
@@ -235,9 +138,12 @@ export function DashboardPage() {
             </div>
           ) : null}
 
-          {assets ? <AssetDashboard data={assets} /> : null}
-
-          {it ? <ItDashboard data={it} /> : null}
+          {assets || it ? (
+            <div className="grid items-stretch gap-4 xl:grid-cols-2">
+              {assets ? <AssetDashboard data={assets} /> : null}
+              {it ? <ItDashboard data={it} /> : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

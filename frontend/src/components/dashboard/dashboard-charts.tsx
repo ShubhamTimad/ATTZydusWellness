@@ -91,40 +91,71 @@ export function DashboardDonutChart({
   colors,
   emptyMessage,
   className,
+  centerLabel,
+  centerCaption,
+  showLegend = true,
+  variant = "donut",
 }: {
   data: { name: string; value: number }[]
   height?: number
   colors?: string[]
   emptyMessage?: string
   className?: string
+  centerLabel?: React.ReactNode
+  centerCaption?: string
+  showLegend?: boolean
+  variant?: "donut" | "pie"
 }) {
-  const rows = data.filter((d) => d.value > 0)
+  const palette = colors?.length ? colors : DONUT_FALLBACK
+  const rows = data
+    .map((d, i) => ({ ...d, fill: palette[i % palette.length] }))
+    .filter((d) => d.value > 0)
   if (!rows.length) {
     return <ChartEmpty message={emptyMessage} />
   }
-  const palette = colors?.length ? colors : DONUT_FALLBACK
+  const isPie = variant === "pie"
+  const innerRadius = isPie ? 0 : showLegend ? "52%" : "62%"
+  const outerRadius = showLegend ? "78%" : "88%"
 
   return (
-    <div className={cn("w-full", className)} style={{ height }}>
+    <div className={cn("relative w-full", className)} style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Tooltip />
-          <Legend verticalAlign="bottom" height={28} wrapperStyle={{ fontSize: 11 }} />
+          {showLegend ? (
+            <Legend verticalAlign="bottom" height={28} wrapperStyle={{ fontSize: 11 }} />
+          ) : null}
           <Pie
             data={rows}
             dataKey="value"
             nameKey="name"
-            innerRadius="52%"
-            outerRadius="78%"
-            paddingAngle={2}
-            stroke="transparent"
+            innerRadius={innerRadius}
+            outerRadius={outerRadius}
+            paddingAngle={isPie ? 1 : 2}
+            stroke="var(--card)"
+            strokeWidth={isPie ? 2 : 0}
           >
-            {rows.map((entry, i) => (
-              <Cell key={entry.name} fill={palette[i % palette.length]} />
+            {rows.map((entry) => (
+              <Cell key={entry.name} fill={entry.fill} />
             ))}
           </Pie>
         </PieChart>
       </ResponsiveContainer>
+      {centerLabel != null ? (
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 top-0 flex flex-col items-center justify-center",
+            showLegend ? "h-[calc(100%-28px)]" : "inset-0",
+          )}
+        >
+          <span className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
+            {centerLabel}
+          </span>
+          {centerCaption ? (
+            <span className="text-[11px] text-muted-foreground">{centerCaption}</span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

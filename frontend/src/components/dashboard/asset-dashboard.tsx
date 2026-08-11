@@ -1,64 +1,60 @@
-import { DashboardBarChart, DashboardChartGrid, DashboardDonutChart, ChartPanel } from "@/components/dashboard/dashboard-charts"
-import { DASHBOARD_CHART, DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
-import { CoverageBar, DashboardPanel, KpiCard, KpiGrid } from "@/components/dashboard/dashboard-kpi"
+import { DashboardDonutChart } from "@/components/dashboard/dashboard-charts"
+import { DASHBOARD_STATUS, DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
+import { DashboardPanel, StatBreakdown } from "@/components/dashboard/dashboard-kpi"
 import type { AssetsDashboardModule } from "@/lib/assets-types"
+
+const COLORS = {
+  approved: DASHBOARD_STATUS.complete,
+  progress: DASHBOARD_STATUS.progress,
+}
 
 export function AssetDashboard({ data }: { data: AssetsDashboardModule }) {
   const theme = DASHBOARD_THEMES.assets
-  const rfidMix = [
-    { name: "Tagged", value: data.rfid_tagged },
-    { name: "Not tagged", value: data.rfid_not_tagged },
+  const total = data.total_assets
+  const approved = data.approved_assets ?? 0
+  const inProgress = Math.max(0, total - approved)
+  const denom = total || 1
+  const mix = [
+    { name: "Total approved", value: approved },
+    { name: "In progress", value: inProgress },
   ]
-  const categoryRows = (data.by_category ?? []).slice(0, 8)
 
   return (
     <DashboardPanel title="Asset register" theme={theme}>
-      <KpiGrid className="sm:grid-cols-3">
-        <KpiCard
-          label="Total"
-          value={data.total_assets}
-          tint={theme.kpiTint}
-          accent
-          accentClass={theme.accentText}
-          className="!p-3"
-        />
-        <KpiCard
-          label="Active"
-          value={data.active_assets}
-          tint={theme.kpiTint}
-          accent
-          accentClass={theme.accentText}
-          className="!p-3"
-        />
-        <KpiCard label="Added (7d)" value={data.recently_added} tint={theme.kpiTint} className="!p-3" />
-      </KpiGrid>
-
-      <CoverageBar
-        value={data.rfid_coverage_pct}
-        label="RFID coverage"
-        className="border-0 bg-transparent p-0"
-      />
-
-      <DashboardChartGrid columns={2}>
-        <ChartPanel title="RFID mix">
-          <DashboardDonutChart
-            data={rfidMix}
-            colors={[DASHBOARD_CHART.assets, "#94a3b8"]}
-            emptyMessage="No assets"
-            height={168}
+      <div className="grid items-center gap-6 sm:grid-cols-[minmax(0,1fr)_10.5rem]">
+        <div className="min-w-0 space-y-5">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total asset</p>
+            <p className="mt-1 text-4xl font-semibold tabular-nums tracking-tight text-foreground">
+              {total}
+            </p>
+          </div>
+          <StatBreakdown
+            items={[
+              {
+                label: "Total approved",
+                value: approved,
+                share: (approved / denom) * 100,
+                color: COLORS.approved,
+              },
+              {
+                label: "In progress",
+                value: inProgress,
+                share: (inProgress / denom) * 100,
+                color: COLORS.progress,
+              },
+            ]}
           />
-        </ChartPanel>
-        <ChartPanel title="By category">
-          <DashboardBarChart
-            data={categoryRows}
-            xKey="category"
-            xAngle={-18}
-            height={168}
-            series={[{ dataKey: "count", fill: theme.chartFill }]}
-            emptyMessage="No categories"
-          />
-        </ChartPanel>
-      </DashboardChartGrid>
+        </div>
+
+        <DashboardDonutChart
+          data={mix}
+          colors={[COLORS.approved, COLORS.progress]}
+          emptyMessage="No assets"
+          height={168}
+          showLegend={false}
+        />
+      </div>
     </DashboardPanel>
   )
 }

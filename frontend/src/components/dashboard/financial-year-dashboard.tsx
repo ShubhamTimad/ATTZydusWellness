@@ -1,77 +1,59 @@
-import { DashboardBarChart, DashboardChartGrid, DashboardDonutChart, ChartPanel } from "@/components/dashboard/dashboard-charts"
-import { DASHBOARD_CHART, DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
-import { DashboardPanel, KpiCard, KpiGrid } from "@/components/dashboard/dashboard-kpi"
+import { DashboardDonutChart } from "@/components/dashboard/dashboard-charts"
+import { DASHBOARD_STATUS, DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
+import { DashboardPanel, StatBreakdown } from "@/components/dashboard/dashboard-kpi"
 import type { FinancialYearDashboardModule } from "@/lib/assets-types"
+
+const COLORS = {
+  verified: DASHBOARD_STATUS.complete,
+  pending: DASHBOARD_STATUS.rest,
+}
 
 export function FinancialYearDashboard({ data }: { data: FinancialYearDashboardModule }) {
   const theme = DASHBOARD_THEMES.fy
+  const total = data.total_rfid_assets || 1
   const mix = [
-    { name: "Verified", value: data.verified_in_fy },
+    { name: "Total verified asset", value: data.verified_in_fy },
     { name: "Pending", value: data.pending_fy_verification },
   ]
-  const plantRows = (data.by_plant ?? []).map((r) => ({
-    plant: r.plant,
-    verified: r.verified,
-    pending: r.pending,
-  }))
 
   return (
     <DashboardPanel title={`Physical Verification · ${data.label}`} theme={theme}>
-      <KpiGrid className="grid-cols-2 sm:grid-cols-4">
-        <KpiCard
-          label="Coverage"
-          value={`${data.coverage_pct}%`}
-          tint={theme.kpiTint}
-          accent
-          accentClass={theme.accentText}
-          className="!p-3"
-        />
-        <KpiCard
-          label="Verified"
-          value={data.verified_in_fy}
-          tint={theme.kpiTint}
-          accent
-          accentClass={theme.accentText}
-          className="!p-3"
-        />
-        <KpiCard label="Pending" value={data.pending_fy_verification} tint={theme.kpiTint} className="!p-3" />
-        <KpiCard label="RFID assets" value={data.total_rfid_assets} tint={theme.kpiTint} className="!p-3" />
-      </KpiGrid>
-
-      <DashboardChartGrid columns={2}>
-        <ChartPanel title="Verified vs pending">
-          <DashboardDonutChart
-            data={mix}
-            colors={[DASHBOARD_CHART.fy, DASHBOARD_CHART.fyPending]}
-            emptyMessage="No RFID assets"
-            height={176}
-          />
-        </ChartPanel>
-        <ChartPanel title="By plant">
-          <DashboardBarChart
-            data={plantRows}
-            xKey="plant"
-            height={176}
-            series={[
+      <div className="grid items-center gap-6 sm:grid-cols-[minmax(0,1fr)_10.5rem]">
+        <div className="min-w-0 space-y-5">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Percentage verification
+            </p>
+            <p className="mt-1 text-4xl font-semibold tabular-nums tracking-tight text-foreground">
+              {data.coverage_pct}%
+            </p>
+          </div>
+          <StatBreakdown
+            items={[
               {
-                dataKey: "verified",
-                name: "Verified",
-                stackId: "fy",
-                fill: DASHBOARD_CHART.fy,
-                radius: [0, 0, 0, 0],
+                label: "Total approved asset",
+                value: data.total_rfid_assets,
+                share: 100,
+                color: COLORS.pending,
               },
               {
-                dataKey: "pending",
-                name: "Pending",
-                stackId: "fy",
-                fill: DASHBOARD_CHART.fyPending,
-                radius: [4, 4, 0, 0],
+                label: "Total verified asset",
+                value: data.verified_in_fy,
+                share: (data.verified_in_fy / total) * 100,
+                color: COLORS.verified,
               },
             ]}
-            emptyMessage="No plant data"
           />
-        </ChartPanel>
-      </DashboardChartGrid>
+        </div>
+
+        <DashboardDonutChart
+          data={mix}
+          colors={[COLORS.verified, COLORS.pending]}
+          emptyMessage="No RFID assets"
+          height={168}
+          showLegend={false}
+        />
+      </div>
     </DashboardPanel>
   )
 }

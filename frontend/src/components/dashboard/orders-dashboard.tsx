@@ -1,61 +1,68 @@
-import { DashboardBarChart, DashboardChartGrid, DashboardDonutChart, ChartPanel } from "@/components/dashboard/dashboard-charts"
-import { DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
-import { DashboardPanel, KpiCard, KpiGrid } from "@/components/dashboard/dashboard-kpi"
+import { DashboardDonutChart } from "@/components/dashboard/dashboard-charts"
+import { DASHBOARD_STATUS, DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
+import { DashboardPanel, StatBreakdown } from "@/components/dashboard/dashboard-kpi"
 import type { OrdersDashboardModule } from "@/lib/orders-types"
+
+const COLORS = {
+  inProgress: DASHBOARD_STATUS.progress,
+  closed: DASHBOARD_STATUS.complete,
+  rejected: DASHBOARD_STATUS.rejected,
+}
 
 export function OrdersDashboard({ data }: { data: OrdersDashboardModule }) {
   const theme = DASHBOARD_THEMES.orders
-  const inPipeline =
-    (data.draft ?? 0) + data.assigned + data.in_progress + data.completed
-  const finished = data.approved + data.closed
+  const closed = data.closed
+  const rejected = data.rejected
+  const inProgress = Math.max(0, data.total_orders - closed - rejected)
+  const total = data.total_orders || 1
   const mix = [
-    { name: "In workflow", value: inPipeline },
-    { name: "Finished", value: finished },
+    { name: "In progress", value: inProgress },
+    { name: "Closed", value: closed },
+    { name: "Rejected", value: rejected },
   ]
 
   return (
     <DashboardPanel title="Physical Verification Orders" theme={theme}>
-      <KpiGrid className="grid-cols-2 sm:grid-cols-4">
-        <KpiCard
-          label="Total"
-          value={data.total_orders}
-          tint={theme.kpiTint}
-          accent
-          accentClass={theme.accentText}
-          className="!p-3"
-        />
-        <KpiCard
-          label="In workflow"
-          value={inPipeline}
-          tint={theme.kpiTint}
-          accent
-          accentClass={theme.accentText}
-          className="!p-3"
-        />
-        <KpiCard label="Approved" value={data.approved} tint={theme.kpiTint} className="!p-3" />
-        <KpiCard label="Closed" value={data.closed} tint={theme.kpiTint} className="!p-3" />
-      </KpiGrid>
+      <div className="grid items-center gap-6 sm:grid-cols-[minmax(0,1fr)_10.5rem]">
+        <div className="min-w-0 space-y-5">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total order</p>
+            <p className="mt-1 text-4xl font-semibold tabular-nums tracking-tight text-foreground">
+              {data.total_orders}
+            </p>
+          </div>
+          <StatBreakdown
+            items={[
+              {
+                label: "In progress",
+                value: inProgress,
+                share: (inProgress / total) * 100,
+                color: COLORS.inProgress,
+              },
+              {
+                label: "Closed",
+                value: closed,
+                share: (closed / total) * 100,
+                color: COLORS.closed,
+              },
+              {
+                label: "Rejected",
+                value: rejected,
+                share: (rejected / total) * 100,
+                color: COLORS.rejected,
+              },
+            ]}
+          />
+        </div>
 
-      <DashboardChartGrid columns={2}>
-        <ChartPanel title="Workflow mix">
-          <DashboardDonutChart
-            data={mix}
-            colors={[theme.chartFill, "#059669"]}
-            emptyMessage="No orders"
-            height={176}
-          />
-        </ChartPanel>
-        <ChartPanel title="Orders by status">
-          <DashboardBarChart
-            data={data.by_status}
-            xKey="status"
-            xAngle={-12}
-            height={176}
-            series={[{ dataKey: "count", fill: theme.chartFill }]}
-            emptyMessage="No orders yet"
-          />
-        </ChartPanel>
-      </DashboardChartGrid>
+        <DashboardDonutChart
+          data={mix}
+          colors={[COLORS.inProgress, COLORS.closed, COLORS.rejected]}
+          emptyMessage="No orders yet"
+          height={168}
+          showLegend={false}
+        />
+      </div>
     </DashboardPanel>
   )
 }
