@@ -37,6 +37,12 @@ LIFECYCLE_INACTIVE_FILTER = frozenset(
 APPROVAL_DRAFT = "draft"
 APPROVAL_PENDING = "pending"
 APPROVAL_REJECTED = "rejected"
+APPROVAL_APPROVED = "approved"
+
+# Badge "Approved" is approval_status=approved unless lifecycle overrides the label.
+APPROVED_LIST_HIDDEN_LIFECYCLES = frozenset(
+    {LIFECYCLE_PENDING_DISPOSAL, LIFECYCLE_DISPOSED, LIFECYCLE_DEACTIVATED}
+)
 
 
 def is_awaiting_approval(lifecycle_status: str | None, approval_status: str | None = None) -> bool:

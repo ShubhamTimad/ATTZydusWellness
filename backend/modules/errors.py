@@ -11,6 +11,12 @@ class ConflictError(Exception):
         super().__init__(message)
 
 
+class PermissionDeniedError(Exception):
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
 class RbacSafetyError(Exception):
     """RBAC mutation blocked by a production guardrail."""
 

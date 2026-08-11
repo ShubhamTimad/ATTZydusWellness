@@ -40,6 +40,8 @@ export type AssetListItem = {
   source_type: string
   created_at: string
   active_physical_order?: AssetActivePhysicalOrder | null
+  /** False when the viewer can see the row but not mutate it (other cost center). */
+  action_allowed?: boolean
 }
 
 export type AssetRfidAttachResult = {
@@ -311,6 +313,7 @@ export type AssetDetail = {
   capitalization_form_number?: string | null
   capitalization_form_asset_name?: string | null
   approval_panel?: AssetApprovalPanel | null
+  action_allowed?: boolean
 }
 
 export type AssetApprovalStepLine = {

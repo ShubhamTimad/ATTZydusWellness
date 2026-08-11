@@ -227,6 +227,7 @@ class AssetListItem(BaseModel):
     source_type: str
     created_at: datetime
     active_physical_order: AssetActivePhysicalOrderPublic | None = None
+    action_allowed: bool = True
 
 
 class AssetListResponse(BaseModel):
@@ -319,6 +320,7 @@ class AssetDetailPublic(BaseModel):
     capitalization_form_number: str | None = None
     capitalization_form_asset_name: str | None = None
     approval_panel: AssetApprovalPanel | None = None
+    action_allowed: bool = True
 
 
 class AssetWorkflowRunPublic(BaseModel):

@@ -93,9 +93,10 @@ type PermissionCatalogSyncResult = {
 }
 
 /** Column order and header labels for standard CRUD actions. */
-const ACTION_COLUMNS = ["view", "create", "update", "delete"] as const
+const ACTION_COLUMNS = ["view", "view_all", "create", "update", "delete"] as const
 const ACTION_LABEL: Record<string, string> = {
   view: "View",
+  view_all: "View all",
   create: "Create",
   update: "Edit",
   delete: "Delete",

@@ -122,6 +122,7 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
                 "title": "Assets",
                 "actions": [
                     "view",
+                    "view_all",
                     "create",
                     "update",
                     "delete",

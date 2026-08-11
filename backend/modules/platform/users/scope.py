@@ -32,6 +32,37 @@ class ViewerOrgScope:
         return self.plant_ids is None and self.cost_center_keys is None
 
 
+def asset_plant_and_cost_center(asset: object) -> tuple[int | None, str]:
+    loc = getattr(asset, "location", None)
+    fin = getattr(asset, "financial", None)
+    plant_id = int(loc.plant_id) if loc is not None and getattr(loc, "plant_id", None) else None
+    cc_code = (getattr(fin, "cost_center", None) or "").strip() if fin is not None else ""
+    return plant_id, cc_code
+
+
+def asset_in_scope(asset: object, scope: ViewerOrgScope) -> bool:
+    """True when the asset is inside the viewer's plant / cost-center assignment."""
+    if scope.unrestricted:
+        return True
+    plant_id, cc_code = asset_plant_and_cost_center(asset)
+    if scope.cost_center_keys is not None:
+        return bool(plant_id and cc_code and (plant_id, cc_code) in scope.cost_center_keys)
+    if scope.plant_ids is not None:
+        return plant_id is not None and plant_id in scope.plant_ids
+    return True
+
+
+def list_viewer_scope(scope: ViewerOrgScope, *, view_all: bool = False) -> ViewerOrgScope:
+    """Scope used for list/detail when the role has ``asset.view_all``.
+
+    Drops the cost-center filter so the operator can *see* every CC in their
+    plants. Action checks still use the original ``scope``.
+    """
+    if not view_all or scope.cost_center_keys is None:
+        return scope
+    return ViewerOrgScope(scope.plant_ids, None, scope.cost_center_ids)
+
+
 def load_viewer_org_scope(db: Session, user_id: int | None) -> ViewerOrgScope:
     if user_id is None:
         return ViewerOrgScope(None, None, None)

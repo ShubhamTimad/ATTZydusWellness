@@ -3,18 +3,26 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import and_, delete, false, func, or_, select, tuple_, union_all
+from sqlalchemy import and_, cast, delete, false, func, or_, select, String, tuple_, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.model import ApprovalTask, TaskAuditLog
 from modules.platform.approvals.service import ApprovalEngineService
-from modules.platform.users.scope import ViewerOrgScope, load_viewer_org_scope
+from core.permissions import get_flat_permission_codes_for_user
+from modules.platform.users.scope import (
+    ViewerOrgScope,
+    asset_in_scope,
+    list_viewer_scope,
+    load_viewer_org_scope,
+)
 from modules.assets.lifecycle import (
+    APPROVAL_APPROVED,
     APPROVAL_DRAFT,
     APPROVAL_PENDING,
     APPROVAL_REJECTED,
+    APPROVED_LIST_HIDDEN_LIFECYCLES,
     LIFECYCLE_ACTIVE,
     LIFECYCLE_INACTIVE,
     LIFECYCLE_INACTIVE_FILTER,
@@ -115,7 +123,7 @@ from modules.assets.schema import (
     ImportPreviewResponse,
     SubmitForApprovalResponse,
 )
-from modules.errors import ConflictError, NotFoundError
+from modules.errors import ConflictError, NotFoundError, PermissionDeniedError
 from modules.platform.org_units.model import OrgUnit
 
 
@@ -379,6 +387,7 @@ class AssetMasterService:
     ) -> AssetImagePublic:
         content_type = validate_asset_image(data)
         asset = self._load_asset(asset_id)
+        self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
         safe_filename = (filename or "asset-image").replace("\\", "/").rsplit("/", 1)[-1][:255]
         had_image = bool(asset.image_content_type)
         asset.image_data = data
@@ -403,6 +412,7 @@ class AssetMasterService:
 
     def delete_asset_image(self, asset_id: int, *, actor_user_id: int) -> None:
         asset = self._load_asset(asset_id)
+        self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
         if not asset.image_content_type:
             return
         old_filename = asset.image_filename
@@ -718,6 +728,7 @@ class AssetMasterService:
             seen.add(aid)
             try:
                 asset = self._load_asset(aid)
+                self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
                 outcome = self._submit_one_asset_for_approval(
                     asset,
                     actor_user_id=actor_user_id,
@@ -729,6 +740,8 @@ class AssetMasterService:
                     activated_count += 1
             except NotFoundError:
                 errors.append(f"Asset #{aid}: not found.")
+            except PermissionDeniedError as exc:
+                errors.append(str(exc))
             except ConflictError as exc:
                 errors.append(str(exc))
             except Exception as exc:
@@ -925,6 +938,7 @@ class AssetMasterService:
         from modules.platform.roles.model import Role
 
         asset = self._load_asset(asset_id)
+        self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
         if (asset.approval_status or "").strip().lower() != APPROVAL_PENDING:
             raise ConflictError("Approver can only be reassigned while the asset is pending approval.")
 
@@ -1460,6 +1474,76 @@ class AssetMasterService:
                 .correlate(AssetMaster)
                 .exists()
             )
+        if f.get("actual_location"):
+            matching_al = (
+                select(ActualLocationMaster.code)
+                .where(ActualLocationMaster.name.ilike(_like("actual_location")))
+                .correlate(None)
+            )
+            base = base.where(
+                select(1)
+                .select_from(AssetLocationInformation)
+                .where(
+                    AssetLocationInformation.asset_id == AssetMaster.id,
+                    or_(
+                        AssetLocationInformation.actual_location == f["actual_location"],
+                        AssetLocationInformation.actual_location.in_(matching_al),
+                    ),
+                )
+                .correlate(AssetMaster)
+                .exists()
+            )
+        if f.get("inventory_count"):
+            try:
+                inv_n = int(f["inventory_count"])
+            except ValueError:
+                base = base.where(false())
+            else:
+                base = base.where(
+                    select(1)
+                    .select_from(AssetInventoryInformation)
+                    .where(
+                        AssetInventoryInformation.asset_id == AssetMaster.id,
+                        AssetInventoryInformation.inventory_count == inv_n,
+                    )
+                    .correlate(AssetMaster)
+                    .exists()
+                )
+        if f.get("physical_count"):
+            try:
+                phys_n = int(f["physical_count"])
+            except ValueError:
+                base = base.where(false())
+            else:
+                base = base.where(
+                    select(1)
+                    .select_from(AssetInventoryInformation)
+                    .where(
+                        AssetInventoryInformation.asset_id == AssetMaster.id,
+                        AssetInventoryInformation.physical_count == phys_n,
+                    )
+                    .correlate(AssetMaster)
+                    .exists()
+                )
+        if f.get("last_verification_date"):
+            base = base.where(
+                select(1)
+                .select_from(AssetInventoryInformation)
+                .where(
+                    AssetInventoryInformation.asset_id == AssetMaster.id,
+                    cast(AssetInventoryInformation.last_verification_date, String).like(
+                        f"{f['last_verification_date']}%"
+                    ),
+                )
+                .correlate(AssetMaster)
+                .exists()
+            )
+        if f.get("created_at"):
+            base = base.where(cast(AssetMaster.created_at, String).like(f"{f['created_at']}%"))
+        if f.get("source_type"):
+            base = base.where(AssetMaster.source_type == f["source_type"].lower())
+        if f.get("physical_order_status"):
+            base = self._apply_physical_order_status_filter(base, f["physical_order_status"])
         return base
 
     def _count_asset_rows(self, stmt: Any) -> int:
@@ -1543,7 +1627,14 @@ class AssetMasterService:
             else:
                 base = base.where(AssetMaster.lifecycle_status == lifecycle_status)
         if approval_status:
-            base = base.where(AssetMaster.approval_status == approval_status)
+            as_ = approval_status.strip().lower()
+            base = base.where(AssetMaster.approval_status == as_)
+            if as_ == APPROVAL_APPROVED and not (lifecycle_status or "").strip():
+                base = base.where(
+                    func.lower(AssetMaster.lifecycle_status).notin_(
+                        tuple(APPROVED_LIST_HIDDEN_LIFECYCLES)
+                    )
+                )
         if physical_order_status and scan_window is None:
             base = self._apply_physical_order_status_filter(base, physical_order_status)
         if source_type:
@@ -1685,7 +1776,9 @@ class AssetMasterService:
             fy_scan_from=fy_scan_from,
             fy_scan_to=fy_scan_to,
             column_filters=column_filters,
-            viewer_scope=scope,
+            viewer_scope=list_viewer_scope(
+                scope, view_all=self._can_view_all_assets(viewer_user_id)
+            ),
             search_columns=search_columns,
         )
         current_period = financial_year_period_for()
@@ -1774,6 +1867,7 @@ class AssetMasterService:
                     source_type=a.source_type,
                     created_at=a.created_at,
                     active_physical_order=active_orders.get(int(a.id)),
+                    action_allowed=asset_in_scope(a, scope),
                 )
             )
         return AssetListResponse(
@@ -1830,7 +1924,10 @@ class AssetMasterService:
         if not export_fields:
             raise ConflictError("Select at least one valid export field.")
 
-        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        scope = list_viewer_scope(
+            load_viewer_org_scope(self._db, viewer_user_id),
+            view_all=self._can_view_all_assets(viewer_user_id),
+        )
         base, *_rest = self._asset_list_base_query(
             plant_id=plant_id,
             category_id=category_id,
@@ -2023,20 +2120,27 @@ class AssetMasterService:
     def _assert_asset_in_viewer_scope(
         self, asset: AssetMaster, *, viewer_user_id: int | None
     ) -> None:
-        scope = load_viewer_org_scope(self._db, viewer_user_id)
-        if scope.unrestricted:
-            return
-        loc = asset.location
-        fin = asset.financial
-        plant_id = int(loc.plant_id) if loc and loc.plant_id else None
-        cc_code = (fin.cost_center or "").strip() if fin else ""
-        if scope.cost_center_keys is not None:
-            if plant_id is None or not cc_code or (plant_id, cc_code) not in scope.cost_center_keys:
-                raise NotFoundError("Asset", int(asset.id))
-            return
-        if scope.plant_ids is not None:
-            if plant_id is None or plant_id not in scope.plant_ids:
-                raise NotFoundError("Asset", int(asset.id))
+        scope = list_viewer_scope(
+            load_viewer_org_scope(self._db, viewer_user_id),
+            view_all=self._can_view_all_assets(viewer_user_id),
+        )
+        if not asset_in_scope(asset, scope):
+            raise NotFoundError("Asset", int(asset.id))
+
+    def _can_view_all_assets(self, user_id: int | None) -> bool:
+        if user_id is None:
+            return False
+        codes = set(get_flat_permission_codes_for_user(self._db, user_id))
+        return bool(codes & {"asset.view_all", "asset:view_all"})
+
+    def _assert_asset_action_allowed(
+        self, asset: AssetMaster, *, actor_user_id: int | None
+    ) -> None:
+        scope = load_viewer_org_scope(self._db, actor_user_id)
+        if not asset_in_scope(asset, scope):
+            raise PermissionDeniedError(
+                "You can only change assets in your assigned cost centers."
+            )
 
     def _load_asset(self, asset_id: int) -> AssetMaster:
         asset = self._db.scalar(
@@ -2278,6 +2382,9 @@ class AssetMasterService:
             capitalization_form_number=linked_capex.form_number if linked_capex is not None else None,
             capitalization_form_asset_name=linked_capex.asset_name if linked_capex is not None else None,
             approval_panel=self._approval_panel(asset, viewer_user_id=viewer_user_id),
+            action_allowed=asset_in_scope(
+                asset, load_viewer_org_scope(self._db, viewer_user_id)
+            ),
         )
 
     def attach_rfid(
@@ -2292,6 +2399,7 @@ class AssetMasterService:
         from modules.assets.schema import AssetRfidAttachPublic
 
         asset = self._load_asset(asset_id)
+        self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
         rfid = _normalize_rfid(rfid_code)
         if not rfid:
             raise InvalidRfidError("RFID code is required.")
@@ -2375,6 +2483,7 @@ class AssetMasterService:
         self, asset_id: int, data: AssetUpdateRequest, *, actor_user_id: int | None
     ) -> AssetDetailPublic:
         asset = self._load_asset(asset_id)
+        self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
         if (asset.approval_status or "").strip().lower() == APPROVAL_PENDING:
             raise ConflictError("Cannot edit asset while approval is pending.")
 
@@ -2550,6 +2659,7 @@ class AssetMasterService:
 
     def soft_delete(self, asset_id: int, *, actor_user_id: int | None) -> None:
         asset = self._load_asset(asset_id)
+        self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
         asset.deleted_at = _now()
         asset.lifecycle_status = LIFECYCLE_INACTIVE
         log_asset_event(
@@ -2563,6 +2673,7 @@ class AssetMasterService:
 
     def deactivate(self, asset_id: int, *, actor_user_id: int | None) -> AssetDetailPublic:
         asset = self._load_asset(asset_id)
+        self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
         if not can_deactivate(asset):
             raise ConflictError(
                 f"Asset {asset.asset_code} cannot be deactivated "
@@ -2583,6 +2694,7 @@ class AssetMasterService:
 
     def reactivate(self, asset_id: int, *, actor_user_id: int | None) -> AssetDetailPublic:
         asset = self._load_asset(asset_id)
+        self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
         if not can_reactivate(asset):
             raise ConflictError(
                 f"Asset {asset.asset_code} cannot be reactivated "
@@ -2630,6 +2742,8 @@ class AssetMasterService:
                 processed += 1
             except NotFoundError:
                 errors.append(f"Asset #{aid}: not found.")
+            except PermissionDeniedError as exc:
+                errors.append(str(exc))
             except ConflictError as exc:
                 errors.append(str(exc))
             except Exception as exc:

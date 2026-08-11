@@ -41,8 +41,31 @@ def test_related_columns_use_subqueries() -> None:
     assert "asset_location_information" in sql and "functional_location_masters" in sql
 
 
+def test_count_and_location_columns() -> None:
+    sql = _sql({"actual_location": "mezz", "inventory_count": "1", "physical_count": "0"})
+    assert "actual_location_masters" in sql
+    assert "asset_inventory_information" in sql
+    assert "inventory_count" in sql
+    assert "physical_count" in sql
+
+
+def test_approved_list_hides_disposal_lifecycles() -> None:
+    from modules.assets.lifecycle import (
+        APPROVED_LIST_HIDDEN_LIFECYCLES,
+        LIFECYCLE_ACTIVE,
+        LIFECYCLE_DISPOSED,
+        LIFECYCLE_PENDING_DISPOSAL,
+    )
+
+    assert LIFECYCLE_PENDING_DISPOSAL in APPROVED_LIST_HIDDEN_LIFECYCLES
+    assert LIFECYCLE_DISPOSED in APPROVED_LIST_HIDDEN_LIFECYCLES
+    assert LIFECYCLE_ACTIVE not in APPROVED_LIST_HIDDEN_LIFECYCLES
+
+
 if __name__ == "__main__":
     test_blank_filters_add_nothing()
     test_text_columns_use_ilike()
     test_related_columns_use_subqueries()
+    test_count_and_location_columns()
+    test_approved_list_hides_disposal_lifecycles()
     print("ok")

@@ -56,7 +56,7 @@ from modules.assets.service import (
     MAX_ASSET_IMAGE_BYTES,
 )
 from modules.assets.schema import AssetAuditEventPublic
-from modules.errors import ConflictError, NotFoundError
+from modules.errors import ConflictError, NotFoundError, PermissionDeniedError
 
 router = APIRouter(prefix="/assets", tags=["admin", "assets"])
 
@@ -157,6 +157,12 @@ def list_assets(
     category: str | None = Query(None, description="Column filter: category code/name contains"),
     cost_center: str | None = Query(None, description="Column filter: cost center code/name contains"),
     functional_location: str | None = Query(None, description="Column filter: functional location code/name contains"),
+    actual_location: str | None = Query(None, description="Column filter: actual location code/name contains"),
+    inventory_count: str | None = Query(None, description="Column filter: inventory count equals"),
+    physical_count: str | None = Query(None, description="Column filter: physical count equals"),
+    last_verification_date: str | None = Query(None, description="Column filter: last verification date"),
+    created_at: str | None = Query(None, description="Column filter: created date"),
+    source_type: str | None = Query(None, description="Column filter: source type"),
 ) -> AssetListResponse:
     return svc.list_assets(
         page=page,
@@ -182,6 +188,12 @@ def list_assets(
             "category": category or "",
             "cost_center": cost_center or "",
             "functional_location": functional_location or "",
+            "actual_location": actual_location or "",
+            "inventory_count": inventory_count or "",
+            "physical_count": physical_count or "",
+            "last_verification_date": last_verification_date or "",
+            "created_at": created_at or "",
+            "source_type": source_type or "",
         },
         viewer_user_id=int(current.subject),
     )
@@ -265,6 +277,8 @@ def export_assets(
             viewer_user_id=int(current.subject),
             file_format=format.lower(),
         )
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return Response(
@@ -328,6 +342,8 @@ def submit_assets_for_approval(
             actor_user_id=int(current.subject),
             assignee_user_id=int(body.assignee_user_id),
         )
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -346,6 +362,8 @@ def bulk_asset_decision(
             action=body.action,
             comment=body.comment,
         )
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -363,6 +381,8 @@ def bulk_asset_lifecycle(
             actor_user_id=int(current.subject),
             action=body.action,
         )
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -375,6 +395,8 @@ def list_asset_assignees(
 ) -> AssetAssigneeListResponse:
     try:
         return svc.list_assignees_for_action(action_code=action)
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -395,6 +417,8 @@ def submit_asset_for_approval(
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -409,6 +433,8 @@ def list_assignees_for_asset(
         return svc.list_assignees_for_asset(asset_id)
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -429,6 +455,8 @@ def reassign_asset_approver(
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -500,6 +528,8 @@ async def upload_asset_image(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     finally:
         await file.close()
 
@@ -515,6 +545,8 @@ def delete_asset_image(
         svc.delete_asset_image(asset_id, actor_user_id=int(current.subject))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.post("", response_model=AssetDetailPublic, status_code=status.HTTP_201_CREATED)
@@ -538,6 +570,8 @@ def create_asset(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "invalid_tag_color", "message": exc.message},
         ) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -554,6 +588,8 @@ def update_asset(
         return svc.update_asset(asset_id, payload, actor_user_id=int(current.subject))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except DuplicateAssetCodeError:
@@ -579,6 +615,8 @@ def delete_asset(
         svc.soft_delete(asset_id, actor_user_id=int(current.subject))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.post("/{asset_id}/deactivate", response_model=AssetDetailPublic)
@@ -592,6 +630,8 @@ def deactivate_asset(
         return svc.deactivate(asset_id, actor_user_id=int(current.subject))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -607,6 +647,8 @@ def reactivate_asset(
         return svc.reactivate(asset_id, actor_user_id=int(current.subject))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -690,6 +732,8 @@ def import_confirm_chunk(
         ) from exc
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -705,6 +749,8 @@ def cancel_import_batch(
         return svc.cancel_import_batch(batch_id, actor_user_id=int(current.subject))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 

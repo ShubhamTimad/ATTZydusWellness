@@ -54,6 +54,7 @@ import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
 import { ApiError, deleteJson, downloadFile, getJson, postJson, putJson } from "@/lib/api"
 import {
   buildAssetListActionItems,
+  canActOnAsset,
   eligibleDeactivateAssets,
   eligibleDecisionAssets,
   eligiblePhysicalOrderAssets,
@@ -77,8 +78,13 @@ import {
 } from "@/lib/assets-types"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 import { CapexDecisionDialog } from "@/pages/capex/capex-decision-dialog"
-import type { CostCenterMaster, FunctionalLocationMaster } from "@/lib/masters-types"
+import type {
+  ActualLocationMaster,
+  CostCenterMaster,
+  FunctionalLocationMaster,
+} from "@/lib/masters-types"
 import {
+  actualLocationLabel,
   categoryLabel,
   functionalLocationLabel,
   plantLabel,
@@ -94,7 +100,7 @@ import {
 } from "@/lib/asset-lifecycle"
 import { currentUserId, hasPermission, isSuperuser } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
-import { orderStatusLabel } from "@/lib/orders-types"
+import { ASSET_PHYSICAL_ORDER_STATUS_FILTERS, orderStatusLabel } from "@/lib/orders-types"
 import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
 import { cn } from "@/lib/utils"
 
@@ -204,6 +210,13 @@ export type AssetColumnFilters = {
   rfid_code: string
   cost_center: string
   functional_location: string
+  actual_location: string
+  inventory_count: string
+  physical_count: string
+  last_verification_date: string
+  created_at: string
+  source_type: string
+  physical_order_status: string
 }
 
 const DEFAULT_COLUMN_FILTERS: AssetColumnFilters = {
@@ -213,6 +226,13 @@ const DEFAULT_COLUMN_FILTERS: AssetColumnFilters = {
   rfid_code: "",
   cost_center: "",
   functional_location: "",
+  actual_location: "",
+  inventory_count: "",
+  physical_count: "",
+  last_verification_date: "",
+  created_at: "",
+  source_type: "",
+  physical_order_status: "",
 }
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -400,6 +420,8 @@ export function AssetsListPage() {
   const [costCenterOptions, setCostCenterOptions] = React.useState<CostCenterMaster[]>([])
   const [functionalLocationOptions, setFunctionalLocationOptions] =
     React.useState<FunctionalLocationMaster[]>([])
+  const [actualLocationOptions, setActualLocationOptions] =
+    React.useState<ActualLocationMaster[]>([])
 
   React.useEffect(() => {
     void getJson<CostCenterMaster[]>("/admin/asset-masters/cost-centers?active_only=false")
@@ -410,6 +432,11 @@ export function AssetsListPage() {
     )
       .then(setFunctionalLocationOptions)
       .catch(() => setFunctionalLocationOptions([]))
+    void getJson<ActualLocationMaster[]>(
+      "/admin/asset-masters/actual-locations?active_only=false",
+    )
+      .then(setActualLocationOptions)
+      .catch(() => setActualLocationOptions([]))
   }, [])
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
   const [selectedHasRfid, setSelectedHasRfid] = React.useState<Map<number, boolean>>(new Map())
@@ -587,7 +614,7 @@ export function AssetsListPage() {
   }
 
   function setColumnPanelFilter(
-    field: "category_id" | "lifecycle_status",
+    field: "category_id" | "lifecycle_status" | "plant_id" | "approval_status",
     value: string,
   ) {
     setFilters((f) => ({ ...f, [field]: value }))
@@ -697,6 +724,120 @@ export function AssetsListPage() {
         >
           <option value="">Status</option>
           {ASSET_STATUS_FILTER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (key === "plant") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={filters.plant_id}
+          aria-label="Filter plant"
+          onChange={(e) => setColumnPanelFilter("plant_id", e.target.value)}
+        >
+          <option value="">Plant</option>
+          {masters.plants.map((p) => (
+            <option key={p.id} value={String(p.id)}>
+              {plantLabel(p)}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (key === "actual_location") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={columnFilterInputs.actual_location}
+          aria-label="Filter actual location 2"
+          onChange={(e) =>
+            setColumnFilterInputs((f) => ({ ...f, actual_location: e.target.value }))
+          }
+        >
+          <option value="">Actual Location 2</option>
+          {actualLocationOptions.map((location) => (
+            <option key={location.id} value={location.code}>
+              {actualLocationLabel(location)}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (key === "inventory_count" || key === "physical_count") {
+      const label = key === "inventory_count" ? "Inventory Count" : "Physical Count"
+      return (
+        <Input
+          type="number"
+          min={0}
+          value={columnFilterInputs[key]}
+          onChange={(e) => setColumnFilterInputs((f) => ({ ...f, [key]: e.target.value }))}
+          aria-label={`Filter ${label}`}
+          placeholder={label}
+          className={columnFilterControlClass}
+        />
+      )
+    }
+    if (key === "last_verification_date" || key === "created_at") {
+      const label = key === "created_at" ? "Created" : "Last Verification"
+      return (
+        <Input
+          type="date"
+          value={columnFilterInputs[key]}
+          onChange={(e) => setColumnFilterInputs((f) => ({ ...f, [key]: e.target.value }))}
+          aria-label={`Filter ${label}`}
+          className={columnFilterControlClass}
+        />
+      )
+    }
+    if (key === "approval_status") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={filters.approval_status}
+          aria-label="Filter approval"
+          onChange={(e) => setColumnPanelFilter("approval_status", e.target.value)}
+        >
+          <option value="">Approval</option>
+          <option value="draft">draft</option>
+          <option value="pending">pending</option>
+          <option value="rejected">rejected</option>
+          <option value="approved">approved</option>
+          <option value="not_required">not required</option>
+        </select>
+      )
+    }
+    if (key === "source_type") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={columnFilterInputs.source_type}
+          aria-label="Filter source"
+          onChange={(e) =>
+            setColumnFilterInputs((f) => ({ ...f, source_type: e.target.value }))
+          }
+        >
+          <option value="">Source</option>
+          <option value="manual">manual</option>
+          <option value="import">import</option>
+        </select>
+      )
+    }
+    if (key === "active_physical_order") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={columnFilterInputs.physical_order_status}
+          aria-label="Filter physical order"
+          onChange={(e) =>
+            setColumnFilterInputs((f) => ({ ...f, physical_order_status: e.target.value }))
+          }
+        >
+          <option value="">Physical Order</option>
+          {ASSET_PHYSICAL_ORDER_STATUS_FILTERS.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
@@ -832,7 +973,7 @@ export function AssetsListPage() {
 
   function toggleAll(on: boolean) {
     if (!data) return
-    const pageIds = data.items.map((item) => item.id)
+    const pageIds = data.items.filter((item) => canActOnAsset(item)).map((item) => item.id)
     setSelected((prev) => {
       const next = new Set(prev)
       if (on) {
@@ -856,8 +997,9 @@ export function AssetsListPage() {
   }
 
   const items = data?.items ?? []
-  const pageSelectedCount = items.filter((row) => selected.has(row.id)).length
-  const allPageSelected = items.length > 0 && pageSelectedCount === items.length
+  const actionableItems = items.filter((row) => canActOnAsset(row))
+  const pageSelectedCount = actionableItems.filter((row) => selected.has(row.id)).length
+  const allPageSelected = actionableItems.length > 0 && pageSelectedCount === actionableItems.length
   const somePageSelected = pageSelectedCount > 0 && !allPageSelected
   const selectedRows = React.useMemo(
     () => selectedAssetsFromList(items, selected),
@@ -899,6 +1041,7 @@ export function AssetsListPage() {
   const viewerUserId = currentUserId()
   const transferEligibleRows = React.useMemo(() => {
     const approved = selectedRows.filter((r) => {
+      if (!canActOnAsset(r)) return false
       const approval = (r.approval_status ?? "").trim().toLowerCase()
       const lifecycle = (r.lifecycle_status ?? "").trim().toLowerCase()
       if (lifecycle && lifecycle !== "active") return false
@@ -2078,8 +2221,14 @@ export function AssetsListPage() {
                       >
                         <Checkbox
                           checked={selected.has(row.id)}
+                          disabled={!canActOnAsset(row)}
                           onCheckedChange={(v) => toggleRow(row.id, Boolean(v))}
                           aria-label={`Select ${row.combined_asset_number || row.asset_code}`}
+                          title={
+                            canActOnAsset(row)
+                              ? undefined
+                              : "No action access — this cost center is not assigned to you"
+                          }
                         />
                       </div>
                     </AdminTableCell>

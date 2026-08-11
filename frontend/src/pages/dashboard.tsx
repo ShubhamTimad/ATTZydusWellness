@@ -114,8 +114,8 @@ export function DashboardPage() {
         <div className="flex flex-col gap-4">
           {orders || fy ? (
             <div className="grid items-stretch gap-4 xl:grid-cols-2">
-              {orders ? <OrdersDashboard data={orders} /> : null}
               {fy ? <FinancialYearDashboard data={fy} /> : null}
+              {orders ? <OrdersDashboard data={orders} /> : null}
             </div>
           ) : null}
 

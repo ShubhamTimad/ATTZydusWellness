@@ -5,7 +5,13 @@ Run: PYTHONPATH=backend python -m modules.platform.users.scope_check
 
 from __future__ import annotations
 
-from modules.platform.users.scope import ViewerOrgScope, effective_plant_id
+from types import SimpleNamespace
+
+from modules.platform.users.scope import (
+    ViewerOrgScope,
+    asset_in_scope,
+    effective_plant_id,
+)
 
 
 def main() -> None:
@@ -24,6 +30,18 @@ def main() -> None:
     )
     assert effective_plant_id(cc_scope, 1) == 1
     assert effective_plant_id(cc_scope, 2) is False
+
+    in_cc = SimpleNamespace(
+        location=SimpleNamespace(plant_id=1),
+        financial=SimpleNamespace(cost_center="CC01"),
+    )
+    other_cc = SimpleNamespace(
+        location=SimpleNamespace(plant_id=1),
+        financial=SimpleNamespace(cost_center="CC99"),
+    )
+    assert asset_in_scope(in_cc, cc_scope)
+    assert not asset_in_scope(other_cc, cc_scope)
+    assert asset_in_scope(other_cc, plant_only)
     print("ok")
 
 

@@ -523,9 +523,12 @@ export function AssetDetailPage() {
     return "—"
   }
 
-  const canEdit = Boolean(asset && asset.approval_status !== "pending")
+  const canEdit = Boolean(
+    asset && asset.action_allowed !== false && asset.approval_status !== "pending",
+  )
   const canSubmit = Boolean(
     asset &&
+      asset.action_allowed !== false &&
       canSubmitForApproval(asset.lifecycle_status, asset.approval_status) &&
       canCreate,
   )
@@ -629,13 +632,17 @@ export function AssetDetailPage() {
   const detailActions = React.useMemo(
     () =>
       buildAssetDetailActionItems({
-        canUpdate,
+        canUpdate: canUpdate && asset?.action_allowed !== false,
         canEdit,
         editing,
         canDeactivate: Boolean(
-          asset && canDeactivateAsset(asset.lifecycle_status, asset.approval_status),
+          asset &&
+            asset.action_allowed !== false &&
+            canDeactivateAsset(asset.lifecycle_status, asset.approval_status),
         ),
-        canReactivate: Boolean(asset && canReactivateAsset(asset.lifecycle_status)),
+        canReactivate: Boolean(
+          asset && asset.action_allowed !== false && canReactivateAsset(asset.lifecycle_status),
+        ),
         canSubmit,
       }),
     [canUpdate, canEdit, editing, asset, canSubmit],

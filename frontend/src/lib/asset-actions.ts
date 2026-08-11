@@ -28,6 +28,10 @@ export type AssetActionItem = {
   icon?: LucideIcon
 }
 
+export function canActOnAsset(row: { action_allowed?: boolean | null }): boolean {
+  return row.action_allowed !== false
+}
+
 export function selectedAssetsFromList(
   items: AssetListItem[],
   selected: Set<number>,
@@ -40,7 +44,9 @@ export function countRfidTaggedSelected(rows: { rfid_code?: string | null }[]): 
 }
 
 export function eligibleSubmitAssets(rows: AssetListItem[]): AssetListItem[] {
-  return rows.filter((r) => canSubmitForApproval(r.lifecycle_status, r.approval_status))
+  return rows.filter(
+    (r) => canActOnAsset(r) && canSubmitForApproval(r.lifecycle_status, r.approval_status),
+  )
 }
 
 /** Physical verification: approved + RFID attached only. */
@@ -57,19 +63,23 @@ export function canCreatePhysicalVerificationOrder(row: {
 }
 
 export function eligiblePhysicalOrderAssets(rows: AssetListItem[]): AssetListItem[] {
-  return rows.filter((r) => canCreatePhysicalVerificationOrder(r))
+  return rows.filter((r) => canActOnAsset(r) && canCreatePhysicalVerificationOrder(r))
 }
 
 export function eligibleDecisionAssets(rows: AssetListItem[]): AssetListItem[] {
-  return rows.filter((r) => (r.approval_status || "").toLowerCase() === "pending")
+  return rows.filter(
+    (r) => canActOnAsset(r) && (r.approval_status || "").toLowerCase() === "pending",
+  )
 }
 
 export function eligibleDeactivateAssets(rows: AssetListItem[]): AssetListItem[] {
-  return rows.filter((r) => canDeactivateAsset(r.lifecycle_status, r.approval_status))
+  return rows.filter(
+    (r) => canActOnAsset(r) && canDeactivateAsset(r.lifecycle_status, r.approval_status),
+  )
 }
 
 export function eligibleReactivateAssets(rows: AssetListItem[]): AssetListItem[] {
-  return rows.filter((r) => canReactivateAsset(r.lifecycle_status))
+  return rows.filter((r) => canActOnAsset(r) && canReactivateAsset(r.lifecycle_status))
 }
 
 export function buildAssetListActionItems(opts: {
