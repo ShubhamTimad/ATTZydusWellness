@@ -4,7 +4,6 @@ import io
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from xml.sax.saxutils import escape
 
 from openpyxl import Workbook
@@ -14,18 +13,22 @@ from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import inch
-from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-BRAND_RED = colors.HexColor("#E1242A")
+from modules.reports.pdf_chrome import (
+    BRAND_RED,
+    ChromeCanvas,
+    FOOTER_BAND,
+    HEADER_BAND,
+    PAGE_MARGIN,
+    format_generated_at,
+)
+
 ROW_ALT = colors.HexColor("#F8FAFC")
-LOGO_PATH = Path(__file__).resolve().parents[3] / "frontend" / "public" / "logo.png"
 
-PDF_MARGIN = 36
+PDF_MARGIN = PAGE_MARGIN
 PDF_BODY_FONT = 7
 PDF_HEADER_FONT = 7.5
-PDF_TITLE_FONT = 16
-PDF_SUBTITLE_FONT = 9
 MIN_COL_WIDTH = 28
 MAX_COL_WIDTH = 110
 
@@ -71,39 +74,9 @@ def _clean_pdf_text(value: str) -> str:
     return escape(text)
 
 
-def _logo_image():
-    """Official app logo from frontend/public/logo.png."""
-    if LOGO_PATH.is_file():
-        return Image(str(LOGO_PATH), width=1.35 * inch, height=0.42 * inch, kind="proportional")
-    fallback = ParagraphStyle(
-        "LogoFallback",
-        fontName="Helvetica-Bold",
-        fontSize=14,
-        textColor=BRAND_RED,
-    )
-    return Paragraph("Takeda", fallback)
-
-
 def _pdf_styles() -> dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
     return {
-        "title": ParagraphStyle(
-            "ReportTitle",
-            parent=base["Heading1"],
-            fontName="Helvetica-Bold",
-            fontSize=PDF_TITLE_FONT,
-            leading=18,
-            textColor=colors.HexColor("#111827"),
-            spaceAfter=2,
-        ),
-        "subtitle": ParagraphStyle(
-            "ReportSubtitle",
-            parent=base["Normal"],
-            fontName="Helvetica",
-            fontSize=PDF_SUBTITLE_FONT,
-            leading=12,
-            textColor=colors.HexColor("#6B7280"),
-        ),
         "header": ParagraphStyle(
             "ReportHeaderCell",
             fontName="Helvetica-Bold",
@@ -211,40 +184,6 @@ def _column_widths(headers: list[str], rows: list[list[str]], available_width: f
     return widths
 
 
-def _pdf_header_block(document: ReportDocument, styles: dict[str, ParagraphStyle], width: float) -> Table:
-    logo = _logo_image()
-    meta = Table(
-        [
-            [Paragraph(_clean_pdf_text(document.title), styles["title"])],
-            [Paragraph(_clean_pdf_text(document.subtitle), styles["subtitle"])],
-        ],
-        colWidths=[width - 1.55 * inch],
-    )
-    meta.setStyle(
-        TableStyle(
-            [
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ]
-        )
-    )
-    header = Table([[logo, meta]], colWidths=[1.55 * inch, width - 1.55 * inch])
-    header.setStyle(
-        TableStyle(
-            [
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ]
-        )
-    )
-    return header
-
-
 def _pdf_data_table(
     document: ReportDocument,
     styles: dict[str, ParagraphStyle],
@@ -274,18 +213,6 @@ def _pdf_data_table(
         )
     )
     return table
-
-
-def _draw_page_frame(canvas, doc) -> None:
-    canvas.saveState()
-    canvas.setStrokeColor(colors.HexColor("#E5E7EB"))
-    canvas.setLineWidth(0.5)
-    canvas.line(PDF_MARGIN, 28, doc.pagesize[0] - PDF_MARGIN, 28)
-    canvas.setFont("Helvetica", 8)
-    canvas.setFillColor(colors.HexColor("#6B7280"))
-    canvas.drawString(PDF_MARGIN, 16, "Takeda ATT — Confidential")
-    canvas.drawRightString(doc.pagesize[0] - PDF_MARGIN, 16, f"Page {canvas.getPageNumber()}")
-    canvas.restoreState()
 
 
 def build_xlsx(document: ReportDocument) -> bytes:
@@ -372,22 +299,19 @@ def _pdf_summary_block(
 def build_pdf(document: ReportDocument) -> bytes:
     buf = io.BytesIO()
     page_size = landscape(A4) if len(document.headers) > 4 else A4
+    generated_at = format_generated_at()
     pdf = SimpleDocTemplate(
         buf,
         pagesize=page_size,
         leftMargin=PDF_MARGIN,
         rightMargin=PDF_MARGIN,
-        topMargin=PDF_MARGIN,
-        bottomMargin=42,
+        topMargin=PDF_MARGIN + HEADER_BAND,
+        bottomMargin=PDF_MARGIN + FOOTER_BAND,
     )
     styles = _pdf_styles()
     available_width = page_size[0] - pdf.leftMargin - pdf.rightMargin
 
-    story = [
-        _pdf_header_block(document, styles, available_width),
-        Spacer(1, 14),
-    ]
-
+    story: list = []
     summary_table = _pdf_summary_block(document, styles, available_width)
     if summary_table is not None:
         story.extend([summary_table, Spacer(1, 12)])
@@ -397,7 +321,16 @@ def build_pdf(document: ReportDocument) -> bytes:
     else:
         story.append(_pdf_data_table(document, styles, available_width))
 
-    pdf.build(story, onFirstPage=_draw_page_frame, onLaterPages=_draw_page_frame)
+    def canvasmaker(*args, **kwargs):
+        return ChromeCanvas(
+            *args,
+            header_title=document.title,
+            header_subtitle=document.subtitle,
+            generated_at=generated_at,
+            **kwargs,
+        )
+
+    pdf.build(story, canvasmaker=canvasmaker)
     return buf.getvalue()
 
 

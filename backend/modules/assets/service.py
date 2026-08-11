@@ -1820,8 +1820,9 @@ class AssetMasterService:
         sort_dir: str = "asc",
         max_rows: int = 100_000,
         viewer_user_id: int | None = None,
+        file_format: str = "xlsx",
     ) -> tuple[bytes, str, str]:
-        from modules.assets.export import build_asset_export_xlsx
+        from modules.assets.export import build_asset_export_pdf, build_asset_export_xlsx
         from modules.assets.field_definitions import ASSET_EXPORT_FIELDS
 
         allowed = set(ASSET_EXPORT_FIELDS)
@@ -1868,8 +1869,12 @@ class AssetMasterService:
             base = base.order_by(order_col.asc())
 
         rows = list(self._db.scalars(base.limit(max_rows)).unique().all())
-        content = build_asset_export_xlsx(rows, export_fields)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+        fmt = file_format.lower()
+        if fmt == "pdf":
+            content = build_asset_export_pdf(rows, export_fields)
+            return content, f"asset-register-{stamp}.pdf", "application/pdf"
+        content = build_asset_export_xlsx(rows, export_fields)
         filename = f"assets-export-{stamp}.xlsx"
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         return content, filename, media_type

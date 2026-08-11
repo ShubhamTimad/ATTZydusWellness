@@ -154,100 +154,84 @@ export function printCapexForm(detail: CapexFormDetail): void {
     })
     .join("")
 
+  /* Keep header/footer copy in sync with backend/modules/reports/pdf_chrome.py */
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>&#8203;</title>
   <style>
-    @page { size: A4 portrait; margin: 14mm 16mm; }
+    @page { size: A4 portrait; margin: 12mm 14mm; }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       padding: 0;
       background: #fff;
-      color: #111;
+      color: #111827;
       font-family: "Times New Roman", Times, Georgia, serif;
       font-size: 11pt;
       line-height: 1.4;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-    .page {
-      width: 100%;
-      min-height: calc(297mm - 28mm);
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-    }
+    table.chrome { width: 100%; border-collapse: collapse; }
+    table.chrome > thead > tr > td,
+    table.chrome > tfoot > tr > td { padding: 0; }
     .doc-header {
-      border-bottom: 2.5px solid #111;
-      padding: 2px 2px 14px;
-      margin: 0 0 16px;
-    }
-    .brand-logo {
-      margin: 0 0 8px;
-    }
-    .brand-logo img {
-      height: 52px;
-      width: auto;
-      max-width: 160px;
-      object-fit: contain;
-      object-position: left top;
-      display: block;
+      padding: 0 2px 10px;
+      margin: 0 0 14px;
+      border-bottom: 2px solid #E1242A;
+      font-family: Helvetica, Arial, sans-serif;
     }
     .doc-header-row {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 20px;
-      margin-bottom: 4px;
+      gap: 16px;
     }
-    .brand-text {
-      font-family: system-ui, -apple-system, sans-serif;
-      padding: 0;
+    .brand {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
       min-width: 0;
       flex: 1;
     }
-    .brand-text .sub {
-      font-size: 10pt;
-      color: #222;
-      font-weight: 600;
-      margin-top: 0;
-      line-height: 1.35;
+    .brand-logo img {
+      height: 36px;
+      width: auto;
+      max-width: 120px;
+      object-fit: contain;
+      object-position: left top;
+      display: block;
     }
-    .brand-text .tag {
-      font-size: 9pt;
-      color: #666;
-      margin-top: 2px;
-      line-height: 1.35;
-    }
-    .meta {
-      font-family: system-ui, -apple-system, sans-serif;
-      font-size: 10pt;
-      text-align: right;
-      line-height: 1.35;
-      flex-shrink: 0;
-      min-width: 38%;
-      max-width: 45%;
-    }
-    .meta div + div { margin-top: 2px; }
-    .meta strong { color: #111; font-weight: 650; }
-    .meta span { color: #555; }
-    h1 {
-      margin: 2px 0 0;
-      padding: 10px 4px 0;
-      text-align: center;
-      font-size: 17pt;
-      font-weight: 700;
-      letter-spacing: 0.06em;
+    .brand-text .product {
+      font-size: 8pt;
+      letter-spacing: 0.12em;
       text-transform: uppercase;
+      color: #6B7280;
+      font-weight: 600;
+    }
+    .brand-text .title {
+      margin-top: 2px;
+      font-size: 12pt;
+      font-weight: 700;
+      color: #111827;
       line-height: 1.25;
     }
-    .form-body {
-      flex: 0 0 auto;
-      margin: 0 0 8px;
+    .brand-text .sub {
+      margin-top: 2px;
+      font-size: 8.5pt;
+      color: #6B7280;
     }
+    .meta {
+      font-size: 8.5pt;
+      text-align: right;
+      line-height: 1.4;
+      flex-shrink: 0;
+      color: #6B7280;
+    }
+    .meta strong { color: #111827; font-weight: 650; }
+    .form-body { margin: 0 0 8px; }
     table.form {
       width: 100%;
       border-collapse: collapse;
@@ -311,69 +295,77 @@ export function printCapexForm(detail: CapexFormDetail): void {
       line-height: 1.4;
     }
     .doc-footer {
-      margin-top: auto;
-      padding: 14px 2px 2px;
-      border-top: 1.5px solid #777;
-      font-family: system-ui, -apple-system, sans-serif;
-      font-size: 8.5pt;
-      color: #555;
+      margin-top: 12px;
+      padding: 8px 2px 0;
+      border-top: 0.6pt solid #D1D5DB;
+      font-family: Helvetica, Arial, sans-serif;
+      font-size: 8pt;
+      color: #6B7280;
       display: flex;
       justify-content: space-between;
       gap: 14px;
-      line-height: 1.45;
-      page-break-inside: avoid;
+      line-height: 1.4;
     }
     .doc-footer .left { min-width: 0; }
     .doc-footer .right { text-align: right; flex-shrink: 0; }
-    .doc-footer strong { color: #222; font-size: 9pt; }
+    .doc-footer strong { color: #111827; font-size: 8.5pt; }
   </style>
 </head>
 <body>
-  <div class="page">
-    <header class="doc-header">
-      <div class="brand-logo">
-        <img src="${escapeHtml(logoUrl)}" alt="Takeda" />
-      </div>
-      <div class="doc-header-row">
-        <div class="brand-text">
-          <div class="sub">Asset Tracking &amp; Tagging</div>
-          <div class="tag">Controlled document</div>
+  <table class="chrome">
+    <thead>
+      <tr><td>
+        <header class="doc-header">
+          <div class="doc-header-row">
+            <div class="brand">
+              <div class="brand-logo">
+                <img src="${escapeHtml(logoUrl)}" alt="Takeda" />
+              </div>
+              <div class="brand-text">
+                <div class="product">Asset Tagging &amp; Tracking</div>
+                <div class="title">Asset Capitalisation Form</div>
+                <div class="sub">${escapeHtml(detail.form_number)} · ${status}</div>
+              </div>
+            </div>
+            <div class="meta">
+              <div>Generated: <strong>${escapeHtml(printedAt)}</strong></div>
+              <div>Confidential — internal use only</div>
+            </div>
+          </div>
+        </header>
+      </td></tr>
+    </thead>
+    <tbody>
+      <tr><td>
+        <div class="form-body">
+          <table class="form">
+            <thead>
+              <tr>
+                <th class="c-no">Sr. No.</th>
+                <th class="c-part">Particulars</th>
+                <th class="c-det">Details</th>
+              </tr>
+            </thead>
+            <tbody>${tableRows}</tbody>
+          </table>
         </div>
-        <div class="meta">
-          <div><span>Print date:</span> <strong>${escapeHtml(printedAt)}</strong></div>
-          <div><span>Form no:</span> <strong>${escapeHtml(detail.form_number)}</strong></div>
-          <div><span>Status:</span> <strong>${status}</strong></div>
-        </div>
-      </div>
-      <h1>Asset Capitalisation Form</h1>
-    </header>
-
-    <div class="form-body">
-      <table class="form">
-        <thead>
-          <tr>
-            <th class="c-no">Sr. No.</th>
-            <th class="c-part">Particulars</th>
-            <th class="c-det">Details</th>
-          </tr>
-        </thead>
-        <tbody>${tableRows}</tbody>
-      </table>
-    </div>
-
-    <div class="sigs">${signCols}</div>
-
-    <footer class="doc-footer">
-      <div class="left">
-        <div><strong>Takeda · Asset Tracking &amp; Tagging</strong></div>
-        <div>Confidential — internal use only. ${escapeHtml(detail.form_number)}. Printed ${escapeHtml(printedAt)}.</div>
-      </div>
-      <div class="right">
-        <div>Page 1 of 1</div>
-        <div>System-generated hardcopy</div>
-      </div>
-    </footer>
-  </div>
+        <div class="sigs">${signCols}</div>
+      </td></tr>
+    </tbody>
+    <tfoot>
+      <tr><td>
+        <footer class="doc-footer">
+          <div class="left">
+            <div><strong>Takeda · Asset Tagging &amp; Tracking</strong></div>
+            <div>Confidential — internal use only</div>
+          </div>
+          <div class="right">
+            <div>System-generated</div>
+          </div>
+        </footer>
+      </td></tr>
+    </tfoot>
+  </table>
 </body>
 </html>`
 

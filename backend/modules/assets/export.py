@@ -72,11 +72,20 @@ def asset_export_value(asset: AssetMaster, field: str) -> Any:
         "put_to_use_date": fin.put_to_use_date if fin else None,
         "depreciation_rate": fin.depreciation_rate if fin else None,
         "gross_block": fin.gross_block if fin else None,
+        # ponytail: no stored current APC; blank until a source field exists.
+        "current_apc_igaap": None,
         "life_span": fin.life_span if fin else None,
         "profit_center": fin.profit_center if fin else None,
         "inventory_count": inv.inventory_count if inv else 1,
         "physical_count": inv.physical_count if inv else None,
         "last_verification_date": inv.last_verification_date if inv else None,
+        "cap_date": fin.cap_date if fin else None,
+        "pm_equipment_id": asset.information.pm_equipment_id if asset.information else None,
+        "cost_center_name": None,
+        "capitalization_form_number": None,
+        "fy_verification_count": None,
+        "physical_order_id": None,
+        "physical_order_status": None,
         "lifecycle_status": asset.lifecycle_status,
         "approval_status": asset.approval_status,
         "source_type": asset.source_type,
@@ -110,3 +119,24 @@ def build_asset_export_xlsx(assets: list[AssetMaster], fields: list[str]) -> byt
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def build_asset_export_pdf(assets: list[AssetMaster], fields: list[str]) -> bytes:
+    from modules.reports.export import ReportDocument, build_pdf
+
+    headers = [ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title()) for key in fields]
+    rows: list[list[str]] = []
+    for asset in assets:
+        row: list[str] = []
+        for key in fields:
+            cell = _format_cell(asset_export_value(asset, key))
+            row.append("" if cell is None else str(cell))
+        rows.append(row)
+    return build_pdf(
+        ReportDocument(
+            title="Asset register",
+            subtitle=f"{len(rows)} asset{'s' if len(rows) != 1 else ''}",
+            headers=headers,
+            rows=rows,
+        )
+    )

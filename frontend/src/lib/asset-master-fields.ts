@@ -129,35 +129,6 @@ export const ASSET_IMPORT_GRID_COLUMNS: AssetImportColumn[] = [
 /** Default export columns (import-compatible). */
 export const ASSET_EXPORT_DEFAULT_FIELDS = ASSET_IMPORT_GRID_COLUMNS.map((c) => c.key)
 
-export type AssetExportFieldGroup = {
-  label: string
-  keys: string[]
-}
-
-/** All exportable columns grouped for the export dialog. */
-export const ASSET_EXPORT_FIELD_GROUPS: AssetExportFieldGroup[] = [
-  {
-    label: "Import template",
-    keys: ASSET_EXPORT_DEFAULT_FIELDS,
-  },
-  {
-    label: "Additional columns",
-    keys: ["profit_center", "plant_name", "category_name", "physical_count", "last_verification_date", "serial_no"],
-  },
-]
-
-export const ASSET_EXPORT_FIELD_LABELS: Record<string, string> = {
-  ...Object.fromEntries(ASSET_IMPORT_GRID_COLUMNS.map((c) => [c.key, c.label])),
-  serial_no: "Serial no.",
-  functional_location: "Actual Location 1",
-  actual_location: "Actual location 2",
-  profit_center: "Profit center",
-  plant_name: "Plant Name",
-  category_name: "Category description",
-  physical_count: "Physical count",
-  last_verification_date: "Last verification date",
-}
-
 const DATE_KEYS = new Set([
   "invoice_date",
   "voucher_date",
@@ -374,3 +345,79 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
 
 /** Optional min height for panels that must align (e.g. approval dialog). Detail page uses compact layout instead. */
 export const ASSET_VIEW_PANEL_MIN_HEIGHT = "min-h-[22.5rem]"
+
+export type AssetExportFieldGroup = {
+  label: string
+  keys: string[]
+}
+
+/** Asset-detail field key → Excel export column key. */
+const DETAIL_TO_EXPORT_KEY: Record<string, string> = {
+  asset_category_id: "category_code",
+  asset_class_id: "asset_class_code",
+  asset_condition_id: "asset_condition_code",
+  asset_custodian_id: "asset_custodian_code",
+  tag_color_id: "tag_color_code",
+  plant_id: "plant_name",
+}
+
+function exportKeysForSection(sec: AssetViewSectionConfig): string[] {
+  const keys = sec.keys.map((k) => DETAIL_TO_EXPORT_KEY[k] ?? k)
+  if (sec.id === "information") {
+    const rfidAt = keys.indexOf("rfid_code")
+    if (rfidAt >= 0) keys.splice(rfidAt + 1, 0, "tag_color_code")
+    const custAt = keys.indexOf("asset_custodian_code")
+    if (custAt >= 0) keys.splice(custAt + 1, 0, "capitalization_form_number")
+  }
+  if (sec.id === "location") {
+    return ["plant_code", "plant_name", ...keys]
+  }
+  if (sec.id === "financial") {
+    const gbAt = keys.indexOf("gross_block")
+    if (gbAt >= 0) keys.splice(gbAt + 1, 0, "current_apc_igaap")
+  }
+  return keys
+}
+
+/** Export picker groups — same sections and order as the asset details page. */
+export const ASSET_EXPORT_FIELD_GROUPS: AssetExportFieldGroup[] = ASSET_VIEW_SECTIONS.map((sec) => ({
+  label: sec.title,
+  keys: exportKeysForSection(sec),
+}))
+
+export const ASSET_EXPORT_FIELD_LABELS: Record<string, string> = {
+  ...ASSET_FIELD_LABELS,
+  category_code: "Asset Category / Group",
+  asset_class_code: ASSET_FIELD_LABELS.asset_class_id,
+  asset_condition_code: "Physical Condition Of Assets",
+  asset_custodian_code: ASSET_FIELD_LABELS.asset_custodian_id,
+  tag_color_code: ASSET_FIELD_LABELS.tag_color_id,
+  rfid_code: "RFID Tag",
+  plant_name: "Plant",
+  cost_center: "Cost Center",
+  life_span: "Useful life",
+  gross_block: "APC-IGAAP / Gross Block",
+  current_apc_igaap: "Current APC-IGAAP",
+}
+
+/** Pre-checked columns when opening Asset register. */
+export const ASSET_REGISTER_DEFAULT_FIELDS = [
+  "asset_name",
+  "asset_description",
+  "asset_class_code",
+  "category_code",
+  "rfid_code",
+  "combined_asset_number",
+  "plant_name",
+  "functional_location",
+  "actual_location",
+  "cost_center",
+  "asset_custodian_code",
+  "asset_condition_code",
+  "party_details",
+  "inventory_count",
+  "cap_date",
+  "life_span",
+  "gross_block",
+  "current_apc_igaap",
+] as const

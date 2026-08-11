@@ -329,6 +329,28 @@ ASSET_IMPORT_TEMPLATE_FIELDS: list[str] = [
     "life_span",
 ]
 
+# Asset register report — fixed PDF columns / Excel pre-selection.
+ASSET_REGISTER_DEFAULT_FIELDS: list[str] = [
+    "asset_name",
+    "asset_description",
+    "asset_class_code",
+    "category_code",
+    "rfid_code",
+    "combined_asset_number",
+    "plant_name",
+    "functional_location",
+    "actual_location",
+    "cost_center",
+    "asset_custodian_code",
+    "asset_condition_code",
+    "party_details",
+    "inventory_count",
+    "cap_date",
+    "life_span",
+    "gross_block",
+    "current_apc_igaap",
+]
+
 # Default export columns (matches import grid / Assets → Export dialog).
 ASSET_EXPORT_DEFAULT_FIELDS: list[str] = [
     "asset_name",
@@ -404,13 +426,21 @@ ASSET_EXPORT_FIELDS: list[str] = [
     "source_type",
     "plant_name",
     "category_name",
+    "cap_date",
+    "pm_equipment_id",
+    "cost_center_name",
+    "capitalization_form_number",
+    "fy_verification_count",
+    "physical_order_id",
+    "physical_order_status",
+    "current_apc_igaap",
 ]
 
 ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
     **ASSET_FIELD_LABELS,
-    "category_code": "Asset category",
+    "category_code": "Asset Category / Group",
     "plant_code": "Plant Code",
-    "plant_name": "Plant Name",
+    "plant_name": "Plant",
     "category_name": "Category description",
     "physical_count": "Physical count",
     "last_verification_date": "Last verification date",
@@ -418,6 +448,15 @@ ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
     "approval_status": "Approval status",
     "source_type": "Source",
     "serial_no": "Serial no.",
+    "pm_equipment_id": "PM Equipment ID",
+    "fy_verification_count": "Verifications This FY",
+    "physical_order_id": "Physical Order ID",
+    "physical_order_status": "Order Status",
+    "current_apc_igaap": "Current APC-IGAAP",
+    "rfid_code": "RFID Tag",
+    "asset_condition_code": "Physical Condition Of Assets",
+    "life_span": "Useful life",
+    "gross_block": "APC-IGAAP / Gross Block",
 }
 
 

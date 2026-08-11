@@ -16,9 +16,9 @@ import {
 import { Label } from "@/components/ui/label"
 import { downloadFile } from "@/lib/api"
 import {
-  ASSET_EXPORT_DEFAULT_FIELDS,
   ASSET_EXPORT_FIELD_GROUPS,
   ASSET_EXPORT_FIELD_LABELS,
+  ASSET_REGISTER_DEFAULT_FIELDS,
 } from "@/lib/asset-master-fields"
 import type { AssetListTab, AssetFySubTab } from "@/pages/assets/assets-list"
 import { categoryLabel, plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
@@ -53,6 +53,9 @@ type AssetExportListProps = AssetExportDialogBaseProps & {
 
 type AssetRegisterReportProps = AssetExportDialogBaseProps & {
   variant: "register"
+  format?: "xlsx" | "pdf"
+  initialPlantId?: string
+  initialCategoryId?: string
 }
 
 export type AssetExportDialogProps = AssetExportListProps | AssetRegisterReportProps
@@ -67,12 +70,14 @@ export function buildAssetExportPath(
     scanTo: string
     selectedOnly: boolean
     selectedAssetIds: number[]
+    format?: "xlsx" | "pdf"
   },
 ): string {
   const q = new URLSearchParams()
   for (const field of fields) {
     q.append("fields", field)
   }
+  if (opts.format === "pdf") q.set("format", "pdf")
   if (opts.filters.plant_id) q.set("plant_id", opts.filters.plant_id)
   if (opts.filters.category_id) q.set("category_id", opts.filters.category_id)
   if (opts.filters.cost_center) q.set("cost_center", opts.filters.cost_center)
@@ -109,10 +114,12 @@ const EMPTY_FILTERS: AssetExportFilterState = {
 
 export function AssetExportDialog(props: AssetExportDialogProps) {
   const isRegister = props.variant === "register"
+  const registerFormat = isRegister ? (props.format ?? "xlsx") : "xlsx"
+  const isPdf = isRegister && registerFormat === "pdf"
   const listTab = isRegister ? "all" : props.listTab
   const fySubTab = isRegister ? "verified" : props.fySubTab
-  const initialPlantId = isRegister ? "" : props.initialPlantId
-  const initialCategoryId = isRegister ? "" : props.initialCategoryId
+  const initialPlantId = isRegister ? (props.initialPlantId ?? "") : props.initialPlantId
+  const initialCategoryId = isRegister ? (props.initialCategoryId ?? "") : props.initialCategoryId
   const initialFyStartYear = isRegister ? "" : props.initialFyStartYear
   const scanFrom = isRegister ? "" : props.scanFrom
   const scanTo = isRegister ? "" : props.scanTo
@@ -122,7 +129,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
 
   const [exportFilters, setExportFilters] = React.useState<AssetExportFilterState>(EMPTY_FILTERS)
   const [selectedFields, setSelectedFields] = React.useState<Set<string>>(
-    () => new Set(ASSET_EXPORT_DEFAULT_FIELDS),
+    () => new Set(isRegister ? ASSET_REGISTER_DEFAULT_FIELDS : ASSET_EXPORT_FIELD_GROUPS.flatMap((g) => g.keys)),
   )
   const [selectedOnly, setSelectedOnly] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
@@ -144,7 +151,9 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
       actual_location: "",
       fy_start_year: initialFyStartYear,
     })
-    setSelectedFields(new Set(ASSET_EXPORT_DEFAULT_FIELDS))
+    setSelectedFields(
+      new Set(isRegister ? ASSET_REGISTER_DEFAULT_FIELDS : ASSET_EXPORT_FIELD_GROUPS.flatMap((g) => g.keys)),
+    )
     setSelectedOnly(!isRegister && selectedAssetIds.length > 0)
   }, [
     props.open,
@@ -170,7 +179,8 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
   }
 
   async function runExport() {
-    if (selectedFields.size === 0) {
+    const fields = isPdf ? [...ASSET_REGISTER_DEFAULT_FIELDS] : [...selectedFields]
+    if (fields.length === 0) {
       toast.error("Select at least one field to export.")
       return
     }
@@ -180,7 +190,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
     }
     setBusy(true)
     try {
-      const path = buildAssetExportPath([...selectedFields], {
+      const path = buildAssetExportPath(fields, {
         filters: exportFilters,
         listTab,
         fySubTab,
@@ -188,8 +198,12 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
         scanTo,
         selectedOnly,
         selectedAssetIds,
+        format: isPdf ? "pdf" : "xlsx",
       })
-      await downloadFile(path, isRegister ? "asset-register.xlsx" : "assets-export.xlsx")
+      await downloadFile(
+        path,
+        isPdf ? "asset-register.pdf" : isRegister ? "asset-register.xlsx" : "assets-export.xlsx",
+      )
       toast.success(isRegister ? "Report downloaded." : "Export downloaded.")
       props.onOpenChange(false)
     } catch (e) {
@@ -205,10 +219,18 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="flex max-h-[min(90vh,720px)] max-w-lg flex-col overflow-hidden sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{isRegister ? "Asset register report" : "Export assets"}</DialogTitle>
+          <DialogTitle>
+            {isRegister
+              ? isPdf
+                ? "Asset register PDF"
+                : "Asset register Excel"
+              : "Export assets"}
+          </DialogTitle>
           <DialogDescription>
             {isRegister
-              ? "Set filters and choose columns, then download the Excel report."
+              ? isPdf
+                ? "Set filters, then download the PDF. Columns are fixed to the default register fields."
+                : "Set filters and choose columns. Default fields are selected first."
               : "Filter by plant and location masters, then choose columns for the Excel file."}
           </DialogDescription>
         </DialogHeader>
@@ -347,6 +369,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
             </label>
           ) : null}
 
+          {!isPdf ? (
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <Label>{isRegister ? "Columns to include" : "Columns to export"}</Label>
@@ -393,6 +416,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
               </div>
             ))}
           </div>
+          ) : null}
         </div>
 
         <div className="dialog-footer-actions shrink-0">
@@ -405,9 +429,11 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
               ? isRegister
                 ? "Generating…"
                 : "Exporting…"
-              : isRegister
-                ? "Get report"
-                : "Download Excel"}
+              : isPdf
+                ? "Download PDF"
+                : isRegister
+                  ? "Download Excel"
+                  : "Download Excel"}
           </AdminPrimaryButton>
         </div>
       </DialogContent>

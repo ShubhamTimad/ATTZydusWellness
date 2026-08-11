@@ -142,16 +142,17 @@ def generate_report(
         raise HTTPException(status_code=400, detail=f"This report is only available as: {allowed}")
 
     if definition.key == "asset_register":
-        from modules.assets.field_definitions import ASSET_EXPORT_DEFAULT_FIELDS
+        from modules.assets.field_definitions import ASSET_REGISTER_DEFAULT_FIELDS
 
         asset_svc = AssetMasterService(db)
         content, filename, media_type = asset_svc.export_assets(
-            fields=list(ASSET_EXPORT_DEFAULT_FIELDS),
+            fields=list(ASSET_REGISTER_DEFAULT_FIELDS),
             plant_id=plant_id,
             category_id=category_id,
             cost_center=cost_center,
             functional_location=functional_location,
             actual_location=actual_location,
+            file_format=fmt,
         )
         return Response(
             content=content,

@@ -245,6 +245,7 @@ def export_assets(
     asset_ids: list[int] | None = Query(None),
     sort_by: str = Query("asset_code"),
     sort_dir: str = Query("asc"),
+    format: str = Query("xlsx", pattern="^(?i)(xlsx|pdf)$"),
 ) -> Response:
     try:
         content, filename, media_type = svc.export_assets(
@@ -262,6 +263,7 @@ def export_assets(
             sort_by=sort_by,
             sort_dir=sort_dir,
             viewer_user_id=int(current.subject),
+            file_format=format.lower(),
         )
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc

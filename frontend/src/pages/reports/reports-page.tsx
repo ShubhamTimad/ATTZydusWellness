@@ -2,30 +2,10 @@ import * as React from "react"
 import { toast } from "sonner"
 
 import { AssetExportDialog } from "@/components/assets/asset-export-dialog"
+import { ReportGenerateDialog } from "@/components/reports/report-generate-dialog"
 import { ReportTile, ReportTileSkeleton } from "@/components/reports/report-tile"
 import { ApiError, downloadFile, getJson } from "@/lib/api"
 import type { ReportCatalog, ReportDefinition, ReportFilterValues, ReportFormat } from "@/lib/reports-types"
-
-function defaultFyStartYear(report: ReportDefinition): string {
-  const fyFilter = report.filters.find((f) => f.key === "fy_start_year")
-  if (!fyFilter || fyFilter.options.length === 0) return ""
-  const running = fyFilter.options.find((o) => o.label.includes("(running)"))
-  return running?.value ?? fyFilter.options[0]?.value ?? ""
-}
-
-function buildInitialFilters(report: ReportDefinition): ReportFilterValues {
-  const values: ReportFilterValues = {}
-  for (const filter of report.filters) {
-    if (filter.key === "fy_start_year") {
-      values[filter.key] = defaultFyStartYear(report)
-    } else if (filter.key === "fy_status") {
-      values[filter.key] = report.key === "financial_year_verification" ? "verified" : "all"
-    } else {
-      values[filter.key] = "all"
-    }
-  }
-  return values
-}
 
 function normalizeFilterValue(value: string): string | undefined {
   if (!value || value === "all") return undefined
@@ -52,7 +32,11 @@ export function ReportsPage() {
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [generatingKey, setGeneratingKey] = React.useState<string | null>(null)
   const [registerOpen, setRegisterOpen] = React.useState(false)
-  const [filterState, setFilterState] = React.useState<Record<string, ReportFilterValues>>({})
+  const [registerFormat, setRegisterFormat] = React.useState<ReportFormat>("xlsx")
+  const [pending, setPending] = React.useState<{
+    report: ReportDefinition
+    format: ReportFormat
+  } | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -61,9 +45,6 @@ export function ReportsPage() {
         const data = await getJson<ReportCatalog>("/reports/catalog")
         if (cancelled) return
         setCatalog(data)
-        setFilterState(
-          Object.fromEntries(data.reports.map((report) => [report.key, buildInitialFilters(report)])),
-        )
         setLoadError(null)
       } catch (e) {
         if (cancelled) return
@@ -77,24 +58,23 @@ export function ReportsPage() {
     }
   }, [])
 
-  function updateFilter(reportKey: string, filterKey: string, value: string) {
-    setFilterState((prev) => ({
-      ...prev,
-      [reportKey]: {
-        ...(prev[reportKey] ?? {}),
-        [filterKey]: value,
-      },
-    }))
+  function requestGenerate(report: ReportDefinition, format: ReportFormat) {
+    if (report.key === "asset_register") {
+      setRegisterFormat(format)
+      setRegisterOpen(true)
+      return
+    }
+    setPending({ report, format })
   }
 
-  async function handleGenerate(report: ReportDefinition, format: ReportFormat) {
-    const filters = filterState[report.key] ?? buildInitialFilters(report)
+  async function handleGenerate(report: ReportDefinition, format: ReportFormat, filters: ReportFilterValues) {
     const token = `${report.key}:${format}`
     setGeneratingKey(token)
     try {
       const path = buildDownloadPath(report, format, filters)
       await downloadFile(path, `${report.key}.${format === "xlsx" ? "xlsx" : "pdf"}`)
       toast.success(`${format.toUpperCase()} report downloaded`)
+      setPending(null)
     } catch (e) {
       const message = e instanceof ApiError ? e.message : "Failed to generate report"
       toast.error(message)
@@ -107,9 +87,6 @@ export function ReportsPage() {
     <div className="app-page flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-x-hidden overflow-y-auto">
       <div>
         <h1 className="app-page-heading">Reports</h1>
-        {/* <p className="app-page-subheading mt-1">
-          Pick a report tile, set filters, and export to Excel or PDF.
-        </p> */}
       </div>
 
       {loadError ? (
@@ -118,11 +95,9 @@ export function ReportsPage() {
         </div>
       ) : null}
 
-      <div className="grid w-full min-w-0 grid-cols-1 items-start gap-[var(--app-grid-gap)] lg:grid-cols-2">
+      <div className="grid w-full min-w-0 grid-cols-1 gap-[var(--app-grid-gap)] lg:grid-cols-2">
         {loading
-          ? Array.from({ length: 3 }).map((_, i) => (
-              <ReportTileSkeleton key={i} span={i === 0 ? "full" : "half"} compact={i === 0} />
-            ))
+          ? Array.from({ length: 4 }).map((_, i) => <ReportTileSkeleton key={i} />)
           : null}
 
         {!loading && !loadError && catalog
@@ -130,24 +105,32 @@ export function ReportsPage() {
               <ReportTile
                 key={report.key}
                 report={report}
-                filters={filterState[report.key] ?? buildInitialFilters(report)}
-                onFilterChange={(key, value) => updateFilter(report.key, key, value)}
-                onGenerate={(format) => void handleGenerate(report, format)}
-                onOpenRegister={report.key === "asset_register" ? () => setRegisterOpen(true) : undefined}
+                onGenerate={(format) => requestGenerate(report, format)}
                 generatingKey={generatingKey}
               />
             ))
           : null}
       </div>
 
-      {/* {!loading && !loadError && catalog ? (
-        <p className="text-center text-xs text-foreground">
-          {catalog.reports.length} report types · {catalog.plants.length} plant
-          {catalog.plants.length === 1 ? "" : "s"} available for filtering
-        </p>
-      ) : null} */}
-
-      <AssetExportDialog variant="register" open={registerOpen} onOpenChange={setRegisterOpen} />
+      <AssetExportDialog
+        variant="register"
+        format={registerFormat}
+        open={registerOpen}
+        onOpenChange={setRegisterOpen}
+      />
+      <ReportGenerateDialog
+        open={pending != null}
+        onOpenChange={(open) => {
+          if (!open) setPending(null)
+        }}
+        report={pending?.report ?? null}
+        format={pending?.format ?? "xlsx"}
+        generating={generatingKey != null}
+        onGenerate={(filters) => {
+          if (!pending) return
+          void handleGenerate(pending.report, pending.format, filters)
+        }}
+      />
     </div>
   )
 }

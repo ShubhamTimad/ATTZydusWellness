@@ -24,9 +24,9 @@ REPORT_DEFINITIONS: tuple[ReportDefinition, ...] = (
     ReportDefinition(
         key="asset_register",
         title="Asset register",
-        description="Build a custom Excel report — filter assets and pick the columns you need.",
+        description="Excel lets you pick columns. PDF uses the default register fields.",
         filters=(),
-        formats=(),
+        formats=("xlsx", "pdf"),
     ),
     ReportDefinition(
         key="financial_year_verification",
