@@ -27,20 +27,36 @@ def _svc_with_scope() -> tuple[AssetMastersService, list]:
     return svc, stmts
 
 
-def _sql(stmt) -> str:
-    return str(stmt.compile(compile_kwargs={"literal_binds": True}))
+def _where_sql(stmt) -> str:
+    return " ".join(str(clause) for clause in stmt._where_criteria)
+
+
+def _filters_to_assigned_ids(stmt) -> bool:
+    return "cost_center_masters.id IN" in _where_sql(stmt)
 
 
 def test_scrapyard_only_does_not_filter_to_assigned_cost_centers() -> None:
     svc, stmts = _svc_with_scope()
     svc.list_cost_centers(plant_id=1, scrapyard_only=True, viewer_user_id=7)
-    sql = _sql(stmts[0])
-    assert "99" not in sql
-    assert "is_scrapyard" in sql.lower()
+    sql = _where_sql(stmts[0]).lower()
+    assert not _filters_to_assigned_ids(stmts[0])
+    assert "is_scrapyard" in sql
 
 
 def test_regular_cost_center_list_still_filters_to_assigned() -> None:
     svc, stmts = _svc_with_scope()
     svc.list_cost_centers(plant_id=1, scrapyard_only=False, viewer_user_id=7)
-    sql = _sql(stmts[0])
-    assert "99" in sql
+    assert _filters_to_assigned_ids(stmts[0])
+
+
+def test_asset_list_filter_uses_plant_not_assigned() -> None:
+    svc, stmts = _svc_with_scope()
+    svc.list_cost_centers(
+        plant_id=1,
+        scrapyard_only=False,
+        for_asset_list=True,
+        viewer_user_id=7,
+    )
+    sql = _where_sql(stmts[0]).lower()
+    assert not _filters_to_assigned_ids(stmts[0])
+    assert "plant_id" in sql

@@ -254,6 +254,19 @@ class AssetListColumnsPreference(BaseModel):
     columns: list[str]
 
 
+class AssetListFilterOption(BaseModel):
+    code: str
+    name: str | None = None
+
+
+class AssetListFilterOptionsResponse(BaseModel):
+    """Distinct column-filter values from assets visible in the list scope."""
+
+    cost_centers: list[AssetListFilterOption] = Field(default_factory=list)
+    functional_locations: list[AssetListFilterOption] = Field(default_factory=list)
+    actual_locations: list[AssetListFilterOption] = Field(default_factory=list)
+
+
 class FinancialYearOptionPublic(BaseModel):
     label: str
     start: date

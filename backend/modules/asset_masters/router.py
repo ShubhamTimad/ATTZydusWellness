@@ -324,11 +324,19 @@ def list_cost_centers(
         False,
         description="When true, only cost centers marked is_scrapyard (disposal destination).",
     ),
+    for_asset_list: bool = Query(
+        False,
+        description=(
+            "When true, return plant-scoped cost centers for asset list filters "
+            "(not limited to the viewer's assigned cost centers)."
+        ),
+    ),
 ) -> list[CostCenterPublic]:
     return svc.list_cost_centers(
         plant_id=plant_id,
         active_only=active_only,
         scrapyard_only=scrapyard_only,
+        for_asset_list=for_asset_list,
         viewer_user_id=int(current.subject),
     )
 

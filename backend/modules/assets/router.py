@@ -26,6 +26,7 @@ from modules.assets.schema import (
     AssetExportFieldPublic,
     AssetListResponse,
     AssetListColumnsPreference,
+    AssetListFilterOptionsResponse,
     AssetImagePublic,
     AssetReassignRequest,
     AssetSubmitRequest,
@@ -111,6 +112,23 @@ def update_asset_list_columns(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return AssetListColumnsPreference(columns=columns)
+
+
+@router.get("/column-filter-options", response_model=AssetListFilterOptionsResponse)
+def list_column_filter_options(
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("asset.view", "mobile.asset.view")),
+    ],
+    plant_id: int | None = Query(None, ge=1),
+) -> AssetListFilterOptionsResponse:
+    """Distinct cost-center / location values present on assets in the list scope."""
+    return svc.list_column_filter_options(
+        viewer_user_id=int(current.subject),
+        plant_id=plant_id,
+    )
 
 
 @router.get("", response_model=AssetListResponse)

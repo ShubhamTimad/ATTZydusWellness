@@ -78,15 +78,8 @@ import {
 } from "@/lib/assets-types"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 import { CapexDecisionDialog } from "@/pages/capex/capex-decision-dialog"
-import type {
-  ActualLocationMaster,
-  CostCenterMaster,
-  FunctionalLocationMaster,
-} from "@/lib/masters-types"
 import {
-  actualLocationLabel,
   categoryLabel,
-  functionalLocationLabel,
   plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
@@ -417,27 +410,80 @@ export function AssetsListPage() {
     React.useState<AssetColumnFilters>(DEFAULT_COLUMN_FILTERS)
   const [columnFilters, setColumnFilters] =
     React.useState<AssetColumnFilters>(DEFAULT_COLUMN_FILTERS)
-  const [costCenterOptions, setCostCenterOptions] = React.useState<CostCenterMaster[]>([])
-  const [functionalLocationOptions, setFunctionalLocationOptions] =
-    React.useState<FunctionalLocationMaster[]>([])
-  const [actualLocationOptions, setActualLocationOptions] =
-    React.useState<ActualLocationMaster[]>([])
+  const [costCenterOptions, setCostCenterOptions] = React.useState<
+    { code: string; name: string | null }[]
+  >([])
+  const [functionalLocationOptions, setFunctionalLocationOptions] = React.useState<
+    { code: string; name: string | null }[]
+  >([])
+  const [actualLocationOptions, setActualLocationOptions] = React.useState<
+    { code: string; name: string | null }[]
+  >([])
 
   React.useEffect(() => {
-    void getJson<CostCenterMaster[]>("/admin/asset-masters/cost-centers?active_only=false")
-      .then(setCostCenterOptions)
-      .catch(() => setCostCenterOptions([]))
-    void getJson<FunctionalLocationMaster[]>(
-      "/admin/asset-masters/functional-locations?active_only=false",
-    )
-      .then(setFunctionalLocationOptions)
-      .catch(() => setFunctionalLocationOptions([]))
-    void getJson<ActualLocationMaster[]>(
-      "/admin/asset-masters/actual-locations?active_only=false",
-    )
-      .then(setActualLocationOptions)
-      .catch(() => setActualLocationOptions([]))
-  }, [])
+    const qs = draftFilters.plant_id
+      ? `?plant_id=${encodeURIComponent(draftFilters.plant_id)}`
+      : ""
+    void getJson<{
+      cost_centers: { code: string; name: string | null }[]
+      functional_locations: { code: string; name: string | null }[]
+      actual_locations: { code: string; name: string | null }[]
+    }>(`/admin/assets/column-filter-options${qs}`)
+      .then((res) => {
+        setCostCenterOptions(res.cost_centers)
+        setFunctionalLocationOptions(res.functional_locations)
+        setActualLocationOptions(res.actual_locations)
+        setColumnFilterInputs((prev) => {
+          const next = { ...prev }
+          if (
+            next.cost_center &&
+            !res.cost_centers.some((c) => c.code === next.cost_center)
+          ) {
+            next.cost_center = ""
+          }
+          if (
+            next.functional_location &&
+            !res.functional_locations.some((c) => c.code === next.functional_location)
+          ) {
+            next.functional_location = ""
+          }
+          if (
+            next.actual_location &&
+            !res.actual_locations.some((c) => c.code === next.actual_location)
+          ) {
+            next.actual_location = ""
+          }
+          return next
+        })
+        setColumnFilters((prev) => {
+          const next = { ...prev }
+          if (
+            next.cost_center &&
+            !res.cost_centers.some((c) => c.code === next.cost_center)
+          ) {
+            next.cost_center = ""
+          }
+          if (
+            next.functional_location &&
+            !res.functional_locations.some((c) => c.code === next.functional_location)
+          ) {
+            next.functional_location = ""
+          }
+          if (
+            next.actual_location &&
+            !res.actual_locations.some((c) => c.code === next.actual_location)
+          ) {
+            next.actual_location = ""
+          }
+          return next
+        })
+      })
+      .catch(() => {
+        setCostCenterOptions([])
+        setFunctionalLocationOptions([])
+        setActualLocationOptions([])
+      })
+  }, [draftFilters.plant_id])
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
   const [selectedHasRfid, setSelectedHasRfid] = React.useState<Map<number, boolean>>(new Map())
   const [loading, setLoading] = React.useState(false)
@@ -686,7 +732,7 @@ export function AssetsListPage() {
             {key === "cost_center_name" ? "Cost Center Name" : "Cost Center Code"}
           </option>
           {costCenterOptions.map((costCenter) => (
-            <option key={costCenter.id} value={costCenter.code}>
+            <option key={costCenter.code} value={costCenter.code}>
               {key === "cost_center_name"
                 ? costCenter.name || costCenter.code
                 : costCenter.code}
@@ -707,8 +753,8 @@ export function AssetsListPage() {
         >
           <option value="">Actual Location 1</option>
           {functionalLocationOptions.map((location) => (
-            <option key={location.id} value={location.code}>
-              {functionalLocationLabel(location)}
+            <option key={location.code} value={location.code}>
+              {location.name ? `${location.code} — ${location.name}` : location.code}
             </option>
           ))}
         </select>
@@ -760,8 +806,8 @@ export function AssetsListPage() {
         >
           <option value="">Actual Location 2</option>
           {actualLocationOptions.map((location) => (
-            <option key={location.id} value={location.code}>
-              {actualLocationLabel(location)}
+            <option key={location.code} value={location.code}>
+              {location.name ? `${location.code} — ${location.name}` : location.code}
             </option>
           ))}
         </select>

@@ -566,7 +566,9 @@ export function OrderDetailPage() {
     <AdminPage
       fullWidth
       dense
-      className="w-full pb-6"
+      viewportFill
+      description=""
+      className="w-full min-h-0 flex-1 gap-3"
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <AdminPillBadge
@@ -780,7 +782,9 @@ export function OrderDetailPage() {
         </div>
       }
     >
-      <div className="space-y-[var(--app-grid-gap)]">
+      <div className="app-detail-fill-column">
+      <div className="app-detail-scroll-top">
+      <div className="flex flex-col gap-3">
       <div className="shrink-0">
         <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
           {order.order_number}
@@ -1223,8 +1227,10 @@ export function OrderDetailPage() {
           onPageChange={setAssetPage}
         />
       </AdminPanel>
+      </div>
+      </div>
 
-      <OrderAuditLog rows={order.audit} />
+      <OrderAuditLog rows={order.audit} fillHeight className="app-detail-audit-pane" />
       </div>
 
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>

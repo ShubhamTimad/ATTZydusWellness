@@ -107,6 +107,8 @@ from modules.assets.schema import (
     AssetInformationPayload,
     AssetImagePublic,
     AssetInventoryPayload,
+    AssetListFilterOption,
+    AssetListFilterOptionsResponse,
     AssetListItem,
     AssetListResponse,
     AssetWorkflowRunPublic,
@@ -366,6 +368,101 @@ class AssetMasterService:
         user.asset_list_columns = selected
         self._db.commit()
         return selected
+
+    def list_column_filter_options(
+        self,
+        *,
+        viewer_user_id: int,
+        plant_id: int | None = None,
+    ) -> AssetListFilterOptionsResponse:
+        """Distinct CC / location codes that appear on assets in the list scope."""
+        scope = list_viewer_scope(
+            load_viewer_org_scope(self._db, viewer_user_id),
+            view_all=self._can_view_all_assets(viewer_user_id),
+        )
+        base, *_rest = self._asset_list_base_query(
+            plant_id=plant_id,
+            viewer_scope=scope,
+        )
+        asset_ids = base.with_only_columns(AssetMaster.id).order_by(None).scalar_subquery()
+
+        cc_rows = self._db.execute(
+            select(
+                AssetFinancialInformation.cost_center,
+                func.min(CostCenterMaster.name),
+            )
+            .select_from(AssetFinancialInformation)
+            .outerjoin(
+                CostCenterMaster,
+                CostCenterMaster.code == AssetFinancialInformation.cost_center,
+            )
+            .where(
+                AssetFinancialInformation.asset_id.in_(asset_ids),
+                AssetFinancialInformation.cost_center.isnot(None),
+                AssetFinancialInformation.cost_center != "",
+            )
+            .group_by(AssetFinancialInformation.cost_center)
+            .order_by(AssetFinancialInformation.cost_center)
+        ).all()
+        cost_centers = [
+            AssetListFilterOption(code=str(code), name=str(name) if name else None)
+            for code, name in cc_rows
+            if code
+        ]
+
+        fl_rows = self._db.execute(
+            select(
+                AssetLocationInformation.functional_location,
+                func.min(FunctionalLocationMaster.name),
+            )
+            .select_from(AssetLocationInformation)
+            .outerjoin(
+                FunctionalLocationMaster,
+                FunctionalLocationMaster.code == AssetLocationInformation.functional_location,
+            )
+            .where(
+                AssetLocationInformation.asset_id.in_(asset_ids),
+                AssetLocationInformation.functional_location.isnot(None),
+                AssetLocationInformation.functional_location != "",
+            )
+            .group_by(AssetLocationInformation.functional_location)
+            .order_by(AssetLocationInformation.functional_location)
+        ).all()
+        functional_locations = [
+            AssetListFilterOption(code=str(code), name=str(name) if name else None)
+            for code, name in fl_rows
+            if code
+        ]
+
+        al_rows = self._db.execute(
+            select(
+                AssetLocationInformation.actual_location,
+                func.min(ActualLocationMaster.name),
+            )
+            .select_from(AssetLocationInformation)
+            .outerjoin(
+                ActualLocationMaster,
+                ActualLocationMaster.code == AssetLocationInformation.actual_location,
+            )
+            .where(
+                AssetLocationInformation.asset_id.in_(asset_ids),
+                AssetLocationInformation.actual_location.isnot(None),
+                AssetLocationInformation.actual_location != "",
+            )
+            .group_by(AssetLocationInformation.actual_location)
+            .order_by(AssetLocationInformation.actual_location)
+        ).all()
+        actual_locations = [
+            AssetListFilterOption(code=str(code), name=str(name) if name else None)
+            for code, name in al_rows
+            if code
+        ]
+
+        return AssetListFilterOptionsResponse(
+            cost_centers=cost_centers,
+            functional_locations=functional_locations,
+            actual_locations=actual_locations,
+        )
 
     def get_asset_image(self, asset_id: int) -> tuple[bytes, str, str]:
         asset = self._load_asset(asset_id)

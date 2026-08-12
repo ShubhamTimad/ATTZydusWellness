@@ -339,6 +339,7 @@ class AssetMastersService:
         plant_id: int | None = None,
         active_only: bool = True,
         scrapyard_only: bool = False,
+        for_asset_list: bool = False,
         viewer_user_id: int | None = None,
     ) -> list[CostCenterPublic]:
         scope = self._viewer_scope(viewer_user_id)
@@ -349,7 +350,8 @@ class AssetMastersService:
             stmt = stmt.where(CostCenterMaster.is_scrapyard.is_(True))
         # Disposal destination: any operator on the plant can pick a scrapyard CC
         # without being assigned to it.
-        restrict_to_assigned_ccs = not scrapyard_only
+        # Asset list filters: plant-scoped options from available masters, not assigned CCs.
+        restrict_to_assigned_ccs = not scrapyard_only and not for_asset_list
         if plant_id is not None:
             if scope.plant_ids is not None and int(plant_id) not in scope.plant_ids:
                 return []
@@ -359,7 +361,7 @@ class AssetMastersService:
                     return []
             stmt = stmt.where(CostCenterMaster.plant_id == plant_id)
         elif scope.plant_ids is not None and (
-            scrapyard_only or scope.cost_center_ids is None
+            scrapyard_only or for_asset_list or scope.cost_center_ids is None
         ):
             stmt = stmt.where(CostCenterMaster.plant_id.in_(scope.plant_ids))
         if restrict_to_assigned_ccs and scope.cost_center_ids is not None:

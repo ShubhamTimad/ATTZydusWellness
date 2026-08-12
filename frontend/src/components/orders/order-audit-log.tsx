@@ -1,41 +1,14 @@
 import * as React from "react"
 import { ChevronDown, ListTree } from "lucide-react"
 
-import {
-  AdminPanel,
-  AdminTableCell,
-  AdminTableHeadCell,
-  AdminTableHeaderRow,
-} from "@/components/layout/admin-ui"
-import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
+import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import { Button } from "@/components/ui/button"
-import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import type { PhysicalOrderAudit } from "@/lib/orders-types"
-import { cn } from "@/lib/utils"
-
-function formatWhenParts(iso: string): { date: string; time: string } {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return { date: iso, time: "" }
-  return {
-    date: d.toLocaleDateString(undefined, { dateStyle: "medium" }),
-    time: d.toLocaleTimeString(undefined, { timeStyle: "short" }),
-  }
-}
 
 function formatDt(iso: string | null | undefined) {
   if (!iso) return "—"
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-}
-
-function WhenCell({ at }: { at: string }) {
-  const { date, time } = formatWhenParts(at)
-  return (
-    <div className="tabular-nums leading-tight">
-      <div className="text-xs text-foreground">{date}</div>
-      {time ? <div className="mt-0.5 text-[11px] text-muted-foreground">{time}</div> : null}
-    </div>
-  )
 }
 
 function ActivityCell({
@@ -154,68 +127,53 @@ function ActivityCell({
   )
 }
 
-const cellClass = "px-4 py-2.5 align-top"
-const headClass = "px-4 py-2.5"
-
-export function OrderAuditLog({ rows }: { rows: PhysicalOrderAudit[] }) {
+export function OrderAuditLog({
+  rows,
+  fillHeight,
+  className,
+}: {
+  rows: PhysicalOrderAudit[]
+  fillHeight?: boolean
+  className?: string
+}) {
   const [expandedIds, setExpandedIds] = React.useState<Set<number>>(new Set())
   const displayRows = React.useMemo(
-    () => [...rows].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    () =>
+      [...rows].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      ),
     [rows],
   )
 
-  if (displayRows.length === 0) return null
+  const auditRows = React.useMemo((): AuditTrailRow[] => {
+    return displayRows.map((ev) => ({
+      id: String(ev.id),
+      at: ev.created_at,
+      by: ev.actor_name?.trim() || "System",
+      activity: (
+        <ActivityCell
+          ev={ev}
+          expanded={expandedIds.has(ev.id)}
+          onToggleVerified={() => {
+            setExpandedIds((prev) => {
+              const next = new Set(prev)
+              if (next.has(ev.id)) next.delete(ev.id)
+              else next.add(ev.id)
+              return next
+            })
+          }}
+        />
+      ),
+    }))
+  }, [displayRows, expandedIds])
 
   return (
-    <AdminPanel
-      title="Audit Trail"
-      description={`${displayRows.length} ${displayRows.length === 1 ? "entry" : "entries"}`}
-      contentClassName="p-0"
-      className="shrink-0 overflow-hidden"
-    >
-      <div className="max-h-[min(22rem,48vh)] overflow-auto overscroll-y-contain">
-        <Table className="app-table-head-sticky">
-          <TableHeader>
-            <AdminTableHeaderRow className="bg-muted/30 hover:bg-muted/30">
-              <AdminTableHeadCell className={cn(headClass, "w-[9.5rem]")}>When</AdminTableHeadCell>
-              <AdminTableHeadCell className={cn(headClass, "w-[7.5rem]")}>By</AdminTableHeadCell>
-              <AdminTableHeadCell className={headClass}>Activity</AdminTableHeadCell>
-            </AdminTableHeaderRow>
-          </TableHeader>
-          <TableBody>
-            {displayRows.map((ev, index) => (
-              <AdminTableBodyRow
-                key={ev.id}
-                interactive={false}
-                className={cn("border-border/40", index % 2 === 1 && "bg-muted/[0.18]")}
-              >
-                <AdminTableCell className={cellClass}>
-                  <WhenCell at={ev.created_at} />
-                </AdminTableCell>
-                <AdminTableCell className={cellClass}>
-                  <span className="text-sm font-medium text-foreground">
-                    {ev.actor_name?.trim() || "System"}
-                  </span>
-                </AdminTableCell>
-                <AdminTableCell className={cellClass}>
-                  <ActivityCell
-                    ev={ev}
-                    expanded={expandedIds.has(ev.id)}
-                    onToggleVerified={() => {
-                      setExpandedIds((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(ev.id)) next.delete(ev.id)
-                        else next.add(ev.id)
-                        return next
-                      })
-                    }}
-                  />
-                </AdminTableCell>
-              </AdminTableBodyRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-    </AdminPanel>
+    <AuditTrailTable
+      rows={auditRows}
+      fillHeight={fillHeight}
+      className={className}
+      emptyDescription="No audit events recorded yet."
+      descriptionFallback="Creation, assignment, verification, and approval actions for this order."
+    />
   )
 }
