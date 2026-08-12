@@ -76,32 +76,48 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
             suffix = ""
             if new_value.get("auto_assigned"):
                 suffix = " (after creation approval)"
+            elif new_value.get("on_submit"):
+                suffix = " (on submit)"
             elif new_value.get("intended_only"):
                 suffix = " (intended executor)"
             name = new_value.get("assigned_to_name")
             if name:
-                return f"Assigned to {name}{suffix}"
-            return f"Assigned to user #{assignee}{suffix}"
+                return f"Next: {name}{suffix}"
+            return f"Next: user #{assignee}{suffix}"
     if action == "reassigned":
         old_name = old_value.get("assigned_to_name")
         new_name = new_value.get("assigned_to_name")
         if old_name and new_name:
             return f"{old_name} → {new_name}"
         if new_name:
-            return f"Reassigned to {new_name}"
+            return f"Next: {new_name}"
         assignee = new_value.get("assigned_to")
-        return f"Reassigned to user #{assignee}" if assignee else None
+        return f"Next: user #{assignee}" if assignee else None
     if action == "asset_verified":
         code = new_value.get("asset_code")
         rfid = new_value.get("rfid_code")
         parts = [p for p in (code, rfid) if p]
         return " · ".join(parts) if parts else None
     if action == "rejected":
+        parts: list[str] = []
         reason = new_value.get("reason") or new_value.get("comment") or new_value.get("phase")
-        return str(reason) if reason else None
+        if reason:
+            parts.append(str(reason))
+        assignee_name = new_value.get("assigned_to_name")
+        if assignee_name:
+            parts.append(f"Next: {assignee_name}")
+        elif new_value.get("assigned_to") is not None:
+            parts.append(f"Next: user #{new_value.get('assigned_to')}")
+        return " — ".join(parts) if parts else None
     if action == "submitted_for_approval":
         rid = new_value.get("approval_request_id")
-        return f"Approval request #{rid}" if rid else None
+        next_name = new_value.get("next_assignee_name") or new_value.get("assigned_to_name")
+        parts = []
+        if next_name:
+            parts.append(f"Next: {next_name}")
+        if rid:
+            parts.append(f"Approval request #{rid}")
+        return " — ".join(parts) if parts else None
     if action == "closure_submitted":
         return None
     if action == "returned_for_execution":
@@ -131,6 +147,82 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         if reason:
             parts.append(str(reason))
         return " — ".join(parts) if parts else None
+    return None
+
+
+def _workflow_next_assignee_line(
+    db: Session,
+    req: ApprovalRequest,
+    act: ApprovalAction,
+    *,
+    user_name_fn,
+) -> str | None:
+    """Who the approval engine handed the next step to after this action."""
+    if str(act.action).lower() not in ("approve", "approved"):
+        return None
+    step_order = int(act.task.step.step_order) if act.task and act.task.step else None
+    tasks = list(req.tasks or [])
+    next_tasks: list[ApprovalTask] = []
+    if step_order is not None:
+        next_tasks = [
+            t
+            for t in tasks
+            if t.step is not None and int(t.step.step_order) == step_order + 1
+        ]
+    if not next_tasks and act.created_at is not None:
+        next_tasks = [
+            t
+            for t in tasks
+            if t.id != (act.task_id if act.task_id is not None else None)
+            and t.created_at is not None
+            and t.created_at >= act.created_at
+        ]
+    names: list[str] = []
+    roles: list[str] = []
+    for t in next_tasks:
+        if t.assigned_user_id is not None:
+            name = user_name_fn(int(t.assigned_user_id))
+            if name:
+                names.append(str(name))
+        elif t.assigned_role_id is not None:
+            role = db.get(Role, int(t.assigned_role_id))
+            if role is not None and role.name:
+                roles.append(str(role.name))
+        elif t.step is not None:
+            role = db.get(Role, int(t.step.approver_role_id))
+            if role is not None and role.name:
+                roles.append(str(role.name))
+    if names:
+        uniq = list(dict.fromkeys(names))
+        return f"Next: {', '.join(uniq)}"
+    if roles:
+        uniq = list(dict.fromkeys(roles))
+        return f"Next role: {', '.join(uniq)}"
+    return None
+
+
+def _first_request_assignee_line(
+    db: Session,
+    req: ApprovalRequest,
+    *,
+    user_name_fn,
+) -> str | None:
+    """Assignee (or role) for the first pending/created task on a request."""
+    tasks = sorted(
+        (t for t in (req.tasks or []) if t.step is not None),
+        key=lambda t: (int(t.step.step_order), int(t.id)),
+    )
+    if not tasks:
+        return None
+    first = tasks[0]
+    if first.assigned_user_id is not None:
+        name = user_name_fn(int(first.assigned_user_id))
+        return f"Next: {name}" if name else f"Next: user #{first.assigned_user_id}"
+    role_id = first.assigned_role_id or (first.step.approver_role_id if first.step else None)
+    if role_id is not None:
+        role = db.get(Role, int(role_id))
+        if role is not None and role.name:
+            return f"Next role: {role.name}"
     return None
 
 
@@ -168,9 +260,6 @@ def enrich_audit_rows(
 ) -> list[PhysicalOrderAuditPublic]:
     out: list[PhysicalOrderAuditPublic] = []
     synthetic_id = -1
-    has_real_creation_approval = any(
-        str(r.action) == "approved" and not (r.new_value or {}).get("auto_approved") for r in rows
-    )
     has_real_closure_approval = any(str(r.action) == "closure_approved" for r in rows)
     has_closure_submitted = any(str(r.action) == "closure_submitted" for r in rows)
 
@@ -178,42 +267,12 @@ def enrich_audit_rows(
         _verified_assets_from_items(order_items, user_name_fn=user_name_fn) if order_items else []
     )
 
-    for r in rows:
-        action = str(r.action)
-        if action == "asset_verified":
-            continue
-        if action == "completed" and (has_real_closure_approval or has_closure_submitted):
-            continue
-        if action == "approved" and (r.new_value or {}).get("auto_approved"):
-            continue
-        if action == "assignment_changed":
-            continue
-        new_value = dict(r.new_value or {})
-        if action == "order_created" and not new_value.get("assigned_to_name") and assigned_to_name:
-            new_value["assigned_to_name"] = assigned_to_name
-        out.append(
-            PhysicalOrderAuditPublic(
-                id=int(r.id),
-                action=action,
-                label=_AUDIT_LABELS.get(action, action.replace("_", " ").title()),
-                detail=_audit_detail(action, r.old_value, new_value),
-                actor_name=user_name_fn(r.actor_user_id),
-                old_value=r.old_value,
-                new_value=new_value,
-                created_at=r.created_at,
-                verified_assets=verified_assets if action == "started" else [],
-            )
-        )
-
+    workflow_rows: list[PhysicalOrderAuditPublic] = []
     if db is not None and order_id is not None:
         for entity_type, phase_label in (
             (ENTITY_TYPE_CREATION, "Creation approval"),
             (ENTITY_TYPE_CLOSURE, "Closure approval"),
         ):
-            if entity_type == ENTITY_TYPE_CREATION and has_real_creation_approval:
-                continue
-            if entity_type == ENTITY_TYPE_CLOSURE and has_real_closure_approval:
-                continue
             req = _latest_approval_request(db, order_id=order_id, entity_type=entity_type)
             if req is None:
                 continue
@@ -233,12 +292,20 @@ def enrich_audit_rows(
                     if act_name in ("approve", "approved")
                     else f"{phase_label} level {step_order} rejected"
                 )
-                out.append(
+                detail_parts: list[str] = []
+                next_line = _workflow_next_assignee_line(
+                    db, req, act, user_name_fn=user_name_fn
+                )
+                if next_line:
+                    detail_parts.append(next_line)
+                if act.comment:
+                    detail_parts.append(f"Comment: {act.comment}")
+                workflow_rows.append(
                     PhysicalOrderAuditPublic(
                         id=synthetic_id,
                         action=f"workflow_{act_name}",
                         label=label,
-                        detail=act.comment,
+                        detail=" — ".join(detail_parts) if detail_parts else None,
                         actor_name=user_name_fn(int(act.user_id)),
                         old_value=None,
                         new_value={
@@ -250,6 +317,65 @@ def enrich_audit_rows(
                     )
                 )
 
+    has_workflow_creation_approve = any(
+        e.action.startswith("workflow_")
+        and (e.new_value or {}).get("action") in ("approve", "approved")
+        and "Creation" in e.label
+        for e in workflow_rows
+    )
+    has_workflow_closure_approve = any(
+        e.action.startswith("workflow_")
+        and (e.new_value or {}).get("action") in ("approve", "approved")
+        and "Closure" in e.label
+        for e in workflow_rows
+    )
+
+    for r in rows:
+        action = str(r.action)
+        if action == "asset_verified":
+            continue
+        if action == "completed" and (has_real_closure_approval or has_closure_submitted):
+            continue
+        if action == "approved" and (r.new_value or {}).get("auto_approved"):
+            continue
+        # Prefer step-by-step workflow rows (they include next assignee).
+        if action == "approved" and has_workflow_creation_approve:
+            continue
+        if action == "closure_approved" and has_workflow_closure_approve:
+            continue
+        new_value = dict(r.new_value or {})
+        if action == "order_created" and not new_value.get("assigned_to_name") and assigned_to_name:
+            new_value["assigned_to_name"] = assigned_to_name
+        if action == "rejected" and not new_value.get("assigned_to_name") and assigned_to_name:
+            new_value["assigned_to_name"] = assigned_to_name
+        if action == "submitted_for_approval" and db is not None and order_id is not None:
+            if not new_value.get("next_assignee_name") and not new_value.get("assigned_to_name"):
+                req = _latest_approval_request(
+                    db, order_id=order_id, entity_type=ENTITY_TYPE_CREATION
+                )
+                if req is not None:
+                    first_line = _first_request_assignee_line(
+                        db, req, user_name_fn=user_name_fn
+                    )
+                    if first_line and first_line.startswith("Next: "):
+                        new_value["next_assignee_name"] = first_line.removeprefix("Next: ")
+                    elif first_line and first_line.startswith("Next role: "):
+                        new_value["next_assignee_name"] = first_line.removeprefix("Next role: ")
+        out.append(
+            PhysicalOrderAuditPublic(
+                id=int(r.id),
+                action=action,
+                label=_AUDIT_LABELS.get(action, action.replace("_", " ").title()),
+                detail=_audit_detail(action, r.old_value, new_value),
+                actor_name=user_name_fn(r.actor_user_id),
+                old_value=r.old_value,
+                new_value=new_value,
+                created_at=r.created_at,
+                verified_assets=verified_assets if action == "started" else [],
+            )
+        )
+
+    out.extend(workflow_rows)
     out.sort(key=lambda e: e.created_at)
     return out
 

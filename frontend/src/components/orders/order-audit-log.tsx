@@ -49,12 +49,23 @@ function ActivityCell({
 }) {
   const verifiedAssets = ev.verified_assets ?? []
   const showVerifiedToggle = ev.action === "started" && verifiedAssets.length > 0
-  const executorOnCreate = ev.action === "order_created" ? ev.detail?.trim() : null
-  const executorOnReassign = ev.action === "reassigned" ? ev.detail?.trim() : null
-  const otherDetail =
-    ev.detail?.trim() && ev.action !== "order_created" && ev.action !== "reassigned"
-      ? ev.detail.trim()
+  const detail = ev.detail?.trim() || ""
+  const nextMatch = detail.match(/^(Next(?: role)?:\s*.+?)(?:\s+[—-]\s+|$)/i)
+  const nextLine = nextMatch?.[1]?.trim() || null
+  const executorOnCreate =
+    ev.action === "order_created" && detail && !detail.startsWith("Next")
+      ? detail
       : null
+  const restDetail = (() => {
+    if (!detail) return null
+    if (executorOnCreate) return null
+    if (nextLine && detail.startsWith(nextLine)) {
+      const rest = detail.slice(nextLine.length).replace(/^\s*[—-]\s*/, "").trim()
+      return rest || null
+    }
+    if (ev.action === "reassigned") return detail
+    return detail
+  })()
 
   return (
     <div className="min-w-0 space-y-1.5">
@@ -95,15 +106,14 @@ function ActivityCell({
         </p>
       ) : null}
 
-      {executorOnReassign ? (
+      {nextLine ? (
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          <span>Executor: </span>
-          <span className="text-foreground">{executorOnReassign}</span>
+          <span className="text-foreground">{nextLine}</span>
         </p>
       ) : null}
 
-      {otherDetail ? (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">{otherDetail}</p>
+      {restDetail ? (
+        <p className="text-[11px] leading-relaxed text-muted-foreground">{restDetail}</p>
       ) : null}
 
       {showVerifiedToggle && !expanded ? (

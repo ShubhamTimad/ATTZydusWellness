@@ -257,6 +257,11 @@ class PhysicalOrderService:
             self._close_pending_approval_tasks(int(closure.id))
             closure.status = "rejected"
 
+        assignee_name = None
+        if order.assigned_to is not None:
+            assignee = self._db.get(User, int(order.assigned_to))
+            assignee_name = assignee.full_name if assignee is not None else None
+
         log_order_event(
             self._db,
             order_id=int(order.id),
@@ -269,6 +274,7 @@ class PhysicalOrderService:
                 "rejected_asset_codes": rejected_codes,
                 "kept_approved_asset_codes": kept_approved,
                 "assigned_to": int(order.assigned_to) if order.assigned_to is not None else None,
+                "assigned_to_name": assignee_name,
             },
         )
 
