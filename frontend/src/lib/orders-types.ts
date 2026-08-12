@@ -197,6 +197,8 @@ export type PhysicalOrderDetail = {
   can_delete?: boolean
   can_archive?: boolean
   can_unarchive?: boolean
+  can_review_creation?: boolean
+  can_review_closure?: boolean
 }
 
 export type OrdersDashboardModule = {

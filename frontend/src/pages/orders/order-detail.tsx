@@ -79,11 +79,17 @@ const ORDER_ACTION_BUSY_LABELS: Record<string, string> = {
   "/approval/approve-all": "Approving…",
   "/approval/approve-order": "Approving…",
   "/approval/approve-items": "Approving…",
+  "/approval/reject-items": "Rejecting…",
   "/close": "Closing order…",
   "/start": "Starting…",
   "/restart": "Restarting…",
   "/submit": "Submitting…",
   "/reassign": "Reassigning…",
+}
+
+type ClosureLineDecision = {
+  choice: "approve" | "reject" | null
+  reason: string
 }
 
 function formatDt(iso: string | null | undefined) {
@@ -188,7 +194,9 @@ export function OrderDetailPage() {
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
   const [busyAction, setBusyAction] = React.useState<string | null>(null)
-  const [selected, setSelected] = React.useState<Set<number>>(new Set())
+  const [closureDecisions, setClosureDecisions] = React.useState<
+    Record<number, ClosureLineDecision>
+  >({})
   const [assetSearchInput, setAssetSearchInput] = React.useState("")
   const [assetSearch, setAssetSearch] = React.useState("")
   const [assetColumnFiltersOpen, setAssetColumnFiltersOpen] = React.useState(false)
@@ -203,8 +211,6 @@ export function OrderDetailPage() {
   const [scanValue, setScanValue] = React.useState("")
   const [rejectOpen, setRejectOpen] = React.useState(false)
   const [rejectReason, setRejectReason] = React.useState("")
-  const [rejectMode, setRejectMode] = React.useState<"items" | "order">("items")
-  const [closureRejectConfirmOpen, setClosureRejectConfirmOpen] = React.useState(false)
   const [closureRejectBlockedOpen, setClosureRejectBlockedOpen] = React.useState(false)
   const [closureRejectVerifiedCodes, setClosureRejectVerifiedCodes] = React.useState<string[]>([])
   const [reassignOpen, setReassignOpen] = React.useState(false)
@@ -296,6 +302,30 @@ export function OrderDetailPage() {
 
   React.useEffect(() => {
     if (!order) return
+    setClosureDecisions((prev) => {
+      const next: Record<number, ClosureLineDecision> = {}
+      for (const item of order.items) {
+        const status = (item.verification_status || "").toLowerCase()
+        const existing = prev[item.id]
+        if (status === "approved") {
+          next[item.id] = { choice: "approve", reason: "" }
+        } else if (status === "rejected") {
+          next[item.id] = {
+            choice: "reject",
+            reason: item.rejection_reason || existing?.reason || "",
+          }
+        } else if (existing?.choice === "approve" || existing?.choice === "reject") {
+          next[item.id] = existing
+        } else {
+          next[item.id] = { choice: null, reason: "" }
+        }
+      }
+      return next
+    })
+  }, [order])
+
+  React.useEffect(() => {
+    if (!order) return
     const stillVisible = order.items.some((item) => item.id === selectedScanItemId)
     if (!stillVisible) setSelectedScanItemId(null)
   }, [order, selectedScanItemId])
@@ -328,7 +358,6 @@ export function OrderDetailPage() {
         body ?? {},
       )
       setOrder(res)
-      setSelected(new Set())
       if (
         path === "/approval/approve-order" &&
         (res.status === "approved" || res.status === "assigned")
@@ -342,16 +371,20 @@ export function OrderDetailPage() {
       ) {
         toast.success("Order approved.")
       } else if (path === "/approval/approve-items" && res.status === "completed") {
-        toast.success("Selected lines approved.")
+        toast.success("Order approved.")
       } else if (path === "/approval/approve-items" && res.status === "pending_closure_approval") {
-        toast.success("Selected lines approved.")
+        toast.success("Lines approved.")
       } else if (path === "/approval/reject-items") {
         toast.success(
           res.status === "in_progress"
             ? res.assigned_to_name
               ? `Order returned to ${res.assigned_to_name} for rework.`
               : "Order returned to executor for rework."
-            : "Selected assets marked rejected. Continue reviewing remaining assets.",
+            : res.status === "rejected"
+              ? res.assigned_to_name
+                ? `Order rejected. ${res.assigned_to_name} can start verification again on rejected assets.`
+                : "Order rejected."
+              : "Assets marked rejected.",
         )
       } else if (path === "/approval/reject-order") {
         toast.success(
@@ -362,9 +395,11 @@ export function OrderDetailPage() {
       } else if (path === "/approval/approve-all" && res.status === "rejected") {
         toast.success(
           res.assigned_to_name
-            ? `Remaining assets approved. Order rejected so ${res.assigned_to_name} can rework rejected assets.`
-            : "Remaining assets approved. Order rejected for rework on rejected assets.",
+            ? `Review finished. Order rejected so ${res.assigned_to_name} can rework rejected assets.`
+            : "Review finished. Order rejected for rework on rejected assets.",
         )
+      } else if (path === "/approval/approve-all" && res.status === "completed") {
+        toast.success("Lines approved.")
       } else if (path === "/start" && res.status === "in_progress") {
         toast.success("Verification started.")
       } else if (path === "/submit-closure") {
@@ -421,7 +456,6 @@ export function OrderDetailPage() {
 
   const hasClosureWorkflow = order.progress.closure_workflow != null
   const isDraft = order.status === "draft"
-  const isPendingApproval = order.status === "pending_approval"
   const isAssigned = order.status === "assigned"
   const isInProgress = order.status === "in_progress"
   const isCompleted = order.status === "completed"
@@ -433,8 +467,8 @@ export function OrderDetailPage() {
   const executionSideReject =
     isRejected &&
     Boolean(order.assigned_at || order.started_at || order.completed_at)
-  const canReviewCreation = isPendingApproval && canApprove
-  const canReviewClosure = isCompleted && hasClosureWorkflow && canApprove
+  const canReviewCreation = Boolean(order.can_review_creation) && canApprove
+  const canReviewClosure = Boolean(order.can_review_closure) && canApprove
   const canAssignSubmit =
     (isDraft || (isRejected && !executionSideReject)) && canCreate && isCreator
   const canScan =
@@ -494,65 +528,139 @@ export function OrderDetailPage() {
     return canScan && !item.physically_verified
   }
 
-  function itemIsSelectableAtClosure(_item: PhysicalOrderItem): boolean {
-    return canReviewClosure
+  function itemStatus(item: PhysicalOrderItem): string {
+    return (item.verification_status || "").toLowerCase()
   }
 
-  function beginClosureLineReject() {
-    if (!order) return
-    const selectedItems = order.items.filter((item) => selected.has(item.id))
-    const verified = selectedItems.filter((item) => item.physically_verified)
-    const nonVerified = selectedItems.filter((item) => !item.physically_verified)
+  function itemDecisionLocked(item: PhysicalOrderItem): boolean {
+    const status = itemStatus(item)
+    return status === "approved" || status === "rejected"
+  }
 
-    if (selectedItems.length === 0) {
-      toast.error("Select at least one asset to reject.")
-      return
-    }
-    if (verified.length > 0 && nonVerified.length === 0) {
-      setClosureRejectVerifiedCodes(verified.map((item) => item.asset_code))
+  function setClosureChoice(item: PhysicalOrderItem, choice: "approve" | "reject" | null) {
+    if (itemDecisionLocked(item)) return
+    if (choice === "reject" && item.physically_verified) {
+      setClosureRejectVerifiedCodes([item.asset_code])
       setClosureRejectBlockedOpen(true)
       return
     }
-    if (verified.length > 0) {
-      setClosureRejectVerifiedCodes(verified.map((item) => item.asset_code))
-      setSelected(new Set(nonVerified.map((item) => item.id)))
-      setClosureRejectConfirmOpen(true)
-      return
-    }
-    setRejectMode("items")
-    setRejectOpen(true)
+    setClosureDecisions((prev) => ({
+      ...prev,
+      [item.id]: {
+        choice,
+        reason: choice === "reject" ? prev[item.id]?.reason || "" : "",
+      },
+    }))
   }
 
-  function beginClosureLineApprove() {
-    if (!order || selected.size === 0) return
-    void runAction("/approval/approve-items", { item_ids: [...selected] })
+  function setClosureReason(itemId: number, reason: string) {
+    setClosureDecisions((prev) => ({
+      ...prev,
+      [itemId]: {
+        choice: prev[itemId]?.choice ?? "reject",
+        reason,
+      },
+    }))
+  }
+
+  const closureHasRejectChoice =
+    canReviewClosure &&
+    order.items.some((item) => {
+      const status = itemStatus(item)
+      if (status === "rejected") return true
+      return (closureDecisions[item.id]?.choice ?? null) === "reject"
+    })
+
+  async function submitClosureLineDecisions() {
+    if (!order || !id) return
+    const pending = order.items.filter((item) => itemStatus(item) === "pending")
+    const undecided = pending.filter((item) => {
+      const choice = closureDecisions[item.id]?.choice ?? null
+      return choice !== "approve" && choice !== "reject"
+    })
+    if (undecided.length > 0) {
+      toast.error("Mark Approve or Reject for every pending asset.")
+      return
+    }
+
+    const toReject = pending.filter((item) => {
+      const choice = closureDecisions[item.id]?.choice
+      return choice === "reject" && !item.physically_verified
+    })
+    const missingReason = toReject.filter(
+      (item) => !(closureDecisions[item.id]?.reason || "").trim(),
+    )
+    if (missingReason.length > 0) {
+      toast.error("Enter a rejection reason for every rejected asset.")
+      return
+    }
+    const verifiedReject = pending.filter(
+      (item) =>
+        (closureDecisions[item.id]?.choice ?? null) === "reject" && item.physically_verified,
+    )
+    if (verifiedReject.length > 0) {
+      setClosureRejectVerifiedCodes(verifiedReject.map((item) => item.asset_code))
+      setClosureRejectBlockedOpen(true)
+      return
+    }
+
+    setBusy(true)
+    setBusyAction("/approval/reject-items")
+    try {
+      let latest = order
+      // Apply rejects first (group by reason to keep request count low).
+      const byReason = new Map<string, number[]>()
+      for (const item of toReject) {
+        const reason = (closureDecisions[item.id]?.reason || "").trim()
+        const ids = byReason.get(reason) ?? []
+        ids.push(item.id)
+        byReason.set(reason, ids)
+      }
+      for (const [reason, itemIds] of byReason) {
+        latest = await postJson<PhysicalOrderDetail>(
+          `/admin/physical-orders/${id}/approval/reject-items`,
+          { item_ids: itemIds, rejection_reason: reason },
+        )
+      }
+      // Approve remaining pending + finalize mixed or full approval.
+      latest = await postJson<PhysicalOrderDetail>(
+        `/admin/physical-orders/${id}/approval/approve-all`,
+        {},
+      )
+      setOrder(latest)
+      if (latest.status === "approved") {
+        toast.success("Order approved.")
+      } else if (latest.status === "rejected") {
+        toast.success(
+          latest.assigned_to_name
+            ? `Review finished. Order rejected so ${latest.assigned_to_name} can rework rejected assets.`
+            : "Review finished. Order rejected for rework on rejected assets.",
+        )
+      } else {
+        toast.success("Review updated.")
+      }
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Action failed.")
+    } finally {
+      setBusy(false)
+      setBusyAction(null)
+    }
   }
 
   async function beginClosureApproveAll() {
     if (!order) return
-    const rejectedCount = order.rejected_item_count ?? 0
-    const pendingCount = order.items.filter(
-      (item) => (item.verification_status ?? "").toLowerCase() === "pending",
-    ).length
-    if (rejectedCount > 0) {
-      const ok = await confirmAsk({
-        title: "Approve remaining assets?",
-        description:
-          pendingCount > 0
-            ? `Approve ${pendingCount} remaining asset${pendingCount === 1 ? "" : "s"} and keep ${rejectedCount} rejected? The order will stay Rejected so the executor can rework only the rejected assets.`
-            : `${rejectedCount} asset${rejectedCount === 1 ? " is" : "s are"} rejected. Finish review and return the order to the executor for those assets only?`,
-        confirmLabel: pendingCount > 0 ? "Approve remaining" : "Finish review",
-      })
-      if (!ok) return
+    if (closureHasRejectChoice) {
+      toast.error("One or more assets are marked Reject. Use Reject to finish review.")
+      return
     }
     await runAction("/approval/approve-all")
   }
 
-  const showRowSelection = canReviewClosure
-  const selectableItems = filteredItems.filter((item) => itemIsSelectableAtClosure(item))
-
-  const showRejectColumn = order.rejected_item_count > 0 || canReviewClosure || isRejected
-  const tableColSpan = (showRowSelection ? 1 : 0) + 4 + (showRejectColumn ? 1 : 0)
+  const showClosureDecisionCols = canReviewClosure
+  const showRejectColumn =
+    !showClosureDecisionCols && (order.rejected_item_count > 0 || isRejected)
+  const tableColSpan =
+    4 + (showClosureDecisionCols ? 3 : 0) + (showRejectColumn ? 1 : 0)
   const activeProgressStep =
     order.progress.steps.find((step) => step.key === order.progress.current_step_key) ??
     order.progress.steps.find((step) => step.status === "active")
@@ -700,7 +808,7 @@ export function OrderDetailPage() {
                 className="h-9"
                 disabled={busy}
                 onClick={() => {
-                  setRejectMode("order")
+                  setRejectReason("")
                   setRejectOpen(true)
                 }}
               >
@@ -724,19 +832,25 @@ export function OrderDetailPage() {
                 className="h-9"
                 disabled={busy}
                 onClick={() => {
-                  setRejectMode("order")
+                  if (closureHasRejectChoice) {
+                    void submitClosureLineDecisions()
+                    return
+                  }
+                  setRejectReason("")
                   setRejectOpen(true)
                 }}
               >
                 Reject
               </Button>
-              <AdminPrimaryButton
-                type="button"
-                disabled={busy}
-                onClick={() => void beginClosureApproveAll()}
-              >
-                Approve
-              </AdminPrimaryButton>
+              {!closureHasRejectChoice ? (
+                <AdminPrimaryButton
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void beginClosureApproveAll()}
+                >
+                  Approve
+                </AdminPrimaryButton>
+              ) : null}
             </>
           ) : null}
           {canAssignSubmit ? (
@@ -941,28 +1055,6 @@ export function OrderDetailPage() {
             </span>
           </p>
           <div className="ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-2">
-            {canReviewClosure && selected.size > 0 ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9 shrink-0"
-                  disabled={busy}
-                  onClick={beginClosureLineReject}
-                >
-                  Reject selected ({selected.size})
-                </Button>
-                <AdminPrimaryButton
-                  type="button"
-                  className="shrink-0"
-                  disabled={busy}
-                  onClick={beginClosureLineApprove}
-                >
-                  Approve selected ({selected.size})
-                </AdminPrimaryButton>
-              </>
-            ) : null}
             <div className="relative min-w-0 w-56 flex-1 sm:w-64 sm:flex-none lg:w-80">
               <Search
                 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
@@ -1023,32 +1115,21 @@ export function OrderDetailPage() {
           <Table className="app-table-head-sticky">
             <TableHeader>
               <AdminTableHeaderRow>
-                {showRowSelection ? (
-                  <AdminTableHeadCell className="w-10">
-                    <Checkbox
-                      checked={
-                        selectableItems.length > 0 &&
-                        selectableItems.every((item) => selected.has(item.id))
-                      }
-                      disabled={selectableItems.length === 0}
-                      onCheckedChange={(on) => {
-                        if (on) setSelected(new Set(selectableItems.map((item) => item.id)))
-                        else setSelected(new Set())
-                      }}
-                    />
-                  </AdminTableHeadCell>
-                ) : null}
                 <AdminTableHeadCell>Asset</AdminTableHeadCell>
                 <AdminTableHeadCell>RFID</AdminTableHeadCell>
                 <AdminTableHeadCell>Status</AdminTableHeadCell>
                 <AdminTableHeadCell>Verified</AdminTableHeadCell>
+                {showClosureDecisionCols ? (
+                  <>
+                    <AdminTableHeadCell className="w-20 text-center">Approve</AdminTableHeadCell>
+                    <AdminTableHeadCell className="w-20 text-center">Reject</AdminTableHeadCell>
+                    <AdminTableHeadCell className="min-w-[14rem]">Reason</AdminTableHeadCell>
+                  </>
+                ) : null}
                 {showRejectColumn ? <AdminTableHeadCell>Rejection</AdminTableHeadCell> : null}
               </AdminTableHeaderRow>
               {assetColumnFiltersOpen ? (
                 <AdminTableHeaderRow>
-                  {showRowSelection ? (
-                    <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
-                  ) : null}
                   <AdminTableHeadCell className="px-2 py-1.5">
                     <Input
                       value={assetColumnFilterInputs.asset}
@@ -1102,6 +1183,13 @@ export function OrderDetailPage() {
                       className={columnFilterControlClass}
                     />
                   </AdminTableHeadCell>
+                  {showClosureDecisionCols ? (
+                    <>
+                      <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
+                      <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
+                      <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
+                    </>
+                  ) : null}
                   {showRejectColumn ? (
                     <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
                   ) : null}
@@ -1120,6 +1208,9 @@ export function OrderDetailPage() {
                   const scannable = itemIsScannable(item)
                   const isSelectedForScan = selectedScanItemId === item.id
                   const rowTone = itemRowTone(item)
+                  const decision = closureDecisions[item.id] ?? { choice: null, reason: "" }
+                  const locked = itemDecisionLocked(item)
+                  const rejectDisabled = locked || item.physically_verified
                   return (
                     <AdminTableBodyRow
                       key={item.id}
@@ -1137,24 +1228,6 @@ export function OrderDetailPage() {
                         void load({ quiet: true })
                       }}
                     >
-                      {showRowSelection ? (
-                        <AdminTableCell>
-                          <div onClick={(e: React.MouseEvent) => e.stopPropagation()} role="presentation">
-                            <Checkbox
-                              checked={selected.has(item.id)}
-                              disabled={!itemIsSelectableAtClosure(item)}
-                              onCheckedChange={(on) => {
-                                setSelected((prev) => {
-                                  const next = new Set(prev)
-                                  if (on) next.add(item.id)
-                                  else next.delete(item.id)
-                                  return next
-                                })
-                              }}
-                            />
-                          </div>
-                        </AdminTableCell>
-                      ) : null}
                       <AdminTableCell className="whitespace-normal">
                         <Link
                           to={`/dashboard/assets/${item.asset_id}`}
@@ -1200,6 +1273,61 @@ export function OrderDetailPage() {
                           "—"
                         )}
                       </AdminTableCell>
+                      {showClosureDecisionCols ? (
+                        <>
+                          <AdminTableCell className="text-center align-middle">
+                            <div
+                              className="flex justify-center"
+                              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                              role="presentation"
+                            >
+                              <Checkbox
+                                checked={decision.choice === "approve"}
+                                disabled={locked || busy}
+                                aria-label={`Approve ${item.asset_code}`}
+                                onCheckedChange={(on) =>
+                                  setClosureChoice(item, on ? "approve" : null)
+                                }
+                              />
+                            </div>
+                          </AdminTableCell>
+                          <AdminTableCell className="text-center align-middle">
+                            <div
+                              className="flex justify-center"
+                              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                              role="presentation"
+                            >
+                              <Checkbox
+                                checked={decision.choice === "reject"}
+                                disabled={rejectDisabled || busy}
+                                aria-label={`Reject ${item.asset_code}`}
+                                onCheckedChange={(on) =>
+                                  setClosureChoice(item, on ? "reject" : null)
+                                }
+                              />
+                            </div>
+                          </AdminTableCell>
+                          <AdminTableCell className="align-middle">
+                            <div
+                              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                              role="presentation"
+                            >
+                              {decision.choice === "reject" ? (
+                                <Input
+                                  value={decision.reason}
+                                  disabled={locked || busy}
+                                  placeholder="Reason (required)"
+                                  aria-label={`Rejection reason for ${item.asset_code}`}
+                                  className="h-9 w-full min-w-[12rem] text-sm"
+                                  onChange={(e) => setClosureReason(item.id, e.target.value)}
+                                />
+                              ) : (
+                                <span className="text-sm text-muted-foreground">—</span>
+                              )}
+                            </div>
+                          </AdminTableCell>
+                        </>
+                      ) : null}
                       {showRejectColumn ? (
                         <AdminTableCell className="whitespace-normal text-sm text-foreground">
                           {item.verification_status === "rejected" || item.rejection_reason ? (
@@ -1352,13 +1480,11 @@ export function OrderDetailPage() {
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {rejectMode === "order" ? "Reject order" : "Reject selected assets"}
-            </DialogTitle>
+            <DialogTitle>Reject order</DialogTitle>
             <DialogDescription>
-              {rejectMode === "order"
-                ? "This rejects every asset that is not already approved. Approved assets stay locked. The order becomes Rejected and the assigned executor can Start to rework only the rejected assets."
-                : "Reject the selected assets. The order stays in review so you can approve or reject the rest."}
+              This rejects every asset that is not already approved. Approved assets stay locked.
+              The order becomes Rejected and the assigned executor can Start to rework only the
+              rejected assets.
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body space-y-4">
@@ -1379,14 +1505,9 @@ export function OrderDetailPage() {
                 disabled={!rejectReason.trim() || busy}
                 onClick={() => {
                   const reason = rejectReason.trim()
-                  if (rejectMode === "order") {
-                    void runAction("/approval/reject-order", { reason }).then(() => setRejectOpen(false))
-                  } else {
-                    void runAction("/approval/reject-items", {
-                      item_ids: [...selected],
-                      rejection_reason: reason,
-                    }).then(() => setRejectOpen(false))
-                  }
+                  void runAction("/approval/reject-order", { reason }).then((ok) => {
+                    if (ok) setRejectOpen(false)
+                  })
                 }}
               >
                 Confirm
@@ -1419,43 +1540,6 @@ export function OrderDetailPage() {
               onClick={() => setClosureRejectBlockedOpen(false)}
             >
               OK
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={closureRejectConfirmOpen} onOpenChange={setClosureRejectConfirmOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Verified assets selected</DialogTitle>
-            <DialogDescription>
-              Verified assets will be skipped. Reject the rest?
-            </DialogDescription>
-          </DialogHeader>
-          {closureRejectVerifiedCodes.length > 0 ? (
-            <div className="dialog-body">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Skipped
-              </p>
-              <p className="font-mono text-sm font-medium text-foreground">
-                {closureRejectVerifiedCodes.join(", ")}
-              </p>
-            </div>
-          ) : null}
-          <div className="dialog-footer-actions">
-            <Button type="button" variant="outline" onClick={() => setClosureRejectConfirmOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => {
-                setClosureRejectConfirmOpen(false)
-                setRejectMode("items")
-                setRejectOpen(true)
-              }}
-            >
-              Reject others
             </Button>
           </div>
         </DialogContent>

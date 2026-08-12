@@ -218,6 +218,8 @@ class PhysicalOrderDetail(BaseModel):
     can_delete: bool = False
     can_archive: bool = False
     can_unarchive: bool = False
+    can_review_creation: bool = False
+    can_review_closure: bool = False
 
 
 class ExecutorUserPublic(BaseModel):

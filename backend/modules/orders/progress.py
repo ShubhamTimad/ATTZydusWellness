@@ -180,13 +180,20 @@ def _workflow_next_assignee_line(
             for t in tasks
             if t.step is not None and int(t.step.step_order) == step_order + 1
         ]
-    if not next_tasks and act.created_at is not None:
+    if not next_tasks and step_order is not None:
         next_tasks = [
             t
             for t in tasks
-            if t.id != (act.task_id if act.task_id is not None else None)
-            and t.created_at is not None
-            and t.created_at >= act.created_at
+            if t.step is not None and int(t.step.step_order) > step_order
+        ]
+    if not next_tasks:
+        # ApprovalTask has no created_at — use later ids / still-pending handoffs.
+        current_id = int(act.task_id) if act.task_id is not None else None
+        next_tasks = [
+            t
+            for t in tasks
+            if (current_id is None or int(t.id) != current_id)
+            and str(getattr(t, "status", "") or "") == "pending"
         ]
     names: list[str] = []
     roles: list[str] = []

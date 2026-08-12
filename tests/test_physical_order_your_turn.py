@@ -72,6 +72,10 @@ def test_assignee_walks_start_verify_close() -> None:
     assert _label("assigned", assigned_to=VIEWER) == "Start"
     assert _label("in_progress", assigned_to=VIEWER) == "Verify"
     assert _label("completed", assigned_to=VIEWER, completed_at="now") == "Close"
+    # Completed with a closure approval request → Approve, not Close.
+    assert (
+        _label("completed", assigned_to=VIEWER, completed_at="now", request_id=99) == "Approve"
+    )
     # `approved` means "creation approved" before execution and "closure approved" after it.
     assert _label("approved", assigned_to=VIEWER) == "Start"
     assert _label("approved", assigned_to=VIEWER, completed_at="now") == "Close"
