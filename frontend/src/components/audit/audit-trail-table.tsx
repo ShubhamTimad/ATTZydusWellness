@@ -55,6 +55,8 @@ export function AuditTrailTable({
   emptyDescription = "No audit events recorded yet.",
   loadingLabel = "Loading audit trail…",
   descriptionFallback,
+  fillHeight = false,
+  className,
 }: {
   rows: AuditTrailRow[]
   loading?: boolean
@@ -62,6 +64,9 @@ export function AuditTrailTable({
   loadingLabel?: string
   /** Shown when there are no rows and not loading (panel description). */
   descriptionFallback?: string
+  /** Grow to fill remaining column height; table body scrolls inside the panel. */
+  fillHeight?: boolean
+  className?: string
 }) {
   return (
     <AdminPanel
@@ -71,14 +76,24 @@ export function AuditTrailTable({
           ? `${rows.length} ${rows.length === 1 ? "entry" : "entries"}`
           : (descriptionFallback ?? emptyDescription)
       }
-      contentClassName="p-0"
+      contentClassName={cn("p-0", fillHeight && "flex min-h-0 flex-1 flex-col")}
+      className={cn(
+        fillHeight && "flex min-h-0 flex-1 flex-col overflow-hidden",
+        className,
+      )}
     >
       {loading ? (
         <p className="px-4 py-6 text-sm text-muted-foreground">{loadingLabel}</p>
       ) : rows.length === 0 ? (
         <p className="px-4 py-6 text-sm text-muted-foreground">{emptyDescription}</p>
       ) : (
-        <div className="max-h-[min(22rem,48vh)] overflow-auto overscroll-y-contain">
+        <div
+          className={cn(
+            "app-data-table-wrap",
+            fillHeight && "overscroll-y-contain",
+            fillHeight ? "min-h-0 flex-1" : "max-h-[min(22rem,48vh)]",
+          )}
+        >
           <Table className="app-table-head-sticky">
             <TableHeader>
               <AdminTableHeaderRow className="bg-muted/30 hover:bg-muted/30">

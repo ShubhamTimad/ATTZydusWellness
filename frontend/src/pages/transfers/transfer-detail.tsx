@@ -3,7 +3,7 @@ import { ArrowRightLeft, Package } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
-import { ApprovalWorkflowTimeline } from "@/components/approval-workflow-timeline"
+
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
@@ -47,14 +47,6 @@ import { TransferAuditLog } from "@/pages/transfers/transfer-audit-log"
 
 type PickerMode = "submit" | "cc2_assign" | null
 
-function formatWhen(iso: string | null | undefined): string {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-}
-
 function FormField({
   id,
   labelText,
@@ -75,6 +67,27 @@ function FormField({
         {required ? <RequiredFieldMark /> : null}
       </Label>
       {children}
+    </div>
+  )
+}
+
+function DetailFact({
+  label,
+  value,
+  className,
+}: {
+  label: string
+  value: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div className={cn("min-w-0", className)}>
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="mt-0.5 break-words text-sm leading-snug font-medium text-foreground">
+        {value}
+      </dd>
     </div>
   )
 }
@@ -476,14 +489,6 @@ export function TransferOrderDetailPage() {
         }
       : null)
 
-  const destinationDescription = order.can_restart_transfer
-    ? "Receive again with updated locations, or click Transfer to change destination and restart the full approval flow on this same order."
-    : receiveEditable
-      ? "Set Actual Location 1 / 2, then receive. Destination cost center stays as approved — same order id continues."
-      : draftEditable
-        ? "Update destination cost center and asset custodian. Locations are set when the destination custodian receives."
-        : "Destination details for this transfer order."
-
   const progress = buildTransferProgress(order)
   const decisionConfirmLabel =
     stepKind === "confirm" ? "Confirm" : stepKind === "close" ? "Close" : "Approve"
@@ -492,8 +497,9 @@ export function TransferOrderDetailPage() {
     <AdminPage
       fullWidth
       dense
+      viewportFill
       description=""
-      className="w-full pb-6"
+      className="w-full min-h-0 flex-1 gap-3"
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <AdminPillBadge
@@ -730,69 +736,29 @@ export function TransferOrderDetailPage() {
         </div>
       }
     >
-      <div className="space-y-[var(--app-grid-gap)]">
-        <div className="flex shrink-0 flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-              {order.order_number}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {order.plant_name}
-              {order.from_cost_center_code || order.to_cost_center_code
-                ? ` · ${order.from_cost_center_code ?? "—"} → ${order.to_cost_center_code}`
+      <div className="app-detail-fill-column">
+        <div className="app-detail-scroll-top">
+          <div className="flex flex-col gap-3">
+        <div className="shrink-0">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+            {order.order_number}
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {order.plant_name}
+            {order.from_cost_center_code || order.to_cost_center_code
+              ? ` · ${order.from_cost_center_code ?? "—"} → ${order.to_cost_center_code ?? "—"}`
+              : null}
+            {order.assigned_to_name
+              ? ` · ${order.assigned_to_name}`
+              : order.created_by_name
+                ? ` · ${order.created_by_name}`
                 : null}
-              {order.assigned_to_name
-                ? ` · ${order.assigned_to_name}`
-                : order.created_by_name
-                  ? ` · ${order.created_by_name}`
-                  : null}
-            </p>
-          </div>
-          {(order.can_delete || order.can_archive || order.can_unarchive) && (
-            <div className="flex flex-wrap items-center gap-2">
-              {order.can_delete ? (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  className="h-9"
-                  disabled={busy}
-                  onClick={() => void deleteDraftOrder()}
-                >
-                  Delete draft
-                </Button>
-              ) : null}
-              {order.can_archive ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9"
-                  disabled={busy}
-                  onClick={() => void archiveTransferOrder()}
-                >
-                  Archive
-                </Button>
-              ) : null}
-              {order.can_unarchive ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9"
-                  disabled={busy}
-                  onClick={() => void unarchiveTransferOrder()}
-                >
-                  Unarchive
-                </Button>
-              ) : null}
-            </div>
-          )}
+          </p>
         </div>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
-          <div className="border-b border-border/60 bg-muted/15 px-4 py-3 sm:px-5">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5 sm:px-5">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Progress
             </p>
             <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />
@@ -800,26 +766,35 @@ export function TransferOrderDetailPage() {
         </AdminPanel>
 
         {order.rejection_reason ? (
-          <AdminPanel className="border-destructive/30 bg-destructive/5" contentClassName="px-5 py-4">
+          <AdminPanel className="border-destructive/30 bg-destructive/5" contentClassName="px-4 py-3">
             <p className="text-sm font-medium text-destructive">Rejection reason</p>
             <p className="mt-1 text-sm">{order.rejection_reason}</p>
           </AdminPanel>
         ) : null}
 
-        <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
+        <div className="grid gap-3 lg:grid-cols-2">
           <AdminPanel
             title="Transfer destination"
-            description={destinationDescription}
+            description={
+              order.can_restart_transfer
+                ? "Receive again with updated locations, or click Transfer to change destination and restart the full approval flow on this same order."
+                : receiveEditable
+                  ? "Set Actual Location 1 / 2, then receive. Destination cost center stays as approved — same order id continues."
+                  : draftEditable
+                    ? "Update destination cost center and asset custodian. Locations are set when the destination custodian receives."
+                    : undefined
+            }
             headerActions={<ArrowRightLeft className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
+            contentClassName="flex-1 px-4 py-3"
+            className="flex h-full flex-col"
           >
-            <div className="grid grid-cols-1 gap-4">
-              <FormField
-                id="to_cc"
-                labelText="Destination cost center"
-                required={draftEditable}
-              >
-                {draftEditable ? (
+            {draftEditable ? (
+              <div className="grid grid-cols-1 gap-3">
+                <FormField
+                  id="to_cc"
+                  labelText="Destination cost center"
+                  required
+                >
                   <select
                     id="to_cc"
                     className={adminSelectClass}
@@ -837,22 +812,10 @@ export function TransferOrderDetailPage() {
                       </option>
                     ))}
                   </select>
-                ) : (
-                  <p className="text-sm">
-                    {selectedCc
-                      ? `${costCenterLabel(selectedCc)}${selectedCc.code ? ` (${selectedCc.code})` : ""}`
-                      : `${order.to_cost_center_code}${
-                          order.to_cost_center_description
-                            ? ` — ${order.to_cost_center_description}`
-                            : ""
-                        }`}
-                  </p>
-                )}
-              </FormField>
+                </FormField>
 
-              <FormField id="to_custodian" labelText="Asset custodian" required={draftEditable}>
-                {draftEditable ? (
-                  custodiansLoading ? (
+                <FormField id="to_custodian" labelText="Asset custodian" required>
+                  {custodiansLoading ? (
                     <p className="text-sm text-muted-foreground">Loading custodians…</p>
                   ) : custodianOptions.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
@@ -876,76 +839,93 @@ export function TransferOrderDetailPage() {
                         </option>
                       ))}
                     </select>
+                  )}
+                </FormField>
+              </div>
+            ) : (
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                <DetailFact
+                  label="Destination cost center"
+                  value={
+                    selectedCc
+                      ? `${costCenterLabel(selectedCc)}${selectedCc.code ? ` (${selectedCc.code})` : ""}`
+                      : order.to_cost_center_code
+                        ? `${order.to_cost_center_code}${
+                            order.to_cost_center_description
+                              ? ` — ${order.to_cost_center_description}`
+                              : ""
+                          }`
+                        : "—"
+                  }
+                />
+                <DetailFact
+                  label="Asset custodian"
+                  value={selectedCustodian?.full_name ?? order.to_asset_custodian_name ?? "—"}
+                />
+                {showLocations ? (
+                  receiveEditable ? (
+                    <div className="col-span-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <FormField id="loc1" labelText="Actual Location 1" required>
+                        <select
+                          id="loc1"
+                          className={adminSelectClass}
+                          value={toFunctionalLocation}
+                          onChange={(e) => {
+                            setToFunctionalLocation(e.target.value)
+                            setToActualLocation("")
+                          }}
+                        >
+                          <option value="">Select location</option>
+                          {masters.functionalLocations.map((l) => (
+                            <option key={l.id} value={l.code}>
+                              {functionalLocationLabel(l)}
+                            </option>
+                          ))}
+                        </select>
+                      </FormField>
+                      <FormField id="loc2" labelText="Actual Location 2" required>
+                        <select
+                          id="loc2"
+                          className={adminSelectClass}
+                          value={toActualLocation}
+                          onChange={(e) => setToActualLocation(e.target.value)}
+                          disabled={!toFunctionalLocation}
+                        >
+                          <option value="">
+                            {toFunctionalLocation ? "Select location" : "Select Actual Location 1 first"}
+                          </option>
+                          {masters.actualLocations.map((l) => (
+                            <option key={l.id} value={l.code}>
+                              {actualLocationLabel(l)}
+                            </option>
+                          ))}
+                        </select>
+                      </FormField>
+                    </div>
+                  ) : (
+                    <>
+                      <DetailFact label="Actual Location 1" value={order.to_functional_location ?? "—"} />
+                      <DetailFact label="Actual Location 2" value={order.to_actual_location ?? "—"} />
+                    </>
                   )
-                ) : (
-                  <p className="text-sm">{selectedCustodian?.full_name ?? order.to_asset_custodian_name ?? "—"}</p>
-                )}
-              </FormField>
-
-              {showLocations ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField id="loc1" labelText="Actual Location 1" required={receiveEditable}>
-                    {receiveEditable ? (
-                      <select
-                        id="loc1"
-                        className={adminSelectClass}
-                        value={toFunctionalLocation}
-                        onChange={(e) => {
-                          setToFunctionalLocation(e.target.value)
-                          setToActualLocation("")
-                        }}
-                      >
-                        <option value="">Select location</option>
-                        {masters.functionalLocations.map((l) => (
-                          <option key={l.id} value={l.code}>
-                            {functionalLocationLabel(l)}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <p className="text-sm">{order.to_functional_location ?? "—"}</p>
-                    )}
-                  </FormField>
-                  <FormField id="loc2" labelText="Actual Location 2" required={receiveEditable}>
-                    {receiveEditable ? (
-                      <select
-                        id="loc2"
-                        className={adminSelectClass}
-                        value={toActualLocation}
-                        onChange={(e) => setToActualLocation(e.target.value)}
-                        disabled={!toFunctionalLocation}
-                      >
-                        <option value="">
-                          {toFunctionalLocation ? "Select location" : "Select Actual Location 1 first"}
-                        </option>
-                        {masters.actualLocations.map((l) => (
-                          <option key={l.id} value={l.code}>
-                            {actualLocationLabel(l)}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <p className="text-sm">{order.to_actual_location ?? "—"}</p>
-                    )}
-                  </FormField>
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+              </dl>
+            )}
           </AdminPanel>
 
           <AdminPanel
             title={`Assets (${order.items.length})`}
-            description="Assets included on this transfer order."
             headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
+            contentClassName="flex min-h-0 flex-1 flex-col px-0 py-0"
+            className="flex h-full flex-col overflow-hidden"
           >
-            <div className="-mx-5 -mb-5 overflow-x-auto">
+            <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <AdminTableHeaderRow>
-                    <AdminTableHeadCell>Asset</AdminTableHeadCell>
-                    <AdminTableHeadCell>From CC</AdminTableHeadCell>
-                    <AdminTableHeadCell>From Loc 1</AdminTableHeadCell>
+                    <AdminTableHeadCell className="h-9 px-4 py-2">Asset</AdminTableHeadCell>
+                    <AdminTableHeadCell className="h-9 px-4 py-2">From CC</AdminTableHeadCell>
+                    <AdminTableHeadCell className="h-9 px-4 py-2">From Loc 1</AdminTableHeadCell>
                   </AdminTableHeaderRow>
                 </TableHeader>
                 <TableBody>
@@ -953,13 +933,13 @@ export function TransferOrderDetailPage() {
                     <AdminTableEmptyRow colSpan={3}>No assets</AdminTableEmptyRow>
                   ) : (
                     order.items.map((item) => (
-                      <AdminTableBodyRow key={item.id}>
-                        <AdminTableCell>
+                      <AdminTableBodyRow key={item.id} interactive={false}>
+                        <AdminTableCell className="min-h-0 px-4 py-2">
                           <div className="font-medium">{item.asset_code}</div>
                           <div className="text-xs text-muted-foreground">{item.asset_name || "—"}</div>
                         </AdminTableCell>
-                        <AdminTableCell>{item.from_cost_center_code ?? "—"}</AdminTableCell>
-                        <AdminTableCell>{item.from_functional_location ?? "—"}</AdminTableCell>
+                        <AdminTableCell className="px-4 py-2">{item.from_cost_center_code ?? "—"}</AdminTableCell>
+                        <AdminTableCell className="px-4 py-2">{item.from_functional_location ?? "—"}</AdminTableCell>
                       </AdminTableBodyRow>
                     ))
                   )}
@@ -968,39 +948,15 @@ export function TransferOrderDetailPage() {
             </div>
           </AdminPanel>
         </div>
+          </div>
+        </div>
 
-        {panel && (panel.workflow_runs?.length ?? 0) > 0 ? (
-          <ApprovalWorkflowTimeline
-            steps={panel.workflow_steps}
-            viewerUserId={viewerUserId}
-            formatWhen={formatWhen}
-            compact
-            compactRuns={panel.workflow_runs!.map((run) => {
-              const statusLabel =
-                run.request_status === "rejected" || run.request_status === "in_rework"
-                  ? "Rejected"
-                  : run.request_status === "pending"
-                    ? "In progress"
-                    : run.request_status === "approved"
-                      ? "Approved"
-                      : run.request_status
-              const label =
-                (panel.workflow_runs?.length ?? 0) > 1
-                  ? `Attempt ${run.attempt}${run.is_current ? " (current)" : ""} · ${statusLabel}`
-                  : undefined
-              return { label, steps: run.workflow_steps }
-            })}
-          />
-        ) : panel && panel.workflow_steps.length > 0 ? (
-          <ApprovalWorkflowTimeline
-            steps={panel.workflow_steps}
-            viewerUserId={viewerUserId}
-            formatWhen={formatWhen}
-            compact
-          />
-        ) : null}
-
-        <TransferAuditLog events={order.audit} assetCodeById={assetCodeById} />
+        <TransferAuditLog
+          events={order.audit}
+          assetCodeById={assetCodeById}
+          fillHeight
+          className="app-detail-audit-pane"
+        />
       </div>
 
       <CapexAssigneePickerDialog

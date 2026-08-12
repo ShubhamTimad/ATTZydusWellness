@@ -193,9 +193,13 @@ function activityForEvent(ev: DisposalOrderAudit): React.ReactNode {
 export function DisposalAuditLog({
   events,
   loading,
+  fillHeight,
+  className,
 }: {
   events: DisposalOrderAudit[] | null
   loading?: boolean
+  fillHeight?: boolean
+  className?: string
 }) {
   const rows = React.useMemo((): AuditTrailRow[] => {
     if (!events) return []
@@ -211,6 +215,8 @@ export function DisposalAuditLog({
     <AuditTrailTable
       rows={rows}
       loading={loading}
+      fillHeight={fillHeight}
+      className={className}
       emptyDescription="No audit events recorded yet."
       descriptionFallback="Creation, edits, and workflow actions for this disposal order."
     />

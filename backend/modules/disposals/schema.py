@@ -157,6 +157,9 @@ class DisposalOrderDetail(BaseModel):
     to_cost_center_id: int | None = None
     to_cost_center_code: str | None = None
     to_cost_center_description: str | None = None
+    # Scrapyard Actual Location 1 / 2 chosen at receive (null until received).
+    to_functional_location: str | None = None
+    to_actual_location: str | None = None
     requires_engineering: bool
     status: str
     remarks: str | None = None

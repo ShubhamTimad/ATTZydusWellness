@@ -72,11 +72,13 @@ from modules.errors import ConflictError, NotFoundError
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
 from modules.platform.approvals.model import (
+    ApprovalAction,
     ApprovalRequest,
     ApprovalStep,
     ApprovalTask,
     ApprovalWorkflow,
 )
+from modules.platform.approvals.service import ApprovalEngineService, ApprovalError
 from modules.platform.approvals.service import ApprovalEngineService, ApprovalError
 from modules.platform.org_units.model import OrgUnit
 from modules.platform.roles.model import Role
@@ -176,6 +178,66 @@ def _ensure_financial(asset: AssetMaster) -> AssetFinancialInformation:
     if asset.financial is None:
         asset.financial = AssetFinancialInformation(asset_id=int(asset.id))
     return asset.financial
+
+
+def _scrapyard_locations_after_receive(
+    db: Session, order: AssetDisposalOrder
+) -> tuple[str | None, str | None]:
+    """AL1/AL2 from last receive — also after CF bounce so details still show prior values."""
+    show = order.status in (STATUS_PENDING_CF_CLOSE, STATUS_CLOSED) or _is_returned_to_receiver(
+        db, order
+    )
+    if not show:
+        return None, None
+    row = db.scalar(
+        select(AssetDisposalOrderAudit)
+        .where(
+            AssetDisposalOrderAudit.order_id == int(order.id),
+            AssetDisposalOrderAudit.action == "received",
+        )
+        .order_by(AssetDisposalOrderAudit.id.desc())
+        .limit(1)
+    )
+    if row is not None and isinstance(row.new_value, dict):
+        fl = _strip_or_none(
+            None
+            if row.new_value.get("functional_location") is None
+            else str(row.new_value.get("functional_location"))
+        )
+        al = _strip_or_none(
+            None
+            if row.new_value.get("actual_location") is None
+            else str(row.new_value.get("actual_location"))
+        )
+        if fl or al:
+            return fl, al
+    # After bounce, assets are reverted — only use live asset locs when still at CF/closed.
+    if order.status not in (STATUS_PENDING_CF_CLOSE, STATUS_CLOSED):
+        return None, None
+    for item in order.items or []:
+        asset = item.asset
+        if asset is None:
+            continue
+        fl = _asset_functional_location(asset)
+        al = _asset_actual_location(asset)
+        if fl or al:
+            return fl, al
+    return None, None
+
+
+def _is_returned_to_receiver(db: Session, order: AssetDisposalOrder) -> bool:
+    """Post-receive CF reject: same order awaits receiver again (not creator Restart)."""
+    if not (order.rejection_comment or "").strip():
+        return False
+    # Legacy bounce wrote pending_receipt + comment before status was normalized to rejected.
+    if order.status == STATUS_PENDING_RECEIPT:
+        return True
+    if order.status != STATUS_REJECTED:
+        return False
+    if order.approval_request_id is None:
+        return False
+    req = db.get(ApprovalRequest, int(order.approval_request_id))
+    return req is not None and str(req.status) == "pending"
 
 
 def require_scrapyard_locations(
@@ -742,6 +804,11 @@ class DisposalOrderService:
             raise ConflictError(
                 "Only a rejected or in-rework disposal order can be restarted."
             )
+        if _is_returned_to_receiver(self._db, order):
+            raise ConflictError(
+                "This disposal was returned to the receiver — they must receive again, "
+                "not restart as draft."
+            )
         if not _actor_may_discard_disposal(order, actor_user_id=actor_user_id, db=self._db):
             raise ConflictError("Only the order creator can restart this disposal order.")
         old_status = order.status
@@ -1112,16 +1179,104 @@ class DisposalOrderService:
         codes = set(get_flat_permission_codes_for_user(self._db, actor_user_id))
         return permission in codes or permission.replace(".", ":", 1) in codes
 
+    def _pending_step_task(
+        self, order: AssetDisposalOrder, *, step_kind: str
+    ) -> ApprovalTask | None:
+        if order.approval_request_id is None:
+            return None
+        kind = (step_kind or "approve").strip().lower()
+        rows = self._db.scalars(
+            select(ApprovalTask)
+            .join(ApprovalStep, ApprovalStep.id == ApprovalTask.step_id)
+            .where(
+                ApprovalTask.request_id == int(order.approval_request_id),
+                ApprovalTask.task_type == "approval",
+                ApprovalTask.status == "pending",
+                ApprovalStep.step_kind == kind,
+            )
+            .order_by(ApprovalTask.id.asc())
+        ).all()
+        return rows[0] if rows else None
+
+    def _heal_stale_receive_task(self, order: AssetDisposalOrder) -> bool:
+        """REST receive can leave the engine receive task open after status already advanced."""
+        if order.status != STATUS_PENDING_CF_CLOSE or order.assigned_to is None:
+            return False
+        if order.approval_request_id is None:
+            return False
+        task = self._pending_step_task(order, step_kind="receive")
+        if task is None or task.step_id is None:
+            return False
+        req = self._db.scalar(
+            select(ApprovalRequest)
+            .where(ApprovalRequest.id == int(order.approval_request_id))
+            .options(
+                selectinload(ApprovalRequest.workflow).selectinload(ApprovalWorkflow.steps),
+            )
+        )
+        if req is None or str(req.status) != "pending" or req.workflow is None:
+            return False
+        steps_sorted = sorted(req.workflow.steps or [], key=lambda s: int(s.step_order))
+        idx = next(
+            (i for i, s in enumerate(steps_sorted) if int(s.id) == int(task.step_id)),
+            None,
+        )
+        if idx is None or idx >= len(steps_sorted) - 1:
+            return False
+        next_step = steps_sorted[idx + 1]
+        now = datetime.now(timezone.utc)
+        task.status = "approved"
+        task.acted_at = now
+        actor_id = (
+            int(order.receiver_user_id)
+            if order.receiver_user_id is not None
+            else int(order.assigned_by)
+            if order.assigned_by is not None
+            else None
+        )
+        self._db.add(
+            ApprovalAction(
+                task_id=int(task.id),
+                user_id=actor_id,
+                action="approve",
+                comment="Synced after receive",
+            )
+        )
+        ApprovalEngineService(self._db)._create_tasks_for_step(
+            req, next_step, assigned_user_id=int(order.assigned_to)
+        )
+        req.current_step = int(next_step.step_order)
+        self._db.commit()
+        return True
+
     def receive_order(
         self, order_id: int, data: ReceiveDisposalRequest, *, actor_user_id: int
     ) -> DisposalOrderDetail:
         order = self._load_order(order_id)
-        if order.status != STATUS_PENDING_RECEIPT:
+        returned = _is_returned_to_receiver(self._db, order)
+        if order.status != STATUS_PENDING_RECEIPT and not returned:
             raise ConflictError("Only fully approved disposal orders can be received.")
         if not self._actor_may_act(
             order, actor_user_id=actor_user_id, permission=PERMISSION_RECEIVE
         ):
             raise ConflictError("Only the assigned receiver can receive this disposal order.")
+
+        # Engine workflows: REST receive must advance the pending receive task (not leave it open).
+        pending_receive = self._pending_step_task(order, step_kind="receive")
+        if pending_receive is not None:
+            try:
+                ApprovalEngineService(self._db).act_on_task(
+                    task_id=int(pending_receive.id),
+                    actor_user_id=actor_user_id,
+                    action="approve",
+                    comment=_strip_or_none(data.remarks),
+                    next_assigned_user_id=int(data.assigned_to),
+                    to_functional_location=data.functional_location,
+                    to_actual_location=data.actual_location,
+                )
+            except ApprovalError as exc:
+                raise ConflictError(str(exc)) from exc
+            return self.get_order(order_id, viewer_user_id=actor_user_id)
 
         if order.to_cost_center_id is None:
             raise ConflictError("Scrapyard cost center must be set on the order before receive.")
@@ -1154,6 +1309,7 @@ class DisposalOrderService:
         if data.remarks is not None:
             order.remarks = _strip_or_none(data.remarks)
         order.status = STATUS_PENDING_CF_CLOSE
+        order.rejection_comment = None
         if order.receiver_user_id is None:
             order.receiver_user_id = int(actor_user_id)
         self._assign(order, to_user_id=int(cf_user.id), by_user_id=actor_user_id)
@@ -1182,6 +1338,19 @@ class DisposalOrderService:
             raise ConflictError("Only disposal orders that have been received can be approved.")
         if not self._actor_may_act(order, actor_user_id=actor_user_id, permission=PERMISSION_CLOSE):
             raise ConflictError("Only the assigned Central Finance user can approve this order.")
+
+        pending_close = self._pending_step_task(order, step_kind="close")
+        if pending_close is not None:
+            try:
+                ApprovalEngineService(self._db).act_on_task(
+                    task_id=int(pending_close.id),
+                    actor_user_id=actor_user_id,
+                    action="approve",
+                    comment=_strip_or_none(data.remarks),
+                )
+            except ApprovalError as exc:
+                raise ConflictError(str(exc)) from exc
+            return self.get_order(order_id, viewer_user_id=actor_user_id)
 
         disposed: list[str] = []
         for item in order.items:
@@ -1536,14 +1705,24 @@ class DisposalOrderService:
                     AssetDisposalOrder.approval_request_id.is_not(None),
                     AssetDisposalOrder.approval_request_id.in_(pending_req_ids),
                 ),
+                # Creator: draft always; rejected only when assigned back to them
+                # (not when CF bounce sent the order to the receiver).
                 and_(
                     AssetDisposalOrder.created_by == uid,
                     AssetDisposalOrder.status.in_(CREATOR_ACTION_STATUSES),
+                    or_(
+                        AssetDisposalOrder.status == STATUS_DRAFT,
+                        AssetDisposalOrder.assigned_to == uid,
+                    ),
                 ),
                 and_(
                     AssetDisposalOrder.assigned_to == uid,
                     AssetDisposalOrder.status.in_(
-                        (STATUS_PENDING_RECEIPT, STATUS_PENDING_CF_CLOSE)
+                        (
+                            STATUS_PENDING_RECEIPT,
+                            STATUS_PENDING_CF_CLOSE,
+                            STATUS_REJECTED,
+                        )
                     ),
                 ),
             ),
@@ -1574,10 +1753,18 @@ class DisposalOrderService:
         if viewer_user_id is None:
             return None
         uid = int(viewer_user_id)
+        returned = _is_returned_to_receiver(self._db, order)
+        if (
+            order.status in RESUMABLE_STATUSES
+            and not returned
+            and order.created_by is not None
+            and int(order.created_by) == uid
+        ):
+            return "Restart"
         if order.status in EDITABLE_STATUSES and order.created_by is not None and int(order.created_by) == uid:
             return "Submit" if order.status == STATUS_DRAFT else "Resubmit"
         if order.assigned_to is not None and int(order.assigned_to) == uid:
-            if order.status == STATUS_PENDING_RECEIPT:
+            if order.status == STATUS_PENDING_RECEIPT or returned:
                 return "Receive"
             if order.status == STATUS_PENDING_CF_CLOSE:
                 return "Close"
@@ -1619,6 +1806,25 @@ class DisposalOrderService:
     def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> DisposalOrderDetail:
         self._normalize_legacy_rework_orders()
         order = self._load_order(order_id)
+        # Heal orders received via REST while an engine receive task was still open.
+        if self._heal_stale_receive_task(order):
+            order = self._load_order(order_id)
+        # Heal legacy bounce rows that kept pending_receipt after CF reject.
+        if (
+            order.status == STATUS_PENDING_RECEIPT
+            and (order.rejection_comment or "").strip()
+            and order.approval_request_id is not None
+        ):
+            req = self._db.get(ApprovalRequest, int(order.approval_request_id))
+            if req is not None and str(req.status) == "pending":
+                order.status = STATUS_REJECTED
+                self._db.commit()
+        returned_to_receiver = _is_returned_to_receiver(self._db, order)
+        if returned_to_receiver and order.receiver_user_id is not None:
+            receiver_id = int(order.receiver_user_id)
+            if order.assigned_to is None or int(order.assigned_to) != receiver_id:
+                order.assigned_to = receiver_id
+                self._db.commit()
         viewer = self._db.get(User, viewer_user_id) if viewer_user_id else None
         is_super = bool(viewer is not None and viewer.is_superuser)
         is_creator = (
@@ -1633,7 +1839,7 @@ class DisposalOrderService:
 
         panel = self._approval_panel(order, viewer_user_id=viewer_user_id)
         legacy_receive = (
-            order.status == STATUS_PENDING_RECEIPT
+            (order.status == STATUS_PENDING_RECEIPT or returned_to_receiver)
             and viewer_user_id is not None
             and self._actor_may_act(
                 order, actor_user_id=int(viewer_user_id), permission=PERMISSION_RECEIVE
@@ -1646,6 +1852,7 @@ class DisposalOrderService:
                 order, actor_user_id=int(viewer_user_id), permission=PERMISSION_CLOSE
             )
         )
+        to_fl, to_al = _scrapyard_locations_after_receive(self._db, order)
 
         return DisposalOrderDetail(
             id=int(order.id),
@@ -1666,6 +1873,8 @@ class DisposalOrderService:
             to_cost_center_description=(
                 order.to_cost_center.description if order.to_cost_center else None
             ),
+            to_functional_location=to_fl,
+            to_actual_location=to_al,
             requires_engineering=bool(order.requires_engineering),
             status=order.status,
             remarks=order.remarks,
@@ -1697,9 +1906,17 @@ class DisposalOrderService:
             approval_panel=panel,
             can_submit=(order.status in SUBMITTABLE_STATUSES) and (is_creator or is_super),
             can_edit=(order.status in EDITABLE_STATUSES) and (is_creator or is_super),
-            can_resume=(order.status in RESUMABLE_STATUSES) and (is_creator or is_super),
+            can_resume=(
+                order.status in RESUMABLE_STATUSES
+                and not returned_to_receiver
+                and (is_creator or is_super)
+            ),
             can_receive=_can_disposal_operational_flag(
-                order, panel=panel, legacy_ok=legacy_receive, step_kind="receive"
+                order,
+                panel=panel,
+                legacy_ok=legacy_receive,
+                step_kind="receive",
+                allow_rejected_receive=returned_to_receiver,
             ),
             can_close=_can_disposal_operational_flag(
                 order, panel=panel, legacy_ok=legacy_close, step_kind="close"
@@ -1722,8 +1939,19 @@ def _can_disposal_operational_flag(
     panel: DisposalApprovalPanel | None,
     legacy_ok: bool,
     step_kind: str,
+    allow_rejected_receive: bool = False,
 ) -> bool:
     """Engine pending task wins; while the approval request is open, hide legacy-only gates."""
+    # Status is source of truth — never show Receive after assets already moved to CF.
+    if step_kind == "receive":
+        if order.status == STATUS_PENDING_RECEIPT:
+            pass
+        elif order.status == STATUS_REJECTED and allow_rejected_receive:
+            pass
+        else:
+            return False
+    if step_kind == "close" and order.status != STATUS_PENDING_CF_CLOSE:
+        return False
     if (
         panel is not None
         and panel.my_pending_task_id is not None
@@ -1735,6 +1963,10 @@ def _can_disposal_operational_flag(
         and panel is not None
         and str(panel.request_status) == "pending"
     ):
+        # Bounce-to-receiver: assigned receiver may still use REST receive while the
+        # engine request stays open.
+        if allow_rejected_receive and legacy_ok:
+            return True
         return False
     return legacy_ok
 
@@ -1834,6 +2066,7 @@ def apply_disposal_receive(
     old_status = order.status
     order.to_cost_center_id = int(cc.id)
     order.status = STATUS_PENDING_CF_CLOSE
+    order.rejection_comment = None
     # Keep receiver_user_id so a later CF reject can return here for location edits.
     if order.receiver_user_id is None:
         order.receiver_user_id = int(actor_user_id)
@@ -2015,7 +2248,9 @@ def reject_disposal_approval(
             )
         order.receiver_user_id = receiver_id
         _revert_disposal_assets_after_receive(order)
-        order.status = STATUS_PENDING_RECEIPT
+        # Status Rejected (not pending_receipt) so list/detail badges match the reject.
+        # Receive stays open via the approval engine; _is_returned_to_receiver detects this.
+        order.status = STATUS_REJECTED
         order.closed_at = None
         order.assigned_to = receiver_id
         order.assigned_by = approver_user_id

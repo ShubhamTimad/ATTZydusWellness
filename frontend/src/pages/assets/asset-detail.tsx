@@ -11,7 +11,6 @@ import { CapexFormSearchSelect } from "@/components/assets/capex-form-search-sel
 import { renderPhysicalOrderInventoryField } from "@/lib/asset-physical-order-display"
 import { AssetDetailSectionPanel } from "@/components/assets/asset-detail-section-panel"
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
-import { ApprovalWorkflowTimeline } from "@/components/approval-workflow-timeline"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
   AdminBackLink,
@@ -153,7 +152,6 @@ export function AssetDetailPage() {
   const [acting, setActing] = React.useState(false)
   const [decisionOpen, setDecisionOpen] = React.useState(false)
   const [decisionMode, setDecisionMode] = React.useState<"approve" | "reject">("approve")
-  const [viewerUserId, setViewerUserId] = React.useState<number | null>(null)
   const [submitAssignOpen, setSubmitAssignOpen] = React.useState(false)
   const [reassignOpen, setReassignOpen] = React.useState(false)
   const [reassigning, setReassigning] = React.useState(false)
@@ -173,7 +171,6 @@ export function AssetDetailPage() {
       try {
         const me = await getJson<{ id: number; is_superuser?: boolean; permissions?: string[] }>("/me")
         persistAuthFromMe(me)
-        setViewerUserId(typeof me.id === "number" ? me.id : null)
       } catch {
         // ignore
       }
@@ -542,7 +539,6 @@ export function AssetDetailPage() {
   )
   const reassignRoleName = asset?.approval_panel?.current_step_role_name ?? "Approver"
   const progress = asset ? buildAssetProgress(asset) : null
-  const panel = asset?.approval_panel
 
   async function submitWithAssignee(userId: number) {
     if (!asset) return
@@ -1168,41 +1164,6 @@ export function AssetDetailPage() {
             </span>
           </div>
         </section>
-
-        {panel && ((panel.workflow_runs?.length ?? 0) > 0 || panel.workflow_steps.length > 0) ? (
-          <section aria-label="Approval process" className="border-t border-border/60 pt-4">
-            {panel.workflow_runs && panel.workflow_runs.length > 0 ? (
-              <ApprovalWorkflowTimeline
-                steps={panel.workflow_steps}
-                viewerUserId={viewerUserId}
-                formatWhen={formatDateTime}
-                compact
-                compactRuns={panel.workflow_runs.map((run) => {
-                  const statusLabel =
-                    run.request_status === "rejected" || run.request_status === "in_rework"
-                      ? "Rejected"
-                      : run.request_status === "pending"
-                        ? "In progress"
-                        : run.request_status === "approved"
-                          ? "Approved"
-                          : run.request_status
-                  const label =
-                    panel.workflow_runs!.length > 1
-                      ? `Attempt ${run.attempt}${run.is_current ? " (current)" : ""} · ${statusLabel}`
-                      : undefined
-                  return { label, steps: run.workflow_steps }
-                })}
-              />
-            ) : (
-              <ApprovalWorkflowTimeline
-                steps={panel.workflow_steps}
-                viewerUserId={viewerUserId}
-                formatWhen={formatDateTime}
-                compact
-              />
-            )}
-          </section>
-        ) : null}
 
         <section aria-label="Audit Trail" className="border-t border-border/60 pt-4">
           <AssetAuditLog rows={auditRows} loading={auditLoading} />

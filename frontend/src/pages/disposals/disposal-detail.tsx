@@ -3,7 +3,7 @@ import { Package, PackageX, Search, Trash2 } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
-import { ApprovalWorkflowTimeline } from "@/components/approval-workflow-timeline"
+
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
@@ -33,7 +33,6 @@ import {
   buildDisposalProgress,
   disposalStatusLabel,
   disposalStatusPillTone,
-  withDisposalPostApprovalTimelineSteps,
   type DisposalOrderDetail,
   type DisposalOrderItem,
 } from "@/lib/disposal-types"
@@ -92,19 +91,42 @@ function FormField({
   labelText,
   required,
   children,
+  className,
 }: {
   id?: string
   labelText: string
   required?: boolean
   children: React.ReactNode
+  className?: string
 }) {
   return (
-    <div className="app-form-field">
+    <div className={cn("app-form-field", className)}>
       <Label htmlFor={id} className="app-form-label">
         {labelText}
         {required ? <RequiredFieldMark /> : null}
       </Label>
       {children}
+    </div>
+  )
+}
+
+function DetailFact({
+  label,
+  value,
+  className,
+}: {
+  label: string
+  value: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div className={cn("min-w-0", className)}>
+      <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="mt-0.5 break-words text-sm leading-snug font-medium text-foreground">
+        {value}
+      </dd>
     </div>
   )
 }
@@ -121,7 +143,6 @@ export function DisposalOrderDetailPage() {
   const [order, setOrder] = React.useState<DisposalOrderDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
-  const [viewerUserId, setViewerUserId] = React.useState<number | null>(null)
   const [pickerMode, setPickerMode] = React.useState<PickerMode>(null)
   const [decisionOpen, setDecisionOpen] = React.useState(false)
   const [decisionMode, setDecisionMode] = React.useState<"approve" | "reject">("approve")
@@ -154,6 +175,8 @@ export function DisposalOrderDetailPage() {
     setRequiresEngineering(res.requires_engineering)
     setRemarks(res.remarks ?? "")
     setToCostCenterId(res.to_cost_center_id != null ? String(res.to_cost_center_id) : "")
+    setFunctionalLocation(res.to_functional_location?.trim() || "")
+    setActualLocation(res.to_actual_location?.trim() || "")
     setEditAssets(itemsToEditAssets(res.items))
     setEditPlantId(res.plant_id)
     setFilterCostCenter("")
@@ -169,7 +192,6 @@ export function DisposalOrderDetailPage() {
           "/me",
         )
         persistAuthFromMe(me)
-        setViewerUserId(typeof me.id === "number" ? me.id : null)
       } catch {
         /* keep cached permissions */
       }
@@ -409,8 +431,9 @@ export function DisposalOrderDetailPage() {
     <AdminPage
       fullWidth
       dense
+      viewportFill
       description=""
-      className="w-full pb-6"
+      className="w-full min-h-0 flex-1 gap-3"
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <AdminPillBadge
@@ -646,12 +669,14 @@ export function DisposalOrderDetailPage() {
         </div>
       }
     >
-      <div className="space-y-[var(--app-grid-gap)]">
+      <div className="app-detail-fill-column">
+        <div className="app-detail-scroll-top">
+          <div className="flex flex-col gap-3">
         <div className="shrink-0">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             {order.order_number}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-0.5 text-sm text-muted-foreground">
             {order.plant_name}
             {order.from_cost_center_code ? ` · ${order.from_cost_center_code}` : null}
             {order.assigned_to_name
@@ -663,8 +688,8 @@ export function DisposalOrderDetailPage() {
         </div>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
-          <div className="border-b border-border/60 bg-muted/15 px-4 py-3 sm:px-5">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5 sm:px-5">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Progress
             </p>
             <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />
@@ -674,137 +699,154 @@ export function DisposalOrderDetailPage() {
         {order.rejection_comment ? (
           <AdminPanel
             className="border-destructive/30 bg-destructive/5"
-            contentClassName="px-5 py-4"
+            contentClassName="px-4 py-3"
           >
             <p className="text-sm font-medium text-destructive">Rejection comment</p>
             <p className="mt-1 text-sm">{order.rejection_comment}</p>
           </AdminPanel>
         ) : null}
 
-        <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
+        <div className="grid gap-3 lg:grid-cols-2">
           <AdminPanel
-            title="Disposal details"
+            title="Disposal Details"
             description={
               order.can_edit
                 ? "Update the approval route and remarks before submitting."
-                : "Approval route and notes for this disposal order."
+                : undefined
             }
             headerActions={<PackageX className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
+            contentClassName="flex-1 px-4 py-3"
+            className="flex h-full flex-col"
           >
-            <div className="grid grid-cols-1 gap-4">
-              <FormField labelText="From cost center">
-                <p className="text-sm">
-                  {order.can_edit
-                    ? derivedFromCc
+            {order.can_edit ? (
+              <div className="grid grid-cols-1 gap-3">
+                <FormField labelText="From cost center">
+                  <p className="text-sm">
+                    {derivedFromCc
                       ? `${derivedFromCc.code}${
                           derivedFromCc.description ? ` — ${derivedFromCc.description}` : ""
                         }`
-                      : "—"
-                    : `${order.from_cost_center_code ?? "—"}${
-                        order.from_cost_center_description
-                          ? ` — ${order.from_cost_center_description}`
-                          : ""
-                      }`}
-                </p>
-                {order.can_edit ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Updates from the assets you select (same plant). Change plant if needed, filter
-                    by your cost centers, then pick a new set.
+                      : "—"}
                   </p>
-                ) : null}
-              </FormField>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Updates from the assets you select (same plant).
+                  </p>
+                </FormField>
 
-              <FormField id="to_scrapyard_cc" labelText="Scrapyard cost center" required={order.can_edit}>
-                {order.can_edit ? (
-                  <>
-                    <select
-                      id="to_scrapyard_cc"
-                      className={adminSelectClass}
-                      value={toCostCenterId}
-                      onChange={(e) => setToCostCenterId(e.target.value)}
-                    >
-                      <option value="">
-                        {scrapyardCostCenters.length === 0
-                          ? "No scrapyard cost centers for this plant"
-                          : "Select scrapyard"}
+                <FormField id="to_scrapyard_cc" labelText="Scrapyard cost center" required>
+                  <select
+                    id="to_scrapyard_cc"
+                    className={adminSelectClass}
+                    value={toCostCenterId}
+                    onChange={(e) => setToCostCenterId(e.target.value)}
+                  >
+                    <option value="">
+                      {scrapyardCostCenters.length === 0
+                        ? "No scrapyard cost centers for this plant"
+                        : "Select scrapyard"}
+                    </option>
+                    {scrapyardCostCenters.map((cc) => (
+                      <option key={cc.id} value={String(cc.id)}>
+                        {costCenterLabel(cc)}
+                        {cc.code ? ` (${cc.code})` : ""}
                       </option>
-                      {scrapyardCostCenters.map((cc) => (
-                        <option key={cc.id} value={String(cc.id)}>
-                          {costCenterLabel(cc)}
-                          {cc.code ? ` (${cc.code})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Destination for disposal; only cost centers marked scrapyard are listed.
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-sm">
-                    {order.to_cost_center_code
+                    ))}
+                  </select>
+                </FormField>
+
+                <label
+                  htmlFor="requires_engineering"
+                  className={cn(
+                    adminSwitchRowClass,
+                    canEditEngineering && "cursor-pointer transition-colors hover:bg-muted/35",
+                    !canEditEngineering && "opacity-70",
+                    requiresEngineering && "border-primary/40 bg-primary/5",
+                  )}
+                >
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <span className="block text-sm font-medium text-foreground">
+                      Engineering Approval
+                    </span>
+                    <span className="block text-xs text-muted-foreground">
+                      Routes through the Engineering disposal workflow.
+                    </span>
+                  </div>
+                  <Checkbox
+                    id="requires_engineering"
+                    checked={requiresEngineering}
+                    disabled={!canEditEngineering}
+                    onCheckedChange={(v) => setRequiresEngineering(v === true)}
+                    className="size-5 border-foreground/35 shadow-sm"
+                    aria-label="Engineering approval"
+                  />
+                </label>
+
+                <FormField id="remarks" labelText="Remarks">
+                  <textarea
+                    id="remarks"
+                    className={cn(adminTextareaClass, "min-h-[72px]")}
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    rows={2}
+                  />
+                </FormField>
+              </div>
+            ) : (
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                <DetailFact
+                  label="From cost center"
+                  value={
+                    order.from_cost_center_code
+                      ? `${order.from_cost_center_code}${
+                          order.from_cost_center_description
+                            ? ` — ${order.from_cost_center_description}`
+                            : ""
+                        }`
+                      : "—"
+                  }
+                />
+                <DetailFact
+                  label="Scrapyard cost center"
+                  value={
+                    order.to_cost_center_code
                       ? `${order.to_cost_center_code}${
                           order.to_cost_center_description
                             ? ` — ${order.to_cost_center_description}`
                             : ""
                         }`
-                      : "—"}
-                  </p>
-                )}
-              </FormField>
-
-              <label
-                htmlFor="requires_engineering"
-                className={cn(
-                  adminSwitchRowClass,
-                  canEditEngineering && "cursor-pointer transition-colors hover:bg-muted/35",
-                  !canEditEngineering && "opacity-70",
-                  requiresEngineering && "border-primary/40 bg-primary/5",
-                )}
-              >
-                <div className="min-w-0 flex-1 space-y-1">
-                  <span className="block text-sm font-medium text-foreground">
-                    Engineering Approval
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    Routes the order through the disposal workflow that includes Engineering.
-                  </span>
-                </div>
-                <Checkbox
-                  id="requires_engineering"
-                  checked={requiresEngineering}
-                  disabled={!canEditEngineering}
-                  onCheckedChange={(v) => setRequiresEngineering(v === true)}
-                  className="size-5 border-foreground/35 shadow-sm"
-                  aria-label="Engineering approval"
+                      : "—"
+                  }
                 />
-              </label>
-
-              <FormField id="remarks" labelText="Remarks">
-                {order.can_edit || order.can_close ? (
-                  <textarea
-                    id="remarks"
-                    className={cn(adminTextareaClass, "min-h-[88px]")}
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    rows={3}
-                  />
-                ) : (
-                  <p className="text-sm">{order.remarks || "—"}</p>
-                )}
-              </FormField>
-
-              {order.assigned_at || order.closed_at ? (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <FormField labelText="Assigned at">
-                    <p className="text-sm">{formatWhen(order.assigned_at)}</p>
+                {order.to_functional_location || order.to_actual_location ? (
+                  <>
+                    <DetailFact label="Actual Location 1" value={order.to_functional_location ?? "—"} />
+                    <DetailFact label="Actual Location 2" value={order.to_actual_location ?? "—"} />
+                  </>
+                ) : null}
+                <DetailFact
+                  label="Engineering"
+                  value={requiresEngineering ? "Required" : "Not required"}
+                />
+                <DetailFact label="Remarks" value={order.remarks || "—"} />
+                {order.assigned_at ? (
+                  <DetailFact label="Assigned at" value={formatWhen(order.assigned_at)} />
+                ) : null}
+                {order.closed_at ? (
+                  <DetailFact label="Closed at" value={formatWhen(order.closed_at)} />
+                ) : null}
+                {order.can_close ? (
+                  <FormField id="remarks" labelText="Remarks" className="col-span-2 !gap-1">
+                    <textarea
+                      id="remarks"
+                      className={cn(adminTextareaClass, "min-h-[72px]")}
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                      rows={2}
+                    />
                   </FormField>
-                  <FormField labelText="Closed at">
-                    <p className="text-sm">{formatWhen(order.closed_at)}</p>
-                  </FormField>
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+              </dl>
+            )}
           </AdminPanel>
 
           <AdminPanel
@@ -812,7 +854,7 @@ export function DisposalOrderDetailPage() {
             description={
               order.can_edit
                 ? "Selected assets on this order. Use Select other assets to add or change them."
-                : "Assets included on this disposal order."
+                : undefined
             }
             headerActions={
               order.can_edit ? (
@@ -842,17 +884,18 @@ export function DisposalOrderDetailPage() {
                 <Package className="size-4 text-muted-foreground" aria-hidden />
               )
             }
-            contentClassName="px-5 py-5"
+            contentClassName="flex min-h-0 flex-1 flex-col px-0 py-0"
+            className="flex h-full flex-col overflow-hidden"
           >
-            <div className="-mx-5 overflow-x-auto">
+            <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <AdminTableHeaderRow>
-                    <AdminTableHeadCell>Asset</AdminTableHeadCell>
-                    <AdminTableHeadCell>From CC</AdminTableHeadCell>
-                    <AdminTableHeadCell>From Loc 1</AdminTableHeadCell>
+                    <AdminTableHeadCell className="h-9 px-4 py-2">Asset</AdminTableHeadCell>
+                    <AdminTableHeadCell className="h-9 px-4 py-2">From CC</AdminTableHeadCell>
+                    <AdminTableHeadCell className="h-9 px-4 py-2">From Loc 1</AdminTableHeadCell>
                     {order.can_edit ? (
-                      <AdminTableHeadCell className="w-16">
+                      <AdminTableHeadCell className="h-9 w-12 px-2 py-2">
                         <span className="sr-only">Remove</span>
                       </AdminTableHeadCell>
                     ) : null}
@@ -868,26 +911,30 @@ export function DisposalOrderDetailPage() {
                   ) : (
                     editAssets.map((item) => (
                       <AdminTableBodyRow key={item.asset_id} interactive={false}>
-                        <AdminTableCell>
-                          <div className="font-medium">{item.asset_code}</div>
-                          <div className="text-xs text-muted-foreground">
+                        <AdminTableCell className="min-h-0 px-4 py-2">
+                          <div className="font-medium leading-tight">{item.asset_code}</div>
+                          <div className="text-xs leading-tight text-muted-foreground">
                             {item.asset_name || "—"}
                           </div>
                         </AdminTableCell>
-                        <AdminTableCell>{item.from_cost_center_code ?? "—"}</AdminTableCell>
-                        <AdminTableCell>{item.from_functional_location ?? "—"}</AdminTableCell>
+                        <AdminTableCell className="min-h-0 px-4 py-2">
+                          {item.from_cost_center_code ?? "—"}
+                        </AdminTableCell>
+                        <AdminTableCell className="min-h-0 px-4 py-2">
+                          {item.from_functional_location ?? "—"}
+                        </AdminTableCell>
                         {order.can_edit ? (
-                          <AdminTableCell>
+                          <AdminTableCell className="min-h-0 px-2 py-2">
                             <Button
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
                               disabled={busy}
                               aria-label={`Remove ${item.asset_code}`}
                               onClick={() => removeEditAsset(item.asset_id)}
                             >
-                              <Trash2 className="size-4" aria-hidden />
+                              <Trash2 className="size-3.5" aria-hidden />
                             </Button>
                           </AdminTableCell>
                         ) : null}
@@ -899,7 +946,7 @@ export function DisposalOrderDetailPage() {
             </div>
 
             {order.can_edit && assetPickerOpen ? (
-              <div className="mt-4 space-y-3 border-t border-border/60 pt-4">
+              <div className="space-y-3 border-t border-border/60 px-4 py-3">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <FormField id="edit_plant" labelText="Plant" required>
                     <select
@@ -961,15 +1008,15 @@ export function DisposalOrderDetailPage() {
                     </div>
                   </FormField>
                 </div>
-                <div className="-mx-5 max-h-72 overflow-auto border-t border-border/40">
+                <div className="-mx-4 max-h-64 overflow-auto border-t border-border/40">
                   <Table>
                     <TableHeader>
                       <AdminTableHeaderRow>
-                        <AdminTableHeadCell className="w-10">
+                        <AdminTableHeadCell className="h-9 w-10 px-3 py-2">
                           <span className="sr-only">Select</span>
                         </AdminTableHeadCell>
-                        <AdminTableHeadCell>Asset</AdminTableHeadCell>
-                        <AdminTableHeadCell>Cost center</AdminTableHeadCell>
+                        <AdminTableHeadCell className="h-9 px-3 py-2">Asset</AdminTableHeadCell>
+                        <AdminTableHeadCell className="h-9 px-3 py-2">Cost center</AdminTableHeadCell>
                       </AdminTableHeaderRow>
                     </TableHeader>
                     <TableBody>
@@ -988,7 +1035,7 @@ export function DisposalOrderDetailPage() {
                           const checked = selectedIds.has(a.id)
                           return (
                             <AdminTableBodyRow key={a.id} interactive={false}>
-                              <AdminTableCell>
+                              <AdminTableCell className="min-h-0 px-3 py-1.5">
                                 <Checkbox
                                   checked={checked}
                                   disabled={busy}
@@ -996,13 +1043,15 @@ export function DisposalOrderDetailPage() {
                                   onCheckedChange={() => toggleCatalogAsset(a)}
                                 />
                               </AdminTableCell>
-                              <AdminTableCell>
-                                <div className="font-medium">{a.asset_code}</div>
-                                <div className="text-xs text-muted-foreground">
+                              <AdminTableCell className="min-h-0 px-3 py-1.5">
+                                <div className="font-medium leading-tight">{a.asset_code}</div>
+                                <div className="text-xs leading-tight text-muted-foreground">
                                   {a.asset_name || "—"}
                                 </div>
                               </AdminTableCell>
-                              <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
+                              <AdminTableCell className="min-h-0 px-3 py-1.5">
+                                {a.cost_center ?? "—"}
+                              </AdminTableCell>
                             </AdminTableBodyRow>
                           )
                         })
@@ -1018,10 +1067,10 @@ export function DisposalOrderDetailPage() {
         {receiveEditable ? (
           <AdminPanel
             title="Receive"
-            description="Scrapyard cost center is fixed from submit. Set scrapyard Actual Location 1 / 2, then choose the next approver (usually Central Finance) who will close this order."
-            contentClassName="px-5 py-5"
+            description="Set scrapyard Actual Location 1 / 2, then assign Central Finance to close."
+            contentClassName="px-4 py-3"
           >
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <FormField id="scrap_cc" labelText="Scrapyard cost center">
                 <p className="text-sm">
                   {order.to_cost_center_code
@@ -1076,49 +1125,10 @@ export function DisposalOrderDetailPage() {
             </div>
           </AdminPanel>
         ) : null}
+          </div>
+        </div>
 
-        {panel && (panel.workflow_runs?.length ?? 0) > 0 ? (
-          <ApprovalWorkflowTimeline
-            steps={withDisposalPostApprovalTimelineSteps(panel.workflow_steps, order)}
-            viewerUserId={viewerUserId}
-            formatWhen={formatWhen}
-            compact
-            compactRuns={panel.workflow_runs!.map((run) => {
-              const statusLabel =
-                run.request_status === "rejected" || run.request_status === "in_rework"
-                  ? "Rejected"
-                  : run.request_status === "pending"
-                    ? "In progress"
-                    : run.request_status === "approved"
-                      ? "Approved"
-                      : run.request_status
-              const label =
-                (panel.workflow_runs?.length ?? 0) > 1
-                  ? `Attempt ${run.attempt}${run.is_current ? " (current)" : ""} · ${statusLabel}`
-                  : undefined
-              const steps = run.is_current
-                ? withDisposalPostApprovalTimelineSteps(run.workflow_steps, order)
-                : withDisposalPostApprovalTimelineSteps(run.workflow_steps, {
-                    ...order,
-                    // Prior attempts never reached post-approval execution.
-                    status:
-                      order.status === "rejected" || order.status === "in_rework"
-                        ? order.status
-                        : "pending_approval",
-                  })
-              return { label, steps }
-            })}
-          />
-        ) : panel && panel.workflow_steps.length > 0 ? (
-          <ApprovalWorkflowTimeline
-            steps={withDisposalPostApprovalTimelineSteps(panel.workflow_steps, order)}
-            viewerUserId={viewerUserId}
-            formatWhen={formatWhen}
-            compact
-          />
-        ) : null}
-
-        <DisposalAuditLog events={order.audit} />
+        <DisposalAuditLog events={order.audit} fillHeight className="app-detail-audit-pane" />
       </div>
 
       <CapexAssigneePickerDialog

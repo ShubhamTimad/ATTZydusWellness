@@ -428,7 +428,7 @@ export function DisposalOrderCreatePage() {
           </AdminPanel>
 
           <AdminPanel
-            title="2. Disposal details"
+            title="2. Disposal Details"
             description="Pick the scrapyard destination, approval route, and notes for approvers."
             headerActions={<PackageX className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"

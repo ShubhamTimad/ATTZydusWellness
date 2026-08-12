@@ -62,6 +62,10 @@ export type DisposalOrderDetail = {
   to_cost_center_id: number | null
   to_cost_center_code: string | null
   to_cost_center_description: string | null
+  /** Scrapyard Actual Location 1 after receive. */
+  to_functional_location?: string | null
+  /** Scrapyard Actual Location 2 after receive. */
+  to_actual_location?: string | null
   requires_engineering: boolean
   status: string
   remarks: string | null
@@ -515,9 +519,15 @@ function disposalBounceRejectRun(
 }
 
 function disposalReturnedToReceiver(detail: DisposalOrderDetail): boolean {
-  return (
-    detail.status === "pending_receipt" && Boolean((detail.rejection_comment || "").trim())
-  )
+  if (!Boolean((detail.rejection_comment || "").trim())) return false
+  // Legacy bounce wrote pending_receipt; transfer-style bounce keeps status rejected
+  // with the approval request still pending on receive.
+  if (detail.status === "pending_receipt") return true
+  if (detail.status !== "rejected") return false
+  const panel = detail.approval_panel
+  if (!panel || panel.request_status !== "pending") return false
+  const kind = (panel.current_step_kind || "").toLowerCase()
+  return kind === "receive" || panel.my_pending_task_id != null
 }
 
 function defaultDisposalApprovalSteps(
@@ -540,30 +550,38 @@ type TimelineStep = NonNullable<DisposalApprovalPanel["workflow_steps"]>[number]
  */
 export function withDisposalPostApprovalTimelineSteps(
   steps: TimelineStep[],
-  detail: Pick<DisposalOrderDetail, "status" | "assigned_to" | "assigned_to_name">,
+  detail: Pick<
+    DisposalOrderDetail,
+    "status" | "assigned_to" | "assigned_to_name" | "rejection_comment"
+  >,
 ): TimelineStep[] {
   if (steps.some((s) => stepKindOf(s) !== "approve")) {
     return steps
   }
 
   const status = detail.status
-  // Don't paint synthetic trailers while approvals are still in flight, or after reject.
+  const bounced =
+    status === "rejected" && Boolean((detail.rejection_comment || "").trim())
+  // Don't paint synthetic trailers while approvals are still in flight, or after
+  // creator-terminal reject. Bounce-to-receiver keeps receive/CF trailers.
   if (
-    status === "rejected" ||
+    (status === "rejected" && !bounced) ||
     status === "in_rework" ||
     (status !== "pending_receipt" &&
       status !== "pending_cf_close" &&
-      status !== "closed")
+      status !== "closed" &&
+      !bounced)
   ) {
     return steps
   }
 
   const baseOrder = steps.length > 0 ? Math.max(...steps.map((s) => s.step_order)) : 0
   const total = baseOrder + 2
+  const awaitingReceive = status === "pending_receipt" || bounced
 
   let receivePhase: TimelineStep["phase"] = "upcoming"
   let cfPhase: TimelineStep["phase"] = "upcoming"
-  if (status === "pending_receipt") {
+  if (awaitingReceive) {
     receivePhase = "current"
   } else if (status === "pending_cf_close") {
     receivePhase = "completed"
@@ -573,10 +591,9 @@ export function withDisposalPostApprovalTimelineSteps(
     cfPhase = "completed"
   }
 
-  const receiveAssigned =
-    status === "pending_receipt"
-      ? { id: detail.assigned_to ?? null, name: detail.assigned_to_name ?? null }
-      : { id: null, name: null }
+  const receiveAssigned = awaitingReceive
+    ? { id: detail.assigned_to ?? null, name: detail.assigned_to_name ?? null }
+    : { id: null, name: null }
   const cfAssigned =
     status === "pending_cf_close" || status === "closed"
       ? { id: detail.assigned_to ?? null, name: detail.assigned_to_name ?? null }
@@ -623,7 +640,7 @@ export function withDisposalPostApprovalTimelineSteps(
     ...s,
     total_steps: total,
     phase:
-      status === "pending_receipt" || status === "pending_cf_close" || status === "closed"
+      awaitingReceive || status === "pending_cf_close" || status === "closed"
         ? ("completed" as const)
         : s.phase,
   }))

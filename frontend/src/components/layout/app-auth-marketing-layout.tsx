@@ -2,6 +2,7 @@ import * as React from "react"
 import { BarChart3, Package, Radio } from "lucide-react"
 
 import { AuthBrandMark } from "@/components/auth/auth-brand-mark"
+import { getJson } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 type AppAuthMarketingLayoutProps = {
@@ -32,6 +33,21 @@ export function AppAuthMarketingLayout({
   variant = "workspace",
 }: AppAuthMarketingLayoutProps) {
   const isAdmin = variant === "admin"
+  const [version, setVersion] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    void getJson<{ version: string }>("/auth/app-version")
+      .then((res) => {
+        if (!cancelled && res.version?.trim()) setVersion(res.version.trim())
+      })
+      .catch(() => {
+        if (!cancelled) setVersion(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
     <div className="relative min-h-svh overflow-hidden bg-[#f4f5f7]">
@@ -106,11 +122,12 @@ export function AppAuthMarketingLayout({
 
           <p className="relative z-10 mt-8 hidden text-xs text-white/45 lg:block">
             © {new Date().getFullYear()} Takeda · Asset Tracking & Tagging
+            {version ? <span className="ml-2 tabular-nums">· v{version}</span> : null}
           </p>
         </aside>
 
         {/* Form panel */}
-        <main className="flex flex-1 items-center justify-center px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
+        <main className="relative flex flex-1 flex-col items-center justify-center px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
           {children}
         </main>
       </div>

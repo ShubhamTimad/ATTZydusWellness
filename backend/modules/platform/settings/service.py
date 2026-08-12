@@ -16,6 +16,7 @@ from modules.platform.settings.session_idle import (
 from modules.platform.settings.lookup import clear_setting_cache
 from modules.platform.settings.model import Setting
 from modules.platform.settings.schema import (
+    AppVersionPublic,
     AuthPolicyPublic,
     DocumentFormatPublic,
     EmailDeliveryPublic,
@@ -170,6 +171,20 @@ class SettingsService:
         self._db.commit()
         clear_setting_cache(SESSION_IDLE_SETTING_KEY)
         return SessionIdleSettingsPublic(idle_timeout_minutes=minutes)
+
+    def get_app_version(self) -> AppVersionPublic:
+        from modules.platform.settings.app_version import get_app_version
+
+        return AppVersionPublic(version=get_app_version())
+
+    def put_app_version(self, payload: AppVersionPublic) -> AppVersionPublic:
+        from modules.platform.settings.app_version import SETTING_KEY
+
+        version = payload.version.strip() or "1.0.0"
+        self._upsert(SETTING_KEY, version[:64])
+        self._db.commit()
+        clear_setting_cache(SETTING_KEY)
+        return self.get_app_version()
 
     def get_financial_year(self) -> FinancialYearSettingsPublic:
         cfg = get_financial_year_config()

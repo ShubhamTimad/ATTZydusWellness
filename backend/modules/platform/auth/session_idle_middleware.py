@@ -19,6 +19,7 @@ _SKIP_PREFIXES = (
     "/refresh",
     "/auth/policy",
     "/auth/session-policy",
+    "/auth/app-version",
     "/forgot-password",
     "/reset-password",
     "/docs",

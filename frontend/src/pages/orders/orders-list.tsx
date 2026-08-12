@@ -159,8 +159,7 @@ export function OrdersListPage() {
   }
 
   const items = data?.items ?? []
-  const showYourTurn = items.some((r) => r.needs_my_action && r.my_action_label)
-  const colSpan = 8 + (showYourTurn ? 1 : 0)
+  const colSpan = 8
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -279,7 +278,6 @@ export function OrdersListPage() {
                     <AdminTableHeadCell>Cost center</AdminTableHeadCell>
                     <AdminTableHeadCell>Assets</AdminTableHeadCell>
                     <AdminTableHeadCell>Status</AdminTableHeadCell>
-                    {showYourTurn ? <AdminTableHeadCell>Your turn</AdminTableHeadCell> : null}
                     <AdminTableHeadCell>Assigned to</AdminTableHeadCell>
                     <AdminTableHeadCell>Created by</AdminTableHeadCell>
                     <AdminTableHeadCell>Created</AdminTableHeadCell>
@@ -369,9 +367,6 @@ export function OrdersListPage() {
                           ))}
                         </select>
                       </AdminTableHeadCell>
-                      {showYourTurn ? (
-                        <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
-                      ) : null}
                       <AdminTableHeadCell className="px-2 py-1.5">
                         <Input
                           value={columnFilterInputs.assigned_to}
@@ -438,15 +433,6 @@ export function OrdersListPage() {
                             {orderStatusLabel(row.status)}
                           </AdminPillBadge>
                         </AdminTableCell>
-                        {showYourTurn ? (
-                          <AdminTableCell>
-                            {row.my_action_label ? (
-                              <AdminPillBadge tone="warning">{row.my_action_label}</AdminPillBadge>
-                            ) : (
-                              <span className="text-muted-foreground">—</span>
-                            )}
-                          </AdminTableCell>
-                        ) : null}
                         <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>
                         <AdminTableCell>{row.created_by_name ?? "—"}</AdminTableCell>
                         <AdminTableCell>

@@ -47,6 +47,10 @@ type SessionIdleSettings = {
   idle_timeout_minutes: number
 }
 
+type AppVersionSettings = {
+  version: string
+}
+
 type EmailDelivery = {
   delivery_enabled: boolean
   smtp_host: string
@@ -110,6 +114,8 @@ export function SettingsPage() {
   const [authPolicy, setAuthPolicy] = React.useState<AuthPolicy | null>(null)
   const [sessionIdle, setSessionIdle] = React.useState<SessionIdleSettings | null>(null)
   const [savingSessionIdle, setSavingSessionIdle] = React.useState(false)
+  const [appVersion, setAppVersion] = React.useState<AppVersionSettings | null>(null)
+  const [savingAppVersion, setSavingAppVersion] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [savingAuth, setSavingAuth] = React.useState(false)
@@ -130,7 +136,7 @@ export function SettingsPage() {
   async function load() {
     setLoadError(null)
     try {
-      const [data, auth, email, fy, idle, docs] = await Promise.all([
+      const [data, auth, email, fy, idle, docs, ver] = await Promise.all([
         getJson<PasswordPolicy>("/admin/settings/password-policy"),
         getJson<AuthPolicy>("/admin/settings/auth-policy").catch(() => null),
         getJson<EmailDelivery>("/admin/settings/email-delivery").catch(() => null),
@@ -141,6 +147,9 @@ export function SettingsPage() {
         getJson<DocumentFormatSettings>("/admin/settings/document-format").catch(
           () => DEFAULT_DOCUMENT_FORMAT,
         ),
+        getJson<AppVersionSettings>("/admin/settings/app-version").catch(() => ({
+          version: "1.0.0",
+        })),
       ])
       setPolicy(data)
       setAuthPolicy(auth)
@@ -148,6 +157,7 @@ export function SettingsPage() {
       setFinancialYear(fy)
       setSessionIdle(idle)
       setDocumentFormat(docs)
+      setAppVersion(ver)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load settings")
       setPolicy(null)
@@ -385,6 +395,56 @@ export function SettingsPage() {
                     }}
                   >
                     {savingSessionIdle ? "Saving…" : "Save session timeout"}
+                  </AdminPrimaryButton>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            )}
+          </AdminPanel>
+
+          <AdminPanel
+            title="Application version"
+            description="Shown on the login screen. Update this when you release a new build."
+            contentClassName="space-y-4 px-5 py-5"
+          >
+            {appVersion ? (
+              <>
+                <div className="max-w-xs space-y-1.5">
+                  <Label htmlFor="app-version">Version</Label>
+                  <Input
+                    id="app-version"
+                    value={appVersion.version}
+                    onChange={(e) => setAppVersion({ version: e.target.value })}
+                    placeholder="1.0.0"
+                    disabled={!canWriteSettings}
+                  />
+                </div>
+                <div className="flex justify-end border-t border-border/60 pt-4">
+                  <AdminPrimaryButton
+                    type="button"
+                    disabled={savingAppVersion || !canWriteSettings || !appVersion.version.trim()}
+                    onClick={async () => {
+                      if (!appVersion) return
+                      setSavingAppVersion(true)
+                      toast.loading("Saving…", { id: "app-version-save" })
+                      try {
+                        const updated = await putJson<AppVersionSettings>(
+                          "/admin/settings/app-version",
+                          { version: appVersion.version.trim() },
+                        )
+                        setAppVersion(updated)
+                        toast.success("Saved", { id: "app-version-save" })
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "Save failed", {
+                          id: "app-version-save",
+                        })
+                      } finally {
+                        setSavingAppVersion(false)
+                      }
+                    }}
+                  >
+                    {savingAppVersion ? "Saving…" : "Save version"}
                   </AdminPrimaryButton>
                 </div>
               </>

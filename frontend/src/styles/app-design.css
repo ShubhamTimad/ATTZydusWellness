@@ -11,6 +11,8 @@
   --app-shadow-surface: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 14px rgb(15 23 42 / 0.06);
   --app-shadow-elevated: 0 8px 24px rgb(15 23 42 / 0.08);
   --app-canvas: oklch(0.985 0.002 260);
+  /* Shell header + page padding + detail toolbar — for audit trail fill layout */
+  --app-detail-chrome-offset: 10.5rem;
 }
 
 @layer utilities {
@@ -24,6 +26,31 @@
     gap: var(--app-section-gap);
     width: 100%;
     min-width: 0;
+  }
+
+  .app-detail-fill-column {
+    display: flex;
+    flex: 1 1 0%;
+    min-height: 0;
+    flex-direction: column;
+    gap: var(--app-grid-gap);
+    overflow: hidden;
+  }
+
+  .app-detail-scroll-top {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+
+  .app-detail-audit-pane {
+    display: flex;
+    flex: 1 1 0%;
+    min-height: 0;
+    flex-direction: column;
   }
 
   .app-page-heading {
@@ -259,9 +286,8 @@
     scrollbar-color: color-mix(in srgb, var(--muted-foreground) 45%, transparent)
       color-mix(in srgb, var(--muted) 55%, var(--card));
     -webkit-overflow-scrolling: touch;
-    /* Contain horizontal overscroll only — allow vertical chaining to the page
-       when this wrap isn't height-constrained (no internal Y overflow). */
     overscroll-behavior-x: contain;
+    /* Allow vertical chaining to the page when this wrap isn't height-constrained. */
     overscroll-behavior-y: auto;
   }
 
@@ -355,6 +381,10 @@
   }
 
   .app-data-table-wrap .app-table-head-sticky thead tr:hover {
+    background: color-mix(in srgb, var(--muted) 52%, var(--card));
+  }
+
+  .app-data-table-wrap .app-table-head-sticky thead th {
     background: color-mix(in srgb, var(--muted) 52%, var(--card));
   }
 

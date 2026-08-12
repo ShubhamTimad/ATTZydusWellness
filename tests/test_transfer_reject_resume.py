@@ -6,14 +6,17 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from modules.transfers.constants import (
-    STATUS_APPROVED_BY_CF,
     STATUS_DRAFT,
     STATUS_IN_REWORK,
     STATUS_PENDING_APPROVAL,
     STATUS_RECEIVED_BY_CC2,
     STATUS_REJECTED,
 )
-from modules.transfers.service import TransferOrderService, reject_transfer_approval
+from modules.transfers.service import (
+    TransferOrderService,
+    _list_action_label,
+    reject_transfer_approval,
+)
 
 
 def _order(status: str, *, order_id: int = 1, created_by: int = 2):
@@ -59,8 +62,22 @@ def test_post_receive_reject_returns_to_receiver():
             )
             == "receiver"
         )
-    assert order.status == STATUS_APPROVED_BY_CF
+    assert order.status == STATUS_REJECTED
     assert order.assigned_to == order.to_asset_custodian_id
+    assert order.rejection_reason == "send back"
+
+
+def test_list_action_bounce_is_receive_for_custodian_not_restart_for_creator():
+    order = _order(STATUS_REJECTED)
+    order.rejection_reason = "send back"
+    order.assigned_to = order.to_asset_custodian_id
+    order.approval_request_id = 55
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(status="pending")
+    assert _list_action_label(db, order, int(order.created_by), {}) is None
+    assert (
+        _list_action_label(db, order, int(order.to_asset_custodian_id), {}) == "Receive"
+    )
 
 
 def test_resume_rejected_moves_to_draft():

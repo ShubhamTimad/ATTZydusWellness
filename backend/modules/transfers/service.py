@@ -133,16 +133,12 @@ def _is_plain_transfer_draft(db: Session, order: AssetTransferOrder) -> bool:
 
 
 def _actor_may_discard_transfer(order: AssetTransferOrder, *, actor_user_id: int, db: Session) -> bool:
+    """Archive / unarchive / delete-draft: order creator (or platform superuser) only."""
     creator_id = int(order.created_by) if order.created_by is not None else None
     if creator_id is not None and creator_id == int(actor_user_id):
         return True
     viewer = db.get(User, int(actor_user_id))
-    if viewer is not None and bool(viewer.is_superuser):
-        return True
-    from core.permissions import get_flat_permission_codes_for_user
-
-    codes = set(get_flat_permission_codes_for_user(db, int(actor_user_id)))
-    return bool(codes & {"transfer.manage", "transfer:manage", "transfer.create", "transfer:create"})
+    return viewer is not None and bool(viewer.is_superuser)
 
 
 def _is_destination_actor(order: AssetTransferOrder, viewer_user_id: int | None) -> bool:
@@ -156,7 +152,24 @@ def _is_destination_actor(order: AssetTransferOrder, viewer_user_id: int | None)
     return False
 
 
+def _is_returned_to_receiver(db: Session, order: AssetTransferOrder) -> bool:
+    """Post-receive CF reject: same order awaits destination receive again (not creator resume)."""
+    if not (order.rejection_reason or "").strip():
+        return False
+    # Legacy rows wrote approved_by_cf + reason before status was normalized to rejected.
+    if order.status == STATUS_APPROVED_BY_CF:
+        return True
+    if order.status != STATUS_REJECTED:
+        return False
+    # Bounce keeps the approval request pending with receive reopened; creator reject closes it.
+    if order.approval_request_id is None:
+        return False
+    req = db.get(ApprovalRequest, int(order.approval_request_id))
+    return req is not None and str(req.status) == "pending"
+
+
 def _list_action_label(
+    db: Session,
     order: AssetTransferOrder,
     viewer_user_id: int | None,
     pending_kinds: dict[int, str],
@@ -166,8 +179,12 @@ def _list_action_label(
         return None
     uid = int(viewer_user_id)
     status = order.status
-    if status in RESUMABLE_STATUSES and (
-        order.created_by is not None and int(order.created_by) == uid
+    bounced_to_receiver = _is_returned_to_receiver(db, order)
+    # Creator resumes only when reject is theirs to restart — not a bounce to destination.
+    if (
+        status in RESUMABLE_STATUSES
+        and not bounced_to_receiver
+        and (order.created_by is not None and int(order.created_by) == uid)
     ):
         return "Restart"
     if status in EDITABLE_STATUSES and (
@@ -191,7 +208,9 @@ def _list_action_label(
     is_custodian = (
         order.to_asset_custodian_id is not None and int(order.to_asset_custodian_id) == uid
     )
-    if status == STATUS_APPROVED_BY_CF and (is_assignee or is_custodian):
+    if (status == STATUS_APPROVED_BY_CF or bounced_to_receiver) and (
+        is_assignee or is_custodian
+    ):
         return "Receive"
     if status == STATUS_RECEIVED_BY_CC2 and is_assignee:
         return "Confirm"
@@ -999,19 +1018,16 @@ class TransferOrderService:
     ) -> TransferOrderDetail:
         """After CF reject returns to receiver: reopen same order as draft for full approve flow."""
         order = self._load_order(order_id)
-        if order.status != STATUS_APPROVED_BY_CF or not (order.rejection_reason or "").strip():
+        if not _is_returned_to_receiver(self._db, order):
             raise ConflictError(
                 "Only a transfer returned to the receiver after reject can be restarted."
             )
         actor = self._db.get(User, int(actor_user_id))
         is_super = bool(actor and actor.is_superuser)
         is_dest = _is_destination_actor(order, actor_user_id)
-        is_creator = (
-            order.created_by is not None and int(order.created_by) == int(actor_user_id)
-        )
-        if not (is_super or is_dest or is_creator):
+        if not (is_super or is_dest):
             raise ConflictError(
-                "Only the destination custodian (or the order creator) can restart this transfer."
+                "Only the destination custodian assigned to this location can restart this transfer."
             )
 
         now = datetime.now(timezone.utc)
@@ -1239,7 +1255,9 @@ class TransferOrderService:
         self, order_id: int, data: Cc2AssignTransferRequest, *, actor_user_id: int
     ) -> TransferOrderDetail:
         order = self._load_order(order_id)
-        if order.status != STATUS_APPROVED_BY_CF:
+        if order.status != STATUS_APPROVED_BY_CF and not _is_returned_to_receiver(
+            self._db, order
+        ):
             raise ConflictError("Only CF-approved transfer orders can be received by the custodian.")
         if order.to_asset_custodian_id is None:
             raise ConflictError("Destination asset custodian is missing on this transfer.")
@@ -1400,7 +1418,7 @@ class TransferOrderService:
                 )
             )
             plain = _is_plain_transfer_draft(self._db, r)
-            action_label = _list_action_label(r, viewer_user_id, pending_kinds)
+            action_label = _list_action_label(self._db, r, viewer_user_id, pending_kinds)
             items.append(
                 TransferOrderListItem(
                     id=int(r.id),
@@ -1550,15 +1568,29 @@ class TransferOrderService:
     def _needs_action_clauses(self, viewer_user_id: int) -> list:
         uid = int(viewer_user_id)
         pending_req_ids = self._pending_approval_request_ids(uid)
+        # Rejected bounce-back to destination — same order, receive again.
+        bounced_to_receiver = and_(
+            AssetTransferOrder.status == STATUS_REJECTED,
+            AssetTransferOrder.rejection_reason.is_not(None),
+            AssetTransferOrder.rejection_reason != "",
+            AssetTransferOrder.to_asset_custodian_id.is_not(None),
+            AssetTransferOrder.assigned_to == AssetTransferOrder.to_asset_custodian_id,
+        )
         return [
             or_(
                 and_(
                     AssetTransferOrder.approval_request_id.is_not(None),
                     AssetTransferOrder.approval_request_id.in_(pending_req_ids),
                 ),
+                # Creator: draft always; rejected/rework only when assigned back to them
+                # (not when bounce sent the order to the destination assignee).
                 and_(
                     AssetTransferOrder.created_by == uid,
                     AssetTransferOrder.status.in_(CREATOR_ACTION_STATUSES),
+                    or_(
+                        AssetTransferOrder.status == STATUS_DRAFT,
+                        AssetTransferOrder.assigned_to == uid,
+                    ),
                 ),
                 and_(
                     AssetTransferOrder.assigned_to == uid,
@@ -1574,7 +1606,10 @@ class TransferOrderService:
                 ),
                 and_(
                     AssetTransferOrder.to_asset_custodian_id == uid,
-                    AssetTransferOrder.status == STATUS_APPROVED_BY_CF,
+                    or_(
+                        AssetTransferOrder.status == STATUS_APPROVED_BY_CF,
+                        bounced_to_receiver,
+                    ),
                 ),
             ),
             AssetTransferOrder.status != STATUS_CANCELLED,
@@ -1825,10 +1860,17 @@ class TransferOrderService:
         is_super = bool(viewer and viewer.is_superuser)
         panel = self._approval_panel(order, viewer_user_id=viewer_user_id)
         is_dest = _is_destination_actor(order, viewer_user_id)
-        returned_to_receiver = (
-            order.status == STATUS_APPROVED_BY_CF
-            and bool((order.rejection_reason or "").strip())
-        )
+        returned_to_receiver = _is_returned_to_receiver(self._db, order)
+        # Heal legacy bounce rows that kept approved_by_cf after reject.
+        if returned_to_receiver and order.status == STATUS_APPROVED_BY_CF:
+            order.status = STATUS_REJECTED
+            self._db.commit()
+        # Bounce must sit with destination assignee — not the creator.
+        if returned_to_receiver and order.to_asset_custodian_id is not None:
+            custodian_id = int(order.to_asset_custodian_id)
+            if order.assigned_to is None or int(order.assigned_to) != custodian_id:
+                order.assigned_to = custodian_id
+                self._db.commit()
         if returned_to_receiver and _restore_destination_locations_from_audit(self._db, order):
             self._db.commit()
         may_edit_rework = is_creator or is_super or (
@@ -1913,7 +1955,7 @@ class TransferOrderService:
                 order,
                 panel=panel,
                 legacy_ok=(
-                    order.status == STATUS_APPROVED_BY_CF
+                    (order.status == STATUS_APPROVED_BY_CF or returned_to_receiver)
                     and (
                         is_super
                         or is_assignee
@@ -1938,7 +1980,9 @@ class TransferOrderService:
                 step_kind="close",
             ),
             can_edit=(order.status in EDITABLE_STATUSES) and may_edit_rework,
-            can_resume=(order.status in RESUMABLE_STATUSES) and (is_creator or is_super),
+            can_resume=(order.status in RESUMABLE_STATUSES)
+            and not returned_to_receiver
+            and (is_creator or is_super),
             can_delete=(
                 viewer_user_id is not None
                 and _is_plain_transfer_draft(self._db, order)
@@ -1961,8 +2005,7 @@ class TransferOrderService:
                     order, actor_user_id=int(viewer_user_id), db=self._db
                 )
             ),
-            can_restart_transfer=returned_to_receiver
-            and (is_super or is_dest or is_creator),
+            can_restart_transfer=returned_to_receiver and (is_super or is_dest),
         )
 
 
@@ -2264,7 +2307,9 @@ def reject_transfer_approval(
     # After receive (or confirm): revert assets and reopen receive on the same order.
     if old_status in {STATUS_RECEIVED_BY_CC2, STATUS_CONFIRMED_BY_CF}:
         _revert_transfer_assets_after_receive(order)
-        order.status = STATUS_APPROVED_BY_CF
+        # Status Rejected (not approved_by_cf) so list/detail badges match the reject.
+        # Receive stays open via the approval engine; _is_returned_to_receiver detects this.
+        order.status = STATUS_REJECTED
         order.closed_at = None
         # Keep destination CC + locations so the receiver sees the same values to edit.
         receiver_id = (

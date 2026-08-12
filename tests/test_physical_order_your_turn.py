@@ -1,4 +1,4 @@
-"""The physical verification list shows a "Your turn" label; keep it in sync with the needs_action tab."""
+"""Physical verification list action labels; keep in sync with the needs_action tab."""
 
 from __future__ import annotations
 
@@ -9,21 +9,57 @@ from modules.orders.service import PhysicalOrderService
 VIEWER = 7
 
 
-def _label(status: str, *, created_by=None, assigned_to=None, request_id=None, completed_at=None):
+def _label(
+    status: str,
+    *,
+    created_by=None,
+    assigned_to=None,
+    request_id=None,
+    completed_at=None,
+    started_at=None,
+    assigned_at=None,
+):
     order = SimpleNamespace(
         status=status,
         created_by=created_by,
         assigned_to=assigned_to,
         approval_request_id=request_id,
         completed_at=completed_at,
+        started_at=started_at,
+        assigned_at=assigned_at,
     )
     return PhysicalOrderService._row_action_label(None, order, VIEWER, {99})
 
 
-def test_creator_submits_draft_and_resubmits_rejected() -> None:
+def test_creator_submits_draft_and_resubmits_creation_reject() -> None:
     assert _label("draft", created_by=VIEWER) == "Submit"
+    # Creation reject: never assigned/started — creator resubmits.
     assert _label("rejected", created_by=VIEWER) == "Resubmit"
     assert _label("draft", created_by=VIEWER + 1) is None
+
+
+def test_assignee_starts_after_execution_reject() -> None:
+    assert (
+        _label(
+            "rejected",
+            assigned_to=VIEWER,
+            assigned_at="now",
+            started_at="now",
+            completed_at="now",
+        )
+        == "Start"
+    )
+    # Creator does not own needs-action when reject is after execution.
+    assert (
+        _label(
+            "rejected",
+            created_by=VIEWER,
+            assigned_to=VIEWER + 1,
+            assigned_at="now",
+            started_at="now",
+        )
+        is None
+    )
 
 
 def test_pending_approver_sees_approve() -> None:

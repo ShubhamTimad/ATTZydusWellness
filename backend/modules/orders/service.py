@@ -1322,18 +1322,37 @@ class PhysicalOrderService:
                     ),
                     and_(
                         PhysicalOrder.created_by == int(viewer_id),
-                        PhysicalOrder.status.in_(_EDITABLE_PHYSICAL_STATUSES),
+                        or_(
+                            PhysicalOrder.status == ORDER_STATUS_DRAFT,
+                            # Creation-approval reject only — execution rejects belong to assignee.
+                            and_(
+                                PhysicalOrder.status == ORDER_STATUS_REJECTED,
+                                PhysicalOrder.assigned_at.is_(None),
+                                PhysicalOrder.started_at.is_(None),
+                                PhysicalOrder.completed_at.is_(None),
+                            ),
+                        ),
                     ),
                     and_(
                         PhysicalOrder.assigned_to == int(viewer_id),
-                        PhysicalOrder.status.in_(
-                            (
-                                ORDER_STATUS_ASSIGNED,
-                                ORDER_STATUS_APPROVED,
-                                ORDER_STATUS_IN_PROGRESS,
-                                ORDER_STATUS_COMPLETED,
-                                ORDER_STATUS_PENDING_CLOSURE,
-                            )
+                        or_(
+                            PhysicalOrder.status.in_(
+                                (
+                                    ORDER_STATUS_ASSIGNED,
+                                    ORDER_STATUS_APPROVED,
+                                    ORDER_STATUS_IN_PROGRESS,
+                                    ORDER_STATUS_COMPLETED,
+                                    ORDER_STATUS_PENDING_CLOSURE,
+                                )
+                            ),
+                            and_(
+                                PhysicalOrder.status == ORDER_STATUS_REJECTED,
+                                or_(
+                                    PhysicalOrder.assigned_at.is_not(None),
+                                    PhysicalOrder.started_at.is_not(None),
+                                    PhysicalOrder.completed_at.is_not(None),
+                                ),
+                            ),
                         ),
                     ),
                 ),
@@ -1547,18 +1566,36 @@ class PhysicalOrderService:
                     ),
                     and_(
                         PhysicalOrder.created_by == int(viewer_id),
-                        PhysicalOrder.status.in_(_EDITABLE_PHYSICAL_STATUSES),
+                        or_(
+                            PhysicalOrder.status == ORDER_STATUS_DRAFT,
+                            and_(
+                                PhysicalOrder.status == ORDER_STATUS_REJECTED,
+                                PhysicalOrder.assigned_at.is_(None),
+                                PhysicalOrder.started_at.is_(None),
+                                PhysicalOrder.completed_at.is_(None),
+                            ),
+                        ),
                     ),
                     and_(
                         PhysicalOrder.assigned_to == int(viewer_id),
-                        PhysicalOrder.status.in_(
-                            (
-                                ORDER_STATUS_ASSIGNED,
-                                ORDER_STATUS_APPROVED,
-                                ORDER_STATUS_IN_PROGRESS,
-                                ORDER_STATUS_COMPLETED,
-                                ORDER_STATUS_PENDING_CLOSURE,
-                            )
+                        or_(
+                            PhysicalOrder.status.in_(
+                                (
+                                    ORDER_STATUS_ASSIGNED,
+                                    ORDER_STATUS_APPROVED,
+                                    ORDER_STATUS_IN_PROGRESS,
+                                    ORDER_STATUS_COMPLETED,
+                                    ORDER_STATUS_PENDING_CLOSURE,
+                                )
+                            ),
+                            and_(
+                                PhysicalOrder.status == ORDER_STATUS_REJECTED,
+                                or_(
+                                    PhysicalOrder.assigned_at.is_not(None),
+                                    PhysicalOrder.started_at.is_not(None),
+                                    PhysicalOrder.completed_at.is_not(None),
+                                ),
+                            ),
                         ),
                     ),
                 ),
@@ -1572,6 +1609,18 @@ class PhysicalOrderService:
         base = self._apply_viewer_org_scope(base, viewer_user_id=viewer_id)
         return base
 
+    @staticmethod
+    def _execution_side_rejection(order: PhysicalOrder) -> bool:
+        """True when reject happened after assignment/execution (assignee restarts)."""
+        return (
+            order.status == ORDER_STATUS_REJECTED
+            and (
+                order.assigned_at is not None
+                or order.started_at is not None
+                or order.completed_at is not None
+            )
+        )
+
     def _row_action_label(
         self, order: PhysicalOrder, viewer_id: int, pending_request_ids: set[int]
     ) -> str | None:
@@ -1580,14 +1629,22 @@ class PhysicalOrderService:
         if order.status in (ORDER_STATUS_CLOSED, ORDER_STATUS_CANCELLED):
             return None
         is_creator = order.created_by is not None and int(order.created_by) == uid
+        is_assignee = order.assigned_to is not None and int(order.assigned_to) == uid
+        # Execution reject stays with assignee (Start) — not creator Resubmit.
+        if is_assignee and PhysicalOrderService._execution_side_rejection(order):
+            return "Start"
         if is_creator and order.status in _EDITABLE_PHYSICAL_STATUSES:
+            if order.status == ORDER_STATUS_REJECTED and PhysicalOrderService._execution_side_rejection(
+                order
+            ):
+                return None
             return "Submit" if order.status == ORDER_STATUS_DRAFT else "Resubmit"
         if (
             order.approval_request_id is not None
             and int(order.approval_request_id) in pending_request_ids
         ):
             return "Approve"
-        if order.assigned_to is not None and int(order.assigned_to) == uid:
+        if is_assignee:
             if (
                 order.status in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED)
                 and order.completed_at is None
@@ -2358,10 +2415,17 @@ class PhysicalOrderService:
 
     def start_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
-        if order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
-            raise ConflictError("Order must be assigned before starting.")
         if order.assigned_to != actor_user_id:
             raise ConflictError("Only the assigned executor can start this order.")
+        if order.status == ORDER_STATUS_REJECTED:
+            if not self._execution_side_rejection(order):
+                raise ConflictError(
+                    "This rejected order must be resubmitted for approval before starting."
+                )
+            # Clear prior run; stay with same assignee and move straight to in progress.
+            self._reset_order_after_full_rejection(order)
+        elif order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
+            raise ConflictError("Order must be assigned before starting.")
         order.status = ORDER_STATUS_IN_PROGRESS
         order.started_at = _now_utc()
         order.started_by = actor_user_id
@@ -2387,7 +2451,7 @@ class PhysicalOrderService:
                     actor_user_id=actor_user_id,
                 )
         self._db.commit()
-        return self.get_order(order_id)
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
 
     def scan_asset(
         self,

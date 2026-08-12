@@ -354,15 +354,11 @@ export function OrderDetailPage() {
       } else if (path === "/approval/reject-order") {
         toast.success(
           res.assigned_to_name
-            ? `Order rejected. Returned to ${res.assigned_to_name} to restart verification.`
+            ? `Order rejected. ${res.assigned_to_name} can start verification again.`
             : "Order rejected.",
         )
-      } else if (path === "/restart") {
-        toast.success(
-          res.assigned_to_name
-            ? `Order restarted and assigned to ${res.assigned_to_name}.`
-            : "Order restarted.",
-        )
+      } else if (path === "/start" && res.status === "in_progress") {
+        toast.success("Verification started.")
       } else if (path === "/submit-closure") {
         toast.success("Order completed.")
       } else if (path === "/submit") {
@@ -426,13 +422,13 @@ export function OrderDetailPage() {
   const isRejected = order.status === "rejected"
   const isCreator = currentUserId != null && order.created_by === currentUserId
   const isAssignee = currentUserId != null && order.assigned_to === currentUserId
+  const executionSideReject =
+    isRejected &&
+    Boolean(order.assigned_at || order.started_at || order.completed_at)
   const canReviewCreation = isPendingApproval && canApprove
   const canReviewClosure = isCompleted && hasClosureWorkflow && canApprove
-  const canAssignSubmit = (isDraft || isRejected) && canCreate && isCreator
-  const canRestartRejected =
-    isRejected &&
-    Boolean(order.assigned_to) &&
-    ((canExecute && isAssignee) || (canCreate && isCreator))
+  const canAssignSubmit =
+    (isDraft || (isRejected && !executionSideReject)) && canCreate && isCreator
   const canScan =
     isInProgress && canExecute && isAssignee
   const filteredItems = order.items.filter(
@@ -533,7 +529,10 @@ export function OrderDetailPage() {
     order.progress.steps.find((step) => step.key === order.progress.current_step_key) ??
     order.progress.steps.find((step) => step.status === "active")
 
-  const canStart = isAssigned && canExecute && isAssignee
+  const canStart =
+    ((isAssigned && order.completed_at == null) || executionSideReject) &&
+    canExecute &&
+    isAssignee
 
   return (
     <AdminPage
@@ -720,15 +719,6 @@ export function OrderDetailPage() {
               }}
             >
               {isRejected ? "Reassign & submit" : "Assign & submit"}
-            </AdminPrimaryButton>
-          ) : null}
-          {canRestartRejected ? (
-            <AdminPrimaryButton
-              type="button"
-              disabled={busy}
-              onClick={() => void runAction("/restart")}
-            >
-              Restart order
             </AdminPrimaryButton>
           ) : null}
           {canStart ? (
@@ -1333,7 +1323,7 @@ export function OrderDetailPage() {
             </DialogTitle>
             <DialogDescription>
               {rejectMode === "order"
-                ? "This rejects the full order. Every asset is marked rejected and must be verified again after restart. The order returns to the assigned executor."
+                ? "This rejects the full order. Every asset is marked rejected and must be verified again. Status becomes Rejected; the assigned executor can Start to resume scanning."
                 : "Reject the selected non-verified assets. Verified assets stay locked; only rejected lines need scanning again."}
             </DialogDescription>
           </DialogHeader>

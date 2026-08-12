@@ -58,6 +58,12 @@ class SessionIdleSettingsPublic(BaseModel):
     )
 
 
+class AppVersionPublic(BaseModel):
+    """Display version for the login screen (editable in Settings)."""
+
+    version: str = Field(default="1.0.0", min_length=1, max_length=64)
+
+
 class DocumentSignatureFlags(BaseModel):
     """Which print/PDF flows render approval signature lines above the footer."""
 

@@ -539,9 +539,13 @@ function transferBounceRejectRun(
 }
 
 function transferReturnedToReceiver(detail: TransferOrderDetail): boolean {
-  return (
-    detail.status === "approved_by_cf" && Boolean((detail.rejection_reason || "").trim())
-  )
+  const reason = Boolean((detail.rejection_reason || "").trim())
+  if (!reason) return false
+  // Legacy: bounce kept approved_by_cf + reason.
+  if (detail.status === "approved_by_cf") return true
+  // Current: rejected while approval request still pending (receive reopened).
+  if (detail.status !== "rejected" && detail.status !== "in_rework") return false
+  return (detail.approval_panel?.request_status || "").toLowerCase() === "pending"
 }
 
 function defaultTransferApprovalSteps(): NonNullable<TransferApprovalPanel["workflow_steps"]> {

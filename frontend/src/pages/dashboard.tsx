@@ -39,6 +39,16 @@ type DashboardSummary = {
   }
 }
 
+/** One grid for all panels — pairs fill the row; a lone last panel spans full width. */
+function DashboardPanelsGrid({ panels }: { panels: React.ReactNode[] }) {
+  if (panels.length === 0) return null
+  return (
+    <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 [&>*:last-child:nth-child(odd)]:sm:col-span-2">
+      {panels}
+    </div>
+  )
+}
+
 export function DashboardPage() {
   const canOrders = hasPermission(DASHBOARD_ORDERS_VIEW)
   const canAssets = hasPermission(DASHBOARD_ASSETS_VIEW)
@@ -111,40 +121,30 @@ export function DashboardPage() {
       ) : null}
 
       {!loading && hasAny ? (
-        <div className="flex flex-col gap-4">
-          {orders || fy ? (
-            <div className="grid items-stretch gap-4 xl:grid-cols-2">
-              {fy ? <FinancialYearDashboard data={fy} /> : null}
-              {orders ? <OrdersDashboard data={orders} /> : null}
-            </div>
-          ) : null}
-
-          {transfers || disposals ? (
-            <div className="grid items-stretch gap-4 xl:grid-cols-2">
-              {transfers ? (
-                <WorkflowOrdersDashboard
-                  title="Asset transfers"
-                  theme={DASHBOARD_THEMES.transfers}
-                  data={transfers}
-                />
-              ) : null}
-              {disposals ? (
-                <WorkflowOrdersDashboard
-                  title="Asset disposals"
-                  theme={DASHBOARD_THEMES.disposals}
-                  data={disposals}
-                />
-              ) : null}
-            </div>
-          ) : null}
-
-          {assets || it ? (
-            <div className="grid items-stretch gap-4 xl:grid-cols-2">
-              {assets ? <AssetDashboard data={assets} /> : null}
-              {it ? <ItDashboard data={it} /> : null}
-            </div>
-          ) : null}
-        </div>
+        <DashboardPanelsGrid
+          panels={[
+            fy ? <FinancialYearDashboard key="fy" data={fy} /> : null,
+            orders ? <OrdersDashboard key="orders" data={orders} /> : null,
+            transfers ? (
+              <WorkflowOrdersDashboard
+                key="transfers"
+                title="Asset transfers"
+                theme={DASHBOARD_THEMES.transfers}
+                data={transfers}
+              />
+            ) : null,
+            disposals ? (
+              <WorkflowOrdersDashboard
+                key="disposals"
+                title="Asset disposals"
+                theme={DASHBOARD_THEMES.disposals}
+                data={disposals}
+              />
+            ) : null,
+            assets ? <AssetDashboard key="assets" data={assets} /> : null,
+            it ? <ItDashboard key="it" data={it} /> : null,
+          ].filter(Boolean)}
+        />
       ) : null}
     </div>
   )

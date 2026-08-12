@@ -152,11 +152,15 @@ export function TransferAuditLog({
   events,
   loading,
   assetCodeById,
+  fillHeight,
+  className,
 }: {
   events: TransferOrderAudit[] | null
   loading?: boolean
   /** Resolve legacy audit asset_ids → asset codes when present. */
   assetCodeById?: Map<number, string>
+  fillHeight?: boolean
+  className?: string
 }) {
   const rows = React.useMemo((): AuditTrailRow[] => {
     if (!events) return []
@@ -172,6 +176,8 @@ export function TransferAuditLog({
     <AuditTrailTable
       rows={rows}
       loading={loading}
+      fillHeight={fillHeight}
+      className={className}
       emptyDescription="No audit events recorded yet."
       descriptionFallback="Creation, edits, and workflow actions for this transfer."
     />

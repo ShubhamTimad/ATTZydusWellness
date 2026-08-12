@@ -3,7 +3,7 @@ import { FileText, Link2, Printer, Send } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
-import { ApprovalWorkflowTimeline } from "@/components/approval-workflow-timeline"
+
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
@@ -107,13 +107,6 @@ function toPayload(form: CapexFormWritePayload): CapexFormWritePayload {
   }
 }
 
-function formatWhen(iso: string | null | undefined): string {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-}
-
 export function CapexDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -124,7 +117,6 @@ export function CapexDetailPage() {
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [acting, setActing] = React.useState(false)
-  const [viewerUserId, setViewerUserId] = React.useState<number | null>(null)
   const [submitAssignOpen, setSubmitAssignOpen] = React.useState(false)
   const [decisionOpen, setDecisionOpen] = React.useState(false)
   const [decisionMode, setDecisionMode] = React.useState<"approve" | "reject">("approve")
@@ -155,7 +147,6 @@ export function CapexDetailPage() {
       try {
         const me = await getJson<{ id: number; is_superuser?: boolean; permissions?: string[] }>("/me")
         persistAuthFromMe(me)
-        setViewerUserId(typeof me.id === "number" ? me.id : null)
       } catch {
         // ignore
       }
@@ -362,7 +353,6 @@ export function CapexDetailPage() {
   }
 
   const readOnly = !editable
-  const panel = detail.approval_panel
   const progress = buildCapexProgress(detail)
 
   return (
@@ -708,37 +698,6 @@ export function CapexDetailPage() {
               </Link>
             </p>
           </AdminPanel>
-        ) : null}
-
-        {panel && (panel.workflow_runs?.length ?? 0) > 0 ? (
-          <ApprovalWorkflowTimeline
-            steps={panel.workflow_steps}
-            viewerUserId={viewerUserId}
-            formatWhen={formatWhen}
-            compact
-            compactRuns={panel.workflow_runs!.map((run) => {
-              const statusLabel =
-                run.request_status === "rejected" || run.request_status === "in_rework"
-                  ? "Rejected"
-                  : run.request_status === "pending"
-                    ? "In progress"
-                    : run.request_status === "approved"
-                      ? "Approved"
-                      : run.request_status
-              const label =
-                (panel.workflow_runs?.length ?? 0) > 1
-                  ? `Attempt ${run.attempt}${run.is_current ? " (current)" : ""} · ${statusLabel}`
-                  : undefined
-              return { label, steps: run.workflow_steps }
-            })}
-          />
-        ) : panel && panel.workflow_steps.length > 0 ? (
-          <ApprovalWorkflowTimeline
-            steps={panel.workflow_steps}
-            viewerUserId={viewerUserId}
-            formatWhen={formatWhen}
-            compact
-          />
         ) : null}
 
         <CapexAuditLog events={auditEvents} loading={auditLoading} />

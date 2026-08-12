@@ -30,6 +30,7 @@ from modules.disposals.schema import (
 from modules.disposals.service import (
     DisposalOrderService,
     _can_disposal_operational_flag,
+    _scrapyard_locations_after_receive,
     action_and_entity_for_order,
     finalize_disposal_approval,
     reject_disposal_approval,
@@ -63,6 +64,7 @@ def _order(status: str, *, assets, order_id: int = 1, assigned_to: int | None = 
         created_by=2,
         receiver_user_id=8,
         approval_request_id=None,
+        to_cost_center_id=7,
         remarks=None,
         rejection_comment=None,
         closed_at=None,
@@ -77,6 +79,31 @@ def test_action_and_entity_mapping():
         ACTION_SUBMIT_WITH_ENGINEERING,
         ENTITY_TYPE_WITH_ENGINEERING,
     )
+
+
+def test_scrapyard_locations_from_received_audit():
+    order = _order(STATUS_PENDING_CF_CLOSE, assets=[_asset()])
+    order.id = 5
+    db = MagicMock()
+    db.scalar.return_value = SimpleNamespace(
+        new_value={"functional_location": "FL-YARD", "actual_location": "AL-YARD-01"}
+    )
+    assert _scrapyard_locations_after_receive(db, order) == ("FL-YARD", "AL-YARD-01")
+    order.status = STATUS_DRAFT
+    assert _scrapyard_locations_after_receive(db, order) == (None, None)
+
+
+def test_scrapyard_locations_shown_after_cf_bounce():
+    order = _order(STATUS_REJECTED, assets=[_asset()])
+    order.id = 5
+    order.rejection_comment = "fix locs"
+    order.approval_request_id = 48
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(status="pending")
+    db.scalar.return_value = SimpleNamespace(
+        new_value={"functional_location": "FL-YARD", "actual_location": "AL-YARD-01"}
+    )
+    assert _scrapyard_locations_after_receive(db, order) == ("FL-YARD", "AL-YARD-01")
 
 
 def test_submit_requires_configured_workflow():
@@ -244,7 +271,7 @@ def test_cf_reject_returns_to_receiver_for_location_edits():
         reject_disposal_approval(db, order_id=1, approver_user_id=9, comment="fix locs")
         == "receiver"
     )
-    assert order.status == STATUS_PENDING_RECEIPT
+    assert order.status == STATUS_REJECTED
     assert order.assigned_to == order.receiver_user_id
     assert order.rejection_comment == "fix locs"
     assert asset.location.functional_location == "OLD-FL"
@@ -268,7 +295,7 @@ def test_cf_reject_recovers_receiver_from_receive_audit():
     db.scalar.side_effect = [order]
     db.scalars.return_value.all.return_value = [audit]
     assert reject_disposal_approval(db, order_id=1, approver_user_id=9, comment="bounce") == "receiver"
-    assert order.status == STATUS_PENDING_RECEIPT
+    assert order.status == STATUS_REJECTED
     assert order.receiver_user_id == 8
     assert order.assigned_to == 8
 
@@ -317,27 +344,66 @@ def test_resume_in_rework_moves_to_draft():
     assert order.assigned_to == order.created_by
 
 
+def test_can_receive_false_once_pending_cf_close():
+    """Stale engine receive task must not keep the Receive button after assets moved."""
+    order = SimpleNamespace(status=STATUS_PENDING_CF_CLOSE, approval_request_id=48)
+    panel = SimpleNamespace(
+        my_pending_task_id=146,
+        current_step_kind="receive",
+        request_status="pending",
+    )
+    assert (
+        _can_disposal_operational_flag(
+            order, panel=panel, legacy_ok=True, step_kind="receive"
+        )
+        is False
+    )
+
+
+def test_can_receive_true_on_rejected_bounce_to_receiver():
+    order = SimpleNamespace(status=STATUS_REJECTED, approval_request_id=48)
+    panel = SimpleNamespace(
+        my_pending_task_id=146,
+        current_step_kind="receive",
+        request_status="pending",
+    )
+    assert (
+        _can_disposal_operational_flag(
+            order,
+            panel=panel,
+            legacy_ok=False,
+            step_kind="receive",
+            allow_rejected_receive=True,
+        )
+        is True
+    )
+
+
 def test_receive_relocates_assets_and_assigns_cf():
     asset = _asset()
     order = _order(STATUS_PENDING_RECEIPT, assets=[asset])
-    cost_center = SimpleNamespace(id=7, code="CC-SCRAP", plant_id=3)
+    cost_center = SimpleNamespace(
+        id=7, code="CC-SCRAP", plant_id=3, is_scrapyard=True, is_active=True
+    )
     cf_user = SimpleNamespace(id=11, is_active=True, is_superuser=False)
     db = MagicMock()
-    db.get.side_effect = lambda model, pk: {7: cost_center, 11: cf_user}[pk]
+    db.get.side_effect = lambda model, pk: {7: cost_center, 11: cf_user}.get(pk)
 
     svc = DisposalOrderService(db)
     with patch.object(svc, "_load_order", return_value=order):
-        with patch.object(svc, "get_order", return_value="detail"):
-            svc.receive_order(
-                1,
-                ReceiveDisposalRequest(
-                    assigned_to=11,
-                    functional_location=" YARD-FL ",
-                    actual_location=" YARD-AL ",
-                    cost_center_id=7,
-                ),
-                actor_user_id=5,
-            )
+        with patch.object(svc, "_pending_step_task", return_value=None):
+            with patch.object(svc, "_require_scrapyard_locations", return_value=("YARD-FL", "YARD-AL")):
+                with patch.object(svc, "get_order", return_value="detail"):
+                    svc.receive_order(
+                        1,
+                        ReceiveDisposalRequest(
+                            assigned_to=11,
+                            functional_location=" YARD-FL ",
+                            actual_location=" YARD-AL ",
+                            cost_center_id=7,
+                        ),
+                        actor_user_id=5,
+                    )
     assert order.status == STATUS_PENDING_CF_CLOSE
     assert order.assigned_to == 11
     assert asset.location.functional_location == "YARD-FL"
@@ -365,22 +431,26 @@ def test_receive_requires_cf_assignee():
 
 def test_receive_rejects_cost_center_from_another_plant():
     order = _order(STATUS_PENDING_RECEIPT, assets=[_asset()])
-    cost_center = SimpleNamespace(id=7, code="CC-SCRAP", plant_id=99)
+    order.to_cost_center_id = 7
+    cost_center = SimpleNamespace(
+        id=7, code="CC-SCRAP", plant_id=99, is_scrapyard=True, is_active=True
+    )
     db = MagicMock()
     db.get.return_value = cost_center
     svc = DisposalOrderService(db)
     with patch.object(svc, "_load_order", return_value=order):
-        with pytest.raises(ConflictError, match="same plant"):
-            svc.receive_order(
-                1,
-                ReceiveDisposalRequest(
-                    assigned_to=11,
-                    functional_location="YARD-FL",
-                    actual_location="YARD-AL",
-                    cost_center_id=7,
-                ),
-                actor_user_id=5,
-            )
+        with patch.object(svc, "_pending_step_task", return_value=None):
+            with pytest.raises(ConflictError, match="same plant"):
+                svc.receive_order(
+                    1,
+                    ReceiveDisposalRequest(
+                        assigned_to=11,
+                        functional_location="YARD-FL",
+                        actual_location="YARD-AL",
+                        cost_center_id=7,
+                    ),
+                    actor_user_id=5,
+                )
 
 
 def test_close_marks_assets_disposed():

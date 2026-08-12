@@ -150,8 +150,7 @@ export function DisposalOrdersListPage() {
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const counts = data?.tab_counts ?? {}
-  const showYourTurn = items.some((r) => r.needs_my_action && r.my_action_label)
-  const colSpan = 7 + (showYourTurn ? 1 : 0)
+  const colSpan = 7
   const plantScopedCenters = columnFilterInputs.plant_id
     ? costCenters.filter((c) => String(c.plant_id) === columnFilterInputs.plant_id)
     : costCenters
@@ -280,7 +279,6 @@ export function DisposalOrdersListPage() {
                   <AdminTableHeadCell>Assets</AdminTableHeadCell>
                   <AdminTableHeadCell>Assignee</AdminTableHeadCell>
                   <AdminTableHeadCell>Status</AdminTableHeadCell>
-                  {showYourTurn ? <AdminTableHeadCell>Your turn</AdminTableHeadCell> : null}
                   <AdminTableHeadCell>Created</AdminTableHeadCell>
                 </AdminTableHeaderRow>
                 {columnFiltersOpen ? (
@@ -379,7 +377,6 @@ export function DisposalOrdersListPage() {
                         ))}
                       </select>
                     </AdminTableHeadCell>
-                    {showYourTurn ? <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell> : null}
                     <AdminTableHeadCell className="px-2 py-1.5">
                       <Input
                         type="date"
@@ -423,15 +420,6 @@ export function DisposalOrdersListPage() {
                           {disposalStatusLabel(row.status)}
                         </AdminPillBadge>
                       </AdminTableCell>
-                      {showYourTurn ? (
-                        <AdminTableCell>
-                          {row.my_action_label ? (
-                            <AdminPillBadge tone="warning">{row.my_action_label}</AdminPillBadge>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </AdminTableCell>
-                      ) : null}
                       <AdminTableCell className="text-muted-foreground">
                         {new Date(row.created_at).toLocaleDateString()}
                       </AdminTableCell>

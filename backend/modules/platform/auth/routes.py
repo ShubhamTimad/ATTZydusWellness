@@ -36,8 +36,9 @@ from modules.platform.auth.schema import (
 )
 from modules.errors import NotFoundError
 from modules.platform.settings.service import SettingsService
-from modules.platform.settings.schema import AuthPolicyPublic, SessionIdleSettingsPublic
+from modules.platform.settings.schema import AuthPolicyPublic, AppVersionPublic, SessionIdleSettingsPublic
 from modules.platform.settings.session_idle import get_session_idle_timeout_minutes
+from modules.platform.settings.app_version import get_app_version
 
 router = APIRouter(tags=["auth"])
 
@@ -58,6 +59,12 @@ def public_auth_policy(db: Session = Depends(get_db)) -> AuthPolicyPublic:
 def public_session_policy() -> SessionIdleSettingsPublic:
     """Idle timeout for client auto sign-out (minutes, org-wide)."""
     return SessionIdleSettingsPublic(idle_timeout_minutes=get_session_idle_timeout_minutes())
+
+
+@router.get("/auth/app-version", response_model=AppVersionPublic)
+def public_app_version() -> AppVersionPublic:
+    """Display version for the login screen (from Settings)."""
+    return AppVersionPublic(version=get_app_version())
 
 
 async def get_login_payload(request: Request) -> LoginRequest:
