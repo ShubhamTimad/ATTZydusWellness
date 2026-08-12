@@ -92,7 +92,6 @@ export function buildAssetListActionItems(opts: {
   transferEligibleCount?: number
   disposalEligibleCount?: number
   canDelete: boolean
-  canUpdate?: boolean
   canDeactivate?: boolean
   canReactivate?: boolean
   canAttachRfid?: boolean
@@ -111,7 +110,6 @@ export function buildAssetListActionItems(opts: {
     transferEligibleCount = 0,
     disposalEligibleCount = 0,
     canDelete,
-    canUpdate = false,
     canDeactivate = false,
     canReactivate = false,
     canAttachRfid,

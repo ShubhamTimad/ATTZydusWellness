@@ -1130,7 +1130,6 @@ export function AssetsListPage() {
         transferEligibleCount: transferEligibleRows.length,
         disposalEligibleCount: transferEligibleRows.length,
         canDelete,
-        canUpdate: canUpdate && !isFyTab,
         canDeactivate: canDeactivate && !isFyTab,
         canReactivate: canReactivate && !isFyTab,
         canAttachRfid: showAttachRfid,

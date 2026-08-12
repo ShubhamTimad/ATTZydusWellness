@@ -551,7 +551,7 @@ export function DisposalOrdersListPage() {
                         className={columnFilterControlClass}
                       />
                     </AdminTableHeadCell>
-                    {showDiscard ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
+                    {showDiscard ? <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell> : null}
                   </AdminTableHeaderRow>
                 ) : null}
               </TableHeader>
