@@ -315,6 +315,8 @@ export function DisposalOrderDetailPage() {
         from_cost_center_code: a.cost_center ?? null,
         from_functional_location: a.functional_location ?? null,
         from_actual_location: a.actual_location ?? null,
+        from_functional_location_name: a.functional_location_description ?? null,
+        from_actual_location_name: a.actual_location_description ?? null,
       },
     ])
   }
@@ -431,9 +433,8 @@ export function DisposalOrderDetailPage() {
     <AdminPage
       fullWidth
       dense
-      viewportFill
       description=""
-      className="w-full min-h-0 flex-1 gap-3"
+      className="w-full gap-3 pb-6"
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <AdminPillBadge
@@ -669,9 +670,7 @@ export function DisposalOrderDetailPage() {
         </div>
       }
     >
-      <div className="app-detail-fill-column">
-        <div className="app-detail-scroll-top">
-          <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
         <div className="shrink-0">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             {order.order_number}
@@ -819,8 +818,18 @@ export function DisposalOrderDetailPage() {
                 />
                 {order.to_functional_location || order.to_actual_location ? (
                   <>
-                    <DetailFact label="Actual Location 1" value={order.to_functional_location ?? "—"} />
-                    <DetailFact label="Actual Location 2" value={order.to_actual_location ?? "—"} />
+                    <DetailFact
+                      label="Actual Location 1"
+                      value={
+                        order.to_functional_location_name ??
+                        order.to_functional_location ??
+                        "—"
+                      }
+                    />
+                    <DetailFact
+                      label="Actual Location 2"
+                      value={order.to_actual_location_name ?? order.to_actual_location ?? "—"}
+                    />
                   </>
                 ) : null}
                 <DetailFact
@@ -921,7 +930,9 @@ export function DisposalOrderDetailPage() {
                           {item.from_cost_center_code ?? "—"}
                         </AdminTableCell>
                         <AdminTableCell className="min-h-0 px-4 py-2">
-                          {item.from_functional_location ?? "—"}
+                          {item.from_functional_location_name ??
+                            item.from_functional_location ??
+                            "—"}
                         </AdminTableCell>
                         {order.can_edit ? (
                           <AdminTableCell className="min-h-0 px-2 py-2">
@@ -1125,11 +1136,9 @@ export function DisposalOrderDetailPage() {
             </div>
           </AdminPanel>
         ) : null}
-          </div>
-        </div>
 
-        <DisposalAuditLog events={order.audit} fillHeight className="app-detail-audit-pane" />
-      </div>
+        <DisposalAuditLog events={order.audit} />
+          </div>
 
       <CapexAssigneePickerDialog
         open={pickerMode != null}

@@ -8,7 +8,12 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
-from core.permissions import require_any_permission, require_permission
+from core.permissions import (
+    _get_cached_permission_snapshot,
+    _has_any_permission,
+    require_any_permission,
+    require_permission,
+)
 from db.session import get_db
 from modules.assets.schema import (
     AssetAssigneeListResponse,
@@ -391,8 +396,13 @@ def bulk_asset_lifecycle(
     body: AssetBulkLifecycleRequest,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
-    _: Annotated[object, Depends(require_any_permission("asset.update", "asset.manage"))],
+    db: Annotated[Session, Depends(get_db)],
 ) -> AssetBulkLifecycleResponse:
+    act = (body.action or "").strip().lower()
+    need = "asset.reactivate" if act == "reactivate" else "asset.deactivate"
+    snapshot = _get_cached_permission_snapshot(db, int(current.subject))
+    if not _has_any_permission(snapshot, (need,)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Missing permission: {need}")
     try:
         return svc.bulk_lifecycle(
             body.asset_ids,
@@ -642,7 +652,7 @@ def deactivate_asset(
     asset_id: int,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
-    _: Annotated[object, Depends(require_any_permission("asset.update", "asset.manage"))],
+    _: Annotated[object, Depends(require_permission("asset.deactivate"))],
 ) -> AssetDetailPublic:
     try:
         return svc.deactivate(asset_id, actor_user_id=int(current.subject))
@@ -659,7 +669,7 @@ def reactivate_asset(
     asset_id: int,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[AssetMasterService, Depends(get_asset_service)],
-    _: Annotated[object, Depends(require_any_permission("asset.update", "asset.manage"))],
+    _: Annotated[object, Depends(require_permission("asset.reactivate"))],
 ) -> AssetDetailPublic:
     try:
         return svc.reactivate(asset_id, actor_user_id=int(current.subject))

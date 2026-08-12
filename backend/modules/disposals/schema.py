@@ -76,6 +76,8 @@ class DisposalOrderItemPublic(BaseModel):
     from_cost_center_code: str | None = None
     from_functional_location: str | None = None
     from_actual_location: str | None = None
+    from_functional_location_name: str | None = None
+    from_actual_location_name: str | None = None
 
 
 class DisposalOrderAuditPublic(BaseModel):
@@ -100,6 +102,9 @@ class DisposalOrderListItem(BaseModel):
     created_at: datetime
     needs_my_action: bool = False
     my_action_label: str | None = None
+    can_delete: bool = False
+    can_archive: bool = False
+    can_unarchive: bool = False
 
 
 class DisposalOrderListResponse(BaseModel):
@@ -179,6 +184,8 @@ class DisposalOrderDetail(BaseModel):
     # Scrapyard Actual Location 1 / 2 chosen at receive (null until received).
     to_functional_location: str | None = None
     to_actual_location: str | None = None
+    to_functional_location_name: str | None = None
+    to_actual_location_name: str | None = None
     requires_engineering: bool
     status: str
     remarks: str | None = None

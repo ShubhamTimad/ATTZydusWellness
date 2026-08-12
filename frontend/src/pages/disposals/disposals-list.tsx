@@ -22,16 +22,23 @@ import {
   AdminTableHeaderRow,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
+import {
+  nextColumnSort,
+  SortableColumnHeader,
+  type SortDir,
+} from "@/components/layout/sortable-column-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { getJson } from "@/lib/api"
+import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
 import {
   DISPOSAL_STATUS_TABS,
   disposalStatusLabel,
   disposalStatusPillTone,
   disposalTabEmptyMessage,
+  type DisposalOrderListItem,
   type DisposalOrderListResponse,
 } from "@/lib/disposal-types"
 import { cn } from "@/lib/utils"
@@ -70,10 +77,12 @@ type ListFilterCostCenter = {
 
 export function DisposalOrdersListPage() {
   const navigate = useNavigate()
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [tab, setTab] = React.useState<string>(DEFAULT_TAB)
   const [page, setPage] = React.useState(1)
   const [data, setData] = React.useState<DisposalOrderListResponse | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [busyId, setBusyId] = React.useState<number | null>(null)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
   const [columnFiltersOpen, setColumnFiltersOpen] = React.useState(false)
@@ -86,6 +95,8 @@ export function DisposalOrdersListPage() {
     ListFilterCostCenter[]
   >([])
   const [filterStatuses, setFilterStatuses] = React.useState<string[]>([])
+  const [sortBy, setSortBy] = React.useState("created_at")
+  const [sortDir, setSortDir] = React.useState<SortDir>("desc")
 
   const activeColumnFilterCount = Object.values(columnFilters).filter((value) => value.trim()).length
 
@@ -137,13 +148,15 @@ export function DisposalOrdersListPage() {
       if (columnFilters.assigned_to.trim()) q.set("assigned_to", columnFilters.assigned_to.trim())
       if (columnFilters.status.trim()) q.set("status", columnFilters.status.trim())
       if (columnFilters.created_on.trim()) q.set("created_on", columnFilters.created_on.trim())
+      q.set("sort_by", sortBy)
+      q.set("sort_dir", sortDir)
       setData(await getJson<DisposalOrderListResponse>(`/admin/disposal-orders?${q}`))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load disposal orders")
     } finally {
       setLoading(false)
     }
-  }, [tab, page, search, columnFilters])
+  }, [tab, page, search, columnFilters, sortBy, sortDir])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -179,15 +192,89 @@ export function DisposalOrdersListPage() {
     setPage(1)
   }
 
+  function toggleColumnSort(columnKey: string) {
+    const next = nextColumnSort(
+      sortBy,
+      sortDir,
+      columnKey,
+      columnKey === "created_at" || columnKey === "asset_count" ? "desc" : "asc",
+    )
+    setSortBy(next.sort_by)
+    setSortDir(next.sort_dir)
+    setPage(1)
+  }
+
+  async function discardRow(row: DisposalOrderListItem) {
+    if (row.can_delete) {
+      const ok = await confirmAsk({
+        title: "Delete draft disposal?",
+        description: `Permanently delete draft ${row.order_number} and reactivate its assets? This cannot be undone.`,
+        confirmLabel: "Delete",
+        destructive: true,
+      })
+      if (!ok) return
+      setBusyId(row.id)
+      try {
+        await deleteJson(`/admin/disposal-orders/${row.id}`)
+        toast.success("Draft disposal order deleted. Assets reactivated.")
+        await load()
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Could not delete disposal order")
+      } finally {
+        setBusyId(null)
+      }
+      return
+    }
+    if (row.can_archive) {
+      const ok = await confirmAsk({
+        title: "Archive disposal order?",
+        description: `Archive ${row.order_number} and reactivate its assets? The order stays for audit history.`,
+        confirmLabel: "Archive",
+      })
+      if (!ok) return
+      setBusyId(row.id)
+      try {
+        await postJson(`/admin/disposal-orders/${row.id}/archive`, {})
+        toast.success("Disposal order archived. Assets reactivated.")
+        await load()
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Could not archive disposal order")
+      } finally {
+        setBusyId(null)
+      }
+      return
+    }
+    if (row.can_unarchive) {
+      const ok = await confirmAsk({
+        title: "Unarchive disposal order?",
+        description: `Restore ${row.order_number} so you can edit and resubmit it?`,
+        confirmLabel: "Unarchive",
+      })
+      if (!ok) return
+      setBusyId(row.id)
+      try {
+        await postJson(`/admin/disposal-orders/${row.id}/unarchive`, {})
+        toast.success("Disposal order unarchived.")
+        await load()
+      } catch (e) {
+        toast.error(e instanceof ApiError ? e.message : "Could not unarchive disposal order")
+      } finally {
+        setBusyId(null)
+      }
+    }
+  }
+
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const counts = data?.tab_counts ?? {}
-  const colSpan = 7
+  const showDiscard = items.some((r) => r.can_delete || r.can_archive || r.can_unarchive)
+  const colSpan = 7 + (showDiscard ? 1 : 0)
 
   return (
     <AdminPage fullWidth dense className="w-full">
+      {confirmDialog}
       <ListPageHeader
         title="Asset Disposal Orders"
         description="Needs my action is work waiting on you. Done is closed or archived. All shows every disposal."
@@ -304,13 +391,58 @@ export function DisposalOrdersListPage() {
             <Table className="app-table-head-sticky">
               <TableHeader>
                 <AdminTableHeaderRow>
-                  <AdminTableHeadCell>Order</AdminTableHeadCell>
-                  <AdminTableHeadCell>Plant</AdminTableHeadCell>
-                  <AdminTableHeadCell>From CC</AdminTableHeadCell>
-                  <AdminTableHeadCell>Assets</AdminTableHeadCell>
-                  <AdminTableHeadCell>Assignee</AdminTableHeadCell>
-                  <AdminTableHeadCell>Status</AdminTableHeadCell>
-                  <AdminTableHeadCell>Created</AdminTableHeadCell>
+                  <SortableColumnHeader
+                    label="Order"
+                    columnKey="order_number"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="Plant"
+                    columnKey="plant_name"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="From CC"
+                    columnKey="from_cost_center_code"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="Assets"
+                    columnKey="asset_count"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="Assignee"
+                    columnKey="assigned_to_name"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="Status"
+                    columnKey="status"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="Created"
+                    columnKey="created_at"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  {showDiscard ? (
+                    <AdminTableHeadCell className="text-right">Actions</AdminTableHeadCell>
+                  ) : null}
                 </AdminTableHeaderRow>
                 {columnFiltersOpen ? (
                   <AdminTableHeaderRow>
@@ -419,6 +551,7 @@ export function DisposalOrdersListPage() {
                         className={columnFilterControlClass}
                       />
                     </AdminTableHeadCell>
+                    {showDiscard ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
                   </AdminTableHeaderRow>
                 ) : null}
               </TableHeader>
@@ -454,6 +587,25 @@ export function DisposalOrdersListPage() {
                       <AdminTableCell className="text-muted-foreground">
                         {new Date(row.created_at).toLocaleDateString()}
                       </AdminTableCell>
+                      {showDiscard ? (
+                        <AdminTableCell className="text-right">
+                          {row.can_delete || row.can_archive || row.can_unarchive ? (
+                            <Button
+                              type="button"
+                              variant={row.can_delete ? "destructive" : "outline"}
+                              size="sm"
+                              className="h-8"
+                              disabled={busyId === row.id}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                void discardRow(row)
+                              }}
+                            >
+                              {row.can_delete ? "Delete" : row.can_archive ? "Archive" : "Unarchive"}
+                            </Button>
+                          ) : null}
+                        </AdminTableCell>
+                      ) : null}
                     </AdminTableBodyRow>
                   ))
                 )}

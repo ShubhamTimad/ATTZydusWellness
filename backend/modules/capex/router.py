@@ -44,6 +44,8 @@ def list_forms(
     department: str | None = Query(None),
     status: str | None = Query(None),
     created_by: str | None = Query(None),
+    sort_by: str = Query("form_number"),
+    sort_dir: str = Query("desc"),
 ) -> CapexFormListResponse:
     return svc.list_forms(
         tab=tab,
@@ -58,6 +60,8 @@ def list_forms(
         status=status,
         created_by=created_by,
         viewer_user_id=int(current.subject),
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 

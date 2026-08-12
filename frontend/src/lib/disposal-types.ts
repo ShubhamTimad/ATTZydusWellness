@@ -22,6 +22,9 @@ export type DisposalOrderListItem = {
   created_at: string
   needs_my_action?: boolean
   my_action_label?: string | null
+  can_delete?: boolean
+  can_archive?: boolean
+  can_unarchive?: boolean
 }
 
 export type DisposalOrderListResponse = {
@@ -40,6 +43,8 @@ export type DisposalOrderItem = {
   from_cost_center_code: string | null
   from_functional_location: string | null
   from_actual_location: string | null
+  from_functional_location_name?: string | null
+  from_actual_location_name?: string | null
 }
 
 export type DisposalOrderAudit = {
@@ -66,6 +71,8 @@ export type DisposalOrderDetail = {
   to_functional_location?: string | null
   /** Scrapyard Actual Location 2 after receive. */
   to_actual_location?: string | null
+  to_functional_location_name?: string | null
+  to_actual_location_name?: string | null
   requires_engineering: boolean
   status: string
   remarks: string | null

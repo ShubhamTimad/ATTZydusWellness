@@ -23,6 +23,11 @@ import {
   AdminTableHeaderRow,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
+import {
+  nextColumnSort,
+  SortableColumnHeader,
+  type SortDir,
+} from "@/components/layout/sortable-column-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -70,6 +75,8 @@ export function CapexListPage() {
     React.useState<CapexColumnFilters>(DEFAULT_COLUMN_FILTERS)
   const [columnFilters, setColumnFilters] =
     React.useState<CapexColumnFilters>(DEFAULT_COLUMN_FILTERS)
+  const [sortBy, setSortBy] = React.useState("form_number")
+  const [sortDir, setSortDir] = React.useState<SortDir>("desc")
   const canCreate = hasPermission("capitalization.create")
 
   const activeColumnFilterCount =
@@ -83,6 +90,8 @@ export function CapexListPage() {
       for (const [key, value] of Object.entries(columnFilters)) {
         if (value.trim()) q.set(key, value.trim())
       }
+      q.set("sort_by", sortBy)
+      q.set("sort_dir", sortDir)
       const res = await getJson<CapexFormListResponse>(`/admin/capitalization-forms?${q}`)
       setData(res)
     } catch (e) {
@@ -90,7 +99,7 @@ export function CapexListPage() {
     } finally {
       setLoading(false)
     }
-  }, [tab, page, search, columnFilters])
+  }, [tab, page, search, columnFilters, sortBy, sortDir])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -124,6 +133,18 @@ export function CapexListPage() {
     setColumnFilterInputs({ ...DEFAULT_COLUMN_FILTERS })
     setColumnFilters({ ...DEFAULT_COLUMN_FILTERS })
     setTab("needs_action")
+    setPage(1)
+  }
+
+  function toggleColumnSort(columnKey: string) {
+    const next = nextColumnSort(
+      sortBy,
+      sortDir,
+      columnKey,
+      columnKey === "form_number" ? "desc" : "asc",
+    )
+    setSortBy(next.sort_by)
+    setSortDir(next.sort_dir)
     setPage(1)
   }
 
@@ -259,11 +280,41 @@ export function CapexListPage() {
               <Table className="app-table-head-sticky">
                 <TableHeader>
                   <AdminTableHeaderRow>
-                    <AdminTableHeadCell>Form number</AdminTableHeadCell>
-                    <AdminTableHeadCell>Asset name</AdminTableHeadCell>
-                    <AdminTableHeadCell>Department</AdminTableHeadCell>
-                    <AdminTableHeadCell>Status</AdminTableHeadCell>
-                    <AdminTableHeadCell>Created by</AdminTableHeadCell>
+                    <SortableColumnHeader
+                      label="Form number"
+                      columnKey="form_number"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Asset name"
+                      columnKey="asset_name"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Department"
+                      columnKey="department"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Status"
+                      columnKey="status"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Created by"
+                      columnKey="created_by_name"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
                   </AdminTableHeaderRow>
                   {columnFiltersOpen ? (
                     <AdminTableHeaderRow>

@@ -106,6 +106,8 @@ const ACTION_LABEL: Record<string, string> = {
   scan: "Scan",
   execute: "Execute",
   export: "Export",
+  deactivate: "Deactivate",
+  reactivate: "Reactivate",
 }
 
 function orderedActionColumns(actions: string[]): string[] {

@@ -11,7 +11,7 @@
   --app-shadow-surface: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 14px rgb(15 23 42 / 0.06);
   --app-shadow-elevated: 0 8px 24px rgb(15 23 42 / 0.08);
   --app-canvas: oklch(0.985 0.002 260);
-  /* Shell header + page padding + detail toolbar — for audit trail fill layout */
+  /* Shell header + page padding + detail toolbar */
   --app-detail-chrome-offset: 10.5rem;
 }
 
@@ -26,31 +26,6 @@
     gap: var(--app-section-gap);
     width: 100%;
     min-width: 0;
-  }
-
-  .app-detail-fill-column {
-    display: flex;
-    flex: 1 1 0%;
-    min-height: 0;
-    flex-direction: column;
-    gap: var(--app-grid-gap);
-    overflow: hidden;
-  }
-
-  .app-detail-scroll-top {
-    flex: 0 1 auto;
-    min-height: 0;
-    max-height: 100%;
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior-y: contain;
-  }
-
-  .app-detail-audit-pane {
-    display: flex;
-    flex: 1 1 0%;
-    min-height: 0;
-    flex-direction: column;
   }
 
   .app-page-heading {

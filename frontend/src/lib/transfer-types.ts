@@ -65,6 +65,8 @@ export type TransferOrderItem = {
   from_cost_center_code: string | null
   from_functional_location: string | null
   from_actual_location: string | null
+  from_functional_location_name?: string | null
+  from_actual_location_name?: string | null
 }
 
 export type TransferOrderAudit = {
@@ -91,6 +93,8 @@ export type TransferOrderDetail = {
   to_asset_custodian_name: string | null
   to_functional_location: string | null
   to_actual_location: string | null
+  to_functional_location_name?: string | null
+  to_actual_location_name?: string | null
   status: string
   remarks: string | null
   rejection_reason: string | null

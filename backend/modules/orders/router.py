@@ -138,6 +138,8 @@ def list_orders(
     created_on: date | None = Query(None),
     assigned_to: str | None = Query(None),
     created_by: str | None = Query(None),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc"),
 ) -> PhysicalOrderListResponse:
     return svc.list_orders(
         tab=tab,
@@ -153,6 +155,8 @@ def list_orders(
         created_on=created_on,
         assigned_to=assigned_to,
         created_by=created_by,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 

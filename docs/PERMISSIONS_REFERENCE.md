@@ -207,7 +207,9 @@ Manual and system-linked tasks (separate from approval engine routes).
 | `asset.delete` | Soft-delete assets | Delete from list | `DELETE /admin/assets/{id}` |
 | `asset.import` | Bulk import assets | **Import** page and import APIs | `POST /admin/assets/import/*` |
 | `asset.approve` | In RBAC catalog for workflow design | Used when mapping approval steps to roles; asset approval in tasks uses `approval.act` / workflow rules | — |
-| `asset.manage` | Elevated asset operations | Treated as **update + delete + import** in API checks | Same as update/delete where `asset.manage` is accepted |
+| `asset.deactivate` | Deactivate active assets | **Deactivate** on list/detail Actions | `POST /admin/assets/{id}/deactivate`, `POST /admin/assets/bulk-lifecycle` |
+| `asset.reactivate` | Reactivate deactivated assets | **Reactivate** on list/detail Actions | `POST /admin/assets/{id}/reactivate`, `POST /admin/assets/bulk-lifecycle` |
+| `asset.manage` | Elevated asset operations | Treated as **update + delete + import** in API checks (does **not** grant deactivate/reactivate) | Same as update/delete where `asset.manage` is accepted |
 
 `asset.manage` is a convenience permission for power users who should edit, delete, and import without granting each code separately.
 
@@ -221,7 +223,7 @@ Categories, tag colors, cost/profit centers, functional/actual locations.
 |------------|---------|---------------|----------------|
 | `masters.view` | Open masters screens | **Masters** nav; all master tabs | `GET /admin/asset-masters/*` |
 | `masters.create` | Add master rows | **Add** on each master tab | `POST /admin/asset-masters/*` |
-| `masters.update` | Edit master rows | Edit (pencil) on each tab | `PATCH /admin/asset-masters/*` |
+| `masters.update` | Edit master rows (including activate/deactivate) | Edit (pencil) on each tab; active toggle | `PATCH /admin/asset-masters/*` |
 | `masters.delete` | Delete unused master rows | Delete (trash) when not assigned to assets or child masters | `DELETE /admin/asset-masters/*` |
 
 **Read fallback:** `GET /admin/asset-masters/*` also allows `asset.view` so asset forms can load dropdown data without full masters access.

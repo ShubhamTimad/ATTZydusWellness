@@ -41,6 +41,7 @@ from modules.capex.schema import (
     CapexWorkflowRunPublic,
 )
 from modules.errors import ConflictError, NotFoundError
+from modules.list_sort import apply_sort_dir
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow
@@ -202,6 +203,31 @@ def _snapshot_fields(form: CapitalizationForm) -> dict[str, Any]:
         "requires_engineering": bool(form.requires_engineering),
         "cost_center_id": form.cost_center_id,
     }
+
+
+def _capex_list_sort_expr(sort_by: str):
+    key = (sort_by or "form_number").strip().lower()
+    if key == "form_number":
+        return CapitalizationForm.form_number
+    if key == "asset_name":
+        return CapitalizationForm.asset_name
+    if key == "department":
+        return CapitalizationForm.department
+    if key == "status":
+        return CapitalizationForm.status
+    if key == "created_by_name":
+        return (
+            select(User.full_name)
+            .where(User.id == CapitalizationForm.created_by)
+            .correlate(CapitalizationForm)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "created_at":
+        return CapitalizationForm.created_at
+    if key == "id":
+        return CapitalizationForm.id
+    return CapitalizationForm.form_number
 
 
 class CapexFormService:
@@ -611,6 +637,8 @@ class CapexFormService:
         status: str | None = None,
         created_by: str | None = None,
         viewer_user_id: int | None = None,
+    sort_by: str = "form_number",
+        sort_dir: str = "desc",
     ) -> CapexFormListResponse:
         stmt = select(CapitalizationForm).options(selectinload(CapitalizationForm.creator))
         count_stmt = select(func.count()).select_from(CapitalizationForm)
@@ -668,11 +696,13 @@ class CapexFormService:
             count_stmt = count_stmt.where(clause)
 
         total = int(self._db.scalar(count_stmt) or 0)
+        order_col = _capex_list_sort_expr(sort_by)
+        stmt = apply_sort_dir(
+            stmt, order_col, sort_dir=sort_dir, tiebreaker=CapitalizationForm.id
+        )
         rows = list(
             self._db.scalars(
-                stmt.order_by(CapitalizationForm.id.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
+                stmt.offset((page - 1) * page_size).limit(page_size)
             ).all()
         )
         pending_ids: set[int] = set()

@@ -23,6 +23,11 @@ import {
   AdminTableHeaderRow,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
+import {
+  nextColumnSort,
+  SortableColumnHeader,
+  type SortDir,
+} from "@/components/layout/sortable-column-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -97,6 +102,8 @@ export function TransferOrdersListPage() {
     [],
   )
   const [filterStatuses, setFilterStatuses] = React.useState<string[]>([])
+  const [sortBy, setSortBy] = React.useState("created_at")
+  const [sortDir, setSortDir] = React.useState<SortDir>("desc")
   const canCreate = hasPermission("transfer.create")
 
   const activeColumnFilterCount = Object.values(columnFilters).filter((value) => value.trim()).length
@@ -161,6 +168,8 @@ export function TransferOrdersListPage() {
       if (columnFilters.assigned_to.trim()) q.set("assigned_to", columnFilters.assigned_to.trim())
       if (columnFilters.status.trim()) q.set("status", columnFilters.status.trim())
       if (columnFilters.created_on.trim()) q.set("created_on", columnFilters.created_on.trim())
+      q.set("sort_by", sortBy)
+      q.set("sort_dir", sortDir)
       const res = await getJson<TransferOrderListResponse>(`/admin/transfer-orders?${q}`)
       setData(res)
     } catch (e) {
@@ -168,7 +177,7 @@ export function TransferOrdersListPage() {
     } finally {
       setLoading(false)
     }
-  }, [tab, page, search, columnFilters])
+  }, [tab, page, search, columnFilters, sortBy, sortDir])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -201,6 +210,18 @@ export function TransferOrdersListPage() {
     setSearch("")
     setColumnFilterInputs({ ...DEFAULT_COLUMN_FILTERS })
     setColumnFilters({ ...DEFAULT_COLUMN_FILTERS })
+    setPage(1)
+  }
+
+  function toggleColumnSort(columnKey: string) {
+    const next = nextColumnSort(
+      sortBy,
+      sortDir,
+      columnKey,
+      columnKey === "created_at" || columnKey === "asset_count" ? "desc" : "asc",
+    )
+    setSortBy(next.sort_by)
+    setSortDir(next.sort_dir)
     setPage(1)
   }
 
@@ -401,14 +422,62 @@ export function TransferOrdersListPage() {
             <Table className="app-table-head-sticky">
               <TableHeader>
                 <AdminTableHeaderRow>
-                  <AdminTableHeadCell>Order</AdminTableHeadCell>
-                  <AdminTableHeadCell>Plant</AdminTableHeadCell>
-                  <AdminTableHeadCell>From CC</AdminTableHeadCell>
-                  <AdminTableHeadCell>To CC</AdminTableHeadCell>
-                  <AdminTableHeadCell>Assets</AdminTableHeadCell>
-                  <AdminTableHeadCell>Assignee</AdminTableHeadCell>
-                  <AdminTableHeadCell>Status</AdminTableHeadCell>
-                  <AdminTableHeadCell>Created</AdminTableHeadCell>
+                  <SortableColumnHeader
+                    label="Order"
+                    columnKey="order_number"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="Plant"
+                    columnKey="plant_name"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="From CC"
+                    columnKey="from_cost_center_code"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="To CC"
+                    columnKey="to_cost_center_code"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="Assets"
+                    columnKey="asset_count"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="Assignee"
+                    columnKey="assigned_to_name"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="Status"
+                    columnKey="status"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
+                    label="Created"
+                    columnKey="created_at"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
                   {showDiscard ? (
                     <AdminTableHeadCell className="text-right">Actions</AdminTableHeadCell>
                   ) : null}

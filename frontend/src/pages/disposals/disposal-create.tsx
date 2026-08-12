@@ -375,7 +375,11 @@ export function DisposalOrderCreatePage() {
                             </div>
                           </AdminTableCell>
                           <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
-                          <AdminTableCell>{a.functional_location ?? "—"}</AdminTableCell>
+                          <AdminTableCell>
+                            {a.functional_location_description?.trim() ||
+                              a.functional_location ||
+                              "—"}
+                          </AdminTableCell>
                         </AdminTableBodyRow>
                       ))
                     )
@@ -417,7 +421,11 @@ export function DisposalOrderCreatePage() {
                             </div>
                           </AdminTableCell>
                           <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
-                          <AdminTableCell>{a.functional_location ?? "—"}</AdminTableCell>
+                          <AdminTableCell>
+                            {a.functional_location_description?.trim() ||
+                              a.functional_location ||
+                              "—"}
+                          </AdminTableCell>
                         </AdminTableBodyRow>
                       )
                     })

@@ -49,6 +49,7 @@ type DraftAsset = Pick<
   | "plant_name"
   | "cost_center"
   | "functional_location"
+  | "functional_location_description"
   | "actual_location"
   | "asset_custodian_id"
   | "approval_status"
@@ -104,6 +105,7 @@ function toDraftAsset(a: AssetListItem): DraftAsset {
     plant_name: a.plant_name,
     cost_center: a.cost_center,
     functional_location: a.functional_location,
+    functional_location_description: a.functional_location_description,
     actual_location: a.actual_location,
     asset_custodian_id: a.asset_custodian_id ?? null,
     approval_status: a.approval_status,
@@ -587,7 +589,6 @@ export function TransferOrderCreatePage() {
                       {masters.functionalLocations.map((fl) => (
                         <option key={fl.id} value={fl.code}>
                           {functionalLocationLabel(fl)}
-                          {fl.code ? ` (${fl.code})` : ""}
                         </option>
                       ))}
                     </select>
@@ -674,7 +675,11 @@ export function TransferOrderCreatePage() {
                               </div>
                             </AdminTableCell>
                             <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
-                            <AdminTableCell>{a.functional_location ?? "—"}</AdminTableCell>
+                            <AdminTableCell>
+                              {a.functional_location_description?.trim() ||
+                                a.functional_location ||
+                                "—"}
+                            </AdminTableCell>
                           </AdminTableBodyRow>
                         )
                       })
@@ -689,7 +694,11 @@ export function TransferOrderCreatePage() {
                           <div className="text-xs text-muted-foreground">{a.asset_name || "—"}</div>
                         </AdminTableCell>
                         <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
-                        <AdminTableCell>{a.functional_location ?? "—"}</AdminTableCell>
+                        <AdminTableCell>
+                          {a.functional_location_description?.trim() ||
+                            a.functional_location ||
+                            "—"}
+                        </AdminTableCell>
                       </AdminTableBodyRow>
                     ))
                   )}

@@ -205,6 +205,21 @@ export function masterDisplayName(name?: string | null, code?: string | null): s
   return code?.trim() || "—"
 }
 
+/** Location masters: prefer name, then description; skip name when it is only the code. */
+export function locationMasterLabel(m: {
+  name?: string | null
+  description?: string | null
+  code?: string | null
+}): string {
+  const n = m.name?.trim() || ""
+  const d = m.description?.trim() || ""
+  const c = m.code?.trim() || ""
+  if (n && (!c || n.toLowerCase() !== c.toLowerCase())) return n
+  if (d) return d
+  if (n) return n
+  return c || "—"
+}
+
 export function costCenterLabel(m: { name?: string | null; code?: string | null }) {
   return masterDisplayName(m.name, m.code)
 }
@@ -214,11 +229,11 @@ export function profitCenterLabel(m: ProfitCenterMaster) {
 }
 
 export function functionalLocationLabel(m: FunctionalLocationMaster) {
-  return masterDisplayName(m.name, m.code)
+  return locationMasterLabel(m)
 }
 
 export function actualLocationLabel(m: ActualLocationMaster) {
-  return masterDisplayName(m.name, m.code)
+  return locationMasterLabel(m)
 }
 
 /** @deprecated Use costCenterLabel */

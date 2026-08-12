@@ -497,9 +497,8 @@ export function TransferOrderDetailPage() {
     <AdminPage
       fullWidth
       dense
-      viewportFill
       description=""
-      className="w-full min-h-0 flex-1 gap-3"
+      className="w-full gap-3 pb-6"
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <AdminPillBadge
@@ -736,9 +735,7 @@ export function TransferOrderDetailPage() {
         </div>
       }
     >
-      <div className="app-detail-fill-column">
-        <div className="app-detail-scroll-top">
-          <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3">
         <div className="shrink-0">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             {order.order_number}
@@ -904,8 +901,20 @@ export function TransferOrderDetailPage() {
                     </div>
                   ) : (
                     <>
-                      <DetailFact label="Actual Location 1" value={order.to_functional_location ?? "—"} />
-                      <DetailFact label="Actual Location 2" value={order.to_actual_location ?? "—"} />
+                      <DetailFact
+                        label="Actual Location 1"
+                        value={
+                          order.to_functional_location_name ??
+                          order.to_functional_location ??
+                          "—"
+                        }
+                      />
+                      <DetailFact
+                        label="Actual Location 2"
+                        value={
+                          order.to_actual_location_name ?? order.to_actual_location ?? "—"
+                        }
+                      />
                     </>
                   )
                 ) : null}
@@ -939,7 +948,11 @@ export function TransferOrderDetailPage() {
                           <div className="text-xs text-muted-foreground">{item.asset_name || "—"}</div>
                         </AdminTableCell>
                         <AdminTableCell className="px-4 py-2">{item.from_cost_center_code ?? "—"}</AdminTableCell>
-                        <AdminTableCell className="px-4 py-2">{item.from_functional_location ?? "—"}</AdminTableCell>
+                        <AdminTableCell className="px-4 py-2">
+                          {item.from_functional_location_name ??
+                            item.from_functional_location ??
+                            "—"}
+                        </AdminTableCell>
                       </AdminTableBodyRow>
                     ))
                   )}
@@ -948,15 +961,8 @@ export function TransferOrderDetailPage() {
             </div>
           </AdminPanel>
         </div>
-          </div>
-        </div>
 
-        <TransferAuditLog
-          events={order.audit}
-          assetCodeById={assetCodeById}
-          fillHeight
-          className="app-detail-audit-pane"
-        />
+        <TransferAuditLog events={order.audit} assetCodeById={assetCodeById} />
       </div>
 
       <CapexAssigneePickerDialog

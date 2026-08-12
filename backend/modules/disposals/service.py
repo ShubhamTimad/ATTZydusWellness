@@ -6,6 +6,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from core.permissions import get_flat_permission_codes_for_user
+from modules.asset_masters.location_lookup import resolve_plant_location_names
 from modules.asset_masters.model import (
     ActualLocationMaster,
     CostCenterMaster,
@@ -72,6 +73,7 @@ from modules.disposals.schema import (
     UpdateDisposalOrderRequest,
 )
 from modules.errors import ConflictError, NotFoundError
+from modules.list_sort import apply_sort_dir
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
 from modules.platform.approvals.model import (
@@ -322,6 +324,48 @@ def _user_display_name(db: Session, user_id: int | None) -> str | None:
         return f"User #{user_id}"
     name = (user.full_name or "").strip()
     return name or user.username or user.email or str(user.id)
+
+
+def _disposal_list_sort_expr(sort_by: str):
+    key = (sort_by or "created_at").strip().lower()
+    if key == "order_number":
+        return AssetDisposalOrder.order_number
+    if key == "status":
+        return AssetDisposalOrder.status
+    if key == "created_at":
+        return AssetDisposalOrder.created_at
+    if key == "plant_name":
+        return (
+            select(OrgUnit.name)
+            .where(OrgUnit.id == AssetDisposalOrder.plant_id)
+            .correlate(AssetDisposalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "from_cost_center_code":
+        return (
+            select(CostCenterMaster.code)
+            .where(CostCenterMaster.id == AssetDisposalOrder.from_cost_center_id)
+            .correlate(AssetDisposalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "assigned_to_name":
+        return (
+            select(User.full_name)
+            .where(User.id == AssetDisposalOrder.assigned_to)
+            .correlate(AssetDisposalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "asset_count":
+        return (
+            select(func.count(AssetDisposalOrderItem.id))
+            .where(AssetDisposalOrderItem.order_id == AssetDisposalOrder.id)
+            .correlate(AssetDisposalOrder)
+            .scalar_subquery()
+        )
+    return AssetDisposalOrder.created_at
 
 
 def _audit_payload_for_api(db: Session, value: dict | None) -> dict | None:
@@ -857,7 +901,7 @@ class DisposalOrderService:
         order = self._load_order(order_id)
         if order.status not in ARCHIVABLE_STATUSES:
             raise ConflictError(
-                "Only draft, rejected, or in-rework disposal orders can be archived."
+                "Only draft disposal orders can be archived."
             )
         if _is_plain_disposal_draft(self._db, order):
             raise ConflictError(
@@ -1651,6 +1695,8 @@ class DisposalOrderService:
         asset_count: int | None = None,
         assigned_to: str | None = None,
         created_on: date | None = None,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
     ) -> DisposalOrderListResponse:
         self._normalize_legacy_rework_orders()
         tab_key = (tab or "needs_action").strip().lower()
@@ -1670,21 +1716,25 @@ class DisposalOrderService:
         total = int(
             self._db.scalar(select(func.count()).select_from(AssetDisposalOrder).where(*where)) or 0
         )
+        stmt = (
+            select(AssetDisposalOrder)
+            .where(*where)
+            .options(
+                selectinload(AssetDisposalOrder.plant),
+                selectinload(AssetDisposalOrder.from_cost_center),
+                selectinload(AssetDisposalOrder.creator),
+                selectinload(AssetDisposalOrder.assignee),
+                selectinload(AssetDisposalOrder.items),
+            )
+        )
+        stmt = apply_sort_dir(
+            stmt,
+            _disposal_list_sort_expr(sort_by),
+            sort_dir=sort_dir,
+            tiebreaker=AssetDisposalOrder.id,
+        )
         rows = list(
-            self._db.scalars(
-                select(AssetDisposalOrder)
-                .where(*where)
-                .options(
-                    selectinload(AssetDisposalOrder.plant),
-                    selectinload(AssetDisposalOrder.from_cost_center),
-                    selectinload(AssetDisposalOrder.creator),
-                    selectinload(AssetDisposalOrder.assignee),
-                    selectinload(AssetDisposalOrder.items),
-                )
-                .order_by(AssetDisposalOrder.id.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
-            ).all()
+            self._db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).all()
         )
         return DisposalOrderListResponse(
             items=[
@@ -1701,6 +1751,28 @@ class DisposalOrderService:
                     created_at=r.created_at,
                     needs_my_action=self._row_needs_action(r, viewer_user_id),
                     my_action_label=self._row_action_label(r, viewer_user_id),
+                    can_delete=bool(
+                        viewer_user_id is not None
+                        and _is_plain_disposal_draft(self._db, r)
+                        and _actor_may_discard_disposal(
+                            r, actor_user_id=int(viewer_user_id), db=self._db
+                        )
+                    ),
+                    can_archive=bool(
+                        viewer_user_id is not None
+                        and r.status in ARCHIVABLE_STATUSES
+                        and not _is_plain_disposal_draft(self._db, r)
+                        and _actor_may_discard_disposal(
+                            r, actor_user_id=int(viewer_user_id), db=self._db
+                        )
+                    ),
+                    can_unarchive=bool(
+                        viewer_user_id is not None
+                        and r.status == STATUS_CANCELLED
+                        and _actor_may_discard_disposal(
+                            r, actor_user_id=int(viewer_user_id), db=self._db
+                        )
+                    ),
                 )
                 for r in rows
             ],
@@ -1939,6 +2011,41 @@ class DisposalOrderService:
             )
         )
         to_fl, to_al = _scrapyard_locations_after_receive(self._db, order)
+        to_fl_name, to_al_name = resolve_plant_location_names(
+            self._db,
+            plant_id=int(order.plant_id),
+            functional_location_code=to_fl,
+            actual_location_code=to_al,
+        )
+        from_name_cache: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+
+        def _from_names(fl: str | None, al: str | None) -> tuple[str | None, str | None]:
+            key = ((fl or "").strip(), (al or "").strip())
+            if key not in from_name_cache:
+                from_name_cache[key] = resolve_plant_location_names(
+                    self._db,
+                    plant_id=int(order.plant_id),
+                    functional_location_code=fl,
+                    actual_location_code=al,
+                )
+            return from_name_cache[key]
+
+        item_publics: list[DisposalOrderItemPublic] = []
+        for i in order.items:
+            fl_n, al_n = _from_names(i.from_functional_location, i.from_actual_location)
+            item_publics.append(
+                DisposalOrderItemPublic(
+                    id=int(i.id),
+                    asset_id=int(i.asset_id),
+                    asset_code=i.asset.asset_code if i.asset else "",
+                    asset_name=i.asset.asset_name if i.asset else "",
+                    from_cost_center_code=i.from_cost_center_code,
+                    from_functional_location=i.from_functional_location,
+                    from_actual_location=i.from_actual_location,
+                    from_functional_location_name=fl_n,
+                    from_actual_location_name=al_n,
+                )
+            )
 
         return DisposalOrderDetail(
             id=int(order.id),
@@ -1961,6 +2068,8 @@ class DisposalOrderService:
             ),
             to_functional_location=to_fl,
             to_actual_location=to_al,
+            to_functional_location_name=to_fl_name,
+            to_actual_location_name=to_al_name,
             requires_engineering=bool(order.requires_engineering),
             status=order.status,
             remarks=order.remarks,
@@ -1976,18 +2085,7 @@ class DisposalOrderService:
             closed_at=order.closed_at,
             created_at=order.created_at,
             updated_at=order.updated_at,
-            items=[
-                DisposalOrderItemPublic(
-                    id=int(i.id),
-                    asset_id=int(i.asset_id),
-                    asset_code=i.asset.asset_code if i.asset else "",
-                    asset_name=i.asset.asset_name if i.asset else "",
-                    from_cost_center_code=i.from_cost_center_code,
-                    from_functional_location=i.from_functional_location,
-                    from_actual_location=i.from_actual_location,
-                )
-                for i in order.items
-            ],
+            items=item_publics,
             audit=self.list_audit(int(order.id)),
             approval_panel=panel,
             can_submit=(order.status in SUBMITTABLE_STATUSES) and (is_creator or is_super),

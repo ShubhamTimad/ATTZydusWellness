@@ -70,6 +70,8 @@ def list_orders(
     asset_count: int | None = Query(None, ge=0),
     assigned_to: str | None = Query(None),
     created_on: date | None = Query(None),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc"),
 ) -> DisposalOrderListResponse:
     return svc.list_orders(
         tab=tab,
@@ -84,6 +86,8 @@ def list_orders(
         asset_count=asset_count,
         assigned_to=assigned_to,
         created_on=created_on,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
 
 

@@ -93,6 +93,8 @@ export function buildAssetListActionItems(opts: {
   disposalEligibleCount?: number
   canDelete: boolean
   canUpdate?: boolean
+  canDeactivate?: boolean
+  canReactivate?: boolean
   canAttachRfid?: boolean
   canCreateOrder?: boolean
   canCreateTransfer?: boolean
@@ -110,6 +112,8 @@ export function buildAssetListActionItems(opts: {
     disposalEligibleCount = 0,
     canDelete,
     canUpdate = false,
+    canDeactivate = false,
+    canReactivate = false,
     canAttachRfid,
     canCreateOrder,
     canCreateTransfer = false,
@@ -199,7 +203,7 @@ export function buildAssetListActionItems(opts: {
     })
   }
 
-  if (canUpdate) {
+  if (canDeactivate) {
     actions.push({
       id: "deactivate",
       label: "Deactivate",
@@ -214,6 +218,9 @@ export function buildAssetListActionItems(opts: {
       disabled: deactivateEligibleCount === 0,
       icon: PowerOff,
     })
+  }
+
+  if (canReactivate) {
     actions.push({
       id: "reactivate",
       label: "Reactivate",
@@ -302,7 +309,7 @@ export function buildAssetDetailActionItems(opts: {
     })
   }
 
-  if (canUpdate && canDeactivate && !editing) {
+  if (canDeactivate && !editing) {
     actions.push({
       id: "deactivate",
       label: "Deactivate asset",
@@ -310,7 +317,7 @@ export function buildAssetDetailActionItems(opts: {
     })
   }
 
-  if (canUpdate && canReactivate && !editing) {
+  if (canReactivate && !editing) {
     actions.push({
       id: "reactivate",
       label: "Reactivate asset",

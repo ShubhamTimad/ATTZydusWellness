@@ -85,6 +85,8 @@ class TransferOrderItemPublic(BaseModel):
     from_cost_center_code: str | None = None
     from_functional_location: str | None = None
     from_actual_location: str | None = None
+    from_functional_location_name: str | None = None
+    from_actual_location_name: str | None = None
 
 
 class TransferOrderAuditPublic(BaseModel):
@@ -188,6 +190,8 @@ class TransferOrderDetail(BaseModel):
     to_asset_custodian_name: str | None = None
     to_functional_location: str | None = None
     to_actual_location: str | None = None
+    to_functional_location_name: str | None = None
+    to_actual_location_name: str | None = None
     status: str
     remarks: str | None = None
     rejection_reason: str | None = None

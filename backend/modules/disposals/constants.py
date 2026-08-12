@@ -23,7 +23,7 @@ EDITABLE_STATUSES = frozenset({STATUS_DRAFT})
 SUBMITTABLE_STATUSES = frozenset({STATUS_DRAFT})
 # Rejected (and legacy in_rework) → Restart returns the order to draft to start over.
 RESUMABLE_STATUSES = frozenset({STATUS_REJECTED, STATUS_IN_REWORK})
-ARCHIVABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED, STATUS_IN_REWORK})
+ARCHIVABLE_STATUSES = frozenset({STATUS_DRAFT})
 CREATOR_ACTION_STATUSES = EDITABLE_STATUSES | RESUMABLE_STATUSES
 
 # Role names used for assignee pools (must match seeded roles). The *next approver* role always

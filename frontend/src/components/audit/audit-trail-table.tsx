@@ -91,7 +91,7 @@ export function AuditTrailTable({
           className={cn(
             "app-data-table-wrap",
             fillHeight && "overscroll-y-contain",
-            fillHeight ? "min-h-0 flex-1" : "max-h-[min(22rem,48vh)]",
+            fillHeight ? "min-h-0 flex-1" : "min-h-[14rem] max-h-[min(22rem,48vh)]",
           )}
         >
           <Table className="app-table-head-sticky">

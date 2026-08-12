@@ -5,6 +5,7 @@ from datetime import date, datetime, timezone
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from modules.asset_masters.location_lookup import resolve_plant_location_names
 from modules.asset_masters.model import CostCenterAssetCustodian, CostCenterMaster
 from modules.assets.lifecycle import LIFECYCLE_ACTIVE
 from modules.assets.model import (
@@ -13,6 +14,7 @@ from modules.assets.model import (
     AssetMaster,
 )
 from modules.errors import ConflictError, NotFoundError
+from modules.list_sort import apply_sort_dir
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.model import (
     ApprovalRequest,
@@ -320,6 +322,56 @@ def _user_display_name(db: Session, user_id: int | None) -> str | None:
         return None
     name = (user.full_name or "").strip()
     return name or user.username or user.email or str(user.id)
+
+
+def _transfer_list_sort_expr(sort_by: str):
+    key = (sort_by or "created_at").strip().lower()
+    if key == "order_number":
+        return AssetTransferOrder.order_number
+    if key == "status":
+        return AssetTransferOrder.status
+    if key == "created_at":
+        return AssetTransferOrder.created_at
+    if key == "plant_name":
+        return (
+            select(OrgUnit.name)
+            .where(OrgUnit.id == AssetTransferOrder.plant_id)
+            .correlate(AssetTransferOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "from_cost_center_code":
+        return (
+            select(CostCenterMaster.code)
+            .where(CostCenterMaster.id == AssetTransferOrder.from_cost_center_id)
+            .correlate(AssetTransferOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "to_cost_center_code":
+        return (
+            select(CostCenterMaster.code)
+            .where(CostCenterMaster.id == AssetTransferOrder.to_cost_center_id)
+            .correlate(AssetTransferOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "assigned_to_name":
+        return (
+            select(User.full_name)
+            .where(User.id == AssetTransferOrder.assigned_to)
+            .correlate(AssetTransferOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "asset_count":
+        return (
+            select(func.count(AssetTransferOrderItem.id))
+            .where(AssetTransferOrderItem.order_id == AssetTransferOrder.id)
+            .correlate(AssetTransferOrder)
+            .scalar_subquery()
+        )
+    return AssetTransferOrder.created_at
 
 
 def _audit_payload_for_api(db: Session, value: dict | None) -> dict | None:
@@ -939,7 +991,7 @@ class TransferOrderService:
         order = self._load_order(order_id)
         if order.status not in ARCHIVABLE_STATUSES:
             raise ConflictError(
-                "Only draft, rejected, or legacy in-rework transfer orders can be archived."
+                "Only draft transfer orders can be archived."
             )
         if _is_plain_transfer_draft(self._db, order):
             raise ConflictError(
@@ -1464,6 +1516,8 @@ class TransferOrderService:
         asset_count: int | None = None,
         assigned_to: str | None = None,
         created_on: date | None = None,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
     ) -> TransferOrderListResponse:
         self._normalize_legacy_rework_orders()
         tab_key = (tab or "needs_action").strip().lower()
@@ -1487,21 +1541,27 @@ class TransferOrderService:
             )
             or 0
         )
+        stmt = (
+            select(AssetTransferOrder)
+            .where(*where)
+            .options(
+                selectinload(AssetTransferOrder.plant),
+                selectinload(AssetTransferOrder.from_cost_center),
+                selectinload(AssetTransferOrder.to_cost_center),
+                selectinload(AssetTransferOrder.creator),
+                selectinload(AssetTransferOrder.assignee),
+                selectinload(AssetTransferOrder.items),
+            )
+        )
+        stmt = apply_sort_dir(
+            stmt,
+            _transfer_list_sort_expr(sort_by),
+            sort_dir=sort_dir,
+            tiebreaker=AssetTransferOrder.id,
+        )
         rows = list(
             self._db.scalars(
-                select(AssetTransferOrder)
-                .where(*where)
-                .options(
-                    selectinload(AssetTransferOrder.plant),
-                    selectinload(AssetTransferOrder.from_cost_center),
-                    selectinload(AssetTransferOrder.to_cost_center),
-                    selectinload(AssetTransferOrder.creator),
-                    selectinload(AssetTransferOrder.assignee),
-                    selectinload(AssetTransferOrder.items),
-                )
-                .order_by(AssetTransferOrder.id.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
+                stmt.offset((page - 1) * page_size).limit(page_size)
             ).all()
         )
         pending_kinds = self._pending_step_kinds_for_viewer(viewer_user_id)
@@ -1978,6 +2038,42 @@ class TransferOrderService:
         if isinstance(plant, OrgUnit):
             plant_name = plant.name or plant.code or ""
 
+        to_fl_name, to_al_name = resolve_plant_location_names(
+            self._db,
+            plant_id=int(order.plant_id),
+            functional_location_code=order.to_functional_location,
+            actual_location_code=order.to_actual_location,
+        )
+        from_name_cache: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+
+        def _from_names(fl: str | None, al: str | None) -> tuple[str | None, str | None]:
+            key = ((fl or "").strip(), (al or "").strip())
+            if key not in from_name_cache:
+                from_name_cache[key] = resolve_plant_location_names(
+                    self._db,
+                    plant_id=int(order.plant_id),
+                    functional_location_code=fl,
+                    actual_location_code=al,
+                )
+            return from_name_cache[key]
+
+        item_publics: list[TransferOrderItemPublic] = []
+        for i in order.items:
+            fl_n, al_n = _from_names(i.from_functional_location, i.from_actual_location)
+            item_publics.append(
+                TransferOrderItemPublic(
+                    id=int(i.id),
+                    asset_id=int(i.asset_id),
+                    asset_code=i.asset.asset_code if i.asset else "",
+                    asset_name=i.asset.asset_name if i.asset else "",
+                    from_cost_center_code=i.from_cost_center_code,
+                    from_functional_location=i.from_functional_location,
+                    from_actual_location=i.from_actual_location,
+                    from_functional_location_name=fl_n,
+                    from_actual_location_name=al_n,
+                )
+            )
+
         return TransferOrderDetail(
             id=int(order.id),
             order_number=order.order_number,
@@ -2001,6 +2097,8 @@ class TransferOrderService:
             ),
             to_functional_location=order.to_functional_location,
             to_actual_location=order.to_actual_location,
+            to_functional_location_name=to_fl_name,
+            to_actual_location_name=to_al_name,
             status=order.status,
             remarks=order.remarks,
             rejection_reason=order.rejection_reason,
@@ -2015,18 +2113,7 @@ class TransferOrderService:
             closed_at=order.closed_at,
             created_at=order.created_at,
             updated_at=order.updated_at,
-            items=[
-                TransferOrderItemPublic(
-                    id=int(i.id),
-                    asset_id=int(i.asset_id),
-                    asset_code=i.asset.asset_code if i.asset else "",
-                    asset_name=i.asset.asset_name if i.asset else "",
-                    from_cost_center_code=i.from_cost_center_code,
-                    from_functional_location=i.from_functional_location,
-                    from_actual_location=i.from_actual_location,
-                )
-                for i in order.items
-            ],
+            items=item_publics,
             audit=[
                 TransferOrderAuditPublic(
                     id=int(a.id),

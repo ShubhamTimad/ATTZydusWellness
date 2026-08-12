@@ -33,6 +33,10 @@ import {
   AdminTableHeaderRow,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
+import {
+  nextColumnSort,
+  SortableColumnHeader,
+} from "@/components/layout/sortable-column-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -159,6 +163,12 @@ const DEFAULT_ASSET_LIST_COLUMN_KEYS: AssetListColumnKey[] = [
   "physical_count",
   "lifecycle_status",
 ]
+
+const DATE_SORT_KEYS = new Set<AssetListColumnKey>(["created_at", "last_verification_date"])
+
+function defaultSortDirForColumn(key: AssetListColumnKey): "asc" | "desc" {
+  return DATE_SORT_KEYS.has(key) ? "desc" : "asc"
+}
 
 type AssetListColumnsPreference = { columns: AssetListColumnKey[] }
 
@@ -532,6 +542,8 @@ export function AssetsListPage() {
   const canCreateOrder = hasPermission("order.create")
   const canUpdate = hasPermission("asset.update") || hasPermission("asset.manage")
   const canAttachRfid = canUpdate
+  const canDeactivate = hasPermission("asset.deactivate")
+  const canReactivate = hasPermission("asset.reactivate")
   const canSubmitForApproval = canCreate
   const canDecide = hasPermission("approval.act")
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
@@ -679,6 +691,15 @@ export function AssetsListPage() {
       (t) => t.key !== "all" && t.approval_status === approval_status,
     )
     setListTab(matchingTab?.key ?? "all")
+    setPage(1)
+  }
+
+  function toggleColumnSort(key: AssetListColumnKey) {
+    setFilters((f) => {
+      const next = nextColumnSort(f.sort_by, f.sort_dir, key, defaultSortDirForColumn(key))
+      setDraftFilters((d) => ({ ...d, sort_by: next.sort_by, sort_dir: next.sort_dir }))
+      return { ...f, sort_by: next.sort_by, sort_dir: next.sort_dir }
+    })
     setPage(1)
   }
 
@@ -1110,6 +1131,8 @@ export function AssetsListPage() {
         disposalEligibleCount: transferEligibleRows.length,
         canDelete,
         canUpdate: canUpdate && !isFyTab,
+        canDeactivate: canDeactivate && !isFyTab,
+        canReactivate: canReactivate && !isFyTab,
         canAttachRfid: showAttachRfid,
         canCreateOrder,
         canCreateTransfer,
@@ -1126,6 +1149,8 @@ export function AssetsListPage() {
       transferEligibleRows.length,
       canDelete,
       canUpdate,
+      canDeactivate,
+      canReactivate,
       isFyTab,
       showAttachRfid,
       canCreateOrder,
@@ -2083,12 +2108,11 @@ export function AssetsListPage() {
                   value={draftFilters.sort_by}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, sort_by: e.target.value }))}
                 >
-                  {isFyTab ? <option value="last_verification_date">Last verification</option> : null}
-                  <option value="created_at">Created date</option>
-                  <option value="asset_name">Asset name</option>
-                  <option value="combined_asset_number">Combined Asset No</option>
-                  <option value="asset_code">Asset code</option>
-                  {!isFyTab ? <option value="last_verification_date">Last verification</option> : null}
+                  {ASSET_LIST_COLUMNS.map((column) => (
+                    <option key={column.key} value={column.key}>
+                      {column.label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="app-form-field">
@@ -2098,8 +2122,8 @@ export function AssetsListPage() {
                   value={draftFilters.sort_dir}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, sort_dir: e.target.value }))}
                 >
-                  <option value="desc">Newest first</option>
-                  <option value="asc">Oldest first</option>
+                  <option value="asc">Ascending</option>
+                  <option value="desc">Descending</option>
                 </select>
               </div>
             </div>
@@ -2215,16 +2239,24 @@ export function AssetsListPage() {
                   />
                 </AdminTableHeadCell>
                 {visibleColumns.map((column) => (
-                  <AdminTableHeadCell
+                  <SortableColumnHeader
                     key={column.key}
+                    label={column.label}
+                    columnKey={column.key}
+                    sortBy={filters.sort_by}
+                    sortDir={filters.sort_dir}
+                    onSort={(k) => toggleColumnSort(k as AssetListColumnKey)}
+                    align={
+                      column.key === "inventory_count" || column.key === "physical_count"
+                        ? "right"
+                        : "left"
+                    }
                     className={
                       column.key === "inventory_count" || column.key === "physical_count"
                         ? "text-right"
                         : undefined
                     }
-                  >
-                    {column.label}
-                  </AdminTableHeadCell>
+                  />
                 ))}
               </AdminTableHeaderRow>
               {columnFiltersOpen && !isFyTab ? (

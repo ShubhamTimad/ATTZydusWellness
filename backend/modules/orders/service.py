@@ -67,6 +67,7 @@ from modules.assets.audit_log import log_asset_event
 from modules.assets.model import AssetAuditEvent, AssetInventoryInformation
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.settings.financial_year import financial_year_period_for, is_verified_in_financial_year
+from modules.list_sort import apply_sort_dir
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow, TaskAuditLog
 from modules.platform.approvals.service import (
     ApprovalEngineService,
@@ -83,7 +84,58 @@ def _now_utc() -> datetime:
 
 
 _EDITABLE_PHYSICAL_STATUSES = frozenset({ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED})
+_ARCHIVABLE_PHYSICAL_STATUSES = frozenset({ORDER_STATUS_DRAFT})
 _PLAIN_PHYSICAL_DRAFT_AUDIT = frozenset({"order_created", "assignment_changed"})
+
+
+def _physical_list_sort_expr(sort_by: str):
+    key = (sort_by or "created_at").strip().lower()
+    if key == "order_number":
+        return PhysicalOrder.order_number
+    if key == "status":
+        return PhysicalOrder.status
+    if key == "created_at":
+        return PhysicalOrder.created_at
+    if key == "plant_name":
+        return (
+            select(OrgUnit.name)
+            .where(OrgUnit.id == PhysicalOrder.plant_id)
+            .correlate(PhysicalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "cost_center_code":
+        return (
+            select(CostCenterMaster.code)
+            .where(CostCenterMaster.id == PhysicalOrder.cost_center_id)
+            .correlate(PhysicalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "assigned_to_name":
+        return (
+            select(User.full_name)
+            .where(User.id == PhysicalOrder.assigned_to)
+            .correlate(PhysicalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "created_by_name":
+        return (
+            select(User.full_name)
+            .where(User.id == PhysicalOrder.created_by)
+            .correlate(PhysicalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "asset_count":
+        return (
+            select(func.count(PhysicalOrderItem.id))
+            .where(PhysicalOrderItem.order_id == PhysicalOrder.id)
+            .correlate(PhysicalOrder)
+            .scalar_subquery()
+        )
+    return PhysicalOrder.created_at
 
 
 def _is_plain_physical_draft(db: Session, order: PhysicalOrder) -> bool:
@@ -1505,6 +1557,8 @@ class PhysicalOrderService:
         created_on: date | None = None,
         assigned_to: str | None = None,
         created_by: str | None = None,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
     ) -> PhysicalOrderListResponse:
         base = select(PhysicalOrder).options(
             selectinload(PhysicalOrder.plant),
@@ -1715,10 +1769,14 @@ class PhysicalOrderService:
             )
 
         total = int(self._db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+        sorted_base = apply_sort_dir(
+            base,
+            _physical_list_sort_expr(sort_by),
+            sort_dir=sort_dir,
+            tiebreaker=PhysicalOrder.id,
+        )
         rows = self._db.scalars(
-            base.order_by(PhysicalOrder.created_at.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
+            sorted_base.offset((page - 1) * page_size).limit(page_size)
         ).all()
         promoted = False
         handoff_fixed = False
@@ -1730,9 +1788,7 @@ class PhysicalOrderService:
         if promoted or handoff_fixed:
             self._db.commit()
             rows = self._db.scalars(
-                base.order_by(PhysicalOrder.created_at.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
+                sorted_base.offset((page - 1) * page_size).limit(page_size)
             ).all()
         has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
         from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
@@ -2094,7 +2150,7 @@ class PhysicalOrderService:
             approval_notice=self._build_approval_notice(order),
             can_delete=_is_plain_physical_draft(self._db, order) and (is_creator or is_super),
             can_archive=(
-                order.status in _EDITABLE_PHYSICAL_STATUSES
+                order.status in _ARCHIVABLE_PHYSICAL_STATUSES
                 and not _is_plain_physical_draft(self._db, order)
                 and (is_creator or is_super)
             ),
@@ -2119,8 +2175,8 @@ class PhysicalOrderService:
 
     def archive_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
-        if order.status not in _EDITABLE_PHYSICAL_STATUSES:
-            raise ConflictError("Only draft or rejected physical orders can be archived.")
+        if order.status not in _ARCHIVABLE_PHYSICAL_STATUSES:
+            raise ConflictError("Only draft physical orders can be archived.")
         if _is_plain_physical_draft(self._db, order):
             raise ConflictError(
                 "This is a plain draft with no approval history — delete it instead of archiving."

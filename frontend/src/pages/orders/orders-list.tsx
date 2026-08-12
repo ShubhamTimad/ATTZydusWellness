@@ -22,6 +22,11 @@ import {
   AdminTableHeaderRow,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
+import {
+  nextColumnSort,
+  SortableColumnHeader,
+  type SortDir,
+} from "@/components/layout/sortable-column-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -95,6 +100,8 @@ export function OrdersListPage() {
   const [filterPlants, setFilterPlants] = React.useState<OrderFilterPlant[]>([])
   const [filterCostCenters, setFilterCostCenters] = React.useState<OrderFilterCostCenter[]>([])
   const [filterStatuses, setFilterStatuses] = React.useState<string[]>([])
+  const [sortBy, setSortBy] = React.useState("created_at")
+  const [sortDir, setSortDir] = React.useState<SortDir>("desc")
 
   const activeColumnFilterCount = Object.values(columnFilters).filter((value) => value.trim()).length
 
@@ -147,6 +154,8 @@ export function OrdersListPage() {
       if (columnFilters.assigned_to.trim()) q.set("assigned_to", columnFilters.assigned_to.trim())
       if (columnFilters.created_by.trim()) q.set("created_by", columnFilters.created_by.trim())
       if (columnFilters.created_on.trim()) q.set("created_on", columnFilters.created_on.trim())
+      q.set("sort_by", sortBy)
+      q.set("sort_dir", sortDir)
       const res = await getJson<PhysicalOrderListResponse>(`/admin/physical-orders?${q}`)
       setData(res)
     } catch (e) {
@@ -154,7 +163,7 @@ export function OrdersListPage() {
     } finally {
       setLoading(false)
     }
-  }, [tab, page, search, columnFilters])
+  }, [tab, page, search, columnFilters, sortBy, sortDir])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -187,6 +196,18 @@ export function OrdersListPage() {
     setSearch("")
     setColumnFilterInputs({ ...DEFAULT_COLUMN_FILTERS })
     setColumnFilters({ ...DEFAULT_COLUMN_FILTERS })
+    setPage(1)
+  }
+
+  function toggleColumnSort(columnKey: string) {
+    const next = nextColumnSort(
+      sortBy,
+      sortDir,
+      columnKey,
+      columnKey === "created_at" || columnKey === "asset_count" ? "desc" : "asc",
+    )
+    setSortBy(next.sort_by)
+    setSortDir(next.sort_dir)
     setPage(1)
   }
 
@@ -302,14 +323,62 @@ export function OrdersListPage() {
               <Table className="app-table-head-sticky">
                 <TableHeader>
                   <AdminTableHeaderRow>
-                    <AdminTableHeadCell>Order number</AdminTableHeadCell>
-                    <AdminTableHeadCell>Plant</AdminTableHeadCell>
-                    <AdminTableHeadCell>Cost center</AdminTableHeadCell>
-                    <AdminTableHeadCell>Assets</AdminTableHeadCell>
-                    <AdminTableHeadCell>Status</AdminTableHeadCell>
-                    <AdminTableHeadCell>Assigned to</AdminTableHeadCell>
-                    <AdminTableHeadCell>Created by</AdminTableHeadCell>
-                    <AdminTableHeadCell>Created</AdminTableHeadCell>
+                    <SortableColumnHeader
+                      label="Order number"
+                      columnKey="order_number"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Plant"
+                      columnKey="plant_name"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Cost center"
+                      columnKey="cost_center_code"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Assets"
+                      columnKey="asset_count"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Status"
+                      columnKey="status"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Assigned to"
+                      columnKey="assigned_to_name"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Created by"
+                      columnKey="created_by_name"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Created"
+                      columnKey="created_at"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
                   </AdminTableHeaderRow>
                   {columnFiltersOpen ? (
                     <AdminTableHeaderRow>

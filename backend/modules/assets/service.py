@@ -316,6 +316,145 @@ def _merge_inventory_update(
         setattr(row, k, v)
 
 
+def _asset_list_sort_expression(sort_by: str):
+    """SQL expression for asset list / export ``sort_by`` (column header keys)."""
+    key = (sort_by or "created_at").strip().lower()
+    direct = {
+        "created_at": AssetMaster.created_at,
+        "asset_name": AssetMaster.asset_name,
+        "asset_code": AssetMaster.asset_code,
+        "combined_asset_number": AssetMaster.combined_asset_number,
+        "rfid_code": AssetMaster.rfid_code,
+        "lifecycle_status": AssetMaster.lifecycle_status,
+        "approval_status": AssetMaster.approval_status,
+        "source_type": AssetMaster.source_type,
+    }
+    if key in direct:
+        return direct[key]
+
+    if key == "category_name":
+        return (
+            select(AssetCategory.name)
+            .where(AssetCategory.id == AssetMaster.asset_category_id)
+            .correlate(AssetMaster)
+            .scalar_subquery()
+        )
+
+    if key == "plant":
+        return (
+            select(OrgUnit.code)
+            .select_from(AssetLocationInformation)
+            .join(OrgUnit, OrgUnit.id == AssetLocationInformation.plant_id)
+            .where(AssetLocationInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "cost_center":
+        return (
+            select(AssetFinancialInformation.cost_center)
+            .where(AssetFinancialInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "cost_center_name":
+        plant_id_sq = (
+            select(AssetLocationInformation.plant_id)
+            .where(AssetLocationInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+        cc_code_sq = (
+            select(AssetFinancialInformation.cost_center)
+            .where(AssetFinancialInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+        return (
+            select(CostCenterMaster.name)
+            .where(
+                CostCenterMaster.plant_id == plant_id_sq,
+                CostCenterMaster.code == cc_code_sq,
+            )
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "functional_location":
+        return (
+            select(AssetLocationInformation.functional_location)
+            .where(AssetLocationInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "actual_location":
+        return (
+            select(AssetLocationInformation.actual_location)
+            .where(AssetLocationInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "inventory_count":
+        return (
+            select(AssetInventoryInformation.inventory_count)
+            .where(AssetInventoryInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "physical_count":
+        return (
+            select(AssetInventoryInformation.physical_count)
+            .where(AssetInventoryInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "last_verification_date":
+        return (
+            select(AssetInventoryInformation.last_verification_date)
+            .where(AssetInventoryInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "active_physical_order":
+        return (
+            select(PhysicalOrder.order_number)
+            .select_from(PhysicalOrderItem)
+            .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
+            .where(
+                PhysicalOrderItem.asset_id == AssetMaster.id,
+                PhysicalOrder.status.in_(tuple(ACTIVE_ORDER_STATUSES)),
+            )
+            .order_by(PhysicalOrder.created_at.desc())
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    return AssetMaster.created_at
+
+
+def _apply_asset_list_sort(base: Any, *, sort_by: str, sort_dir: str) -> Any:
+    order_col = _asset_list_sort_expression(sort_by)
+    if (sort_dir or "desc").strip().lower() == "asc":
+        return base.order_by(order_col.asc().nulls_last(), AssetMaster.id.asc())
+    return base.order_by(order_col.desc().nulls_last(), AssetMaster.id.desc())
+
+
 class AssetMasterService:
     def __init__(self, db: Session) -> None:
         self._db = db
@@ -1893,21 +2032,7 @@ class AssetMasterService:
             selectinload(AssetMaster.inventory),
         )
 
-        order_col = AssetMaster.created_at
-        if sort_by == "asset_name":
-            order_col = AssetMaster.asset_name
-        elif sort_by == "combined_asset_number":
-            order_col = AssetMaster.combined_asset_number
-        elif sort_by == "asset_code":
-            order_col = AssetMaster.asset_code
-        elif sort_by == "last_verification_date":
-            order_col = AssetInventoryInformation.last_verification_date
-            if scan_window is None:
-                base = base.outerjoin(AssetInventoryInformation)
-        if sort_dir.lower() == "asc":
-            base = base.order_by(order_col.asc())
-        else:
-            base = base.order_by(order_col.desc())
+        base = _apply_asset_list_sort(base, sort_by=sort_by, sort_dir=sort_dir)
 
         rows = list(
             self._db.scalars(base.offset((page - 1) * page_size).limit(page_size)).unique().all()
@@ -2049,18 +2174,7 @@ class AssetMasterService:
             selectinload(AssetMaster.inventory),
         )
 
-        order_col = AssetMaster.asset_code
-        if sort_by == "asset_name":
-            order_col = AssetMaster.asset_name
-        elif sort_by == "created_at":
-            order_col = AssetMaster.created_at
-        elif sort_by == "last_verification_date":
-            order_col = AssetInventoryInformation.last_verification_date
-            base = base.outerjoin(AssetInventoryInformation)
-        if sort_dir.lower() == "desc":
-            base = base.order_by(order_col.desc())
-        else:
-            base = base.order_by(order_col.asc())
+        base = _apply_asset_list_sort(base, sort_by=sort_by, sort_dir=sort_dir)
 
         rows = list(self._db.scalars(base.limit(max_rows)).unique().all())
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")

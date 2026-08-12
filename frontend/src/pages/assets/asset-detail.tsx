@@ -158,6 +158,8 @@ export function AssetDetailPage() {
 
   const canUpdate = hasPermission("asset.update") || hasPermission("asset.manage")
   const canCreate = hasPermission("asset.create") || hasPermission("asset.manage")
+  const canDeactivatePerm = hasPermission("asset.deactivate")
+  const canReactivatePerm = hasPermission("asset.reactivate")
   const canViewCapex = hasPermission("capitalization.view")
   const canApprovalAct = hasPermission("approval.act")
   const canReassignPerm = hasPermission("asset.reassign") || hasPermission("asset.manage")
@@ -632,16 +634,20 @@ export function AssetDetailPage() {
         canEdit,
         editing,
         canDeactivate: Boolean(
-          asset &&
+          canDeactivatePerm &&
+            asset &&
             asset.action_allowed !== false &&
             canDeactivateAsset(asset.lifecycle_status, asset.approval_status),
         ),
         canReactivate: Boolean(
-          asset && asset.action_allowed !== false && canReactivateAsset(asset.lifecycle_status),
+          canReactivatePerm &&
+            asset &&
+            asset.action_allowed !== false &&
+            canReactivateAsset(asset.lifecycle_status),
         ),
         canSubmit,
       }),
-    [canUpdate, canEdit, editing, asset, canSubmit],
+    [canUpdate, canDeactivatePerm, canReactivatePerm, canEdit, editing, asset, canSubmit],
   )
 
   async function toggleLifecycle(action: "deactivate" | "reactivate") {
