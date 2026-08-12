@@ -49,13 +49,14 @@ _AUDIT_LABELS: dict[str, str] = {
     "rejected": "Order rejected",
     "started": "Physical verification started",
     "asset_verified": "Asset physically verified (RFID scan)",
-    "closure_submitted": "Order completed",
-    "closure_approved": "Approved",
+    "closure_submitted": "Submitted for closure approval",
+    "closure_approved": "Closure approved",
     "completed": "Order completed",
     "closed": "Order closed",
     "returned_for_execution": "Returned to executor after closure rejection",
-    "execution_items_rejected": "Line items rejected during execution",
-    "closure_items_rejected": "Line items rejected at closure review",
+    "execution_items_rejected": "Assets rejected",
+    "closure_items_rejected": "Assets rejected",
+    "closure_items_approved": "Assets approved",
     "archived": "Order archived",
     "unarchived": "Order unarchived",
 }
@@ -73,26 +74,19 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
     if action == "assignment_changed":
         assignee = new_value.get("assigned_to")
         if assignee is not None:
-            suffix = ""
-            if new_value.get("auto_assigned"):
-                suffix = " (after creation approval)"
-            elif new_value.get("on_submit"):
-                suffix = " (on submit)"
-            elif new_value.get("intended_only"):
-                suffix = " (intended executor)"
             name = new_value.get("assigned_to_name")
             if name:
-                return f"Next: {name}{suffix}"
-            return f"Next: user #{assignee}{suffix}"
+                return f"Assigned to: {name}"
+            return f"Assigned to: user #{assignee}"
     if action == "reassigned":
         old_name = old_value.get("assigned_to_name")
         new_name = new_value.get("assigned_to_name")
         if old_name and new_name:
             return f"{old_name} → {new_name}"
         if new_name:
-            return f"Next: {new_name}"
+            return f"Assigned to: {new_name}"
         assignee = new_value.get("assigned_to")
-        return f"Next: user #{assignee}" if assignee else None
+        return f"Assigned to: user #{assignee}" if assignee else None
     if action == "asset_verified":
         code = new_value.get("asset_code")
         rfid = new_value.get("rfid_code")
@@ -105,21 +99,33 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
             parts.append(str(reason))
         assignee_name = new_value.get("assigned_to_name")
         if assignee_name:
-            parts.append(f"Next: {assignee_name}")
+            parts.append(f"Assigned to: {assignee_name}")
         elif new_value.get("assigned_to") is not None:
-            parts.append(f"Next: user #{new_value.get('assigned_to')}")
+            parts.append(f"Assigned to: user #{new_value.get('assigned_to')}")
         return " — ".join(parts) if parts else None
     if action == "submitted_for_approval":
         rid = new_value.get("approval_request_id")
         next_name = new_value.get("next_assignee_name") or new_value.get("assigned_to_name")
         parts = []
         if next_name:
-            parts.append(f"Next: {next_name}")
+            parts.append(f"Assigned to: {next_name}")
         if rid:
             parts.append(f"Approval request #{rid}")
         return " — ".join(parts) if parts else None
     if action == "closure_submitted":
-        return None
+        next_name = (
+            new_value.get("next_assignee_name")
+            or new_value.get("assignee_user_name")
+            or new_value.get("assigned_to_name")
+        )
+        parts = []
+        if next_name:
+            parts.append(f"Assigned to: {next_name}")
+        elif new_value.get("assignee_user_id") is not None:
+            parts.append(f"Assigned to: user #{new_value.get('assignee_user_id')}")
+        if new_value.get("resubmitted"):
+            parts.append("Resubmitted for closure approval")
+        return " — ".join(parts) if parts else None
     if action == "returned_for_execution":
         reason = new_value.get("reason")
         codes = new_value.get("rejected_asset_codes") or []
@@ -127,8 +133,8 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         if codes:
             parts.append(", ".join(str(c) for c in codes))
         if reason:
-            parts.append(str(reason))
-        return " — ".join(parts) if parts else "Line items rejected by reviewer"
+            parts.append(f"Reason: {reason}")
+        return " — ".join(parts) if parts else "Assets rejected by reviewer"
     if action == "execution_items_rejected":
         codes = new_value.get("asset_codes") or []
         reason = new_value.get("reason")
@@ -136,7 +142,7 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         if codes:
             parts.append(", ".join(str(c) for c in codes))
         if reason:
-            parts.append(str(reason))
+            parts.append(f"Reason: {reason}")
         return " — ".join(parts) if parts else None
     if action == "closure_items_rejected":
         codes = new_value.get("asset_codes") or []
@@ -145,8 +151,13 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         if codes:
             parts.append(", ".join(str(c) for c in codes))
         if reason:
-            parts.append(str(reason))
+            parts.append(f"Reason: {reason}")
         return " — ".join(parts) if parts else None
+    if action == "closure_items_approved":
+        codes = new_value.get("asset_codes") or []
+        if codes:
+            return ", ".join(str(c) for c in codes)
+        return None
     return None
 
 
@@ -194,10 +205,10 @@ def _workflow_next_assignee_line(
                 roles.append(str(role.name))
     if names:
         uniq = list(dict.fromkeys(names))
-        return f"Next: {', '.join(uniq)}"
+        return f"Assigned to: {', '.join(uniq)}"
     if roles:
         uniq = list(dict.fromkeys(roles))
-        return f"Next role: {', '.join(uniq)}"
+        return f"Assigned role: {', '.join(uniq)}"
     return None
 
 
@@ -217,12 +228,12 @@ def _first_request_assignee_line(
     first = tasks[0]
     if first.assigned_user_id is not None:
         name = user_name_fn(int(first.assigned_user_id))
-        return f"Next: {name}" if name else f"Next: user #{first.assigned_user_id}"
+        return f"Assigned to: {name}" if name else f"Assigned to: user #{first.assigned_user_id}"
     role_id = first.assigned_role_id or (first.step.approver_role_id if first.step else None)
     if role_id is not None:
         role = db.get(Role, int(role_id))
         if role is not None and role.name:
-            return f"Next role: {role.name}"
+            return f"Assigned role: {role.name}"
     return None
 
 
@@ -357,10 +368,47 @@ def enrich_audit_rows(
                     first_line = _first_request_assignee_line(
                         db, req, user_name_fn=user_name_fn
                     )
-                    if first_line and first_line.startswith("Next: "):
+                    if first_line and first_line.startswith("Assigned to: "):
+                        new_value["next_assignee_name"] = first_line.removeprefix("Assigned to: ")
+                    elif first_line and first_line.startswith("Assigned role: "):
+                        new_value["next_assignee_name"] = first_line.removeprefix("Assigned role: ")
+                    elif first_line and first_line.startswith("Next: "):
                         new_value["next_assignee_name"] = first_line.removeprefix("Next: ")
                     elif first_line and first_line.startswith("Next role: "):
                         new_value["next_assignee_name"] = first_line.removeprefix("Next role: ")
+        if action == "closure_submitted":
+            if not (
+                new_value.get("next_assignee_name")
+                or new_value.get("assignee_user_name")
+                or new_value.get("assigned_to_name")
+            ):
+                assignee_id = new_value.get("assignee_user_id")
+                if assignee_id is not None:
+                    name = user_name_fn(int(assignee_id))
+                    if name:
+                        new_value["assignee_user_name"] = name
+                elif db is not None and order_id is not None:
+                    req = _latest_approval_request(
+                        db, order_id=order_id, entity_type=ENTITY_TYPE_CLOSURE
+                    )
+                    if req is not None:
+                        first_line = _first_request_assignee_line(
+                            db, req, user_name_fn=user_name_fn
+                        )
+                        if first_line and first_line.startswith("Assigned to: "):
+                            new_value["next_assignee_name"] = first_line.removeprefix(
+                                "Assigned to: "
+                            )
+                        elif first_line and first_line.startswith("Assigned role: "):
+                            new_value["next_assignee_name"] = first_line.removeprefix(
+                                "Assigned role: "
+                            )
+                        elif first_line and first_line.startswith("Next: "):
+                            new_value["next_assignee_name"] = first_line.removeprefix("Next: ")
+                        elif first_line and first_line.startswith("Next role: "):
+                            new_value["next_assignee_name"] = first_line.removeprefix(
+                                "Next role: "
+                            )
         out.append(
             PhysicalOrderAuditPublic(
                 id=int(r.id),

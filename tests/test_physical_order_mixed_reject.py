@@ -32,8 +32,9 @@ def test_apply_rejection_keeps_approved_lines() -> None:
         approval_request_id=None,
         items=[
             _item("A1", ITEM_STATUS_APPROVED, scan=True),
-            _item("A2", ITEM_STATUS_PENDING, scan=True),
+            _item("A2", ITEM_STATUS_PENDING, scan=False),
             _item("A3", ITEM_STATUS_REJECTED, scan=True),
+            _item("A4", ITEM_STATUS_PENDING, scan=True),
         ],
     )
 
@@ -71,6 +72,9 @@ def test_apply_rejection_keeps_approved_lines() -> None:
     assert by_code["A2"].scan_time is None
     assert by_code["A3"].verification_status == ITEM_STATUS_REJECTED
     assert by_code["A3"].scan_time is None
+    # Scanned-but-not-yet-line-approved stays locked.
+    assert by_code["A4"].verification_status == ITEM_STATUS_APPROVED
+    assert by_code["A4"].scan_time == "t"
 
 
 def test_reset_after_rejection_preserves_approved() -> None:

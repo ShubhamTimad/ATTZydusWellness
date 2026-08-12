@@ -50,10 +50,13 @@ function ActivityCell({
   const verifiedAssets = ev.verified_assets ?? []
   const showVerifiedToggle = ev.action === "started" && verifiedAssets.length > 0
   const detail = ev.detail?.trim() || ""
-  const nextMatch = detail.match(/^(Next(?: role)?:\s*.+?)(?:\s+[—-]\s+|$)/i)
+  const nextMatch = detail.match(/^(Assigned (?:to|role):\s*.+?)(?:\s+[—-]\s+|$)/i)
   const nextLine = nextMatch?.[1]?.trim() || null
   const executorOnCreate =
-    ev.action === "order_created" && detail && !detail.startsWith("Next")
+    ev.action === "order_created" &&
+    detail &&
+    !/^Assigned (?:to|role):/i.test(detail) &&
+    !detail.startsWith("Next")
       ? detail
       : null
   const restDetail = (() => {

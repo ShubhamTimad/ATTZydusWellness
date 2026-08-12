@@ -219,6 +219,17 @@ class PhysicalOrderService:
             item.verification_status = ITEM_STATUS_PENDING
             item.rejection_reason = None
 
+    @staticmethod
+    def _item_asset_code(item: PhysicalOrderItem) -> str:
+        asset = getattr(item, "asset", None)
+        if asset is not None and getattr(asset, "asset_code", None):
+            return str(asset.asset_code)
+        # Stubs / accidental direct attrs — prefer relationship when present.
+        code = getattr(item, "asset_code", None)
+        if code:
+            return str(code)
+        return str(item.asset_id)
+
     def _apply_full_order_rejection(
         self,
         order: PhysicalOrder,
@@ -232,17 +243,21 @@ class PhysicalOrderService:
         rejected_codes: list[str] = []
         kept_approved: list[str] = []
         for item in order.items:
-            if item.verification_status == ITEM_STATUS_APPROVED:
-                kept_approved.append(item.asset_code)
-                continue
             if item.verification_status == ITEM_STATUS_REJECTED:
                 # Already rejected during review — keep reason, clear scan for rework.
                 item.scan_time = None
                 item.verified_by = None
-                rejected_codes.append(item.asset_code)
+                rejected_codes.append(self._item_asset_code(item))
+                continue
+            # Line-approved OR physically verified scans stay locked for the assignee.
+            if item.verification_status == ITEM_STATUS_APPROVED or self._is_physically_verified(item):
+                if item.verification_status != ITEM_STATUS_APPROVED:
+                    item.verification_status = ITEM_STATUS_APPROVED
+                    item.rejection_reason = None
+                kept_approved.append(self._item_asset_code(item))
                 continue
             self._clear_item_verification(item, rejected=True, reason=cleaned)
-            rejected_codes.append(item.asset_code)
+            rejected_codes.append(self._item_asset_code(item))
         order.status = ORDER_STATUS_REJECTED
 
         creation_req: ApprovalRequest | None = None
@@ -2262,6 +2277,16 @@ class PhysicalOrderService:
                 if item.id in id_set:
                     item.verification_status = ITEM_STATUS_APPROVED
                     item.rejection_reason = None
+            selected = [i for i in order.items if int(i.id) in id_set]
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="closure_items_approved",
+                actor_user_id=actor_user_id,
+                new_value={
+                    "asset_codes": [self._item_asset_code(i) for i in selected],
+                },
+            )
             if id_set == order_item_ids:
                 task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)
                 if task is not None:
@@ -2274,7 +2299,6 @@ class PhysicalOrderService:
                     return self.get_order(order_id)
                 self._complete_closure_approval(order, actor_user_id=actor_user_id)
             else:
-                selected = [i for i in order.items if int(i.id) in id_set]
                 completed = self._maybe_complete_closure_after_item_approval(
                     order,
                     actor_user_id=actor_user_id,
@@ -2336,7 +2360,7 @@ class PhysicalOrderService:
             for item in targets:
                 item.verification_status = ITEM_STATUS_REJECTED
                 item.rejection_reason = reason
-                rejected_codes.append(item.asset_code)
+                rejected_codes.append(self._item_asset_code(item))
             log_order_event(
                 self._db,
                 order_id=order_id,
@@ -2371,12 +2395,14 @@ class PhysicalOrderService:
             if item.id not in id_set:
                 continue
             if self._is_physically_verified(item):
-                raise ConflictError(f"Cannot reject verified asset {item.asset_code}.")
+                raise ConflictError(
+                    f"Cannot reject verified asset {self._item_asset_code(item)}."
+                )
             if item.verification_status == ITEM_STATUS_REJECTED:
                 continue
             item.verification_status = ITEM_STATUS_REJECTED
             item.rejection_reason = reason
-            rejected_codes.append(item.asset_code)
+            rejected_codes.append(self._item_asset_code(item))
         if not rejected_codes:
             raise ConflictError("No eligible line items to reject.")
         log_order_event(
@@ -2577,7 +2603,8 @@ class PhysicalOrderService:
             raise ConflictError("Scanned RFID does not match this asset's RFID code.")
 
         now = _now_utc()
-        item.verification_status = ITEM_STATUS_APPROVED
+        # Scan locks physical verification only; line approval is a separate reviewer action.
+        item.verification_status = ITEM_STATUS_PENDING
         item.scan_time = now
         item.verified_by = actor_user_id
         item.rejection_reason = None
@@ -2694,7 +2721,7 @@ class PhysicalOrderService:
                 )
                 continue
 
-            item.verification_status = ITEM_STATUS_APPROVED
+            item.verification_status = ITEM_STATUS_PENDING
             item.scan_time = now
             item.verified_by = actor_user_id
             item.rejection_reason = None
@@ -2746,14 +2773,14 @@ class PhysicalOrderService:
             raise ConflictError("Order is not in progress.")
         if order.assigned_to != actor_user_id:
             raise ConflictError("Only the assigned executor can submit for closure.")
-        # Unscanned lines are left for closure review; keep verified scans locked.
+        # Unscanned lines stay pending for closure review. Scanned lines stay pending too
+        # until the reviewer explicitly approves them (scan ≠ line approval).
         for item in order.items:
-            if self._is_physically_verified(item):
-                item.verification_status = ITEM_STATUS_APPROVED
+            if item.verification_status == ITEM_STATUS_APPROVED:
                 item.rejection_reason = None
-            else:
-                item.verification_status = ITEM_STATUS_PENDING
-                item.rejection_reason = None
+                continue
+            item.verification_status = ITEM_STATUS_PENDING
+            item.rejection_reason = None
         order.status = ORDER_STATUS_COMPLETED
         order.completed_at = _now_utc()
         wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
@@ -2801,6 +2828,7 @@ class PhysicalOrderService:
                         "approval_request_id": int(req.id),
                         "resubmitted": True,
                         "assignee_user_id": int(resolved_assignee),
+                        "assignee_user_name": self._user_name(int(resolved_assignee)),
                     },
                 )
                 self._db.commit()
@@ -2823,6 +2851,7 @@ class PhysicalOrderService:
                 new_value={
                     "approval_request_id": int(req.id),
                     "assignee_user_id": int(resolved_assignee),
+                    "assignee_user_name": self._user_name(int(resolved_assignee)),
                 },
             )
         else:
@@ -2853,7 +2882,7 @@ class PhysicalOrderService:
                 order,
                 actor_user_id=actor_user_id,
                 reason="Closure approval rejected.",
-                rejected_codes=[i.asset_code for i in rejected],
+                rejected_codes=[self._item_asset_code(i) for i in rejected],
             )
         else:
             task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)

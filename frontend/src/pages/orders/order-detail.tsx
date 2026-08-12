@@ -132,7 +132,7 @@ function matchesAssetColumnFilters(item: PhysicalOrderItem, filters: AssetColumn
 
 function itemRowTone(item: PhysicalOrderItem): "approved" | "rejected" | "default" {
   if (item.verification_status === "rejected") return "rejected"
-  if (item.physically_verified && item.verification_status !== "rejected") return "approved"
+  if ((item.verification_status || "").toLowerCase() === "approved") return "approved"
   return "default"
 }
 
@@ -1167,13 +1167,13 @@ export function OrderDetailPage() {
                       <AdminTableCell>
                         {item.verification_status === "rejected" ? (
                           <AdminPillBadge tone="danger">Rejected</AdminPillBadge>
+                        ) : (item.verification_status || "").toLowerCase() === "approved" ? (
+                          <AdminPillBadge tone="success">Approved</AdminPillBadge>
                         ) : item.physically_verified ? (
                           <AdminPillBadge tone="success" className="gap-1">
                             <Lock className="size-3" aria-hidden />
                             Verified
                           </AdminPillBadge>
-                        ) : (item.verification_status || "").toLowerCase() === "approved" ? (
-                          <AdminPillBadge tone="success">Approved</AdminPillBadge>
                         ) : scannable ? (
                           <AdminPillBadge tone="warning">Scan pending</AdminPillBadge>
                         ) : (item.verification_status || "").toLowerCase() === "pending" ? (
