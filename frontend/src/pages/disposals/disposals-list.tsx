@@ -28,14 +28,12 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { getJson } from "@/lib/api"
 import {
-  DISPOSAL_STATUS_FILTERS,
   DISPOSAL_STATUS_TABS,
   disposalStatusLabel,
   disposalStatusPillTone,
   disposalTabEmptyMessage,
   type DisposalOrderListResponse,
 } from "@/lib/disposal-types"
-import type { CostCenterMaster, PlantOption } from "@/lib/masters-types"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -62,6 +60,14 @@ const DEFAULT_COLUMN_FILTERS: DisposalColumnFilters = {
   created_on: "",
 }
 
+type ListFilterPlant = { id: number; code: string | null; name: string }
+type ListFilterCostCenter = {
+  id: number
+  code: string
+  name: string | null
+  plant_id: number | null
+}
+
 export function DisposalOrdersListPage() {
   const navigate = useNavigate()
   const [tab, setTab] = React.useState<string>(DEFAULT_TAB)
@@ -75,19 +81,47 @@ export function DisposalOrdersListPage() {
     React.useState<DisposalColumnFilters>(DEFAULT_COLUMN_FILTERS)
   const [columnFilters, setColumnFilters] =
     React.useState<DisposalColumnFilters>(DEFAULT_COLUMN_FILTERS)
-  const [plants, setPlants] = React.useState<PlantOption[]>([])
-  const [costCenters, setCostCenters] = React.useState<CostCenterMaster[]>([])
+  const [filterPlants, setFilterPlants] = React.useState<ListFilterPlant[]>([])
+  const [filterFromCostCenters, setFilterFromCostCenters] = React.useState<
+    ListFilterCostCenter[]
+  >([])
+  const [filterStatuses, setFilterStatuses] = React.useState<string[]>([])
 
   const activeColumnFilterCount = Object.values(columnFilters).filter((value) => value.trim()).length
 
   React.useEffect(() => {
-    void getJson<PlantOption[]>("/admin/org-units?type=PLANT")
-      .then(setPlants)
-      .catch(() => setPlants([]))
-    void getJson<CostCenterMaster[]>("/admin/asset-masters/cost-centers?active_only=false")
-      .then(setCostCenters)
-      .catch(() => setCostCenters([]))
-  }, [])
+    const qs = columnFilterInputs.plant_id
+      ? `?plant_id=${encodeURIComponent(columnFilterInputs.plant_id)}`
+      : ""
+    void getJson<{
+      plants: ListFilterPlant[]
+      from_cost_centers: ListFilterCostCenter[]
+      statuses: string[]
+    }>(`/admin/disposal-orders/column-filter-options${qs}`)
+      .then((res) => {
+        setFilterPlants(res.plants)
+        setFilterFromCostCenters(res.from_cost_centers)
+        setFilterStatuses(res.statuses)
+        setColumnFilterInputs((prev) => {
+          let next = prev
+          if (
+            prev.from_cost_center_id &&
+            !res.from_cost_centers.some((c) => String(c.id) === prev.from_cost_center_id)
+          ) {
+            next = { ...next, from_cost_center_id: "" }
+          }
+          if (prev.status && !res.statuses.includes(prev.status)) {
+            next = { ...next, status: "" }
+          }
+          return next
+        })
+      })
+      .catch(() => {
+        setFilterPlants([])
+        setFilterFromCostCenters([])
+        setFilterStatuses([])
+      })
+  }, [columnFilterInputs.plant_id])
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -151,9 +185,6 @@ export function DisposalOrdersListPage() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const counts = data?.tab_counts ?? {}
   const colSpan = 7
-  const plantScopedCenters = columnFilterInputs.plant_id
-    ? costCenters.filter((c) => String(c.plant_id) === columnFilterInputs.plant_id)
-    : costCenters
 
   return (
     <AdminPage fullWidth dense className="w-full">
@@ -308,7 +339,7 @@ export function DisposalOrdersListPage() {
                         }
                       >
                         <option value="">All plants</option>
-                        {plants.map((p) => (
+                        {filterPlants.map((p) => (
                           <option key={p.id} value={String(p.id)}>
                             {p.code ? `${p.code} — ${p.name}` : p.name}
                           </option>
@@ -328,9 +359,9 @@ export function DisposalOrdersListPage() {
                         }
                       >
                         <option value="">All cost centers</option>
-                        {plantScopedCenters.map((c) => (
+                        {filterFromCostCenters.map((c) => (
                           <option key={c.id} value={String(c.id)}>
-                            {c.code} — {c.name}
+                            {c.name?.trim() ? `${c.code} — ${c.name}` : c.code}
                           </option>
                         ))}
                       </select>
@@ -370,9 +401,9 @@ export function DisposalOrdersListPage() {
                         }
                       >
                         <option value="">All statuses</option>
-                        {DISPOSAL_STATUS_FILTERS.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
+                        {filterStatuses.map((status) => (
+                          <option key={status} value={status}>
+                            {disposalStatusLabel(status)}
                           </option>
                         ))}
                       </select>

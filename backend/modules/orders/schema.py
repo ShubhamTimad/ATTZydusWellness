@@ -114,6 +114,27 @@ class PhysicalOrderListResponse(BaseModel):
     tab_counts: dict[str, int] = Field(default_factory=dict)
 
 
+class PhysicalOrderListFilterPlant(BaseModel):
+    id: int
+    code: str | None = None
+    name: str
+
+
+class PhysicalOrderListFilterCostCenter(BaseModel):
+    id: int
+    code: str
+    name: str | None = None
+    plant_id: int | None = None
+
+
+class PhysicalOrderListFilterOptionsResponse(BaseModel):
+    """Distinct plant / cost-center / status values present on orders in list scope."""
+
+    plants: list[PhysicalOrderListFilterPlant] = Field(default_factory=list)
+    cost_centers: list[PhysicalOrderListFilterCostCenter] = Field(default_factory=list)
+    statuses: list[str] = Field(default_factory=list)
+
+
 class PhysicalOrderAuditVerifiedAsset(BaseModel):
     asset_code: str
     asset_name: str | None = None

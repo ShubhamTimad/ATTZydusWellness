@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Pencil, Plus, Power, PowerOff, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -106,14 +106,16 @@ export function HierarchicalMasterPanel({
   const canCreate = hasPermission("masters.create")
   const canUpdate = hasPermission("masters.update")
   const canDelete = hasPermission("masters.delete")
-  const showActions = canUpdate || canDelete
+  const canDeactivate = hasPermission("masters.deactivate") || canUpdate
+  const canReactivate = hasPermission("masters.reactivate") || canUpdate
+  const showActions = canUpdate || canDelete || canDeactivate || canReactivate
   const base = ENDPOINTS[kind]
   const needsPlant = kind === "cost-center" || kind === "functional-location"
   const needsParent = kind === "profit-center" || kind === "actual-location"
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
   async function load() {
-    const data = await getJson<Record<string, unknown>[]>(`${base}?active_only=true`)
+    const data = await getJson<Record<string, unknown>[]>(`${base}?active_only=false`)
     setRows(
       data.map((r) => ({
         id: Number(r.id),
@@ -277,6 +279,25 @@ export function HierarchicalMasterPanel({
     }
   }
 
+  async function setRowActive(row: Row, isActive: boolean) {
+    const ok = await confirmAsk({
+      title: isActive ? `Reactivate ${title.toLowerCase()}?` : `Deactivate ${title.toLowerCase()}?`,
+      description: isActive
+        ? `Reactivate "${row.code}" so it can be selected again.`
+        : `Deactivate "${row.code}"? It will stay in the list but cannot be selected for new assets.`,
+      confirmLabel: isActive ? "Reactivate" : "Deactivate",
+      destructive: !isActive,
+    })
+    if (!ok) return
+    try {
+      await postJson(`${base}/${row.id}/set-active`, { is_active: isActive })
+      toast.success(isActive ? "Reactivated." : "Deactivated.")
+      await load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Update failed")
+    }
+  }
+
   async function deleteRow(row: Row) {
     const ok = await confirmAsk({
       title: `Delete ${title.toLowerCase()}?`,
@@ -322,7 +343,7 @@ export function HierarchicalMasterPanel({
               {parentColumn ? <AdminTableHeadCell>{parentColumn}</AdminTableHeadCell> : null}
               {showScrapyardCol ? <AdminTableHeadCell>Scrapyard</AdminTableHeadCell> : null}
               <AdminTableHeadCell>Status</AdminTableHeadCell>
-              {showActions ? <AdminTableHeadCell className="w-24"> </AdminTableHeadCell> : null}
+              {showActions ? <AdminTableHeadCell className="w-40"> </AdminTableHeadCell> : null}
             </AdminTableHeaderRow>
           </TableHeader>
           <TableBody>
@@ -364,6 +385,31 @@ export function HierarchicalMasterPanel({
                             onClick={() => openEdit(row)}
                           >
                             <Pencil className="size-3.5" />
+                            <span className="sr-only">Edit</span>
+                          </Button>
+                        ) : null}
+                        {row.is_active && canDeactivate ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => void setRowActive(row, false)}
+                          >
+                            <PowerOff className="size-3.5" />
+                            <span className="sr-only">Deactivate</span>
+                          </Button>
+                        ) : null}
+                        {!row.is_active && canReactivate ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => void setRowActive(row, true)}
+                          >
+                            <Power className="size-3.5" />
+                            <span className="sr-only">Reactivate</span>
                           </Button>
                         ) : null}
                         {canDelete ? (
@@ -375,6 +421,7 @@ export function HierarchicalMasterPanel({
                             onClick={() => void deleteRow(row)}
                           >
                             <Trash2 className="size-3.5" />
+                            <span className="sr-only">Delete</span>
                           </Button>
                         ) : null}
                       </div>

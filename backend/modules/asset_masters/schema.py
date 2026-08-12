@@ -12,6 +12,10 @@ def _norm_code(value: str) -> str:
     return code
 
 
+class MasterSetActiveRequest(BaseModel):
+    is_active: bool
+
+
 class MasterCodeDescriptionUpdate(BaseModel):
     code: str | None = Field(default=None, min_length=1, max_length=64)
     description: str | None = Field(default=None, min_length=1, max_length=512)

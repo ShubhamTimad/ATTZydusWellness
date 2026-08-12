@@ -110,6 +110,25 @@ class DisposalOrderListResponse(BaseModel):
     tab_counts: dict[str, int] = Field(default_factory=dict)
 
 
+class DisposalListFilterPlant(BaseModel):
+    id: int
+    code: str | None = None
+    name: str
+
+
+class DisposalListFilterCostCenter(BaseModel):
+    id: int
+    code: str
+    name: str | None = None
+    plant_id: int | None = None
+
+
+class DisposalListFilterOptionsResponse(BaseModel):
+    plants: list[DisposalListFilterPlant] = Field(default_factory=list)
+    from_cost_centers: list[DisposalListFilterCostCenter] = Field(default_factory=list)
+    statuses: list[str] = Field(default_factory=list)
+
+
 class DisposalWorkflowRunPublic(BaseModel):
     """One approval attempt (initial submit or post-reject resubmit)."""
 

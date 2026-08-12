@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Pencil, Plus, Power, PowerOff, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -68,11 +68,15 @@ export function MasterCrudPanel({
   const canCreate = hasPermission("masters.create")
   const canUpdate = hasPermission("masters.update")
   const canDelete = hasPermission("masters.delete")
-  const showActions = canUpdate || canDelete
+  const canDeactivate = hasPermission("masters.deactivate") || canUpdate
+  const canReactivate = hasPermission("masters.reactivate") || canUpdate
+  const showActions = canUpdate || canDelete || canDeactivate || canReactivate
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
+  const listBase = listUrl.replace(/\?.*$/, "").replace(/\/$/, "")
+
   async function load() {
-    const data = await getJson<Row[]>(listUrl)
+    const data = await getJson<Row[]>(`${listBase}?active_only=false`)
     setRows(
       data.map((r: Record<string, unknown>) => ({
         id: Number(r.id),
@@ -89,7 +93,7 @@ export function MasterCrudPanel({
 
   React.useEffect(() => {
     void load().catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load"))
-  }, [listUrl])
+  }, [listBase])
 
   function openCreate() {
     setCode("")
@@ -163,7 +167,7 @@ export function MasterCrudPanel({
     }
     setSaving(true)
     try {
-      await postJson(listUrl.replace(/\?.*$/, ""), buildPayload())
+      await postJson(listBase, buildPayload())
       toast.success("Created.")
       setCreateOpen(false)
       await load()
@@ -182,8 +186,7 @@ export function MasterCrudPanel({
       return
     }
     setSaving(true)
-    const base = listUrl.replace(/\?.*$/, "").replace(/\/$/, "")
-    const patchUrl = `${base}/${editRow.id}`
+    const patchUrl = `${listBase}/${editRow.id}`
     try {
       await patchJson(patchUrl, buildPayload())
       toast.success("Saved.")
@@ -196,6 +199,29 @@ export function MasterCrudPanel({
     }
   }
 
+  async function setRowActive(row: Row, isActive: boolean) {
+    const label =
+      kind === "category" || kind === "tag-color" || kind === "code-name"
+        ? row.name ?? row.code
+        : row.code
+    const ok = await confirmAsk({
+      title: isActive ? `Reactivate ${title.toLowerCase()}?` : `Deactivate ${title.toLowerCase()}?`,
+      description: isActive
+        ? `Reactivate "${label}" so it can be selected again.`
+        : `Deactivate "${label}"? It will stay in the list but cannot be selected for new assets.`,
+      confirmLabel: isActive ? "Reactivate" : "Deactivate",
+      destructive: !isActive,
+    })
+    if (!ok) return
+    try {
+      await postJson(`${listBase}/${row.id}/set-active`, { is_active: isActive })
+      toast.success(isActive ? "Reactivated." : "Deactivated.")
+      await load()
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Update failed")
+    }
+  }
+
   async function deleteRow(row: Row) {
     const label = kind === "category" || kind === "tag-color" || kind === "code-name" ? row.name ?? row.code : row.code
     const ok = await confirmAsk({
@@ -205,9 +231,8 @@ export function MasterCrudPanel({
       destructive: true,
     })
     if (!ok) return
-    const base = listUrl.replace(/\?.*$/, "").replace(/\/$/, "")
     try {
-      await deleteJson(`${base}/${row.id}`)
+      await deleteJson(`${listBase}/${row.id}`)
       toast.success("Deleted.")
       if (editRow?.id === row.id) setEditRow(null)
       await load()
@@ -238,7 +263,7 @@ export function MasterCrudPanel({
             {kind === "location" ? <AdminTableHeadCell>Plant</AdminTableHeadCell> : null}
             {kind === "location" ? <AdminTableHeadCell>Type</AdminTableHeadCell> : null}
             <AdminTableHeadCell>Status</AdminTableHeadCell>
-            {showActions ? <AdminTableHeadCell className="w-24"> </AdminTableHeadCell> : null}
+            {showActions ? <AdminTableHeadCell className="w-40"> </AdminTableHeadCell> : null}
           </AdminTableHeaderRow>
         </TableHeader>
         <TableBody>
@@ -285,6 +310,28 @@ export function MasterCrudPanel({
                         <Button type="button" variant="ghost" size="icon-sm" onClick={() => openEdit(row)}>
                           <Pencil className="size-3.5" />
                           <span className="sr-only">Edit</span>
+                        </Button>
+                      ) : null}
+                      {row.is_active && canDeactivate ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => void setRowActive(row, false)}
+                        >
+                          <PowerOff className="size-3.5" />
+                          <span className="sr-only">Deactivate</span>
+                        </Button>
+                      ) : null}
+                      {!row.is_active && canReactivate ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => void setRowActive(row, true)}
+                        >
+                          <Power className="size-3.5" />
+                          <span className="sr-only">Reactivate</span>
                         </Button>
                       ) : null}
                       {canDelete ? (

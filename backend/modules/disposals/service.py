@@ -63,6 +63,9 @@ from modules.disposals.schema import (
     DisposalOrderItemPublic,
     DisposalOrderListItem,
     DisposalOrderListResponse,
+    DisposalListFilterCostCenter,
+    DisposalListFilterOptionsResponse,
+    DisposalListFilterPlant,
     DisposalWorkflowRunPublic,
     ReceiveDisposalRequest,
     SubmitDisposalOrderRequest,
@@ -1549,6 +1552,89 @@ class DisposalOrderService:
         )
 
     # ------------------------------------------------------------------ reads
+
+    def list_column_filter_options(
+        self,
+        *,
+        viewer_user_id: int | None = None,
+        plant_id: int | None = None,
+    ) -> DisposalListFilterOptionsResponse:
+        """Distinct plant / CC / status values present on disposal orders in list scope."""
+        where = self._list_orders_where("all", viewer_user_id=viewer_user_id)
+        all_ids = (
+            select(AssetDisposalOrder.id)
+            .where(*where)
+            .order_by(None)
+            .scalar_subquery()
+        )
+        plant_rows = self._db.execute(
+            select(OrgUnit.id, OrgUnit.code, OrgUnit.name)
+            .where(
+                OrgUnit.id.in_(
+                    select(AssetDisposalOrder.plant_id)
+                    .where(AssetDisposalOrder.id.in_(all_ids))
+                    .distinct()
+                )
+            )
+            .order_by(OrgUnit.code, OrgUnit.name)
+        ).all()
+        plants = [
+            DisposalListFilterPlant(
+                id=int(pid),
+                code=str(code) if code else None,
+                name=str(name or ""),
+            )
+            for pid, code, name in plant_rows
+        ]
+
+        scoped = select(AssetDisposalOrder.id).where(*where)
+        if plant_id is not None:
+            scoped = scoped.where(AssetDisposalOrder.plant_id == int(plant_id))
+        scoped_ids = scoped.order_by(None).scalar_subquery()
+
+        cc_rows = self._db.execute(
+            select(
+                CostCenterMaster.id,
+                CostCenterMaster.code,
+                CostCenterMaster.name,
+                CostCenterMaster.plant_id,
+            )
+            .where(
+                CostCenterMaster.id.in_(
+                    select(AssetDisposalOrder.from_cost_center_id)
+                    .where(
+                        AssetDisposalOrder.id.in_(scoped_ids),
+                        AssetDisposalOrder.from_cost_center_id.is_not(None),
+                    )
+                    .distinct()
+                )
+            )
+            .order_by(CostCenterMaster.code, CostCenterMaster.name)
+        ).all()
+        from_cost_centers = [
+            DisposalListFilterCostCenter(
+                id=int(cid),
+                code=str(code),
+                name=str(name) if name else None,
+                plant_id=int(ppid) if ppid is not None else None,
+            )
+            for cid, code, name, ppid in cc_rows
+        ]
+        statuses = [
+            str(s)
+            for s in self._db.scalars(
+                select(AssetDisposalOrder.status)
+                .where(AssetDisposalOrder.id.in_(scoped_ids))
+                .distinct()
+                .order_by(AssetDisposalOrder.status)
+            ).all()
+            if s
+        ]
+        return DisposalListFilterOptionsResponse(
+            plants=plants,
+            from_cost_centers=from_cost_centers,
+            statuses=statuses,
+        )
 
     def list_orders(
         self,

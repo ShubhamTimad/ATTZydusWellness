@@ -18,6 +18,7 @@ from modules.transfers.schema import (
     SubmitTransferOrderRequest,
     TransferAssigneeListResponse,
     TransferDestinationCostCenter,
+    TransferListFilterOptionsResponse,
     TransferOrderDetail,
     TransferOrderListResponse,
     UpdateTransferOrderRequest,
@@ -126,6 +127,20 @@ def list_destination_cost_centers(
         return svc.list_destination_cost_centers(plant_id=plant_id)
     except Exception as e:
         raise _http(e) from e
+
+
+@router.get("/column-filter-options", response_model=TransferListFilterOptionsResponse)
+def list_column_filter_options(
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[object, Depends(require_permission("transfer.view"))],
+    plant_id: int | None = Query(None, ge=1),
+) -> TransferListFilterOptionsResponse:
+    """Distinct plant / cost-center / status values present on transfer orders."""
+    return svc.list_column_filter_options(
+        viewer_user_id=int(current.subject),
+        plant_id=plant_id,
+    )
 
 
 @router.get("", response_model=TransferOrderListResponse)

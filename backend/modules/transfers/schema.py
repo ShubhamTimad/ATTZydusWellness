@@ -122,6 +122,26 @@ class TransferOrderListResponse(BaseModel):
     tab_counts: dict[str, int] = Field(default_factory=dict)
 
 
+class TransferListFilterPlant(BaseModel):
+    id: int
+    code: str | None = None
+    name: str
+
+
+class TransferListFilterCostCenter(BaseModel):
+    id: int
+    code: str
+    name: str | None = None
+    plant_id: int | None = None
+
+
+class TransferListFilterOptionsResponse(BaseModel):
+    plants: list[TransferListFilterPlant] = Field(default_factory=list)
+    from_cost_centers: list[TransferListFilterCostCenter] = Field(default_factory=list)
+    to_cost_centers: list[TransferListFilterCostCenter] = Field(default_factory=list)
+    statuses: list[str] = Field(default_factory=list)
+
+
 class TransferWorkflowRunPublic(BaseModel):
     attempt: int
     request_id: int

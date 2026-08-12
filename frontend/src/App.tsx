@@ -137,7 +137,14 @@ function App() {
             path="masters"
             element={
               <RequirePermission
-                anyOf={["masters.view", "masters.create", "masters.update", "masters.delete"]}
+                anyOf={[
+                  "masters.view",
+                  "masters.create",
+                  "masters.update",
+                  "masters.delete",
+                  "masters.deactivate",
+                  "masters.reactivate",
+                ]}
               >
                 <MastersPage />
               </RequirePermission>
@@ -333,7 +340,14 @@ function App() {
               path="masters"
               element={
                 <RequirePermission
-                  anyOf={["masters.view", "masters.create", "masters.update", "masters.delete"]}
+                  anyOf={[
+                  "masters.view",
+                  "masters.create",
+                  "masters.update",
+                  "masters.delete",
+                  "masters.deactivate",
+                  "masters.reactivate",
+                ]}
                 >
                   <MastersPage />
                 </RequirePermission>

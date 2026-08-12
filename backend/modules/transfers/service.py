@@ -71,6 +71,9 @@ from modules.transfers.schema import (
     TransferOrderItemPublic,
     TransferOrderListItem,
     TransferOrderListResponse,
+    TransferListFilterCostCenter,
+    TransferListFilterOptionsResponse,
+    TransferListFilterPlant,
     TransferWorkflowRunPublic,
     UpdateTransferOrderRequest,
 )
@@ -1351,6 +1354,99 @@ class TransferOrderService:
         )
         self._db.commit()
         return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def list_column_filter_options(
+        self,
+        *,
+        viewer_user_id: int | None = None,
+        plant_id: int | None = None,
+    ) -> TransferListFilterOptionsResponse:
+        """Distinct plant / CC / status values present on transfer orders in list scope."""
+        where = self._list_orders_where("all", viewer_user_id=viewer_user_id)
+        all_ids = (
+            select(AssetTransferOrder.id)
+            .where(*where)
+            .order_by(None)
+            .scalar_subquery()
+        )
+        plant_rows = self._db.execute(
+            select(OrgUnit.id, OrgUnit.code, OrgUnit.name)
+            .where(
+                OrgUnit.id.in_(
+                    select(AssetTransferOrder.plant_id)
+                    .where(AssetTransferOrder.id.in_(all_ids))
+                    .distinct()
+                )
+            )
+            .order_by(OrgUnit.code, OrgUnit.name)
+        ).all()
+        plants = [
+            TransferListFilterPlant(
+                id=int(pid),
+                code=str(code) if code else None,
+                name=str(name or ""),
+            )
+            for pid, code, name in plant_rows
+        ]
+
+        scoped = select(AssetTransferOrder.id).where(*where)
+        if plant_id is not None:
+            scoped = scoped.where(AssetTransferOrder.plant_id == int(plant_id))
+        scoped_ids = scoped.order_by(None).scalar_subquery()
+
+        def _cc_options(id_subq) -> list[TransferListFilterCostCenter]:
+            rows = self._db.execute(
+                select(
+                    CostCenterMaster.id,
+                    CostCenterMaster.code,
+                    CostCenterMaster.name,
+                    CostCenterMaster.plant_id,
+                )
+                .where(CostCenterMaster.id.in_(id_subq))
+                .order_by(CostCenterMaster.code, CostCenterMaster.name)
+            ).all()
+            return [
+                TransferListFilterCostCenter(
+                    id=int(cid),
+                    code=str(code),
+                    name=str(name) if name else None,
+                    plant_id=int(ppid) if ppid is not None else None,
+                )
+                for cid, code, name, ppid in rows
+            ]
+
+        from_ids = (
+            select(AssetTransferOrder.from_cost_center_id)
+            .where(
+                AssetTransferOrder.id.in_(scoped_ids),
+                AssetTransferOrder.from_cost_center_id.is_not(None),
+            )
+            .distinct()
+        )
+        to_ids = (
+            select(AssetTransferOrder.to_cost_center_id)
+            .where(
+                AssetTransferOrder.id.in_(scoped_ids),
+                AssetTransferOrder.to_cost_center_id.is_not(None),
+            )
+            .distinct()
+        )
+        statuses = [
+            str(s)
+            for s in self._db.scalars(
+                select(AssetTransferOrder.status)
+                .where(AssetTransferOrder.id.in_(scoped_ids))
+                .distinct()
+                .order_by(AssetTransferOrder.status)
+            ).all()
+            if s
+        ]
+        return TransferListFilterOptionsResponse(
+            plants=plants,
+            from_cost_centers=_cc_options(from_ids),
+            to_cost_centers=_cc_options(to_ids),
+            statuses=statuses,
+        )
 
     def list_orders(
         self,

@@ -53,6 +53,9 @@ from modules.orders.schema import (
     PhysicalOrderApprovalNotice,
     PhysicalOrderDetail,
     PhysicalOrderItemPublic,
+    PhysicalOrderListFilterCostCenter,
+    PhysicalOrderListFilterOptionsResponse,
+    PhysicalOrderListFilterPlant,
     PhysicalOrderListItem,
     PhysicalOrderListResponse,
     ScanAssetResponse,
@@ -1409,6 +1412,82 @@ class PhysicalOrderService:
                 db.close()
 
         self._run_after_commit(_send)
+
+    def list_column_filter_options(
+        self,
+        *,
+        viewer_id: int,
+        plant_id: int | None = None,
+    ) -> PhysicalOrderListFilterOptionsResponse:
+        """Distinct plant / CC / status values that appear on orders in the list scope."""
+        base = select(PhysicalOrder)
+        base = self._apply_viewer_org_scope(base, viewer_user_id=viewer_id)
+        all_order_ids = base.with_only_columns(PhysicalOrder.id).order_by(None).scalar_subquery()
+
+        plant_rows = self._db.execute(
+            select(OrgUnit.id, OrgUnit.code, OrgUnit.name)
+            .where(
+                OrgUnit.id.in_(
+                    select(PhysicalOrder.plant_id)
+                    .where(PhysicalOrder.id.in_(all_order_ids))
+                    .distinct()
+                )
+            )
+            .order_by(OrgUnit.code, OrgUnit.name)
+        ).all()
+        plants = [
+            PhysicalOrderListFilterPlant(
+                id=int(pid),
+                code=str(code) if code else None,
+                name=str(name or ""),
+            )
+            for pid, code, name in plant_rows
+        ]
+
+        scoped = base
+        if plant_id is not None:
+            scoped = scoped.where(PhysicalOrder.plant_id == int(plant_id))
+        scoped_ids = scoped.with_only_columns(PhysicalOrder.id).order_by(None).scalar_subquery()
+
+        cc_rows = self._db.execute(
+            select(
+                CostCenterMaster.id,
+                CostCenterMaster.code,
+                CostCenterMaster.name,
+                CostCenterMaster.plant_id,
+            )
+            .where(
+                CostCenterMaster.id.in_(
+                    select(PhysicalOrder.cost_center_id)
+                    .where(PhysicalOrder.id.in_(scoped_ids))
+                    .distinct()
+                )
+            )
+            .order_by(CostCenterMaster.code, CostCenterMaster.name)
+        ).all()
+        cost_centers = [
+            PhysicalOrderListFilterCostCenter(
+                id=int(cid),
+                code=str(code),
+                name=str(name) if name else None,
+                plant_id=int(ppid) if ppid is not None else None,
+            )
+            for cid, code, name, ppid in cc_rows
+        ]
+
+        status_rows = self._db.scalars(
+            select(PhysicalOrder.status)
+            .where(PhysicalOrder.id.in_(scoped_ids))
+            .distinct()
+            .order_by(PhysicalOrder.status)
+        ).all()
+        statuses = [str(s) for s in status_rows if s]
+
+        return PhysicalOrderListFilterOptionsResponse(
+            plants=plants,
+            cost_centers=cost_centers,
+            statuses=statuses,
+        )
 
     def list_orders(
         self,

@@ -141,7 +141,14 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
             {
                 "key": "masters",
                 "title": "Masters",
-                "actions": list(DEFAULT_TAB_ACTIONS),
+                "actions": [
+                    "view",
+                    "create",
+                    "update",
+                    "delete",
+                    "deactivate",
+                    "reactivate",
+                ],
             },
         ],
     },

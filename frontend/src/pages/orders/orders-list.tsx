@@ -27,9 +27,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { getJson } from "@/lib/api"
-import type { CostCenterMaster, PlantOption } from "@/lib/masters-types"
 import {
-  ORDER_STATUS_FILTERS,
   ORDER_STATUS_TABS,
   orderStatusLabel,
   orderStatusPillTone,
@@ -64,6 +62,14 @@ const DEFAULT_COLUMN_FILTERS: OrderColumnFilters = {
   created_on: "",
 }
 
+type OrderFilterPlant = { id: number; code: string | null; name: string }
+type OrderFilterCostCenter = {
+  id: number
+  code: string
+  name: string | null
+  plant_id: number | null
+}
+
 function tabCount(
   counts: Record<string, number> | null | undefined,
   tab: (typeof ORDER_STATUS_TABS)[number],
@@ -86,19 +92,45 @@ export function OrdersListPage() {
     React.useState<OrderColumnFilters>(DEFAULT_COLUMN_FILTERS)
   const [columnFilters, setColumnFilters] =
     React.useState<OrderColumnFilters>(DEFAULT_COLUMN_FILTERS)
-  const [plants, setPlants] = React.useState<PlantOption[]>([])
-  const [costCenters, setCostCenters] = React.useState<CostCenterMaster[]>([])
+  const [filterPlants, setFilterPlants] = React.useState<OrderFilterPlant[]>([])
+  const [filterCostCenters, setFilterCostCenters] = React.useState<OrderFilterCostCenter[]>([])
+  const [filterStatuses, setFilterStatuses] = React.useState<string[]>([])
 
   const activeColumnFilterCount = Object.values(columnFilters).filter((value) => value.trim()).length
 
   React.useEffect(() => {
-    void getJson<PlantOption[]>("/admin/org-units?type=PLANT")
-      .then(setPlants)
-      .catch(() => setPlants([]))
-    void getJson<CostCenterMaster[]>("/admin/asset-masters/cost-centers?active_only=false")
-      .then(setCostCenters)
-      .catch(() => setCostCenters([]))
-  }, [])
+    const qs = columnFilterInputs.plant_id
+      ? `?plant_id=${encodeURIComponent(columnFilterInputs.plant_id)}`
+      : ""
+    void getJson<{
+      plants: OrderFilterPlant[]
+      cost_centers: OrderFilterCostCenter[]
+      statuses: string[]
+    }>(`/admin/physical-orders/column-filter-options${qs}`)
+      .then((res) => {
+        setFilterPlants(res.plants)
+        setFilterCostCenters(res.cost_centers)
+        setFilterStatuses(res.statuses)
+        setColumnFilterInputs((prev) => {
+          let next = prev
+          if (
+            prev.cost_center_id &&
+            !res.cost_centers.some((c) => String(c.id) === prev.cost_center_id)
+          ) {
+            next = { ...next, cost_center_id: "" }
+          }
+          if (prev.status && !res.statuses.includes(prev.status)) {
+            next = { ...next, status: "" }
+          }
+          return next
+        })
+      })
+      .catch(() => {
+        setFilterPlants([])
+        setFilterCostCenters([])
+        setFilterStatuses([])
+      })
+  }, [columnFilterInputs.plant_id])
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -163,9 +195,6 @@ export function OrdersListPage() {
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const plantScopedCenters = columnFilterInputs.plant_id
-    ? costCenters.filter((c) => String(c.plant_id) === columnFilterInputs.plant_id)
-    : costCenters
 
   return (
     <AdminPage fullWidth dense className="w-full">
@@ -309,7 +338,7 @@ export function OrdersListPage() {
                           }
                         >
                           <option value="">All plants</option>
-                          {plants.map((p) => (
+                          {filterPlants.map((p) => (
                             <option key={p.id} value={String(p.id)}>
                               {p.code ? `${p.code} — ${p.name}` : p.name}
                             </option>
@@ -329,9 +358,9 @@ export function OrdersListPage() {
                           }
                         >
                           <option value="">All cost centers</option>
-                          {plantScopedCenters.map((c) => (
+                          {filterCostCenters.map((c) => (
                             <option key={c.id} value={String(c.id)}>
-                              {c.code} — {c.name}
+                              {c.name?.trim() ? `${c.code} — ${c.name}` : c.code}
                             </option>
                           ))}
                         </select>
@@ -360,9 +389,9 @@ export function OrdersListPage() {
                           }
                         >
                           <option value="">All statuses</option>
-                          {ORDER_STATUS_FILTERS.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                              {opt.label}
+                          {filterStatuses.map((status) => (
+                            <option key={status} value={status}>
+                              {orderStatusLabel(status)}
                             </option>
                           ))}
                         </select>

@@ -13,6 +13,7 @@ from modules.disposals.schema import (
     CloseDisposalRequest,
     CreateDisposalOrderRequest,
     DisposalAssigneeListResponse,
+    DisposalListFilterOptionsResponse,
     DisposalOrderAuditPublic,
     DisposalOrderDetail,
     DisposalOrderListResponse,
@@ -37,6 +38,20 @@ def _http(exc: Exception) -> HTTPException:
     if isinstance(exc, ConflictError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     raise exc
+
+
+@router.get("/column-filter-options", response_model=DisposalListFilterOptionsResponse)
+def list_column_filter_options(
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[DisposalOrderService, Depends(get_disposal_service)],
+    _: Annotated[object, Depends(require_permission("disposal.view"))],
+    plant_id: int | None = Query(None, ge=1),
+) -> DisposalListFilterOptionsResponse:
+    """Distinct plant / cost-center / status values present on disposal orders."""
+    return svc.list_column_filter_options(
+        viewer_user_id=int(current.subject),
+        plant_id=plant_id,
+    )
 
 
 @router.get("", response_model=DisposalOrderListResponse)

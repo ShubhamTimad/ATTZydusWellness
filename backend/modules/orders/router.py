@@ -17,6 +17,7 @@ from modules.orders.schema import (
     ExecutorListResponse,
     ItemIdsRequest,
     PhysicalOrderDetail,
+    PhysicalOrderListFilterOptionsResponse,
     PhysicalOrderListResponse,
     RejectItemsRequest,
     RejectOrderRequest,
@@ -98,6 +99,23 @@ def list_assignees(
         return svc.list_assignees(plant_id=plant_id, cost_center_id=cost_center_id)
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.get("/column-filter-options", response_model=PhysicalOrderListFilterOptionsResponse)
+def list_column_filter_options(
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.view", "mobile.order.view")),
+    ],
+    plant_id: int | None = Query(None, ge=1),
+) -> PhysicalOrderListFilterOptionsResponse:
+    """Distinct plant / cost-center / status values present on orders in list scope."""
+    return svc.list_column_filter_options(
+        viewer_id=int(current.subject),
+        plant_id=plant_id,
+    )
 
 
 @router.get("", response_model=PhysicalOrderListResponse)

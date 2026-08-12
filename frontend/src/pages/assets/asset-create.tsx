@@ -31,6 +31,7 @@ import {
   profitCenterLabel,
   actualLocationLabel,
   functionalLocationLabel,
+  plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
@@ -295,7 +296,8 @@ export function AssetCreatePage() {
   }
 
   React.useEffect(() => {
-    if (masters.plants.length >= 1 && !form.plant_id) {
+    // Single plant in scope → pre-select; multiple → user chooses.
+    if (masters.plants.length === 1 && !form.plant_id) {
       patch({ plant_id: String(masters.plants[0].id) })
     }
   }, [masters.plants, form.plant_id])
@@ -612,6 +614,7 @@ export function AssetCreatePage() {
                     id="cost_center"
                     className={adminSelectClass}
                     value={form.cost_center}
+                    disabled={!form.plant_id}
                     onChange={(e) =>
                       patch({
                         cost_center: e.target.value,
@@ -620,7 +623,9 @@ export function AssetCreatePage() {
                       })
                     }
                   >
-                    <option value="">—</option>
+                    <option value="">
+                      {form.plant_id ? "—" : "Select plant first"}
+                    </option>
                     {masters.costCenters.map((m) => (
                       <option key={m.id} value={m.code}>
                         {m.code}
@@ -639,6 +644,7 @@ export function AssetCreatePage() {
                     id="cost_center_name"
                     className={adminSelectClass}
                     value={form.cost_center}
+                    disabled={!form.plant_id}
                     onChange={(e) =>
                       patch({
                         cost_center: e.target.value,
@@ -647,7 +653,9 @@ export function AssetCreatePage() {
                       })
                     }
                   >
-                    <option value="">—</option>
+                    <option value="">
+                      {form.plant_id ? "—" : "Select plant first"}
+                    </option>
                     {masters.costCenters.map((m) => (
                       <option key={m.id} value={m.code}>
                         {m.name?.trim() || m.code}
@@ -821,35 +829,51 @@ export function AssetCreatePage() {
           <AdminPanel
             className="flex h-full flex-col"
             title="Location"
-            description="Plant is fixed to Takeda"
+            description="Select plant first to load cost centers and locations"
             headerActions={<MapPin className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="flex flex-1 flex-col px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {field(
-                "plant_code",
-                <FormField
-                  labelText="Plant Code"
+              <FormField
+                id="plant_id"
+                labelText="Plant"
+                required={fc.isRequired("plant_id")}
+              >
+                <select
+                  id="plant_id"
+                  className={adminSelectClass}
+                  value={form.plant_id}
+                  onChange={(e) =>
+                    patch({
+                      plant_id: e.target.value,
+                      cost_center: "",
+                      profit_center: "",
+                      asset_custodian_id: "",
+                      functional_location: "",
+                      actual_location: "",
+                    })
+                  }
                 >
+                  <option value="">Select plant</option>
+                  {masters.plants.map((p) => (
+                    <option key={p.id} value={String(p.id)}>
+                      {plantLabel(p)}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              {selectedPlant ? (
+                <FormField labelText="Plant Code">
                   <Input
                     readOnly
                     disabled
                     className="bg-muted/40 font-mono"
-                    value={selectedPlant?.code ?? "—"}
+                    value={selectedPlant.code}
                   />
-                </FormField>,
+                </FormField>
+              ) : (
+                <div className="hidden sm:block" aria-hidden />
               )}
-              <FormField
-                labelText="Plant Name"
-                required={fc.isRequired("plant_id")}
-              >
-                <Input
-                  readOnly
-                  disabled
-                  className="bg-muted/40"
-                  value={selectedPlant?.name ?? "Takeda"}
-                />
-              </FormField>
               <FormField
                 id="functional_location"
                 labelText={fc.getLabel("functional_location", "Actual Location 1")}
@@ -859,11 +883,14 @@ export function AssetCreatePage() {
                   id="functional_location"
                   className={adminSelectClass}
                   value={form.functional_location}
+                  disabled={!form.plant_id}
                   onChange={(e) =>
                     patch({ functional_location: e.target.value, actual_location: "" })
                   }
                 >
-                  <option value="">—</option>
+                  <option value="">
+                    {form.plant_id ? "—" : "Select plant first"}
+                  </option>
                   {masters.functionalLocations.map((l) => (
                     <option key={l.id} value={l.code}>
                       {functionalLocationLabel(l)}

@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
-from core.permissions import require_any_permission, require_permission
+from core.permissions import (
+    _get_cached_permission_snapshot,
+    _has_any_permission,
+    require_any_permission,
+    require_permission,
+)
 from db.session import get_db
 from modules.asset_masters.schema import (
     CategoryCreate,
@@ -30,15 +35,16 @@ from modules.asset_masters.schema import (
     TagColorCreate,
     TagColorPublic,
     TagColorUpdate,
-    AssetCustodianCreate,
-    AssetCustodianPublic,
-    AssetCustodianUpdate,
-    AssetConditionCreate,
-    AssetConditionPublic,
-    AssetConditionUpdate,
     AssetClassCreate,
     AssetClassPublic,
     AssetClassUpdate,
+    AssetConditionCreate,
+    AssetConditionPublic,
+    AssetConditionUpdate,
+    AssetCustodianCreate,
+    AssetCustodianPublic,
+    AssetCustodianUpdate,
+    MasterSetActiveRequest,
 )
 from modules.asset_masters.safety import MasterInUseError
 from modules.asset_masters.service import AssetMastersService, DuplicateMasterCodeError
@@ -72,6 +78,17 @@ def _raise_master_errors(exc: Exception) -> None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     raise exc
 
+
+def _assert_may_set_active(*, is_active: bool, current: CurrentUser, db: Session) -> None:
+    snapshot = _get_cached_permission_snapshot(db, int(current.subject))
+    if _has_any_permission(snapshot, ("masters.update",)):
+        return
+    need = "masters.reactivate" if is_active else "masters.deactivate"
+    if not _has_any_permission(snapshot, (need,)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Missing permission: {need}",
+        )
 
 @router.get("/categories", response_model=list[CategoryPublic])
 def list_categories(
@@ -603,3 +620,151 @@ def delete_actual_location(
         svc.delete_actual_location(row_id)
     except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
         _raise_master_errors(exc)
+
+
+@router.post("/categories/{row_id}/set-active", response_model=CategoryPublic)
+def set_category_active(
+    row_id: int,
+    payload: MasterSetActiveRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+) -> CategoryPublic:
+    _assert_may_set_active(is_active=payload.is_active, current=current, db=db)
+    try:
+        return svc.update_category(row_id, CategoryUpdate(is_active=payload.is_active))
+    except (NotFoundError, DuplicateMasterCodeError) as exc:
+        _raise_master_errors(exc)
+        raise
+
+
+@router.post("/tag-colors/{row_id}/set-active", response_model=TagColorPublic)
+def set_tag_color_active(
+    row_id: int,
+    payload: MasterSetActiveRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+) -> TagColorPublic:
+    _assert_may_set_active(is_active=payload.is_active, current=current, db=db)
+    try:
+        return svc.update_tag_color(row_id, TagColorUpdate(is_active=payload.is_active))
+    except (NotFoundError, DuplicateMasterCodeError) as exc:
+        _raise_master_errors(exc)
+        raise
+
+
+@router.post("/asset-custodians/{row_id}/set-active", response_model=AssetCustodianPublic)
+def set_asset_custodian_active(
+    row_id: int,
+    payload: MasterSetActiveRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+) -> AssetCustodianPublic:
+    _assert_may_set_active(is_active=payload.is_active, current=current, db=db)
+    try:
+        return svc.update_asset_custodian(row_id, AssetCustodianUpdate(is_active=payload.is_active))
+    except (NotFoundError, DuplicateMasterCodeError) as exc:
+        _raise_master_errors(exc)
+        raise
+
+
+@router.post("/asset-conditions/{row_id}/set-active", response_model=AssetConditionPublic)
+def set_asset_condition_active(
+    row_id: int,
+    payload: MasterSetActiveRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+) -> AssetConditionPublic:
+    _assert_may_set_active(is_active=payload.is_active, current=current, db=db)
+    try:
+        return svc.update_asset_condition(row_id, AssetConditionUpdate(is_active=payload.is_active))
+    except (NotFoundError, DuplicateMasterCodeError) as exc:
+        _raise_master_errors(exc)
+        raise
+
+
+@router.post("/asset-classes/{row_id}/set-active", response_model=AssetClassPublic)
+def set_asset_class_active(
+    row_id: int,
+    payload: MasterSetActiveRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+) -> AssetClassPublic:
+    _assert_may_set_active(is_active=payload.is_active, current=current, db=db)
+    try:
+        return svc.update_asset_class(row_id, AssetClassUpdate(is_active=payload.is_active))
+    except (NotFoundError, DuplicateMasterCodeError) as exc:
+        _raise_master_errors(exc)
+        raise
+
+
+@router.post("/cost-centers/{row_id}/set-active", response_model=CostCenterPublic)
+def set_cost_center_active(
+    row_id: int,
+    payload: MasterSetActiveRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+) -> CostCenterPublic:
+    _assert_may_set_active(is_active=payload.is_active, current=current, db=db)
+    try:
+        return svc.update_cost_center(row_id, CostCenterUpdate(is_active=payload.is_active))
+    except (NotFoundError, DuplicateMasterCodeError) as exc:
+        _raise_master_errors(exc)
+        raise
+
+
+@router.post("/profit-centers/{row_id}/set-active", response_model=ProfitCenterPublic)
+def set_profit_center_active(
+    row_id: int,
+    payload: MasterSetActiveRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+) -> ProfitCenterPublic:
+    _assert_may_set_active(is_active=payload.is_active, current=current, db=db)
+    try:
+        return svc.update_profit_center(row_id, ProfitCenterUpdate(is_active=payload.is_active))
+    except (NotFoundError, DuplicateMasterCodeError) as exc:
+        _raise_master_errors(exc)
+        raise
+
+
+@router.post("/functional-locations/{row_id}/set-active", response_model=FunctionalLocationPublic)
+def set_functional_location_active(
+    row_id: int,
+    payload: MasterSetActiveRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+) -> FunctionalLocationPublic:
+    _assert_may_set_active(is_active=payload.is_active, current=current, db=db)
+    try:
+        return svc.update_functional_location(
+            row_id, FunctionalLocationUpdate(is_active=payload.is_active)
+        )
+    except (NotFoundError, DuplicateMasterCodeError) as exc:
+        _raise_master_errors(exc)
+        raise
+
+
+@router.post("/actual-locations/{row_id}/set-active", response_model=ActualLocationPublic)
+def set_actual_location_active(
+    row_id: int,
+    payload: MasterSetActiveRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+) -> ActualLocationPublic:
+    _assert_may_set_active(is_active=payload.is_active, current=current, db=db)
+    try:
+        return svc.update_actual_location(
+            row_id, ActualLocationUpdate(is_active=payload.is_active)
+        )
+    except (NotFoundError, DuplicateMasterCodeError) as exc:
+        _raise_master_errors(exc)
+        raise
