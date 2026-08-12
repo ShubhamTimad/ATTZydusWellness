@@ -345,17 +345,25 @@ export function OrderDetailPage() {
         toast.success("Selected lines approved.")
       } else if (path === "/approval/approve-items" && res.status === "pending_closure_approval") {
         toast.success("Selected lines approved.")
-      } else if (path === "/approval/reject-items" && res.status === "in_progress") {
+      } else if (path === "/approval/reject-items") {
         toast.success(
-          res.assigned_to_name
-            ? `Order returned to ${res.assigned_to_name} for rework.`
-            : "Order returned to executor for rework.",
+          res.status === "in_progress"
+            ? res.assigned_to_name
+              ? `Order returned to ${res.assigned_to_name} for rework.`
+              : "Order returned to executor for rework."
+            : "Selected assets marked rejected. Continue reviewing remaining assets.",
         )
       } else if (path === "/approval/reject-order") {
         toast.success(
           res.assigned_to_name
-            ? `Order rejected. ${res.assigned_to_name} can start verification again.`
+            ? `Order rejected. ${res.assigned_to_name} can start verification again on rejected assets.`
             : "Order rejected.",
+        )
+      } else if (path === "/approval/approve-all" && res.status === "rejected") {
+        toast.success(
+          res.assigned_to_name
+            ? `Remaining assets approved. Order rejected so ${res.assigned_to_name} can rework rejected assets.`
+            : "Remaining assets approved. Order rejected for rework on rejected assets.",
         )
       } else if (path === "/start" && res.status === "in_progress") {
         toast.success("Verification started.")
@@ -518,6 +526,26 @@ export function OrderDetailPage() {
   function beginClosureLineApprove() {
     if (!order || selected.size === 0) return
     void runAction("/approval/approve-items", { item_ids: [...selected] })
+  }
+
+  async function beginClosureApproveAll() {
+    if (!order) return
+    const rejectedCount = order.rejected_item_count ?? 0
+    const pendingCount = order.items.filter(
+      (item) => (item.verification_status ?? "").toLowerCase() === "pending",
+    ).length
+    if (rejectedCount > 0) {
+      const ok = await confirmAsk({
+        title: "Approve remaining assets?",
+        description:
+          pendingCount > 0
+            ? `Approve ${pendingCount} remaining asset${pendingCount === 1 ? "" : "s"} and keep ${rejectedCount} rejected? The order will stay Rejected so the executor can rework only the rejected assets.`
+            : `${rejectedCount} asset${rejectedCount === 1 ? " is" : "s are"} rejected. Finish review and return the order to the executor for those assets only?`,
+        confirmLabel: pendingCount > 0 ? "Approve remaining" : "Finish review",
+      })
+      if (!ok) return
+    }
+    await runAction("/approval/approve-all")
   }
 
   const showRowSelection = canReviewClosure
@@ -703,7 +731,7 @@ export function OrderDetailPage() {
               <AdminPrimaryButton
                 type="button"
                 disabled={busy}
-                onClick={() => void runAction("/approval/approve-all")}
+                onClick={() => void beginClosureApproveAll()}
               >
                 Approve
               </AdminPrimaryButton>
@@ -1323,8 +1351,8 @@ export function OrderDetailPage() {
             </DialogTitle>
             <DialogDescription>
               {rejectMode === "order"
-                ? "This rejects the full order. Every asset is marked rejected and must be verified again. Status becomes Rejected; the assigned executor can Start to resume scanning."
-                : "Reject the selected non-verified assets. Verified assets stay locked; only rejected lines need scanning again."}
+                ? "This rejects every asset that is not already approved. Approved assets stay locked. The order becomes Rejected and the assigned executor can Start to rework only the rejected assets."
+                : "Reject the selected assets. The order stays in review so you can approve or reject the rest."}
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body space-y-4">

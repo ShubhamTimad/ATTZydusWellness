@@ -227,10 +227,22 @@ class PhysicalOrderService:
         actor_user_id: int | None,
         entity_type: str | None = None,
     ) -> None:
-        """Full-order reject: every line rejected + scans cleared; stay with original assignee."""
+        """Reject remaining lines; keep already-approved lines locked for the assignee."""
         cleaned = (reason or "Rejected").strip() or "Rejected"
+        rejected_codes: list[str] = []
+        kept_approved: list[str] = []
         for item in order.items:
+            if item.verification_status == ITEM_STATUS_APPROVED:
+                kept_approved.append(item.asset_code)
+                continue
+            if item.verification_status == ITEM_STATUS_REJECTED:
+                # Already rejected during review — keep reason, clear scan for rework.
+                item.scan_time = None
+                item.verified_by = None
+                rejected_codes.append(item.asset_code)
+                continue
             self._clear_item_verification(item, rejected=True, reason=cleaned)
+            rejected_codes.append(item.asset_code)
         order.status = ORDER_STATUS_REJECTED
 
         creation_req: ApprovalRequest | None = None
@@ -252,15 +264,19 @@ class PhysicalOrderService:
             actor_user_id=actor_user_id,
             new_value={
                 "reason": cleaned,
-                "scope": "full",
+                "scope": "mixed" if kept_approved else "full",
                 "entity_type": entity_type,
+                "rejected_asset_codes": rejected_codes,
+                "kept_approved_asset_codes": kept_approved,
                 "assigned_to": int(order.assigned_to) if order.assigned_to is not None else None,
             },
         )
 
     def _reset_order_after_full_rejection(self, order: PhysicalOrder) -> None:
-        """Fresh run after a full-order reject: clear all lines and run timestamps."""
+        """Clear non-approved lines for a fresh execution run; approved lines stay locked."""
         for item in order.items:
+            if item.verification_status == ITEM_STATUS_APPROVED:
+                continue
             self._clear_item_verification(item, rejected=False, reason=None)
         order.completed_at = None
         order.started_at = None
@@ -272,6 +288,39 @@ class PhysicalOrderService:
             self._close_pending_approval_tasks(int(closure.id))
             if str(closure.status) == "pending":
                 closure.status = "rejected"
+
+    def _finalize_closure_with_rejected_items(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int | None,
+        reason: str = "Closure review completed with rejected assets.",
+    ) -> None:
+        """Approve-path finish when some lines are rejected: stay Rejected for assignee Start."""
+        self._apply_full_order_rejection(
+            order,
+            reason=reason,
+            actor_user_id=actor_user_id,
+            entity_type=ENTITY_TYPE_CLOSURE,
+        )
+        if order.assigned_to:
+            try:
+                from modules.platform.emails.service import EmailNotificationService
+
+                assignee = self._db.get(User, order.assigned_to)
+                if assignee and assignee.email:
+                    EmailNotificationService(self._db).trigger_event(
+                        event_code="ORDER_RETURNED_FOR_EXECUTION",
+                        payload={
+                            "user_name": assignee.full_name,
+                            "email": assignee.email,
+                            "order_number": order.order_number,
+                            "reason": reason,
+                            "order_link": _order_link(int(order.id)),
+                        },
+                    )
+            except Exception:
+                pass
 
     def _promote_pending_closure_to_completed(
         self,
@@ -2160,6 +2209,18 @@ class PhysicalOrderService:
                 if item.verification_status == ITEM_STATUS_PENDING:
                     item.verification_status = ITEM_STATUS_APPROVED
                     item.rejection_reason = None
+            has_rejected = any(
+                i.verification_status == ITEM_STATUS_REJECTED for i in order.items
+            )
+            if has_rejected:
+                # Mixed finish: approved stay locked; rejected return to assignee as Rejected.
+                self._finalize_closure_with_rejected_items(
+                    order,
+                    actor_user_id=actor_user_id,
+                    reason="Approved remaining assets; rejected assets returned to executor.",
+                )
+                self._db.commit()
+                return self.get_order(order_id)
             task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)
             if task is not None:
                 ApprovalEngineService(self._db).act_on_task(
@@ -2277,12 +2338,7 @@ class PhysicalOrderService:
                 actor_user_id=actor_user_id,
                 new_value={"asset_codes": rejected_codes, "reason": reason},
             )
-            self._reopen_for_execution(
-                order,
-                actor_user_id=actor_user_id,
-                reason=reason,
-                rejected_codes=rejected_codes,
-            )
+            # Stay in closure review so the approver can continue approving/rejecting lines.
             self._db.commit()
             return self.get_order(order_id)
         raise ConflictError("Order is not in an approval phase.")
@@ -2430,7 +2486,8 @@ class PhysicalOrderService:
         order.started_at = _now_utc()
         order.started_by = actor_user_id
         for item in order.items:
-            if self._is_physically_verified(item):
+            # Keep lines already approved at closure review locked.
+            if item.verification_status == ITEM_STATUS_APPROVED or self._is_physically_verified(item):
                 continue
             item.verification_status = ITEM_STATUS_PENDING
             item.rejection_reason = None
@@ -2920,11 +2977,10 @@ def finalize_closure_approval(db: Session, *, order_id: int, approver_user_id: i
         return
     rejected = [i for i in order.items if i.verification_status == ITEM_STATUS_REJECTED]
     if rejected:
-        svc._reopen_for_execution(
+        svc._finalize_closure_with_rejected_items(
             order,
             actor_user_id=approver_user_id,
-            reason="Closure approval rejected.",
-            rejected_codes=[i.asset_code for i in rejected],
+            reason="Closure review completed with rejected assets.",
         )
     else:
         svc._complete_closure_approval(order, actor_user_id=approver_user_id)
