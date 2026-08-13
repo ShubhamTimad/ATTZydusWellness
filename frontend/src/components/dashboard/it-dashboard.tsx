@@ -21,7 +21,7 @@ export function ItDashboard({ data }: { data: ItDashboardModule }) {
   ]
 
   return (
-    <DashboardPanel title="IT Users" theme={theme}>
+    <DashboardPanel title="IT User" theme={theme}>
       <div className="grid items-center gap-6 sm:grid-cols-[minmax(0,1fr)_10.5rem]">
         <div className="min-w-0 space-y-5">
           <div>

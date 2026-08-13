@@ -31,13 +31,13 @@ export function FinancialYearDashboard({ data }: { data: FinancialYearDashboardM
           <StatBreakdown
             items={[
               {
-                label: "Total approved asset",
+                label: "Total Approved Asset",
                 value: data.total_rfid_assets,
                 share: 100,
                 color: COLORS.pending,
               },
               {
-                label: "Total verified asset",
+                label: "Total Verified Asset",
                 value: data.verified_in_fy,
                 share: (data.verified_in_fy / total) * 100,
                 color: COLORS.verified,
