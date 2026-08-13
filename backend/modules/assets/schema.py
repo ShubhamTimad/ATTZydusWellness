@@ -265,6 +265,8 @@ class AssetListFilterOptionsResponse(BaseModel):
     cost_centers: list[AssetListFilterOption] = Field(default_factory=list)
     functional_locations: list[AssetListFilterOption] = Field(default_factory=list)
     actual_locations: list[AssetListFilterOption] = Field(default_factory=list)
+    # Assigned to the viewer (action scope). Used to default the CC filter when view_all.
+    assigned_cost_centers: list[AssetListFilterOption] = Field(default_factory=list)
 
 
 class FinancialYearOptionPublic(BaseModel):

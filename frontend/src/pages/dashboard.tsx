@@ -93,9 +93,9 @@ export function DashboardPage() {
     <div className="app-page flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
       <div className="shrink-0 border-b border-border/60 pb-3">
         <h1 className="app-page-heading">Dashboard</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">
+        {/* <p className="mt-0.5 text-xs text-muted-foreground">
           Role-gated overview · physical orders, transfers, disposals, assets, users
-        </p>
+        </p> */}
       </div>
 
       {loadError ? (

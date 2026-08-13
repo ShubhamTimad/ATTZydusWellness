@@ -14,7 +14,7 @@ SETTING_KEY = "documents.format"
 
 DEFAULTS = DocumentFormatPublic(
     org_name="Takeda",
-    product_name="Asset Tagging & Tracking",
+    product_name="",
     confidential_line="Confidential — internal use only",
     excel_include_title=True,
     signatures=DocumentSignatureFlags(),
@@ -59,9 +59,7 @@ def previewing(fmt: DocumentFormatPublic):
 
 def footer_brand(fmt: DocumentFormatPublic | None = None) -> str:
     f = fmt or get_document_format()
-    org = f.org_name.strip() or DEFAULTS.org_name
-    product = f.product_name.strip() or DEFAULTS.product_name
-    return f"{org} · {product}"
+    return f.org_name.strip() or DEFAULTS.org_name
 
 
 if __name__ == "__main__":

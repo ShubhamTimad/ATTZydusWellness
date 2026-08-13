@@ -73,7 +73,7 @@ type FinancialYearSettings = {
 
 type DocumentFormatSettings = {
   org_name: string
-  product_name: string
+  product_name?: string
   confidential_line: string
   excel_include_title: boolean
   signatures: {
@@ -86,7 +86,6 @@ type DocumentFormatSettings = {
 
 const DEFAULT_DOCUMENT_FORMAT: DocumentFormatSettings = {
   org_name: "Takeda",
-  product_name: "Asset Tagging & Tracking",
   confidential_line: "Confidential — internal use only",
   excel_include_title: true,
   signatures: { capex: true, reports: false, transfer: false, disposal: false },
@@ -248,7 +247,7 @@ export function SettingsPage() {
   }
 
   return (
-    <AdminPage fullWidth description="Security, authentication, and organization-wide email delivery.">
+    <AdminPage fullWidth>
       <WorkspaceTabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
         <WorkspaceTabsList>
           <WorkspaceTabsTrigger value="auth">Authentication</WorkspaceTabsTrigger>
@@ -261,7 +260,7 @@ export function SettingsPage() {
         <WorkspaceTabsContent value="auth" className="space-y-4">
           <AdminPanel
             title="Authentication policy"
-            description="Org-wide controls for password login, MFA, and captcha. Superusers are not affected."
+            // description="Org-wide controls for password login, MFA, and captcha. Superusers are not affected."
             contentClassName="space-y-4 px-5 py-5"
           >
               {!authPolicy ? (
@@ -347,7 +346,7 @@ export function SettingsPage() {
 
           <AdminPanel
             title="Session idle timeout"
-            description="All users are signed out after this many minutes without activity, or while the browser tab is in the background. The server also ends the session if the app is closed."
+            // description="All users are signed out after this many minutes without activity, or while the browser tab is in the background. The server also ends the session if the app is closed."
             contentClassName="space-y-4 px-5 py-5"
           >
             {sessionIdle ? (
@@ -367,9 +366,9 @@ export function SettingsPage() {
                       )
                     }}
                   />
-                  <p className="text-xs text-muted-foreground">
+                  {/* <p className="text-xs text-muted-foreground">
                     Default is 10 minutes. Applies to every signed-in user on the next sign-in or API call.
-                  </p>
+                  </p> */}
                 </div>
                 <div className="flex justify-end border-t border-border/60 pt-4">
                   <AdminPrimaryButton
@@ -457,7 +456,7 @@ export function SettingsPage() {
         <WorkspaceTabsContent value="password" className="space-y-4">
           <AdminPanel
             title="Password rules"
-            description="Enforced on password changes and resets."
+            // description="Enforced on password changes and resets."
             contentClassName="space-y-4 px-5 py-5"
           >
               <div className="grid gap-4 sm:grid-cols-2">
@@ -527,7 +526,7 @@ export function SettingsPage() {
         <WorkspaceTabsContent value="email" className="space-y-4">
           <AdminPanel
             title="SMTP & email delivery"
-            description="Used for notifications, password reset, tasks, and user invites. Use an app password when 2FA is enabled."
+            // description="Used for notifications, password reset, tasks, and user invites. Use an app password when 2FA is enabled."
             contentClassName="space-y-4 px-5 py-5"
           >
               {!emailDelivery ? (
@@ -733,7 +732,7 @@ export function SettingsPage() {
         <WorkspaceTabsContent value="financial" className="space-y-4">
           <AdminPanel
             title="Financial year"
-            description="Used when creating physical verification orders to detect assets already verified in the current period (e.g. 1 Apr – 31 Mar)."
+            // description="Used when creating physical verification orders to detect assets already verified in the current period (e.g. 1 Apr – 31 Mar)."
             contentClassName="space-y-4 px-5 py-5"
           >
             {!financialYear ? (
@@ -826,7 +825,7 @@ export function SettingsPage() {
         <WorkspaceTabsContent value="documents" className="space-y-4">
           <AdminPanel
             title="PDF & Excel format"
-            description="Edit the fields, preview PDF or Excel with those unsaved values, then save when it looks right. Logo, header and footer wrap every report page — the table sits between them."
+            // description="Edit the fields, preview PDF or Excel with those unsaved values, then save when it looks right. Logo, header and footer wrap every report page — the table sits between them."
             contentClassName="space-y-4 px-5 py-5"
           >
             {!documentFormat ? (
@@ -845,16 +844,6 @@ export function SettingsPage() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="doc_product_name">Product name</Label>
-                    <Input
-                      id="doc_product_name"
-                      value={documentFormat.product_name}
-                      onChange={(e) =>
-                        setDocumentFormat((p) => (p ? { ...p, product_name: e.target.value } : p))
-                      }
-                    />
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
                     <Label htmlFor="doc_confidential">Confidential line</Label>
                     <Input
                       id="doc_confidential"
@@ -947,23 +936,26 @@ export function SettingsPage() {
                   />
                 ) : preview?.kind === "xlsx" && documentFormat ? (
                   <div className="overflow-auto rounded-md border bg-background text-sm">
-                    <div className="flex items-start justify-between gap-4 border-b-2 border-[#E1242A] px-4 py-3">
-                      <div className="flex min-w-0 items-start gap-3">
-                        <img
-                          src={TAKEDA_LOGO_SRC}
-                          alt=""
-                          className="h-9 w-auto max-w-[120px] object-contain object-left"
-                        />
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-                            {documentFormat.product_name}
-                          </p>
-                          <p className="text-base font-semibold">Sample report</p>
-                          <p className="text-xs text-muted-foreground">Preview of current (unsaved) format</p>
+                    <div className="px-3 pt-3">
+                      <div className="flex items-start justify-between gap-4 border-b-2 border-[#E1242A] px-3 py-3">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <img
+                            src={TAKEDA_LOGO_SRC}
+                            alt=""
+                            className="h-9 w-auto max-w-[120px] object-contain object-left"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-base font-semibold">Sample report</p>
+                            <p className="text-xs text-muted-foreground">
+                              Preview of current (unsaved) format
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="shrink-0 text-right text-xs text-muted-foreground">
-                        <div>Generated: {new Date().toLocaleString()}</div>
+                        <div className="shrink-0 text-right text-xs text-muted-foreground">
+                          <div>
+                            Generated on {new Date().toLocaleString()}
+                          </div>
+                        </div>
                       </div>
                     </div>
                     <div className="px-4 py-3">
@@ -1016,9 +1008,7 @@ export function SettingsPage() {
                     </div>
                     <div className="flex items-start justify-between gap-4 border-t px-4 py-2 text-xs">
                       <div>
-                        <div className="font-semibold">
-                          {documentFormat.org_name} · {documentFormat.product_name}
-                        </div>
+                        <div className="font-semibold">{documentFormat.org_name}</div>
                         <div className="text-muted-foreground">{documentFormat.confidential_line}</div>
                       </div>
                       <div className="text-right text-muted-foreground">
@@ -1052,7 +1042,7 @@ export function SettingsPage() {
                   disabled={savingDocuments || !canWriteSettings}
                   onClick={() => void saveDocumentFormat()}
                 >
-                  {savingDocuments ? "Saving…" : "Looks good — save"}
+                  {savingDocuments ? "Saving…" : "Save"}
                 </AdminPrimaryButton>
               </DialogFooter>
             </DialogContent>

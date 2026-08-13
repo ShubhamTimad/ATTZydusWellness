@@ -23,14 +23,14 @@ class ReportDefinition:
 REPORT_DEFINITIONS: tuple[ReportDefinition, ...] = (
     ReportDefinition(
         key="asset_register",
-        title="Asset register",
+        title="Asset Register",
         description="Excel lets you pick columns. PDF uses the default register fields.",
         filters=(),
         formats=("xlsx", "pdf"),
     ),
     ReportDefinition(
         key="financial_year_verification",
-        title="Financial year physical verification",
+        title="Financial Year Physical Verification",
         description="RFID-tagged assets with physical verification status for a selected financial year.",
         filters=(
             ReportFilterDef("fy_start_year", "Financial year", "financial_year"),
@@ -40,7 +40,7 @@ REPORT_DEFINITIONS: tuple[ReportDefinition, ...] = (
     ),
     ReportDefinition(
         key="physical_orders_summary",
-        title="Physical orders",
+        title="Physical Order",
         description="Physical Verification orders with status, assignee, and asset counts.",
         filters=(
             ReportFilterDef("plant_id", "Plant", "plant"),

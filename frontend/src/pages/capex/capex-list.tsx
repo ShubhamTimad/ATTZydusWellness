@@ -158,7 +158,7 @@ export function CapexListPage() {
       <ListPageHeader
         className="shrink-0"
         title="Capitalization forms"
-        description="Request and track asset capitalization approvals."
+        // description="Request and track asset capitalization approvals."
         actions={
           canCreate ? (
             <AdminPrimaryButton type="button" onClick={() => navigate("/dashboard/capitalization/new")}>
@@ -179,24 +179,12 @@ export function CapexListPage() {
         <WorkspaceTabsList className="shrink-0">
           {CAPEX_STATUS_TABS.map((t) => {
             const count = data?.tab_counts?.[t.key]
-            const highlight = t.key === "needs_action" && typeof count === "number" && count > 0
             return (
               <WorkspaceTabsTrigger key={t.key} value={t.key}>
-                <span className="inline-flex items-center gap-1.5">
-                  {t.label}
-                  {typeof count === "number" ? (
-                    <span
-                      className={cn(
-                        "rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
-                        highlight
-                          ? "bg-primary/15 text-primary"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {count}
-                    </span>
-                  ) : null}
-                </span>
+                {t.label}
+                {typeof count === "number" ? (
+                  <span className="ml-1.5 tabular-nums text-muted-foreground">({count})</span>
+                ) : null}
               </WorkspaceTabsTrigger>
             )
           })}
@@ -360,7 +348,7 @@ export function CapexListPage() {
                             setColumnFilterInputs((f) => ({ ...f, status: e.target.value }))
                           }
                         >
-                          <option value="">All statuses</option>
+                          <option value="">All</option>
                           {CAPEX_STATUS_FILTERS.map((opt) => (
                             <option key={opt.value} value={opt.value}>
                               {opt.label}

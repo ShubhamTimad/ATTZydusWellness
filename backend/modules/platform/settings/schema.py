@@ -77,7 +77,7 @@ class DocumentFormatPublic(BaseModel):
     """Shared PDF/Excel header-footer copy. Used by reports and CapEx print."""
 
     org_name: str = Field(default="Takeda", max_length=80)
-    product_name: str = Field(default="Asset Tagging & Tracking", max_length=120)
+    product_name: str = Field(default="", max_length=120, description="Deprecated — unused in PDF/Excel chrome.")
     confidential_line: str = Field(default="Confidential — internal use only", max_length=160)
     excel_include_title: bool = True
     signatures: DocumentSignatureFlags = Field(default_factory=DocumentSignatureFlags)

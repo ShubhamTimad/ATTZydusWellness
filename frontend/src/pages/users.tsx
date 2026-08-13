@@ -143,7 +143,7 @@ export function UsersPage() {
     <AdminPage
       fullWidth
       viewportFill
-      description="Manage accounts, roles, plant, department, and cost center assignments."
+      // description="Manage accounts, roles, plant, department, and cost center assignments."
       actions={
         canCreate ? (
           <AdminPrimaryButton asChild className="h-9 px-4 font-semibold shadow-sm">
@@ -247,7 +247,7 @@ export function UsersPage() {
                       setColumnFilterInputs((f) => ({ ...f, role_id: e.target.value }))
                     }
                   >
-                    <option value="">All roles</option>
+                    <option value="">All</option>
                     {roles.map((r) => (
                       <option key={r.id} value={String(r.id)}>
                         {r.name}
@@ -270,7 +270,7 @@ export function UsersPage() {
                       }))
                     }
                   >
-                    <option value="">All statuses</option>
+                    <option value="">All</option>
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
                   </select>

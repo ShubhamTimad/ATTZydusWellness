@@ -232,7 +232,7 @@ export function PlantsPage() {
         </Alert>
       ) : null}
 
-      <AdminDataTable title="All plants" description="Sorted by plant code">
+      <AdminDataTable title="All plants" >
         <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>

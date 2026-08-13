@@ -51,8 +51,8 @@ export function CreatePhysicalOrderDialog({
   const [busy, setBusy] = React.useState(false)
   const [loadingExecutors, setLoadingExecutors] = React.useState(false)
 
-  const assetCountLabel =
-    assetIds.length === 1 ? "1 RFID asset" : `${assetIds.length} RFID assets`
+  // const assetCountLabel =
+  //   assetIds.length === 1 ? "1 RFID asset" : `${assetIds.length} RFID assets`
 
   React.useEffect(() => {
     if (!open) {
@@ -115,10 +115,9 @@ export function CreatePhysicalOrderDialog({
         <div className="border-b px-6 py-4 pr-12">
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-lg font-semibold tracking-tight">
-              Create verification order
+              Create Physical Verification Order
             </DialogTitle>
-            <DialogDescription>
-              {assetCountLabel} · assign to start
+            <DialogDescription> Assign To Start
             </DialogDescription>
           </DialogHeader>
           {resetVerificationAssetIds.length > 0 ? (
@@ -155,7 +154,6 @@ export function CreatePhysicalOrderDialog({
               {executors.map((u) => (
                 <option key={u.id} value={String(u.id)}>
                   {u.full_name}
-                  {u.email ? ` (${u.email})` : ""}
                 </option>
               ))}
             </select>
@@ -180,7 +178,7 @@ export function CreatePhysicalOrderDialog({
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               rows={3}
-              placeholder="Optional notes"
+              placeholder="Remark (Optional)"
               disabled={busy}
             />
           </div>

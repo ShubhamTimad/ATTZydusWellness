@@ -59,7 +59,7 @@ def test_happy_path_statuses() -> None:
     # Receiver may restart full approve flow on same order id → draft → resubmit.
     restart_branch = [STATUS_REJECTED, STATUS_DRAFT, STATUS_PENDING_APPROVAL]
     assert restart_branch == ["rejected", "draft", "pending_approval"]
-    # List inbox tabs: action-first — Needs my action / Done / All.
+    # List inbox tabs: action-first — Pending action / Done / All.
     assert {"needs_action", "done", "all"} == {"needs_action", "done", "all"}
     assert _strip_or_none("  x  ") == "x"
     assert _strip_or_none("   ") is None

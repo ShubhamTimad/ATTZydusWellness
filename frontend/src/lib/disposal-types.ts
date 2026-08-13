@@ -102,7 +102,7 @@ export type DisposalOrderDetail = {
 /** Primary list tabs (must match _TAB_STATUSES UI keys in backend). */
 export const DISPOSAL_STATUS_TABS = [
   { key: "all", label: "All" },
-  { key: "needs_action", label: "Needs My Action" },
+  { key: "needs_action", label: "Pending Action" },
 ] as const
 
 /** Lifecycle status filter for the disposal list Status column (not inbox tabs). */

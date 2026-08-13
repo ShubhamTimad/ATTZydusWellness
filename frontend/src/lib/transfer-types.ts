@@ -126,7 +126,7 @@ export type TransferOrderDetail = {
 
 export const TRANSFER_STATUS_TABS = [
   { key: "all", label: "All" },
-  { key: "needs_action", label: "Needs My Action" },
+  { key: "needs_action", label: "Pending Action" },
 ] as const
 
 /** Lifecycle status filter for the transfer list Status column (not inbox tabs). */

@@ -429,6 +429,9 @@ export function AssetsListPage() {
   const [actualLocationOptions, setActualLocationOptions] = React.useState<
     { code: string; name: string | null }[]
   >([])
+  // view_all + assigned CCs → pre-select one actionable CC once (user can clear to see all).
+  const defaultCcAppliedRef = React.useRef(false)
+  const canViewAllAssets = hasPermission("asset.view_all")
 
   React.useEffect(() => {
     const qs = draftFilters.plant_id
@@ -438,11 +441,24 @@ export function AssetsListPage() {
       cost_centers: { code: string; name: string | null }[]
       functional_locations: { code: string; name: string | null }[]
       actual_locations: { code: string; name: string | null }[]
+      assigned_cost_centers?: { code: string; name: string | null }[]
     }>(`/admin/assets/column-filter-options${qs}`)
       .then((res) => {
         setCostCenterOptions(res.cost_centers)
         setFunctionalLocationOptions(res.functional_locations)
         setActualLocationOptions(res.actual_locations)
+
+        const assigned = res.assigned_cost_centers ?? []
+        let preferredCc = ""
+        if (canViewAllAssets && !defaultCcAppliedRef.current && assigned.length > 0) {
+          defaultCcAppliedRef.current = true
+          preferredCc =
+            assigned.find((a) => res.cost_centers.some((c) => c.code === a.code))?.code ??
+            assigned[0]?.code ??
+            ""
+          if (preferredCc) setColumnFiltersOpen(true)
+        }
+
         setColumnFilterInputs((prev) => {
           const next = { ...prev }
           if (
@@ -463,6 +479,7 @@ export function AssetsListPage() {
           ) {
             next.actual_location = ""
           }
+          if (preferredCc && !next.cost_center) next.cost_center = preferredCc
           return next
         })
         setColumnFilters((prev) => {
@@ -485,6 +502,7 @@ export function AssetsListPage() {
           ) {
             next.actual_location = ""
           }
+          if (preferredCc && !next.cost_center) next.cost_center = preferredCc
           return next
         })
       })
@@ -492,8 +510,11 @@ export function AssetsListPage() {
         setCostCenterOptions([])
         setFunctionalLocationOptions([])
         setActualLocationOptions([])
+        if (canViewAllAssets && !defaultCcAppliedRef.current) {
+          defaultCcAppliedRef.current = true
+        }
       })
-  }, [draftFilters.plant_id])
+  }, [draftFilters.plant_id, canViewAllAssets])
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
   const [selectedHasRfid, setSelectedHasRfid] = React.useState<Map<number, boolean>>(new Map())
   const [loading, setLoading] = React.useState(false)
@@ -1332,7 +1353,7 @@ export function AssetsListPage() {
     if (ids.length === 0) return
     const ok = await confirmAsk({
       title: "Delete assets?",
-      description: `Delete ${ids.length} selected asset(s)? This cannot be undone.`,
+      description: `Delete ${ids.length} Selected Asset(s)? This cannot be undone.`,
       confirmLabel: "Delete",
       destructive: true,
     })
@@ -1348,7 +1369,7 @@ export function AssetsListPage() {
         }
       }
       if (errors.length === 0) {
-        toast.success(`Deleted ${ids.length} asset(s).`)
+        toast.success(`Deleted ${ids.length} Asset(s).`)
       } else if (errors.length < ids.length) {
         toast.warning(`Deleted ${ids.length - errors.length} of ${ids.length}. Some failed.`)
       } else {
@@ -1704,7 +1725,7 @@ export function AssetsListPage() {
         <div className="shrink-0 space-y-[var(--app-grid-gap)]">
           <ListPageHeader
             className="shrink-0"
-            title={isFyTab ? "Financial year physical verification" : "Assets"}
+            title={isFyTab ? "Financial year physical verification" : "Asset Master"}
             description={
               isFyTab
                 ? ""
@@ -1839,9 +1860,9 @@ export function AssetsListPage() {
               id="asset-search"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Search displayed columns…"
+              placeholder="Search Records by Asset No, Name, RFID, Cost Center, etc."
               className="w-full pl-9"
-              aria-label="Search displayed columns"
+              aria-label="Search Records By Asset No, Name, RFID, Cost Center, etc."
             />
             {searchInput ? (
               <button
@@ -2021,7 +2042,7 @@ export function AssetsListPage() {
                   value={draftFilters.plant_id}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, plant_id: e.target.value }))}
                 >
-                  <option value="">All plants</option>
+                  <option value="">All</option>
                   {masters.plants.map((p) => (
                     <option key={p.id} value={String(p.id)}>
                       {plantLabel(p)}
@@ -2036,7 +2057,7 @@ export function AssetsListPage() {
                   value={draftFilters.category_id}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, category_id: e.target.value }))}
                 >
-                  <option value="">All categories</option>
+                  <option value="">All</option>
                   {masters.categories.map((c) => (
                     <option key={c.id} value={String(c.id)}>
                       {categoryLabel(c)}
@@ -2337,25 +2358,27 @@ export function AssetsListPage() {
       <Dialog open={columnsOpen} onOpenChange={setColumnsOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Choose asset-list columns</DialogTitle>
-            <DialogDescription>
+            <DialogTitle>Choose Asset List Columns</DialogTitle>
+            {/* <DialogDescription>
               Your selection is saved for your user account until you change it.
-            </DialogDescription>
+            </DialogDescription> */}
           </DialogHeader>
           <div className="dialog-body max-h-[60vh] space-y-4 overflow-y-auto">
             <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
+                className="bg-muted/40"
                 onClick={() => setDraftColumnKeys(new Set(DEFAULT_ASSET_LIST_COLUMN_KEYS))}
               >
                 Default fields
               </Button>
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
+                className="bg-muted/40"
                 onClick={() =>
                   setDraftColumnKeys(new Set(ASSET_LIST_COLUMNS.map((column) => column.key)))
                 }
@@ -2401,7 +2424,7 @@ export function AssetsListPage() {
               disabled={columnsSaving || draftColumnKeys.size === 0}
               onClick={() => void saveColumnPreferences()}
             >
-              {columnsSaving ? "Saving…" : "Save columns"}
+              {columnsSaving ? "Saving…" : "Save Setting"}
             </AdminPrimaryButton>
           </div>
         </DialogContent>

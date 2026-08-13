@@ -99,7 +99,7 @@ class ReportService:
 
     def _plant_filter_label(self, plant_id: int | None) -> str:
         if plant_id is None:
-            return "All plants"
+            return "All"
         plant = self._db.get(OrgUnit, plant_id)
         if plant is None:
             return "—"
@@ -107,7 +107,7 @@ class ReportService:
 
     def _order_status_filter_label(self, status: str | None) -> str:
         if not status:
-            return "All statuses"
+            return "All"
         return _status_label(status.strip().lower())
 
     def _asset_base_query(self, *, plant_id: int | None):
@@ -195,8 +195,8 @@ class ReportService:
             ("Total assets", str(len(data))),
         )
         return ReportDocument(
-            title=f"Financial year physical verification · {period.label}",
-            subtitle=f"{scope_label} · {len(data)} assets",
+            title="Financial Year Physical Verification",
+            subtitle=f"{period.label} · {scope_label} · {len(data)} assets",
             summary=summary,
             headers=headers,
             rows=data,
@@ -269,7 +269,7 @@ class ReportService:
             ("Total assets", str(total_assets)),
         )
         return ReportDocument(
-            title="Physical orders",
+            title="Physical Order",
             subtitle=f"{len(data)} orders · {total_assets} assets",
             summary=summary,
             headers=headers,

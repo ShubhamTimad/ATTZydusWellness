@@ -1,4 +1,4 @@
-"""Shared helpers for list tabs: Needs my action / Done / All."""
+"""Shared helpers for list tabs: Pending action / Done / All."""
 
 from __future__ import annotations
 

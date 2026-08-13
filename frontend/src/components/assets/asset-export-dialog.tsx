@@ -227,13 +227,13 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                 : "Asset register Excel"
               : "Export assets"}
           </DialogTitle>
-          <DialogDescription>
+          {/* <DialogDescription>
             {isRegister
               ? isPdf
                 ? "Set filters, then download an A4 PDF with the register columns."
                 : "Set filters and choose columns. Default fields are selected first."
               : "Filter by plant and location masters, then choose columns for the Excel file."}
-          </DialogDescription>
+          </DialogDescription> */}
         </DialogHeader>
 
         <div className="dialog-body min-h-0 flex-1 space-y-4 overflow-y-auto">
@@ -254,7 +254,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                   }))
                 }}
               >
-                <option value="">All plants</option>
+                <option value="">All</option>
                 {masters.plants.map((p) => (
                   <option key={p.id} value={String(p.id)}>
                     {plantLabel(p)}
@@ -269,7 +269,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                 value={exportFilters.category_id}
                 onChange={(e) => setExportFilters((f) => ({ ...f, category_id: e.target.value }))}
               >
-                <option value="">All categories</option>
+                <option value="">All</option>
                 {masters.categories.map((c) => (
                   <option key={c.id} value={String(c.id)}>
                     {categoryLabel(c)}
@@ -285,7 +285,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                 disabled={!plantId}
                 onChange={(e) => setExportFilters((f) => ({ ...f, cost_center: e.target.value }))}
               >
-                <option value="">{plantId ? "All cost centers" : "Select plant first"}</option>
+                <option value="">{plantId ? "All" : "Select plant first"}</option>
                 {masters.costCenters.map((cc) => (
                   <option key={cc.id} value={cc.code}>
                     {masterOptionLabel(cc.code, cc.name)}
@@ -307,7 +307,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                   }))
                 }
               >
-                <option value="">{plantId ? "All functional locations" : "Select plant first"}</option>
+                <option value="">{plantId ? "All" : "Select plant first"}</option>
                 {masters.functionalLocations.map((fl) => (
                   <option key={fl.id} value={fl.code}>
                     {masterOptionLabel(fl.code, fl.name)}
@@ -328,7 +328,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                     ? "Select plant first"
                     : !exportFilters.functional_location
                       ? "Select functional location first"
-                      : "All actual locations"}
+                      : "All"}
                 </option>
                 {masters.actualLocations.map((al) => (
                   <option key={al.id} value={al.code}>
@@ -377,18 +377,18 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
               <div className="flex gap-2">
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="h-7 px-2 text-xs"
+                  className="h-7 bg-muted/40 px-2 text-xs"
                   onClick={() => setSelectedFields(new Set(allFieldKeys))}
                 >
                   Select all
                 </Button>
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
-                  className="h-7 px-2 text-xs"
+                  className="h-7 bg-muted/40 px-2 text-xs"
                   onClick={() => setSelectedFields(new Set())}
                 >
                   Clear

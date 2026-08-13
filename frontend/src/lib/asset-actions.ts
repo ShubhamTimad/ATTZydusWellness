@@ -137,7 +137,7 @@ export function buildAssetListActionItems(opts: {
           ? "No draft/rejected assets in selection"
           : submitEligibleCount < selectedCount
             ? `${submitEligibleCount} of ${selectedCount} eligible`
-            : `${submitEligibleCount} asset(s)`
+            : `${submitEligibleCount} Asset(s)`
     actions.push({
       id: "submit-for-approval",
       label: "Submit for approval",
@@ -155,10 +155,10 @@ export function buildAssetListActionItems(opts: {
           ? "Only approved assets with RFID can be included"
           : physicalOrderEligibleCount < selectedCount
             ? `${physicalOrderEligibleCount} of ${selectedCount} approved with RFID`
-            : `${physicalOrderEligibleCount} asset(s)`
+            : `${physicalOrderEligibleCount} Asset(s)`
     actions.push({
       id: "create-physical-order",
-      label: "Create physical verification order",
+      label: "Create Physical Verification Order",
       hint,
       disabled: selectedCount === 0 || physicalOrderEligibleCount === 0,
       icon: ClipboardList,
@@ -173,10 +173,10 @@ export function buildAssetListActionItems(opts: {
           ? "Only the asset custodian can create a transfer"
           : transferEligibleCount < selectedCount
             ? `${transferEligibleCount} of ${selectedCount} as custodian`
-            : `${transferEligibleCount} asset(s)`
+            : `${transferEligibleCount} Asset(s)`
     actions.push({
       id: "create-transfer-order",
-      label: "Create transfer order",
+      label: "Create Transfer Order",
       hint,
       disabled: transferEligibleCount === 0,
       icon: ArrowRightLeft,
@@ -191,10 +191,10 @@ export function buildAssetListActionItems(opts: {
           ? "Only the asset custodian can create a disposal"
           : disposalEligibleCount < selectedCount
             ? `${disposalEligibleCount} of ${selectedCount} as custodian`
-            : `${disposalEligibleCount} asset(s)`
+            : `${disposalEligibleCount} Asset(s)`
     actions.push({
       id: "create-disposal-order",
-      label: "Create disposal order",
+      label: "Create Disposal Order",
       hint,
       disabled: disposalEligibleCount === 0,
       icon: PackageX,
@@ -212,7 +212,7 @@ export function buildAssetListActionItems(opts: {
             ? "No active assets in selection"
             : deactivateEligibleCount < selectedCount
               ? `${deactivateEligibleCount} of ${selectedCount} active`
-              : `${deactivateEligibleCount} asset(s)`,
+              : `${deactivateEligibleCount} Asset(s)`,
       disabled: deactivateEligibleCount === 0,
       icon: PowerOff,
     })
@@ -229,7 +229,7 @@ export function buildAssetListActionItems(opts: {
             ? "No deactivated assets in selection"
             : reactivateEligibleCount < selectedCount
               ? `${reactivateEligibleCount} of ${selectedCount} deactivated`
-              : `${reactivateEligibleCount} asset(s)`,
+              : `${reactivateEligibleCount} Asset(s)`,
       disabled: reactivateEligibleCount === 0,
       icon: Power,
     })
@@ -237,7 +237,7 @@ export function buildAssetListActionItems(opts: {
 
   actions.push({
     id: "open",
-    label: "Open asset",
+    label: "Open Asset",
     hint: selectedCount === 1 ? undefined : "Select exactly one asset",
     disabled: selectedCount !== 1,
     icon: ExternalLink,
@@ -246,8 +246,8 @@ export function buildAssetListActionItems(opts: {
   if (canDelete) {
     actions.push({
       id: "delete",
-      label: "Delete selected",
-      hint: selectedCount > 0 ? `${selectedCount} asset(s)` : undefined,
+      label: "Delete Selected",
+      hint: selectedCount > 0 ? `${selectedCount} Asset(s)` : undefined,
       disabled: selectedCount === 0,
       variant: "destructive",
       icon: Trash2,
@@ -256,7 +256,7 @@ export function buildAssetListActionItems(opts: {
 
   actions.push({
     id: "clear-selection",
-    label: "Clear selection",
+    label: "Clear Selection",
     icon: X,
   })
 

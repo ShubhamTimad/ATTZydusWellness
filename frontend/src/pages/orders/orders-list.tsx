@@ -219,7 +219,7 @@ export function OrdersListPage() {
 
   return (
     <AdminPage fullWidth dense className="w-full">
-      <ListPageHeader title="Physical Verification Orders" description="" />
+      <ListPageHeader title="Physical Verification Order" description="" />
 
       <WorkspaceTabs
         value={tab}
@@ -258,9 +258,9 @@ export function OrdersListPage() {
                   id="orders-search"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search order number, plant, cost center, assignee…"
+                  placeholder="Search Order Records by Order Number, Cost Center, Status, etc."
                   className="w-full pl-9"
-                  aria-label="Search physical orders"
+                  aria-label="Search Order Records by Order Number, Cost Center, Status, etc."
                 />
                 {searchInput ? (
                   <button
@@ -406,7 +406,7 @@ export function OrdersListPage() {
                             }))
                           }
                         >
-                          <option value="">All plants</option>
+                          <option value="">All</option>
                           {filterPlants.map((p) => (
                             <option key={p.id} value={String(p.id)}>
                               {p.code ? `${p.code} — ${p.name}` : p.name}
@@ -426,7 +426,7 @@ export function OrdersListPage() {
                             }))
                           }
                         >
-                          <option value="">All cost centers</option>
+                          <option value="">All</option>
                           {filterCostCenters.map((c) => (
                             <option key={c.id} value={String(c.id)}>
                               {c.name?.trim() ? `${c.code} — ${c.name}` : c.code}
@@ -457,7 +457,7 @@ export function OrdersListPage() {
                             setColumnFilterInputs((f) => ({ ...f, status: e.target.value }))
                           }
                         >
-                          <option value="">All statuses</option>
+                          <option value="">All</option>
                           {filterStatuses.map((status) => (
                             <option key={status} value={status}>
                               {orderStatusLabel(status)}

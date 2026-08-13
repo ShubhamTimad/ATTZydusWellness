@@ -426,7 +426,7 @@ export function RolesPage() {
       dense
       fullWidth
       viewportFill
-      description="Link roles to plants and assign permissions by module. No plants selected = global role."
+      // description="Link roles to plants and assign permissions by module. No plants selected = global role."
       actions={
         canCreateRole || canSaveRole ? (
           <>

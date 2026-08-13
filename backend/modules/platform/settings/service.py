@@ -218,7 +218,7 @@ class SettingsService:
 
         cleaned = DocumentFormatPublic(
             org_name=payload.org_name.strip() or "Takeda",
-            product_name=payload.product_name.strip() or "Asset Tagging & Tracking",
+            product_name="",
             confidential_line=payload.confidential_line.strip() or "Confidential — internal use only",
             excel_include_title=payload.excel_include_title,
             signatures=payload.signatures,

@@ -151,7 +151,7 @@ export type CapexFormWritePayload = {
 
 export const CAPEX_STATUS_TABS = [
   { key: "all", label: "All" },
-  { key: "needs_action", label: "Needs My Action" },
+  { key: "needs_action", label: "Pending Action" },
 ] as const
 
 /** Lifecycle status filter for the CapEx list Status column (not inbox tabs). */

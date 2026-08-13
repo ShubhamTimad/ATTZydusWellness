@@ -990,7 +990,7 @@ export function DisposalOrderDetailPage() {
                       disabled={busy || editPlantId == null}
                       onChange={(e) => setFilterCostCenter(e.target.value)}
                     >
-                      <option value="">All cost centers (this plant)</option>
+                      <option value="">All</option>
                       {masters.costCenters.map((cc) => (
                         <option key={cc.id} value={cc.code}>
                           {costCenterLabel(cc)}

@@ -1061,7 +1061,7 @@ export function OrderDetailPage() {
                 id="order-asset-search"
                 value={assetSearchInput}
                 onChange={(e) => setAssetSearchInput(e.target.value)}
-                placeholder="Search asset code, name, RFID, or verifier…"
+                placeholder="Search Assets"
                 className="h-9 w-full pl-9"
                 aria-label="Search order assets"
               />
@@ -1161,7 +1161,7 @@ export function OrderDetailPage() {
                       aria-label="Filter status"
                       className={cn(adminSelectClass, columnFilterControlClass)}
                     >
-                      <option value="">All statuses</option>
+                      <option value="">All</option>
                       <option value="pending">Pending</option>
                       <option value="verified">Verified</option>
                       {showStatusRejectedOption || assetColumnFilterInputs.status === "rejected" ? (

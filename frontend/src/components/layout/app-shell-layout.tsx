@@ -121,7 +121,7 @@ const shellNavGroups: ShellNavGroup[] = [
       },
       {
         id: "assets",
-        label: "Assets",
+        label: "Asset Master",
         icon: Package,
         to: "/dashboard/assets",
         permission: "asset.view",

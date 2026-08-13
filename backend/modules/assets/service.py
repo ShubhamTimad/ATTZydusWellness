@@ -515,8 +515,9 @@ class AssetMasterService:
         plant_id: int | None = None,
     ) -> AssetListFilterOptionsResponse:
         """Distinct CC / location codes that appear on assets in the list scope."""
+        raw_scope = load_viewer_org_scope(self._db, viewer_user_id)
         scope = list_viewer_scope(
-            load_viewer_org_scope(self._db, viewer_user_id),
+            raw_scope,
             view_all=self._can_view_all_assets(viewer_user_id),
         )
         base, *_rest = self._asset_list_base_query(
@@ -547,6 +548,29 @@ class AssetMasterService:
             AssetListFilterOption(code=str(code), name=str(name) if name else None)
             for code, name in cc_rows
             if code
+        ]
+
+        assigned_codes = sorted({code for _, code in (raw_scope.cost_center_keys or ())})
+        name_by_code = {opt.code: opt.name for opt in cost_centers}
+        if assigned_codes:
+            missing = [c for c in assigned_codes if c not in name_by_code]
+            if missing:
+                for code, name in self._db.execute(
+                    select(CostCenterMaster.code, CostCenterMaster.name).where(
+                        CostCenterMaster.code.in_(missing)
+                    )
+                ).all():
+                    name_by_code[str(code)] = str(name) if name else None
+            existing = {opt.code for opt in cost_centers}
+            for code in assigned_codes:
+                if code not in existing:
+                    cost_centers.append(
+                        AssetListFilterOption(code=code, name=name_by_code.get(code))
+                    )
+            cost_centers.sort(key=lambda opt: opt.code)
+        assigned_cost_centers = [
+            AssetListFilterOption(code=code, name=name_by_code.get(code))
+            for code in assigned_codes
         ]
 
         fl_rows = self._db.execute(
@@ -601,6 +625,7 @@ class AssetMasterService:
             cost_centers=cost_centers,
             functional_locations=functional_locations,
             actual_locations=actual_locations,
+            assigned_cost_centers=assigned_cost_centers,
         )
 
     def get_asset_image(self, asset_id: int) -> tuple[bytes, str, str]:
@@ -2137,9 +2162,12 @@ class AssetMasterService:
         max_rows: int = 100_000,
         viewer_user_id: int | None = None,
         file_format: str = "xlsx",
+        report_title: str | None = None,
+        financial_year: str | None = None,
     ) -> tuple[bytes, str, str]:
         from modules.assets.export import build_asset_export_pdf, build_asset_export_xlsx
         from modules.assets.field_definitions import ASSET_EXPORT_FIELDS
+        from modules.reports.export import actor_display_name, report_filename
 
         allowed = set(ASSET_EXPORT_FIELDS)
         export_fields = [f for f in fields if f in allowed]
@@ -2177,16 +2205,28 @@ class AssetMasterService:
         base = _apply_asset_list_sort(base, sort_by=sort_by, sort_dir=sort_dir)
 
         rows = list(self._db.scalars(base.limit(max_rows)).unique().all())
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
         fmt = file_format.lower()
-        from modules.reports.export import actor_display_name
-
         generated_by = actor_display_name(self._db, viewer_user_id)
+        fy_token = financial_year
+        if fy_token is None and fy_start_year is not None:
+            fy_token = str(fy_start_year)
+        title = report_title or ("Asset Register" if fmt == "pdf" else "Asset Register")
         if fmt == "pdf":
             content = build_asset_export_pdf(rows, export_fields, generated_by=generated_by)
-            return content, f"asset-register-{stamp}.pdf", "application/pdf"
+            filename = report_filename(
+                "asset_register",
+                "pdf",
+                report_name=title,
+                financial_year=fy_token,
+            )
+            return content, filename, "application/pdf"
         content = build_asset_export_xlsx(rows, export_fields, generated_by=generated_by)
-        filename = f"assets-export-{stamp}.xlsx"
+        filename = report_filename(
+            "asset_register",
+            "xlsx",
+            report_name=title,
+            financial_year=fy_token,
+        )
         media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         return content, filename, media_type
 
@@ -2318,7 +2358,12 @@ class AssetMasterService:
         else:
             content = build_xlsx(doc)
             normalized = "xlsx"
-        filename = report_filename("fy-physical-verification", normalized)
+        filename = report_filename(
+            "financial_year_verification",
+            normalized,
+            report_name="Financial Year Physical Verification",
+            financial_year=res.financial_year_label or (str(fy_start_year) if fy_start_year else None),
+        )
         return content, filename, content_type_for_format(normalized)
 
     def get_asset(

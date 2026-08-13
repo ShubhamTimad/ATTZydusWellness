@@ -38,7 +38,7 @@ def _filter_options(kind: str, *, plant_options: list[ReportFilterOptionPublic],
         return []
     if kind == "order_status":
         return [
-            ReportFilterOptionPublic(value="all", label="All statuses"),
+            ReportFilterOptionPublic(value="all", label="All"),
             *[
                 ReportFilterOptionPublic(value=s, label=s.replace("_", " ").title())
                 for s in ORDER_STATUS_OPTIONS
@@ -74,10 +74,10 @@ def get_report_catalog(
     _ = current
     svc = ReportService(db)
     plants = [PlantOptionPublic(**p) for p in svc.list_plants()]
-    plant_options = [ReportFilterOptionPublic(value="all", label="All plants")] + [
+    plant_options = [ReportFilterOptionPublic(value="all", label="All")] + [
         ReportFilterOptionPublic(value=str(p.id), label=f"{p.name} ({p.code})") for p in plants
     ]
-    category_options = [ReportFilterOptionPublic(value="all", label="All categories")] + [
+    category_options = [ReportFilterOptionPublic(value="all", label="All")] + [
         ReportFilterOptionPublic(value=str(c.id), label=f"{c.name} ({c.code})") for c in svc.list_categories()
     ]
 
@@ -154,6 +154,7 @@ def generate_report(
             actual_location=actual_location,
             file_format=fmt,
             viewer_user_id=generated_by_user_id,
+            report_title=definition.title,
         )
         return Response(
             content=content,
@@ -175,7 +176,21 @@ def generate_report(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     content = build_xlsx(document) if fmt == "xlsx" else build_pdf(document)
-    filename = report_filename(definition.key, fmt)
+    fy_token = None
+    if definition.key == "financial_year_verification":
+        # Prefer the resolved FY label from the document subtitle (e.g. FY 2026-27).
+        fy_token = str(fy_start_year) if fy_start_year is not None else None
+        if document.subtitle:
+            # subtitle starts with period.label
+            fy_token = document.subtitle.split("·", 1)[0].strip() or fy_token
+    elif fy_start_year is not None:
+        fy_token = str(fy_start_year)
+    filename = report_filename(
+        definition.key,
+        fmt,
+        report_name=definition.title,
+        financial_year=fy_token,
+    )
     return Response(
         content=content,
         media_type=content_type_for_format(fmt),

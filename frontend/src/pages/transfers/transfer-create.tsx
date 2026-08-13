@@ -567,7 +567,7 @@ export function TransferOrderCreatePage() {
                       disabled={plantId == null || fromCostCenterOptions.length === 0}
                       onChange={(e) => setFromCostCenterCode(e.target.value)}
                     >
-                      <option value="">All cost centers</option>
+                      <option value="">All</option>
                       {fromCostCenterOptions.map((cc) => (
                         <option key={cc.id} value={cc.code}>
                           {masterDisplayName(cc.name, cc.code)}
@@ -585,7 +585,7 @@ export function TransferOrderCreatePage() {
                       disabled={plantId == null}
                       onChange={(e) => setFromFunctionalLocation(e.target.value)}
                     >
-                      <option value="">All locations</option>
+                      <option value="">All</option>
                       {masters.functionalLocations.map((fl) => (
                         <option key={fl.id} value={fl.code}>
                           {functionalLocationLabel(fl)}

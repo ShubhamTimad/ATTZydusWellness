@@ -293,9 +293,9 @@ export function AssetAuditLog({ rows, loading }: { rows: AssetAuditLogRow[]; loa
           <Table className="app-table-head-sticky">
             <TableHeader>
               <AdminTableHeaderRow className="bg-muted/30 hover:bg-muted/30">
-                <AdminTableHeadCell className={cn(headClass, "w-[9.5rem]")}>When</AdminTableHeadCell>
-                <AdminTableHeadCell className={cn(headClass, "w-[7.5rem]")}>By</AdminTableHeadCell>
-                <AdminTableHeadCell className={headClass}>Activity</AdminTableHeadCell>
+                <AdminTableHeadCell className={cn(headClass, "w-[9.5rem]")}>Date / Time</AdminTableHeadCell>
+                <AdminTableHeadCell className={cn(headClass, "w-[7.5rem]")}>User</AdminTableHeadCell>
+                <AdminTableHeadCell className={headClass}>Event</AdminTableHeadCell>
               </AdminTableHeaderRow>
             </TableHeader>
             <TableBody>

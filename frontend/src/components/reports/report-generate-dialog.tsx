@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Download, Loader2 } from "lucide-react"
 
-import { AdminPrimaryButton, adminSelectClass } from "@/components/layout/admin-ui"
+import { AdminPrimaryButton } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -11,9 +11,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import type { ReportDefinition, ReportFilterValues, ReportFormat } from "@/lib/reports-types"
 import { categoryLabel, plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
-import { cn } from "@/lib/utils"
 
 const FILTER_LABELS: Record<string, string> = {
   fy_start_year: "Financial year",
@@ -48,8 +54,7 @@ function shortenFilterOptionLabel(key: string, value: string, label: string): st
     if (value === "pending") return "Pending"
     if (value === "all") return "All"
   }
-  if (key === "status" && value === "all") return "All statuses"
-  if (key === "plant_id" && value === "all") return "All plants"
+  if (value === "all" || label.startsWith("All ")) return "All"
   return label
 }
 
@@ -89,27 +94,39 @@ function FilterField({
   placeholder?: string
   onChange: (value: string) => void
 }) {
+  const items =
+    options.length > 0
+      ? options
+      : placeholder
+        ? [{ value: "all", label: placeholder }]
+        : []
+  const selected = items.find((o) => o.value === value) ?? items[0]
+  const selectValue = selected?.value ?? ""
+
   return (
     <div className="min-w-0 space-y-1.5">
       <Label className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
         {FILTER_LABELS[filter.key] ?? filter.label}
       </Label>
-      <select
-        className={cn(adminSelectClass, "h-9 w-full min-w-0 bg-background text-sm")}
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
+      <Select
+        value={selectValue || undefined}
+        disabled={disabled || items.length === 0}
+        onValueChange={onChange}
       >
-        {options.length === 0 && placeholder ? <option value="all">{placeholder}</option> : null}
-        {options.map((option) => {
-          const optionValue = option.value || "all"
-          return (
-            <option key={`${filter.key}-${optionValue}`} value={optionValue}>
-              {shortenFilterOptionLabel(filter.key, optionValue, option.label)}
-            </option>
-          )
-        })}
-      </select>
+        <SelectTrigger aria-label={FILTER_LABELS[filter.key] ?? filter.label}>
+          <SelectValue placeholder={placeholder ?? "Select"} />
+        </SelectTrigger>
+        <SelectContent>
+          {items.map((option) => {
+            const optionValue = option.value || "all"
+            return (
+              <SelectItem key={`${filter.key}-${optionValue}`} value={optionValue}>
+                {shortenFilterOptionLabel(filter.key, optionValue, option.label)}
+              </SelectItem>
+            )
+          })}
+        </SelectContent>
+      </Select>
     </div>
   )
 }
@@ -124,7 +141,7 @@ function resolveFilterOptions(
   if (filter.kind === "category") {
     return {
       options: [
-        { value: "all", label: "All categories" },
+        { value: "all", label: "All" },
         ...masters.categories.map((c) => ({ value: String(c.id), label: categoryLabel(c) })),
       ],
     }
@@ -132,10 +149,10 @@ function resolveFilterOptions(
   if (filter.kind === "cost_center") {
     return {
       disabled: !plantId,
-      placeholder: plantId ? "All cost centers" : "Select plant first",
+      placeholder: plantId ? "All" : "Select plant first",
       options: plantId
         ? [
-            { value: "all", label: "All cost centers" },
+            { value: "all", label: "All" },
             ...masters.costCenters.map((cc) => ({
               value: cc.code,
               label: masterOptionLabel(cc.code, cc.name),
@@ -147,10 +164,10 @@ function resolveFilterOptions(
   if (filter.kind === "functional_location") {
     return {
       disabled: !plantId,
-      placeholder: plantId ? "All functional locations" : "Select plant first",
+      placeholder: plantId ? "All" : "Select plant first",
       options: plantId
         ? [
-            { value: "all", label: "All functional locations" },
+            { value: "all", label: "All" },
             ...masters.functionalLocations.map((fl) => ({
               value: fl.code,
               label: masterOptionLabel(fl.code, fl.name),
@@ -168,11 +185,11 @@ function resolveFilterOptions(
         ? "Select plant first"
         : !hasFl
           ? "Select functional location first"
-          : "All actual locations",
+          : "All",
       options:
         plantId && hasFl
           ? [
-              { value: "all", label: "All actual locations" },
+              { value: "all", label: "All" },
               ...masters.actualLocations.map((al) => ({
                 value: al.code,
                 label: masterOptionLabel(al.code, al.name),
@@ -184,7 +201,7 @@ function resolveFilterOptions(
   if (filter.kind === "plant") {
     return {
       options: [
-        { value: "all", label: "All plants" },
+        { value: "all", label: "All" },
         ...masters.plants.map((p) => ({ value: String(p.id), label: plantLabel(p) })),
       ],
     }
@@ -243,27 +260,32 @@ export function ReportGenerateDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{report.title}</DialogTitle>
-          <DialogDescription>Set filters, then download the {formatLabel} report.</DialogDescription>
+          {/* <DialogDescription>Set filters, then download the {formatLabel} report.</DialogDescription> */}
         </DialogHeader>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {filtersList.map((filter) => {
-            const resolved = resolveFilterOptions(filter, filters, masters)
-            return (
-              <FilterField
-                key={filter.key}
-                filter={filter}
-                value={filters[filter.key] ?? "all"}
-                options={resolved.options}
-                disabled={resolved.disabled}
-                placeholder={resolved.placeholder}
-                onChange={(value) => setFilters((prev) => ({ ...prev, [filter.key]: value }))}
-              />
-            )
-          })}
+        <div className="dialog-body">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {filtersList.map((filter) => {
+              const resolved = resolveFilterOptions(filter, filters, masters)
+              const aloneOnLastRow =
+                filtersList.length % 2 === 1 && filter.key === filtersList[filtersList.length - 1]?.key
+              return (
+                <div key={filter.key} className={aloneOnLastRow ? "sm:col-span-2" : undefined}>
+                  <FilterField
+                    filter={filter}
+                    value={filters[filter.key] ?? "all"}
+                    options={resolved.options}
+                    disabled={resolved.disabled}
+                    placeholder={resolved.placeholder}
+                    onChange={(value) => setFilters((prev) => ({ ...prev, [filter.key]: value }))}
+                  />
+                </div>
+              )
+            })}
+          </div>
         </div>
 
         <div className="dialog-footer-actions">

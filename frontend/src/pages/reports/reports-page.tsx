@@ -95,9 +95,9 @@ export function ReportsPage() {
         </div>
       ) : null}
 
-      <div className="grid w-full min-w-0 grid-cols-1 gap-[var(--app-grid-gap)] lg:grid-cols-2">
+      <div className="grid w-full min-w-0 grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
         {loading
-          ? Array.from({ length: 4 }).map((_, i) => <ReportTileSkeleton key={i} />)
+          ? Array.from({ length: 3 }).map((_, i) => <ReportTileSkeleton key={i} />)
           : null}
 
         {!loading && !loadError && catalog

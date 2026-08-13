@@ -55,7 +55,7 @@ const STEP_KINDS: { value: string; label: string }[] = [
 ]
 
 const ORG_SCOPES: { value: string; label: string }[] = [
-  { value: "", label: "All (no CC filter)" },
+  { value: "", label: "All" },
   { value: "source", label: "Source cost center" },
   { value: "destination", label: "Destination cost center" },
 ]
@@ -67,7 +67,7 @@ function stepKindLabel(kind: string | undefined): string {
 
 function orgScopeLabel(scope: string | null | undefined): string {
   const v = (scope || "").trim().toLowerCase()
-  return ORG_SCOPES.find((x) => x.value === v)?.label ?? "All (no CC filter)"
+  return ORG_SCOPES.find((x) => x.value === v)?.label ?? "All"
 }
 
 type WorkflowDetail = {

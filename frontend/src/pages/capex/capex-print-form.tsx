@@ -9,14 +9,13 @@ import {
 
 type DocumentFormatSettings = {
   org_name: string
-  product_name: string
+  product_name?: string
   confidential_line: string
   signatures: { capex: boolean }
 }
 
 const DEFAULT_DOCUMENT_FORMAT: DocumentFormatSettings = {
   org_name: "Takeda",
-  product_name: "Asset Tagging & Tracking",
   confidential_line: "Confidential — internal use only",
   signatures: { capex: true },
 }
@@ -146,7 +145,6 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
     getJson<{ full_name?: string }>("/me").catch(() => ({ full_name: "" })),
   ])
   const org = escapeHtml(chrome.org_name.trim() || DEFAULT_DOCUMENT_FORMAT.org_name)
-  const product = escapeHtml(chrome.product_name.trim() || DEFAULT_DOCUMENT_FORMAT.product_name)
   const confidential = escapeHtml(
     chrome.confidential_line.trim() || DEFAULT_DOCUMENT_FORMAT.confidential_line,
   )
@@ -242,15 +240,7 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
       object-position: left top;
       display: block;
     }
-    .brand-text .product {
-      font-size: 8pt;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: #6B7280;
-      font-weight: 600;
-    }
     .brand-text .title {
-      margin-top: 2px;
       font-size: 12pt;
       font-weight: 700;
       color: #111827;
@@ -348,7 +338,6 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
                 <img src="${escapeHtml(logoUrl)}" alt="" />
               </div>
               <div class="brand-text">
-                <div class="product">${product}</div>
                 <div class="title">Asset Capitalisation Form</div>
                 <div class="sub">${escapeHtml(detail.form_number)} · ${status}</div>
               </div>
@@ -380,7 +369,7 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
         <td colspan="3">
           <div class="doc-footer">
             <div class="left">
-              <div><strong>${org} · ${product}</strong></div>
+              <div><strong>${org}</strong></div>
               <div>${confidential}</div>
             </div>
             <div class="right">

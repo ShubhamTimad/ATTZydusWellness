@@ -296,8 +296,7 @@ export function TransferOrdersListPage() {
   return (
     <AdminPage fullWidth dense className="w-full">
       <ListPageHeader
-        title="Asset Transfer Orders"
-        description="Needs my action is work waiting on you. Done is closed or cancelled. All shows every transfer."
+        title="Asset Transfer Order"
         actions={
           canCreate ? (
             <AdminPrimaryButton
@@ -321,24 +320,12 @@ export function TransferOrdersListPage() {
         <WorkspaceTabsList>
           {TRANSFER_STATUS_TABS.map((t) => {
             const count = counts[t.key]
-            const highlight = t.key === "needs_action" && typeof count === "number" && count > 0
             return (
               <WorkspaceTabsTrigger key={t.key} value={t.key}>
-                <span className="inline-flex items-center gap-1.5">
-                  {t.label}
-                  {typeof count === "number" ? (
-                    <span
-                      className={cn(
-                        "rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
-                        highlight
-                          ? "bg-primary/15 text-primary"
-                          : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {count}
-                    </span>
-                  ) : null}
-                </span>
+                {t.label}
+                {typeof count === "number" ? (
+                  <span className="ml-1.5 tabular-nums text-muted-foreground">({count})</span>
+                ) : null}
               </WorkspaceTabsTrigger>
             )
           })}
@@ -357,9 +344,9 @@ export function TransferOrdersListPage() {
                 id="transfers-search"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                placeholder="Search order number, plant, cost center, assignee…"
+                placeholder="Search Order Records by Order Number, Cost Center, Status, etc."
                 className="w-full pl-9"
-                aria-label="Search transfer orders"
+                aria-label="Search Order Records by Order Number, Cost Center, Status, etc."
               />
               {searchInput ? (
                 <button
@@ -509,7 +496,7 @@ export function TransferOrdersListPage() {
                           }))
                         }
                       >
-                        <option value="">All plants</option>
+                        <option value="">All</option>
                         {filterPlants.map((p) => (
                           <option key={p.id} value={String(p.id)}>
                             {p.code ? `${p.code} — ${p.name}` : p.name}
@@ -529,7 +516,7 @@ export function TransferOrdersListPage() {
                           }))
                         }
                       >
-                        <option value="">All from CC</option>
+                        <option value="">All</option>
                         {filterFromCostCenters.map((c) => (
                           <option key={c.id} value={String(c.id)}>
                             {c.name?.trim() ? `${c.code} — ${c.name}` : c.code}
@@ -549,7 +536,7 @@ export function TransferOrdersListPage() {
                           }))
                         }
                       >
-                        <option value="">All to CC</option>
+                        <option value="">All</option>
                         {filterToCostCenters.map((c) => (
                           <option key={c.id} value={String(c.id)}>
                             {c.name?.trim() ? `${c.code} — ${c.name}` : c.code}
@@ -591,7 +578,7 @@ export function TransferOrdersListPage() {
                           setColumnFilterInputs((f) => ({ ...f, status: e.target.value }))
                         }
                       >
-                        <option value="">All statuses</option>
+                        <option value="">All</option>
                         {filterStatuses.map((status) => (
                           <option key={status} value={status}>
                             {transferStatusLabel(status)}

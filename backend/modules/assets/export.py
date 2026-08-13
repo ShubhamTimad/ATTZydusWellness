@@ -8,12 +8,15 @@ from decimal import Decimal
 from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.styles import Font
-from openpyxl.utils import get_column_letter
 
 from modules.assets.field_definitions import ASSET_EXPORT_FIELD_LABELS, ASSET_REGISTER_PDF_LABELS
 from modules.assets.model import AssetMaster
-from modules.reports.pdf_chrome import apply_xlsx_print_chrome, write_xlsx_header
+from modules.reports.pdf_chrome import (
+    apply_xlsx_data_layout,
+    apply_xlsx_print_chrome,
+    write_xlsx_header,
+    xlsx_pad_row,
+)
 
 
 def _format_cell(value: Any) -> str | int | float | None:
@@ -101,37 +104,27 @@ def build_asset_export_xlsx(
     ws = wb.active
     ws.title = "Assets"
 
-    headers = [ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title()) for key in fields]
+    headers = ["Sr. No."] + [
+        ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title()) for key in fields
+    ]
     ncols = max(len(headers), 4)
     count = len(assets)
     write_xlsx_header(
         ws,
-        title="Asset register",
+        title="Asset Register",
         subtitle=f"{count} asset{'s' if count != 1 else ''}",
         ncols=ncols,
+        generated_by=generated_by,
     )
-    ws.append([])
-    ws.append(headers + [""] * (ncols - len(headers)))
+    ws.append(xlsx_pad_row([], ncols=ncols))
+    ws.append(xlsx_pad_row(headers, ncols=ncols))
     header_row = ws.max_row
-    for col_idx in range(1, len(headers) + 1):
-        ws.cell(row=header_row, column=col_idx).font = Font(bold=True)
 
-    for asset in assets:
-        row = [_format_cell(asset_export_value(asset, key)) for key in fields]
-        row.extend([None] * (ncols - len(row)))
-        ws.append(row)
+    for idx, asset in enumerate(assets, start=1):
+        row = [idx] + [_format_cell(asset_export_value(asset, key)) for key in fields]
+        ws.append(xlsx_pad_row(row, ncols=ncols))
 
-    for col_idx, key in enumerate(fields, start=1):
-        if col_idx <= 2:
-            continue
-        letter = get_column_letter(col_idx)
-        max_len = len(headers[col_idx - 1])
-        for excel_row in ws.iter_rows(min_col=col_idx, max_col=col_idx, min_row=header_row + 1):
-            val = excel_row[0].value
-            if val is not None:
-                max_len = max(max_len, min(len(str(val)), 48))
-        ws.column_dimensions[letter].width = max(10, min(max_len + 2, 42))
-
+    apply_xlsx_data_layout(ws, ncols=ncols, header_row=header_row)
     apply_xlsx_print_chrome(ws, ncols=ncols, generated_by=generated_by)
     buf = io.BytesIO()
     wb.save(buf)
@@ -156,7 +149,7 @@ def build_asset_export_pdf(
         rows.append(row)
     return build_pdf(
         ReportDocument(
-            title="Asset register",
+            title="Asset Register",
             subtitle=f"{len(rows)} asset{'s' if len(rows) != 1 else ''}",
             headers=headers,
             rows=rows,

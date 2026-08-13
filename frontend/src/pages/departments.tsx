@@ -194,7 +194,7 @@ export function DepartmentsPage() {
   return (
     <AdminPage
       fullWidth
-      description="Departments belong to a plant and can be assigned when creating users."
+      // description="Departments belong to a plant and can be assigned when creating users."
       actions={
         canCreate ? (
           <AdminPrimaryButton type="button" onClick={() => setCreateOpen(true)}>
@@ -211,7 +211,7 @@ export function DepartmentsPage() {
         </Alert>
       ) : null}
 
-      <AdminDataTable title="All departments" description="Sorted by code">
+      <AdminDataTable title="All departments">
         <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>

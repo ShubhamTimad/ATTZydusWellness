@@ -6,19 +6,15 @@ import type { ItDashboardModule } from "@/lib/assets-types"
 const COLORS = {
   active: DASHBOARD_CHART.it,
   inactive: DASHBOARD_STATUS.rest,
-  neu: DASHBOARD_STATUS.progress,
-  gap: "#d97706",
-  mfa: DASHBOARD_STATUS.rejected,
 }
 
 export function ItDashboard({ data }: { data: ItDashboardModule }) {
   const theme = DASHBOARD_THEMES.it
+  const total = data.total_users
   const active = data.active_users
-  const total = data.total_users || 1
   const inactive = data.inactive_users
-  const neu = data.new_users_last_7_days
-  const withoutRole = data.without_role ?? 0
-  const mfaPending = data.mfa_pending ?? 0
+  const denom = total || 1
+  const activePct = total > 0 ? Math.round((active / total) * 100) : 0
   const mix = [
     { name: "Active", value: active },
     { name: "Inactive", value: inactive },
@@ -30,35 +26,25 @@ export function ItDashboard({ data }: { data: ItDashboardModule }) {
         <div className="min-w-0 space-y-5">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Total active user
+              Total users
             </p>
-            <p className="mt-1 text-4xl font-semibold tabular-nums tracking-tight text-foreground">{active}</p>
+            <p className="mt-1 text-4xl font-semibold tabular-nums tracking-tight text-foreground">
+              {total}
+            </p>
           </div>
           <StatBreakdown
             items={[
               {
+                label: "Active",
+                value: active,
+                share: (active / denom) * 100,
+                color: COLORS.active,
+              },
+              {
                 label: "Inactive",
                 value: inactive,
-                share: (inactive / total) * 100,
+                share: (inactive / denom) * 100,
                 color: COLORS.inactive,
-              },
-              {
-                label: "New (7d)",
-                value: neu,
-                share: (neu / total) * 100,
-                color: COLORS.neu,
-              },
-              {
-                label: "No role",
-                value: withoutRole,
-                share: (withoutRole / (active || 1)) * 100,
-                color: COLORS.gap,
-              },
-              {
-                label: "MFA pending",
-                value: mfaPending,
-                share: (mfaPending / (active || 1)) * 100,
-                color: COLORS.mfa,
               },
             ]}
           />
@@ -70,6 +56,8 @@ export function ItDashboard({ data }: { data: ItDashboardModule }) {
           emptyMessage="No users"
           height={168}
           showLegend={false}
+          centerLabel={`${activePct}%`}
+          centerCaption="Active"
         />
       </div>
     </DashboardPanel>

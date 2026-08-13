@@ -337,9 +337,9 @@ export function AssetCreatePage() {
     <AdminPage
       fullWidth
       dense
-      description="Enter all asset master fields. Inventory count defaults to 1; physical count stays 0 until a physical verification order is completed."
+      // description="Enter all asset master fields. Inventory count defaults to 1; physical count stays 0 until a physical verification order is completed."
       className="w-full pb-6"
-      actions={<AdminBackLink to="/dashboard/assets">Assets</AdminBackLink>}
+      actions={<AdminBackLink to="/dashboard/assets">Asset Master</AdminBackLink>}
     >
       <form
         className="space-y-[var(--app-grid-gap)]"
@@ -350,7 +350,7 @@ export function AssetCreatePage() {
       >
         <AdminPanel
           title="Asset Information"
-          description="Core identification fields"
+          // description="Core identification fields"
           headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
           contentClassName="px-5 py-5"
         >
@@ -598,7 +598,7 @@ export function AssetCreatePage() {
           <AdminPanel
             className="flex h-full flex-col"
             title="Financial Information"
-            description="Cost, capitalization, and life span"
+            // description="Cost, capitalization, and life span"
             headerActions={<DollarSign className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="flex flex-1 flex-col px-5 py-5"
           >
@@ -829,7 +829,7 @@ export function AssetCreatePage() {
           <AdminPanel
             className="flex h-full flex-col"
             title="Location"
-            description="Select plant first to load cost centers and locations"
+            // description="Select plant first to load cost centers and locations"
             headerActions={<MapPin className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="flex flex-1 flex-col px-5 py-5"
           >
@@ -945,7 +945,7 @@ export function AssetCreatePage() {
 
         <AdminPanel
           title="Inventory & procurement"
-          description="Document references; inventory counts are set automatically on create"
+          // description="Document references; inventory counts are set automatically on create"
           headerActions={<ClipboardList className="size-4 text-muted-foreground" aria-hidden />}
           contentClassName="px-5 py-5"
         >

@@ -249,10 +249,10 @@ export const ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "cancelled", label: "Archived" },
 ]
 
-/** Inbox-style list tabs (All / Needs my action). */
+/** Inbox-style list tabs (All / Pending action). */
 export const ORDER_STATUS_TABS: OrderListTab[] = [
   { key: "all", label: "All" },
-  { key: "needs_action", label: "Needs My Action" },
+  { key: "needs_action", label: "Pending Action" },
 ]
 
 export function orderTabEmptyMessage(tab: string): string {

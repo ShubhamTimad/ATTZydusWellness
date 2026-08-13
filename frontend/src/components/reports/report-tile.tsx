@@ -1,56 +1,95 @@
-import {
-  CalendarRange,
-  ClipboardList,
-  Database,
-  FileSpreadsheet,
-  FileText,
-  Layers,
-  Loader2,
-  type LucideIcon,
-} from "lucide-react"
+import { FileSpreadsheet, FileText, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import type { ReportDefinition, ReportFormat } from "@/lib/reports-types"
 import { cn } from "@/lib/utils"
 
-export type ReportTileStyle = {
-  icon: LucideIcon
-  tag: string
-  surface: string
-  iconWrap: string
-  accentBar?: string
+type ChartKind = "bars" | "lines" | "ring"
+
+const REPORT_CHART: Record<string, ChartKind> = {
+  asset_register: "bars",
+  financial_year_verification: "lines",
+  physical_orders_summary: "ring",
 }
 
-export const REPORT_TILE_STYLES: Record<string, ReportTileStyle> = {
-  asset_register: {
-    icon: Database,
-    tag: "Asset master",
-    surface: "border-border/80 bg-card",
-    iconWrap: "bg-primary/12 text-primary ring-primary/20",
-    accentBar: "from-primary/80 via-primary to-primary/70",
-  },
-  financial_year_verification: {
-    icon: CalendarRange,
-    tag: "FY verification",
-    surface: "border-border/80 bg-card",
-    iconWrap: "bg-emerald-500/12 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300",
-    accentBar: "from-emerald-500/80 to-emerald-600",
-  },
-  physical_orders_summary: {
-    icon: ClipboardList,
-    tag: "Orders",
-    surface: "border-border/80 bg-card",
-    iconWrap: "bg-sky-500/10 text-sky-700 ring-sky-500/15 dark:text-sky-300",
-    accentBar: "from-sky-500/70 to-sky-600/80",
-  },
-}
+function ChartArtwork({ kind }: { kind: ChartKind }) {
+  if (kind === "lines") {
+    return (
+      <svg viewBox="0 0 220 160" className="h-full w-full" aria-hidden>
+        <defs>
+          <linearGradient id="rpt-line-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M12 110 C 42 88, 58 120, 88 78 C 112 48, 132 102, 162 62 C 182 42, 196 52, 208 36 L 208 148 L 12 148 Z"
+          fill="url(#rpt-line-fill)"
+        />
+        <path
+          d="M12 110 C 42 88, 58 120, 88 78 C 112 48, 132 102, 162 62 C 182 42, 196 52, 208 36"
+          fill="none"
+          stroke="var(--primary)"
+          strokeOpacity="0.55"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+        <path
+          d="M12 124 C 48 104, 72 132, 102 98 C 126 74, 150 112, 178 82 C 192 66, 200 74, 208 64"
+          fill="none"
+          stroke="var(--primary)"
+          strokeOpacity="0.28"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    )
+  }
 
-const FALLBACK_STYLE: ReportTileStyle = {
-  icon: Layers,
-  tag: "Report",
-  surface: "border-border/80 bg-card",
-  iconWrap: "bg-muted text-muted-foreground ring-border/60",
-  accentBar: "from-muted-foreground/50 to-muted-foreground/30",
+  if (kind === "ring") {
+    return (
+      <svg viewBox="0 0 220 160" className="h-full w-full" aria-hidden>
+        <g transform="translate(128 80)">
+          <circle r="58" fill="none" stroke="var(--primary)" strokeOpacity="0.14" strokeWidth="22" />
+          <circle
+            r="58"
+            fill="none"
+            stroke="var(--primary)"
+            strokeOpacity="0.5"
+            strokeWidth="22"
+            strokeDasharray="110 260"
+            strokeLinecap="round"
+            transform="rotate(-90)"
+          />
+          <circle
+            r="58"
+            fill="none"
+            stroke="var(--primary)"
+            strokeOpacity="0.28"
+            strokeWidth="22"
+            strokeDasharray="70 260"
+            strokeDashoffset="-120"
+            strokeLinecap="round"
+            transform="rotate(-90)"
+          />
+          <circle r="36" fill="white" fillOpacity="0.65" />
+        </g>
+      </svg>
+    )
+  }
+
+  return (
+    <svg viewBox="0 0 220 160" className="h-full w-full" aria-hidden>
+      <g fill="var(--primary)">
+        <rect x="28" y="78" width="22" height="58" rx="3" opacity="0.28" />
+        <rect x="58" y="52" width="22" height="84" rx="3" opacity="0.4" />
+        <rect x="88" y="32" width="22" height="104" rx="3" opacity="0.55" />
+        <rect x="118" y="64" width="22" height="72" rx="3" opacity="0.35" />
+        <rect x="148" y="44" width="22" height="92" rx="3" opacity="0.48" />
+        <rect x="178" y="86" width="22" height="50" rx="3" opacity="0.3" />
+      </g>
+    </svg>
+  )
 }
 
 const exportBtnClass = "h-8 min-w-[5.5rem] gap-1.5 px-2.5 text-xs font-medium shadow-none"
@@ -64,53 +103,43 @@ export function ReportTile({
   onGenerate: (format: ReportFormat) => void
   generatingKey: string | null
 }) {
-  const style = REPORT_TILE_STYLES[report.key] ?? FALLBACK_STYLE
-  const Icon = style.icon
   const busy = generatingKey?.startsWith(`${report.key}:`) ?? false
   const formats: ReportFormat[] = report.formats?.length ? report.formats : ["xlsx"]
   const showPdf = formats.includes("pdf")
+  const chart = REPORT_CHART[report.key] ?? "bars"
 
   return (
     <article
       className={cn(
-        "relative flex h-full w-full min-w-0 flex-col overflow-hidden rounded-[var(--app-radius-surface)] border shadow-[var(--app-shadow-surface)] transition-shadow hover:shadow-[var(--app-shadow-elevated)]",
-        style.surface,
+        "relative flex h-full min-h-[17rem] w-full min-w-0 flex-col overflow-hidden",
+        "rounded-2xl border border-border/50 bg-card",
+        "shadow-[0_2px_8px_rgb(15_23_42_/_0.06),0_10px_28px_rgb(15_23_42_/_0.06)]",
+        "transition-shadow hover:shadow-[0_4px_14px_rgb(15_23_42_/_0.08),0_14px_36px_rgb(15_23_42_/_0.08)]",
       )}
     >
-      {style.accentBar ? (
-        <div className={cn("h-0.5 w-full shrink-0 bg-gradient-to-r", style.accentBar)} aria-hidden />
-      ) : null}
+      <div
+        className="pointer-events-none absolute inset-0 bg-[linear-gradient(105deg,var(--card)_0%,var(--card)_42%,color-mix(in_srgb,var(--primary)_10%,var(--card))_100%)]"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-y-3 right-0 w-[55%] opacity-90 sm:inset-y-4"
+        aria-hidden
+      >
+        <ChartArtwork kind={chart} />
+      </div>
 
-      <div className="flex flex-1 flex-col gap-3.5 p-4">
-        <div className="flex items-start gap-2.5">
-          <div
-            className={cn(
-              "flex size-9 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
-              style.iconWrap,
-            )}
-          >
-            <Icon className="size-4" aria-hidden />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-              {style.tag}
-            </p>
-            <h3 className="mt-0.5 truncate text-sm font-semibold leading-tight text-foreground">
-              {report.title}
-            </h3>
-            <p className="mt-0.5 line-clamp-1 text-xs leading-snug text-muted-foreground">
-              {report.description}
-            </p>
-          </div>
-        </div>
+      <div className="relative z-[1] flex flex-1 flex-col p-7 sm:p-8">
+        <h3 className="max-w-[58%] text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+          {report.title}
+        </h3>
 
-        <div className="mt-auto flex justify-end gap-2 border-t border-border/60 pt-3">
+        <div className="mt-auto flex justify-end gap-2.5 pt-12">
           <Button
             type="button"
             variant="outline"
             size="sm"
             disabled={busy}
-            className={cn(exportBtnClass, "bg-background")}
+            className={cn(exportBtnClass, "bg-background/90 backdrop-blur-[2px]")}
             onClick={() => onGenerate("xlsx")}
           >
             {busy && generatingKey === `${report.key}:xlsx` ? (
@@ -144,6 +173,6 @@ export function ReportTile({
 
 export function ReportTileSkeleton() {
   return (
-    <div className="h-[8.5rem] animate-pulse rounded-[var(--app-radius-surface)] border border-border/60 bg-muted/20" />
+    <div className="h-[17rem] animate-pulse rounded-2xl border border-border/50 bg-muted/25 shadow-[0_2px_8px_rgb(15_23_42_/_0.04)]" />
   )
 }

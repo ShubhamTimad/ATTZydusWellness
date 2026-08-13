@@ -32,7 +32,7 @@ export function MastersPage() {
   return (
     <AdminPage fullWidth dense viewportFill className="gap-[var(--app-grid-gap)]">
       <div className="flex min-h-0 flex-1 flex-col gap-[var(--app-grid-gap)]">
-        <ListPageHeader className="shrink-0" title="Asset masters" description="" />
+        <ListPageHeader className="shrink-0" title="Master" description="" />
 
         <WorkspaceTabs
           defaultValue="categories"
