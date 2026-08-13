@@ -128,7 +128,7 @@ export function DashboardPage() {
             transfers ? (
               <WorkflowOrdersDashboard
                 key="transfers"
-                title="Asset transfers"
+                title="Asset Transfer"
                 theme={DASHBOARD_THEMES.transfers}
                 data={transfers}
               />
@@ -136,7 +136,7 @@ export function DashboardPage() {
             disposals ? (
               <WorkflowOrdersDashboard
                 key="disposals"
-                title="Asset disposals"
+                title="Asset Disposal"
                 theme={DASHBOARD_THEMES.disposals}
                 data={disposals}
               />
