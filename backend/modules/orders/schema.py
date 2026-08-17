@@ -44,6 +44,7 @@ class ValidateAssetsResponse(BaseModel):
     cost_center_mismatch: list[InvalidAssetRef]
     plant_id: int | None = None
     cost_center_id: int | None = None
+    cost_center_ids: list[int] = Field(default_factory=list)
     financial_year_label: str | None = None
     financial_year_start: date | None = None
     financial_year_end: date | None = None
@@ -211,6 +212,7 @@ class PhysicalOrderDetail(BaseModel):
     plant_id: int
     plant_name: str
     cost_center_id: int
+    cost_center_ids: list[int] = Field(default_factory=list)
     cost_center_code: str
     cost_center_description: str
     status: str

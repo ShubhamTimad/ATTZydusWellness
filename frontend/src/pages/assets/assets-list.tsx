@@ -2566,9 +2566,9 @@ export function AssetsListPage() {
       <Dialog open={ccMismatchOpen} onOpenChange={setCcMismatchOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Cost center mismatch</DialogTitle>
+            <DialogTitle>Outside your cost centers</DialogTitle>
             <DialogDescription>
-              Physical orders can only be created for assets belonging to the same cost center.
+              Physical orders can only include assets in cost centers assigned to you.
             </DialogDescription>
           </DialogHeader>
           <ul className="dialog-body list-disc space-y-1 pl-5 text-sm">
@@ -2683,7 +2683,7 @@ export function AssetsListPage() {
           selectedRows[0]?.plant_id ??
           (filters.plant_id ? Number(filters.plant_id) : null)
         }
-        costCenterId={validationResult?.cost_center_id ?? null}
+        costCenterIds={validationResult?.cost_center_ids ?? []}
         resetVerificationAssetIds={resetVerificationAssetIds}
         onCreated={(order) => {
           clearSelection()

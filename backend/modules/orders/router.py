@@ -59,13 +59,13 @@ def list_executors(
         None,
         description="Limit to users in the workflow role who belong to this plant.",
     ),
-    cost_center_id: int | None = Query(
+    cost_center_id: list[int] | None = Query(
         None,
-        description="Limit to users in the workflow role scoped to this cost center.",
+        description="Limit to users who cover every listed cost center (repeat the param).",
     ),
 ) -> ExecutorListResponse:
     try:
-        return svc.list_executors(plant_id=plant_id, cost_center_id=cost_center_id)
+        return svc.list_executors(plant_id=plant_id, cost_center_ids=cost_center_id)
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
@@ -89,14 +89,14 @@ def list_assignees(
         None,
         description="Limit to users in the first Approve-step role who belong to this plant.",
     ),
-    cost_center_id: int | None = Query(
+    cost_center_id: list[int] | None = Query(
         None,
-        description="Limit to users scoped to this cost center.",
+        description="Limit to users who cover every listed cost center (repeat the param).",
     ),
 ) -> ExecutorListResponse:
     """Users in the first Approve step of the Physical order workflow (closure handoff)."""
     try:
-        return svc.list_assignees(plant_id=plant_id, cost_center_id=cost_center_id)
+        return svc.list_assignees(plant_id=plant_id, cost_center_ids=cost_center_id)
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 

@@ -32,6 +32,7 @@ export type ValidateAssetsResponse = {
   }[]
   plant_id?: number | null
   cost_center_id?: number | null
+  cost_center_ids?: number[]
   financial_year_label?: string | null
   financial_year_start?: string | null
   financial_year_end?: string | null
@@ -169,6 +170,7 @@ export type PhysicalOrderDetail = {
   plant_id: number
   plant_name: string
   cost_center_id: number
+  cost_center_ids?: number[]
   cost_center_code: string
   cost_center_description: string
   status: string

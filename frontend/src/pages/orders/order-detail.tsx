@@ -333,9 +333,12 @@ export function OrderDetailPage() {
   React.useEffect(() => {
     if ((!reassignOpen && !assignOpen) || !order) return
     const params = new URLSearchParams({ plant_id: String(order.plant_id) })
-    if (order.cost_center_id != null) {
-      params.set("cost_center_id", String(order.cost_center_id))
-    }
+    const ccIds = order.cost_center_ids?.length
+      ? order.cost_center_ids
+      : order.cost_center_id != null
+        ? [order.cost_center_id]
+        : []
+    for (const id of ccIds) params.append("cost_center_id", String(id))
     void getJson<ExecutorListResponse>(`/admin/physical-orders/executors?${params}`)
       .then((res) => {
         setExecutors(res.items)
@@ -346,7 +349,7 @@ export function OrderDetailPage() {
         setExecutorRoleName(null)
         toast.error(e instanceof ApiError ? e.message : "Could not load executors from workflow.")
       })
-  }, [reassignOpen, assignOpen, order?.plant_id, order?.cost_center_id])
+  }, [reassignOpen, assignOpen, order?.plant_id, order?.cost_center_id, order?.cost_center_ids])
 
   async function runAction(path: string, body?: Record<string, unknown>): Promise<boolean> {
     if (!id) return false
@@ -1390,8 +1393,8 @@ export function OrderDetailPage() {
               {executors.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   {executorRoleName
-                    ? `No users in the "${executorRoleName}" role for this plant and cost center. Assign that role to users scoped to this cost center.`
-                    : "Configure the Physical order workflow (order.complete) with an Assign step and ensure that role has users for this plant and cost center."}
+                    ? `No users in the "${executorRoleName}" role with access to all cost centers on this order. Assign that role to users scoped to every selected cost center.`
+                    : "Configure the Physical order workflow (order.complete) with an Assign step and ensure that role has users who cover all cost centers on this order."}
                 </p>
               ) : null}
             </div>
@@ -1545,7 +1548,15 @@ export function OrderDetailPage() {
         onOpenChange={setClosureAssignOpen}
         assigneesUrl={
           order
-            ? `/admin/physical-orders/assignees?plant_id=${order.plant_id}&cost_center_id=${order.cost_center_id}`
+            ? `/admin/physical-orders/assignees?plant_id=${order.plant_id}${(
+                order.cost_center_ids?.length
+                  ? order.cost_center_ids
+                  : order.cost_center_id != null
+                    ? [order.cost_center_id]
+                    : []
+              )
+                .map((id) => `&cost_center_id=${id}`)
+                .join("")}`
             : undefined
         }
         roleLabel="Approver"

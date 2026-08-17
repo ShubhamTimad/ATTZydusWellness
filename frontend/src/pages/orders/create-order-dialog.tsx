@@ -21,15 +21,15 @@ type Props = {
   onOpenChange: (open: boolean) => void
   assetIds: number[]
   plantId?: number | null
-  costCenterId?: number | null
+  costCenterIds?: number[]
   resetVerificationAssetIds?: number[]
   onCreated: (order: PhysicalOrderDetail) => void
 }
 
-function executorsQuery(plantId?: number | null, costCenterId?: number | null): string {
+function executorsQuery(plantId?: number | null, costCenterIds: number[] = []): string {
   const params = new URLSearchParams()
   if (plantId != null) params.set("plant_id", String(plantId))
-  if (costCenterId != null) params.set("cost_center_id", String(costCenterId))
+  for (const id of costCenterIds) params.append("cost_center_id", String(id))
   const q = params.toString()
   return q ? `?${q}` : ""
 }
@@ -39,7 +39,7 @@ export function CreatePhysicalOrderDialog({
   onOpenChange,
   assetIds,
   plantId,
-  costCenterId,
+  costCenterIds = [],
   resetVerificationAssetIds = [],
   onCreated,
 }: Props) {
@@ -54,6 +54,7 @@ export function CreatePhysicalOrderDialog({
   // const assetCountLabel =
   //   assetIds.length === 1 ? "1 RFID asset" : `${assetIds.length} RFID assets`
 
+  const ccKey = costCenterIds.join(",")
   React.useEffect(() => {
     if (!open) {
       setAssignedTo("")
@@ -65,8 +66,9 @@ export function CreatePhysicalOrderDialog({
       return
     }
     setLoadingExecutors(true)
+    const ids = ccKey ? ccKey.split(",").map(Number) : []
     void getJson<ExecutorListResponse>(
-      `/admin/physical-orders/executors${executorsQuery(plantId, costCenterId)}`,
+      `/admin/physical-orders/executors${executorsQuery(plantId, ids)}`,
     )
       .then((res) => {
         setExecutors(res.items)
@@ -79,7 +81,7 @@ export function CreatePhysicalOrderDialog({
         setLoadError(e instanceof ApiError ? e.message : "Could not load assignees from workflow.")
       })
       .finally(() => setLoadingExecutors(false))
-  }, [open, plantId, costCenterId])
+  }, [open, plantId, ccKey])
 
   async function createAndAssign() {
     if (!assignedTo) {
@@ -162,7 +164,7 @@ export function CreatePhysicalOrderDialog({
             ) : !loadingExecutors && executors.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 {roleName
-                  ? `No users in the "${roleName}" role for this plant and cost center.`
+                  ? `No users in the "${roleName}" role with access to all selected cost centers.`
                   : "Configure the Physical order workflow Assign step first."}
               </p>
             ) : null}

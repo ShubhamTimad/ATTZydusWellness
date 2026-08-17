@@ -18,14 +18,24 @@ def can_create_physical_verification_order(
     return bool((rfid_code or "").strip())
 
 
+def user_covers_cost_centers(*, assigned_cost_center_ids: set[int], cost_center_ids: list[int]) -> bool:
+    if not cost_center_ids:
+        return True
+    if not assigned_cost_center_ids:
+        return True
+    assigned = {int(x) for x in assigned_cost_center_ids}
+    return all(int(cc) in assigned for cc in cost_center_ids)
+
+
 def user_in_cost_center_scope(*, assigned_cost_center_ids: set[int], cost_center_id: int) -> bool:
     """Plant-only users (no CCs) cover every CC; otherwise must include cost_center_id.
 
     Mirrors modules.orders.service.user_in_cost_center_scope.
     """
-    if not assigned_cost_center_ids:
-        return True
-    return int(cost_center_id) in assigned_cost_center_ids
+    return user_covers_cost_centers(
+        assigned_cost_center_ids=assigned_cost_center_ids,
+        cost_center_ids=[int(cost_center_id)],
+    )
 
 
 def test_requires_approved_and_rfid() -> None:
@@ -55,3 +65,10 @@ def test_executor_cost_center_scope() -> None:
     assert user_in_cost_center_scope(assigned_cost_center_ids=set(), cost_center_id=10)
     assert user_in_cost_center_scope(assigned_cost_center_ids={10, 20}, cost_center_id=10)
     assert not user_in_cost_center_scope(assigned_cost_center_ids={10, 20}, cost_center_id=99)
+
+
+def test_executor_must_cover_every_selected_cost_center() -> None:
+    assert user_covers_cost_centers(assigned_cost_center_ids=set(), cost_center_ids=[10, 20])
+    assert user_covers_cost_centers(assigned_cost_center_ids={10, 20, 30}, cost_center_ids=[10, 20])
+    assert not user_covers_cost_centers(assigned_cost_center_ids={10}, cost_center_ids=[10, 20])
+    assert not user_covers_cost_centers(assigned_cost_center_ids={10, 30}, cost_center_ids=[10, 20])

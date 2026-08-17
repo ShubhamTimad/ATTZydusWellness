@@ -169,11 +169,24 @@ def _order_link(order_id: int) -> str:
     return f"{base}/dashboard/orders/{int(order_id)}"
 
 
-def user_in_cost_center_scope(*, assigned_cost_center_ids: set[int], cost_center_id: int) -> bool:
-    """Plant-only users (no CCs assigned) cover every CC in their plant; otherwise must match."""
+def user_covers_cost_centers(
+    *, assigned_cost_center_ids: set[int], cost_center_ids: list[int]
+) -> bool:
+    """Plant-only users (no CCs assigned) cover every CC; otherwise must include all of them."""
+    if not cost_center_ids:
+        return True
     if not assigned_cost_center_ids:
         return True
-    return int(cost_center_id) in assigned_cost_center_ids
+    assigned = {int(x) for x in assigned_cost_center_ids}
+    return all(int(cc) in assigned for cc in cost_center_ids)
+
+
+def user_in_cost_center_scope(*, assigned_cost_center_ids: set[int], cost_center_id: int) -> bool:
+    """Plant-only users (no CCs assigned) cover every CC in their plant; otherwise must match."""
+    return user_covers_cost_centers(
+        assigned_cost_center_ids=assigned_cost_center_ids,
+        cost_center_ids=[int(cost_center_id)],
+    )
 
 
 class PhysicalOrderService:
@@ -825,6 +838,19 @@ class PhysicalOrderService:
             pid = int(loc.plant_id) if loc and loc.plant_id else None
             pname = loc.plant.name if loc and loc.plant else None
             cc = (fin.cost_center or "").strip() if fin else ""
+            if not cc:
+                cc_mismatch.append(
+                    InvalidAssetRef(
+                        asset_id=int(a.id),
+                        asset_code=a.asset_code,
+                        asset_name=a.asset_name,
+                        plant_id=pid,
+                        plant_name=pname,
+                        cost_center_code=None,
+                    )
+                )
+                blocked.add(int(a.id))
+                continue
             if not scope.unrestricted:
                 out_of_scope = False
                 if scope.cost_center_keys is not None:
@@ -870,26 +896,7 @@ class PhysicalOrderService:
                     )
                 )
                 blocked.add(int(a.id))
-            if ref_cc is not None and cc != ref_cc:
-                cc_mismatch.append(
-                    InvalidAssetRef(
-                        asset_id=int(a.id),
-                        asset_code=a.asset_code,
-                        asset_name=a.asset_name,
-                        cost_center_code=cc or None,
-                    )
-                )
-                blocked.add(int(a.id))
-            elif len(cc_codes) > 1 and cc != ref_cc:
-                cc_mismatch.append(
-                    InvalidAssetRef(
-                        asset_id=int(a.id),
-                        asset_code=a.asset_code,
-                        asset_name=a.asset_name,
-                        cost_center_code=cc or None,
-                    )
-                )
-                blocked.add(int(a.id))
+            # Mixed cost centers on one order are allowed; assignee must cover all of them.
 
         eligible = [int(a.id) for a in assets if int(a.id) not in blocked]
         period = financial_year_period_for()
@@ -911,13 +918,24 @@ class PhysicalOrderService:
                 )
             )
         resolved_plant_id: int | None = None
-        resolved_cost_center_id: int | None = None
-        if eligible and ref_plant is not None and ref_cc:
-            try:
-                resolved_cost_center_id = self._resolve_cost_center_id(ref_plant, ref_cc)
-                resolved_plant_id = ref_plant
-            except ConflictError:
-                pass
+        resolved_cost_center_ids: list[int] = []
+        if eligible and ref_plant is not None:
+            resolved_plant_id = ref_plant
+            seen_codes: list[str] = []
+            eligible_set = set(eligible)
+            for a in assets:
+                if int(a.id) not in eligible_set:
+                    continue
+                fin = a.financial
+                cc = (fin.cost_center or "").strip() if fin else ""
+                if not cc or cc in seen_codes:
+                    continue
+                seen_codes.append(cc)
+                try:
+                    resolved_cost_center_ids.append(self._resolve_cost_center_id(ref_plant, cc))
+                except ConflictError:
+                    pass
+        resolved_cost_center_id = resolved_cost_center_ids[0] if resolved_cost_center_ids else None
 
         return ValidateAssetsResponse(
             eligible_asset_ids=eligible,
@@ -928,6 +946,7 @@ class PhysicalOrderService:
             cost_center_mismatch=cc_mismatch,
             plant_id=resolved_plant_id,
             cost_center_id=resolved_cost_center_id,
+            cost_center_ids=resolved_cost_center_ids,
             financial_year_label=period.label,
             financial_year_start=period.start,
             financial_year_end=period.end,
@@ -979,12 +998,45 @@ class PhysicalOrderService:
             return False
         return True
 
-    def _user_in_cost_center_scope(self, user: User, cost_center_id: int) -> bool:
-        """Mirror viewer org scope: plant-only users (no CCs) cover all CCs in plant."""
-        return user_in_cost_center_scope(
+    def _user_covers_cost_centers(self, user: User, cost_center_ids: list[int]) -> bool:
+        return user_covers_cost_centers(
             assigned_cost_center_ids={int(cc.id) for cc in (user.cost_centers or [])},
-            cost_center_id=int(cost_center_id),
+            cost_center_ids=cost_center_ids,
         )
+
+    def _cost_center_ids_for_order(self, order: PhysicalOrder) -> list[int]:
+        """All cost centers on the order's assets (mixed CCs allowed)."""
+        plant_id = int(order.plant_id)
+        ids: list[int] = []
+        seen: set[str] = set()
+        for item in order.items:
+            asset = item.asset
+            fin = asset.financial if asset is not None else None
+            code = (fin.cost_center or "").strip() if fin is not None else ""
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            try:
+                ids.append(self._resolve_cost_center_id(plant_id, code))
+            except ConflictError:
+                continue
+        if not ids:
+            ids.append(int(order.cost_center_id))
+        return ids
+
+    def _cost_center_codes_for_order(self, order: PhysicalOrder) -> list[str]:
+        codes: list[str] = []
+        seen: set[str] = set()
+        for item in order.items:
+            asset = item.asset
+            fin = asset.financial if asset is not None else None
+            code = (fin.cost_center or "").strip() if fin is not None else ""
+            if code and code not in seen:
+                seen.add(code)
+                codes.append(code)
+        if not codes and order.cost_center is not None:
+            codes.append(order.cost_center.code)
+        return codes
 
     def _physical_order_workflow(self) -> ApprovalWorkflow:
         wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
@@ -1048,24 +1100,24 @@ class PhysicalOrderService:
         self,
         *,
         plant_id: int | None = None,
-        cost_center_id: int | None = None,
+        cost_center_ids: list[int] | None = None,
     ) -> ExecutorListResponse:
-        """Users in the workflow Assign-step role (plant/CC-scoped when ids are set)."""
+        """Users in the workflow Assign-step role (must cover every listed cost center)."""
         role = self._executor_role_from_workflow()
         return self._role_users_response(
-            role, plant_id=plant_id, cost_center_id=cost_center_id
+            role, plant_id=plant_id, cost_center_ids=cost_center_ids
         )
 
     def list_assignees(
         self,
         *,
         plant_id: int | None = None,
-        cost_center_id: int | None = None,
+        cost_center_ids: list[int] | None = None,
     ) -> ExecutorListResponse:
         """Users in the first Approve-step role (closure handoff after Complete)."""
         role = self._first_approver_role_from_workflow()
         return self._role_users_response(
-            role, plant_id=plant_id, cost_center_id=cost_center_id
+            role, plant_id=plant_id, cost_center_ids=cost_center_ids
         )
 
     def _role_users_response(
@@ -1073,18 +1125,17 @@ class PhysicalOrderService:
         role: Role,
         *,
         plant_id: int | None = None,
-        cost_center_id: int | None = None,
+        cost_center_ids: list[int] | None = None,
     ) -> ExecutorListResponse:
         users = self._users_in_role(int(role.id))
+        cc_ids = [int(x) for x in (cost_center_ids or [])]
         items: list[ExecutorUserPublic] = []
         for user in users:
             if user.is_superuser:
                 continue
             if plant_id is not None and not self._user_in_plant_scope(user, int(plant_id)):
                 continue
-            if cost_center_id is not None and not self._user_in_cost_center_scope(
-                user, int(cost_center_id)
-            ):
+            if cc_ids and not self._user_covers_cost_centers(user, cc_ids):
                 continue
             items.append(
                 ExecutorUserPublic(
@@ -1104,14 +1155,14 @@ class PhysicalOrderService:
         user_id: int,
         *,
         plant_id: int,
-        cost_center_id: int | None = None,
+        cost_center_ids: list[int] | None = None,
     ) -> User:
         user = self._db.get(User, user_id)
         if user is None or not user.is_active:
             raise NotFoundError("User", user_id)
-        pool = self.list_executors(plant_id=plant_id, cost_center_id=cost_center_id)
+        pool = self.list_executors(plant_id=plant_id, cost_center_ids=cost_center_ids)
         if int(user_id) not in {e.id for e in pool.items}:
-            scope = " for this plant and cost center" if cost_center_id is not None else ""
+            scope = " for this plant and all selected cost centers" if cost_center_ids else ""
             raise ConflictError(
                 f"Selected user is not in the \"{pool.role_name}\" role configured "
                 f"for Physical order assignment in the workflow{scope}."
@@ -1123,16 +1174,16 @@ class PhysicalOrderService:
         user_id: int,
         *,
         plant_id: int,
-        cost_center_id: int,
+        cost_center_ids: list[int],
     ) -> User:
         user = self._db.get(User, user_id)
         if user is None or not user.is_active:
             raise NotFoundError("User", user_id)
-        pool = self.list_assignees(plant_id=plant_id, cost_center_id=cost_center_id)
+        pool = self.list_assignees(plant_id=plant_id, cost_center_ids=cost_center_ids)
         if int(user_id) not in {e.id for e in pool.items}:
             raise ConflictError(
                 f"Selected user is not in the \"{pool.role_name}\" role configured "
-                "for Physical order approval in the workflow for this plant and cost center."
+                "for Physical order approval in the workflow for all selected cost centers."
             )
         return user
 
@@ -1277,22 +1328,27 @@ class PhysicalOrderService:
         if not loc or not loc.plant_id:
             raise ConflictError("Assets must have a plant assigned.")
         plant_id = int(loc.plant_id)
-        cc_code = (fin.cost_center or "").strip() if fin else ""
-        if not cc_code:
-            raise ConflictError("Assets must have a cost center assigned.")
-        cost_center_id = self._resolve_cost_center_id(plant_id, cc_code)
-        self._assert_cost_center_in_viewer_scope(
-            plant_id=plant_id,
-            cost_center_id=cost_center_id,
-            cost_center_code=cc_code,
-            viewer_user_id=actor_user_id,
-        )
+        cc_ids = list(validation.cost_center_ids)
+        if not cc_ids:
+            cc_code = (fin.cost_center or "").strip() if fin else ""
+            if not cc_code:
+                raise ConflictError("Assets must have a cost center assigned.")
+            cc_ids = [self._resolve_cost_center_id(plant_id, cc_code)]
+        for cid in cc_ids:
+            cc_row = self._db.get(CostCenterMaster, int(cid))
+            self._assert_cost_center_in_viewer_scope(
+                plant_id=plant_id,
+                cost_center_id=int(cid),
+                cost_center_code=cc_row.code if cc_row is not None else "",
+                viewer_user_id=actor_user_id,
+            )
+        cost_center_id = int(cc_ids[0])
 
         assignee: User | None = None
         assigned_to_id: int | None = body.assigned_to
         if assigned_to_id is not None:
             assignee = self._assert_valid_executor(
-                int(assigned_to_id), plant_id=plant_id, cost_center_id=cost_center_id
+                int(assigned_to_id), plant_id=plant_id, cost_center_ids=cc_ids
             )
 
         eligible_set = set(validation.eligible_asset_ids)
@@ -1387,7 +1443,7 @@ class PhysicalOrderService:
         self._assert_valid_executor(
             int(order.assigned_to),
             plant_id=int(order.plant_id),
-            cost_center_id=int(order.cost_center_id),
+            cost_center_ids=self._cost_center_ids_for_order(order),
         )
         self._apply_pending_verification_resets(order, actor_user_id=actor_user_id)
         # Clear any leftover creation-approval linkage from legacy flows.
@@ -2030,6 +2086,9 @@ class PhysicalOrderService:
                 selectinload(PhysicalOrder.items).selectinload(PhysicalOrderItem.asset).selectinload(
                     AssetMaster.inventory
                 ),
+                selectinload(PhysicalOrder.items).selectinload(PhysicalOrderItem.asset).selectinload(
+                    AssetMaster.financial
+                ),
             )
         )
         if order is None:
@@ -2123,7 +2182,8 @@ class PhysicalOrderService:
             plant_id=int(order.plant_id),
             plant_name=order.plant.name if order.plant else "",
             cost_center_id=int(order.cost_center_id),
-            cost_center_code=cc.code if cc else "",
+            cost_center_ids=self._cost_center_ids_for_order(order),
+            cost_center_code=", ".join(self._cost_center_codes_for_order(order)) or (cc.code if cc else ""),
             cost_center_description=cc.name if cc else "",
             status=order.status,
             remarks=order.remarks,
@@ -2265,7 +2325,7 @@ class PhysicalOrderService:
             assignee = self._assert_valid_executor(
                 int(assigned_to),
                 plant_id=int(order.plant_id),
-                cost_center_id=int(order.cost_center_id),
+                cost_center_ids=self._cost_center_ids_for_order(order),
             )
             old = order.assigned_to
             order.assigned_to = assigned_to
@@ -2317,7 +2377,7 @@ class PhysicalOrderService:
         assignee = self._assert_valid_executor(
             int(assigned_to),
             plant_id=int(order.plant_id),
-            cost_center_id=int(order.cost_center_id),
+            cost_center_ids=self._cost_center_ids_for_order(order),
         )
         old_assignee = order.assigned_to
         order.assigned_to = int(assigned_to)
@@ -2358,7 +2418,7 @@ class PhysicalOrderService:
         self._assert_valid_executor(
             int(order.assigned_to),
             plant_id=int(order.plant_id),
-            cost_center_id=int(order.cost_center_id),
+            cost_center_ids=self._cost_center_ids_for_order(order),
         )
         self._reset_order_after_full_rejection(order)
         self._activate_assignment(
@@ -2702,7 +2762,7 @@ class PhysicalOrderService:
         assignee = self._assert_valid_executor(
             int(assigned_to),
             plant_id=int(order.plant_id),
-            cost_center_id=int(order.cost_center_id),
+            cost_center_ids=self._cost_center_ids_for_order(order),
         )
         old_id = order.assigned_to
         old_name = self._user_name(old_id)
@@ -3037,17 +3097,17 @@ class PhysicalOrderService:
             if resolved_assignee is None:
                 pool = self.list_assignees(
                     plant_id=int(order.plant_id),
-                    cost_center_id=int(order.cost_center_id),
+                    cost_center_ids=self._cost_center_ids_for_order(order),
                 )
                 if not pool.items:
                     raise ConflictError(
-                        "No approver is available for this plant and cost center."
+                        "No approver is available who covers all cost centers on this order."
                     )
                 resolved_assignee = int(pool.items[0].id)
             self._assert_valid_closure_assignee(
                 int(resolved_assignee),
                 plant_id=int(order.plant_id),
-                cost_center_id=int(order.cost_center_id),
+                cost_center_ids=self._cost_center_ids_for_order(order),
             )
             engine = ApprovalEngineService(self._db)
             existing = self._latest_closure_approval_request(order_id)
