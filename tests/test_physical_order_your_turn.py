@@ -47,7 +47,7 @@ def test_assignee_starts_after_execution_reject() -> None:
             started_at="now",
             completed_at="now",
         )
-        == "Start"
+        == "Restart"
     )
     # Creator does not own needs-action when reject is after execution.
     assert (

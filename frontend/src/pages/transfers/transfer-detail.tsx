@@ -36,6 +36,7 @@ import {
 import {
   actualLocationLabel,
   costCenterLabel,
+  formatCostCenterWithCode,
   functionalLocationLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
@@ -947,7 +948,13 @@ export function TransferOrderDetailPage() {
                           <div className="font-medium">{item.asset_code}</div>
                           <div className="text-xs text-muted-foreground">{item.asset_name || "—"}</div>
                         </AdminTableCell>
-                        <AdminTableCell className="px-4 py-2">{item.from_cost_center_code ?? "—"}</AdminTableCell>
+                        <AdminTableCell className="px-4 py-2">
+                          {formatCostCenterWithCode(
+                            item.from_cost_center_code,
+                            masters.costCenters,
+                            order.from_cost_center_description,
+                          )}
+                        </AdminTableCell>
                         <AdminTableCell className="px-4 py-2">
                           {item.from_functional_location_name ??
                             item.from_functional_location ??

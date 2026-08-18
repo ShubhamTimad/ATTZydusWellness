@@ -1816,15 +1816,10 @@ export function AssetsListPage() {
                 <p className="text-[11px] text-muted-foreground">No scan in range</p>
               </div>
               <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/20 px-3 py-2.5 text-sm">
-                <span className="font-medium text-foreground">{data.financial_year_label}</span>
-                {data.financial_year_is_current ? (
-                  <AdminPillBadge tone="primary" className="ml-2 align-middle">
-                    Running
-                  </AdminPillBadge>
-                ) : null}
+                <span>{data.financial_year_label}</span>
                 {data.scan_window_start && data.scan_window_end ? (
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    Scans {new Date(data.scan_window_start).toLocaleDateString()} –{" "}
+                    {new Date(data.scan_window_start).toLocaleDateString()} –{" "}
                     {new Date(data.scan_window_end).toLocaleDateString()}
                   </p>
                 ) : null}

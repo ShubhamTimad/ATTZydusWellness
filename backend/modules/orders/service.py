@@ -235,17 +235,14 @@ class PhysicalOrderService:
     ) -> None:
         """Return order to executor after selected-item rejection at closure.
 
-        Verified lines stay locked; rejected (and other non-verified) lines must be
-        scanned again. Status goes back to in_progress for the original assignee.
+        Approved lines stay locked. Rejected (and other non-approved) lines lose their
+        scan and must be verified again. Status goes back to in_progress for the assignee.
         """
         order.status = ORDER_STATUS_IN_PROGRESS
         order.completed_at = None
         for item in order.items:
-            if self._is_physically_verified(item):
-                item.verification_status = ITEM_STATUS_APPROVED
-                item.rejection_reason = None
+            if item.verification_status == ITEM_STATUS_APPROVED:
                 continue
-            # Keep rejected status + reason visible until the executor re-scans.
             if item.verification_status != ITEM_STATUS_REJECTED:
                 item.verification_status = ITEM_STATUS_PENDING
                 item.rejection_reason = None
@@ -316,20 +313,14 @@ class PhysicalOrderService:
         rejected_codes: list[str] = []
         kept_approved: list[str] = []
         for item in order.items:
-            if item.verification_status == ITEM_STATUS_REJECTED:
-                # Already rejected during review — keep reason, clear scan for rework.
-                item.scan_time = None
-                item.verified_by = None
-                rejected_codes.append(self._item_asset_code(item))
-                continue
-            # Line-approved OR physically verified scans stay locked for the assignee.
-            if item.verification_status == ITEM_STATUS_APPROVED or self._is_physically_verified(item):
-                if item.verification_status != ITEM_STATUS_APPROVED:
-                    item.verification_status = ITEM_STATUS_APPROVED
-                    item.rejection_reason = None
+            if item.verification_status == ITEM_STATUS_APPROVED:
                 kept_approved.append(self._item_asset_code(item))
                 continue
-            self._clear_item_verification(item, rejected=True, reason=cleaned)
+            if item.verification_status == ITEM_STATUS_REJECTED:
+                item.scan_time = None
+                item.verified_by = None
+            else:
+                self._clear_item_verification(item, rejected=True, reason=cleaned)
             rejected_codes.append(self._item_asset_code(item))
         order.status = ORDER_STATUS_REJECTED
 
@@ -1970,9 +1961,9 @@ class PhysicalOrderService:
             return None
         is_creator = order.created_by is not None and int(order.created_by) == uid
         is_assignee = order.assigned_to is not None and int(order.assigned_to) == uid
-        # Execution reject stays with assignee (Start) — not creator Resubmit.
+        # Execution reject stays with assignee (Restart) — not creator Resubmit.
         if is_assignee and PhysicalOrderService._execution_side_rejection(order):
-            return "Start"
+            return "Restart"
         if is_creator and order.status in _EDITABLE_PHYSICAL_STATUSES:
             if order.status == ORDER_STATUS_REJECTED and PhysicalOrderService._execution_side_rejection(
                 order
@@ -2651,21 +2642,9 @@ class PhysicalOrderService:
             selected = [i for i in order.items if i.id in id_set]
             if not selected:
                 raise ConflictError("Select at least one line item to reject.")
-            verified_selected = [i for i in selected if self._is_physically_verified(i)]
-            if verified_selected and not any(not self._is_physically_verified(i) for i in selected):
-                raise ConflictError(
-                    "Physically verified assets cannot be rejected at closure. "
-                    "Select non-verified assets only."
-                )
-            targets = [i for i in selected if not self._is_physically_verified(i)]
-            if not targets:
-                raise ConflictError(
-                    "No non-verified assets in selection. Physically verified lines cannot be rejected."
-                )
             rejected_codes: list[str] = []
-            for item in targets:
-                item.verification_status = ITEM_STATUS_REJECTED
-                item.rejection_reason = reason
+            for item in selected:
+                self._clear_item_verification(item, rejected=True, reason=reason)
                 rejected_codes.append(self._item_asset_code(item))
             log_order_event(
                 self._db,
@@ -2826,7 +2805,7 @@ class PhysicalOrderService:
         order.started_by = actor_user_id
         for item in order.items:
             # Keep lines already approved at closure review locked.
-            if item.verification_status == ITEM_STATUS_APPROVED or self._is_physically_verified(item):
+            if item.verification_status == ITEM_STATUS_APPROVED:
                 continue
             item.verification_status = ITEM_STATUS_PENDING
             item.rejection_reason = None

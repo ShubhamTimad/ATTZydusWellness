@@ -224,6 +224,24 @@ export function costCenterLabel(m: { name?: string | null; code?: string | null 
   return masterDisplayName(m.name, m.code)
 }
 
+/** Display name with code, matching destination CC: "QC & Quality (CC-4200)". */
+export function formatCostCenterWithCode(
+  code: string | null | undefined,
+  centers: { name?: string | null; code?: string | null; description?: string | null }[],
+  fallbackDescription?: string | null,
+): string {
+  const c = (code ?? "").trim()
+  if (!c) return "—"
+  const cc = centers.find((m) => (m.code ?? "").trim() === c)
+  const name = (
+    cc
+      ? costCenterLabel({ name: (cc.name || cc.description || "").trim() || null, code: cc.code })
+      : (fallbackDescription ?? "").trim()
+  ).trim()
+  if (name && name.toLowerCase() !== c.toLowerCase()) return `${name} (${c})`
+  return c
+}
+
 export function profitCenterLabel(m: ProfitCenterMaster) {
   return masterDisplayName(m.name, m.code)
 }

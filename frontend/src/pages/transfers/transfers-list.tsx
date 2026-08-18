@@ -43,6 +43,7 @@ import {
   type TransferOrderListItem,
   type TransferOrderListResponse,
 } from "@/lib/transfer-types"
+import { formatCostCenterWithCode } from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -410,7 +411,7 @@ export function TransferOrdersListPage() {
               <TableHeader>
                 <AdminTableHeaderRow>
                   <SortableColumnHeader
-                    label="Order"
+                    label="Order ID"
                     columnKey="order_number"
                     sortBy={sortBy}
                     sortDir={sortDir}
@@ -477,8 +478,8 @@ export function TransferOrdersListPage() {
                         onChange={(e) =>
                           setColumnFilterInputs((f) => ({ ...f, order_number: e.target.value }))
                         }
-                        aria-label="Filter order number"
-                        placeholder="Order number"
+                        aria-label="Filter order ID"
+                        placeholder="Order ID"
                         className={columnFilterControlClass}
                       />
                     </AdminTableHeadCell>
@@ -622,7 +623,9 @@ export function TransferOrdersListPage() {
                     >
                       <AdminTableCell className="font-medium">{row.order_number}</AdminTableCell>
                       <AdminTableCell>{row.plant_name}</AdminTableCell>
-                      <AdminTableCell>{row.from_cost_center_code ?? "—"}</AdminTableCell>
+                      <AdminTableCell>
+                        {formatCostCenterWithCode(row.from_cost_center_code, filterFromCostCenters)}
+                      </AdminTableCell>
                       <AdminTableCell>{row.to_cost_center_code}</AdminTableCell>
                       <AdminTableCell className="tabular-nums">{row.asset_count}</AdminTableCell>
                       <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>

@@ -360,6 +360,10 @@ def activity_verb_for_action(action: str, new_value: dict[str, Any] | None, sour
         return "Reassigned by"
     if action == "deleted":
         return "Deleted by"
+    if action == "rfid_updated":
+        return "RFID Updated by"
+    if action == "rfid_attached":
+        return "RFID Attached by"
     return action.replace("_", " ").title() + " by"
 
 
@@ -448,6 +452,10 @@ def build_audit_summary(
         return f"Reassigned by {actor_name} to {to_name}"
     if action == "deleted":
         return f"Deleted by {actor_name}"
+    if action == "rfid_updated":
+        return f"RFID Updated by {actor_name}"
+    if action == "rfid_attached":
+        return f"RFID Attached by {actor_name}"
     if action in ASSET_AUDIT_VISIBLE_ORDER_ACTIONS:
         text = compact_order_audit_text(action, old_value=old_value, new_value=nv)
         return f"{text} · {actor_name}" if text else f"Physical order · {actor_name}"

@@ -211,8 +211,6 @@ export function OrderDetailPage() {
   const [scanValue, setScanValue] = React.useState("")
   const [rejectOpen, setRejectOpen] = React.useState(false)
   const [rejectReason, setRejectReason] = React.useState("")
-  const [closureRejectBlockedOpen, setClosureRejectBlockedOpen] = React.useState(false)
-  const [closureRejectVerifiedCodes, setClosureRejectVerifiedCodes] = React.useState<string[]>([])
   const [reassignOpen, setReassignOpen] = React.useState(false)
   const [assignOpen, setAssignOpen] = React.useState(false)
   const [closureAssignOpen, setClosureAssignOpen] = React.useState(false)
@@ -542,11 +540,6 @@ export function OrderDetailPage() {
 
   function setClosureChoice(item: PhysicalOrderItem, choice: "approve" | "reject" | null) {
     if (itemDecisionLocked(item)) return
-    if (choice === "reject" && item.physically_verified) {
-      setClosureRejectVerifiedCodes([item.asset_code])
-      setClosureRejectBlockedOpen(true)
-      return
-    }
     setClosureDecisions((prev) => ({
       ...prev,
       [item.id]: {
@@ -588,22 +581,13 @@ export function OrderDetailPage() {
 
     const toReject = pending.filter((item) => {
       const choice = closureDecisions[item.id]?.choice
-      return choice === "reject" && !item.physically_verified
+      return choice === "reject"
     })
     const missingReason = toReject.filter(
       (item) => !(closureDecisions[item.id]?.reason || "").trim(),
     )
     if (missingReason.length > 0) {
       toast.error("Enter a rejection reason for every rejected asset.")
-      return
-    }
-    const verifiedReject = pending.filter(
-      (item) =>
-        (closureDecisions[item.id]?.choice ?? null) === "reject" && item.physically_verified,
-    )
-    if (verifiedReject.length > 0) {
-      setClosureRejectVerifiedCodes(verifiedReject.map((item) => item.asset_code))
-      setClosureRejectBlockedOpen(true)
       return
     }
 
@@ -873,7 +857,7 @@ export function OrderDetailPage() {
               disabled={busy}
               onClick={() => void runAction("/start")}
             >
-              Start
+              {isRejected ? "Restart" : "Start"}
             </AdminPrimaryButton>
           ) : null}
           {canScan ? (
@@ -1210,7 +1194,6 @@ export function OrderDetailPage() {
                   const rowTone = itemRowTone(item)
                   const decision = closureDecisions[item.id] ?? { choice: null, reason: "" }
                   const locked = itemDecisionLocked(item)
-                  const rejectDisabled = locked || item.physically_verified
                   return (
                     <AdminTableBodyRow
                       key={item.id}
@@ -1299,7 +1282,7 @@ export function OrderDetailPage() {
                             >
                               <Checkbox
                                 checked={decision.choice === "reject"}
-                                disabled={rejectDisabled || busy}
+                                disabled={locked || busy}
                                 aria-label={`Reject ${item.asset_code}`}
                                 onCheckedChange={(on) =>
                                   setClosureChoice(item, on ? "reject" : null)
@@ -1481,7 +1464,7 @@ export function OrderDetailPage() {
             <DialogTitle>Reject order</DialogTitle>
             <DialogDescription>
               This rejects every asset that is not already approved. Approved assets stay locked.
-              The order becomes Rejected and the assigned executor can Start to rework only the
+              The order becomes Rejected and the assigned executor can Restart to rework only the
               rejected assets.
             </DialogDescription>
           </DialogHeader>
@@ -1514,34 +1497,6 @@ export function OrderDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      <Dialog open={closureRejectBlockedOpen} onOpenChange={setClosureRejectBlockedOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Cannot reject verified assets</DialogTitle>
-            <DialogDescription>
-              Physically verified assets cannot be rejected.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="dialog-body">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Verified
-            </p>
-            <p className="font-mono text-sm font-medium text-foreground">
-              {closureRejectVerifiedCodes.join(", ")}
-            </p>
-          </div>
-          <div className="dialog-footer-actions">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setClosureRejectBlockedOpen(false)}
-            >
-              OK
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
       {confirmDialog}
       <CapexAssigneePickerDialog
         open={closureAssignOpen}
@@ -1560,7 +1515,7 @@ export function OrderDetailPage() {
             : undefined
         }
         roleLabel="Approver"
-        confirmLabel="Complete & submit"
+        confirmLabel="Complete"
         busy={busy}
         onConfirm={async (userId) => {
           const ok = await runAction("/submit-closure", { assignee_user_id: userId })

@@ -2012,6 +2012,9 @@ class AssetMasterService:
     ) -> AssetListResponse:
         page = max(1, page)
         page_size = min(max(1, page_size), 100)
+        from modules.transfers.service import sync_open_transfer_asset_lifecycles
+
+        sync_open_transfer_asset_lifecycles(self._db)
         scope = load_viewer_org_scope(self._db, viewer_user_id)
         search_columns = (
             self.get_asset_list_columns(viewer_user_id) if viewer_user_id is not None else None
@@ -2369,6 +2372,9 @@ class AssetMasterService:
     def get_asset(
         self, asset_id: int, *, viewer_user_id: int | None = None
     ) -> AssetDetailPublic:
+        from modules.transfers.service import sync_open_transfer_asset_lifecycles
+
+        sync_open_transfer_asset_lifecycles(self._db)
         asset = self._load_asset(asset_id)
         self._assert_asset_in_viewer_scope(asset, viewer_user_id=viewer_user_id)
         return self._to_detail(asset, viewer_user_id=viewer_user_id)

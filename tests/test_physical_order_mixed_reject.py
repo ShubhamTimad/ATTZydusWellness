@@ -72,9 +72,10 @@ def test_apply_rejection_keeps_approved_lines() -> None:
     assert by_code["A2"].scan_time is None
     assert by_code["A3"].verification_status == ITEM_STATUS_REJECTED
     assert by_code["A3"].scan_time is None
-    # Scanned-but-not-yet-line-approved stays locked.
-    assert by_code["A4"].verification_status == ITEM_STATUS_APPROVED
-    assert by_code["A4"].scan_time == "t"
+    # Scanned-but-not-line-approved is rejected and must be scanned again.
+    assert by_code["A4"].verification_status == ITEM_STATUS_REJECTED
+    assert by_code["A4"].scan_time is None
+    assert by_code["A4"].verified_by is None
 
 
 def test_reset_after_rejection_preserves_approved() -> None:
@@ -106,3 +107,12 @@ def test_reset_after_rejection_preserves_approved() -> None:
     assert by_code["B2"].verification_status == ITEM_STATUS_PENDING
     assert order.completed_at is None
     assert order.started_at is None
+
+
+def test_rejected_verified_line_becomes_pending_scan() -> None:
+    item = _item("D1", ITEM_STATUS_PENDING, scan=True)
+    PhysicalOrderService._clear_item_verification(None, item, rejected=True, reason="mismatch")
+    assert item.verification_status == ITEM_STATUS_REJECTED
+    assert item.scan_time is None
+    assert item.verified_by is None
+    assert item.rejection_reason == "mismatch"

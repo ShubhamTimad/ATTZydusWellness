@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from modules.asset_masters.location_lookup import resolve_plant_location_names
 from modules.asset_masters.model import CostCenterAssetCustodian, CostCenterMaster
-from modules.assets.lifecycle import LIFECYCLE_ACTIVE
+from modules.assets.lifecycle import (
+    LIFECYCLE_ACTIVE,
+    LIFECYCLE_PENDING_TRANSFER,
+    mark_pending_transfer,
+    restore_from_pending_transfer,
+)
 from modules.assets.model import (
     AssetFinancialInformation,
     AssetLocationInformation,
@@ -398,6 +403,28 @@ def _audit_payload_for_api(db: Session, value: dict | None) -> dict | None:
     return out
 
 
+def sync_open_transfer_asset_lifecycles(db: Session) -> int:
+    """Mark assets on open transfer orders as pending_transfer (idempotent backfill)."""
+    open_asset_ids = (
+        select(AssetTransferOrderItem.asset_id)
+        .join(AssetTransferOrder, AssetTransferOrderItem.order_id == AssetTransferOrder.id)
+        .where(AssetTransferOrder.status.in_(tuple(ACTIVE_STATUSES)))
+    )
+    result = db.execute(
+        update(AssetMaster)
+        .where(
+            AssetMaster.deleted_at.is_(None),
+            func.lower(func.trim(AssetMaster.lifecycle_status)) == LIFECYCLE_ACTIVE,
+            AssetMaster.id.in_(open_asset_ids),
+        )
+        .values(lifecycle_status=LIFECYCLE_PENDING_TRANSFER)
+    )
+    n = int(getattr(result, "rowcount", 0) or 0)
+    if n:
+        db.commit()
+    return n
+
+
 class TransferOrderService:
     def __init__(self, db: Session) -> None:
         self._db = db
@@ -710,13 +737,26 @@ class TransferOrderService:
                 return
             raise
 
-    def _assert_assets_approved_for_transfer(self, assets: list[AssetMaster]) -> None:
-        """Transfer orders may only include approved (or approval-not-required) active assets."""
+    def _assert_assets_approved_for_transfer(
+        self, assets: list[AssetMaster], *, reserved_asset_ids: set[int] | None = None
+    ) -> None:
+        """Transfer orders may only include approved (or approval-not-required) active assets.
+
+        Draft/resubmit: assets already on this order may stay pending_transfer.
+        """
+        reserved = reserved_asset_ids or set()
         bad: list[str] = []
         for asset in assets:
             lifecycle = (asset.lifecycle_status or "").strip().lower()
             approval = (asset.approval_status or "").strip().lower()
-            if lifecycle != LIFECYCLE_ACTIVE or approval not in {"approved", "not_required"}:
+            if approval not in {"approved", "not_required"}:
+                bad.append(asset.asset_code or str(asset.id))
+                continue
+            if int(asset.id) in reserved:
+                if lifecycle not in {LIFECYCLE_ACTIVE, LIFECYCLE_PENDING_TRANSFER}:
+                    bad.append(asset.asset_code or str(asset.id))
+                continue
+            if lifecycle != LIFECYCLE_ACTIVE:
                 bad.append(asset.asset_code or str(asset.id))
         if bad:
             sample = ", ".join(bad[:5])
@@ -725,6 +765,20 @@ class TransferOrderService:
                 "Only approved assets can be included on a transfer order: "
                 f"{sample}{more}."
             )
+
+    def _order_assets(self, order: AssetTransferOrder) -> list[AssetMaster]:
+        assets = [item.asset for item in order.items if item.asset is not None]
+        if assets:
+            return assets
+        return self._load_assets([int(item.asset_id) for item in order.items])
+
+    def _mark_assets_pending_transfer(self, assets: list[AssetMaster]) -> None:
+        for asset in assets:
+            mark_pending_transfer(asset)
+
+    def _restore_assets_active(self, assets: list[AssetMaster]) -> None:
+        for asset in assets:
+            restore_from_pending_transfer(asset)
 
     def _load_assets(self, asset_ids: list[int]) -> list[AssetMaster]:
         ids = list(dict.fromkeys(int(i) for i in asset_ids))
@@ -826,6 +880,7 @@ class TransferOrderService:
         )
         if getattr(updated, "rowcount", 0):
             self._db.commit()
+        sync_open_transfer_asset_lifecycles(self._db)
 
     def _assign(self, order: AssetTransferOrder, *, to_user_id: int, by_user_id: int) -> None:
         order.assigned_to = to_user_id
@@ -883,6 +938,7 @@ class TransferOrderService:
         self._db.add(order)
         self._db.flush()
         self._replace_items(order, assets)
+        self._mark_assets_pending_transfer(assets)
         _log(
             self._db,
             order_id=int(order.id),
@@ -947,15 +1003,20 @@ class TransferOrderService:
         if "remarks" in patch:
             order.remarks = _strip_or_none(patch["remarks"])
         if "asset_ids" in patch and patch["asset_ids"] is not None:
+            previous_assets = self._order_assets(order)
+            old_ids = {int(a.id) for a in previous_assets}
             assets = self._load_assets(patch["asset_ids"])
             self._assert_actor_is_custodian(assets, actor_user_id=actor_user_id)
-            self._assert_assets_approved_for_transfer(assets)
+            self._assert_assets_approved_for_transfer(assets, reserved_asset_ids=old_ids)
             plant_id = _asset_plant_id(assets[0])
             if plant_id is None or plant_id != int(order.plant_id):
                 raise ConflictError("Assets must remain on the same plant as the transfer order.")
             from_cc = self._assert_same_from_cost_center(assets)
+            new_ids = {int(a.id) for a in assets}
+            self._restore_assets_active([a for a in previous_assets if int(a.id) not in new_ids])
             order.from_cost_center_id = int(from_cc.id)
             self._replace_items(order, assets)
+            self._mark_assets_pending_transfer([a for a in assets if int(a.id) not in old_ids])
         _log(
             self._db,
             order_id=int(order.id),
@@ -983,6 +1044,7 @@ class TransferOrderService:
             )
         if not _actor_may_discard_transfer(order, actor_user_id=actor_user_id, db=self._db):
             raise ConflictError("Only the draft creator can delete this transfer order.")
+        self._restore_assets_active(self._order_assets(order))
         self._db.delete(order)
         self._db.commit()
 
@@ -999,6 +1061,8 @@ class TransferOrderService:
             )
         if not _actor_may_discard_transfer(order, actor_user_id=actor_user_id, db=self._db):
             raise ConflictError("Only the order creator can archive this transfer order.")
+
+        self._restore_assets_active(self._order_assets(order))
 
         # Close leftover approval/rework inbox items so archived orders leave the queue.
         if order.approval_request_id is not None:
@@ -1039,6 +1103,18 @@ class TransferOrderService:
             raise ConflictError("Only the order creator can unarchive this transfer order.")
 
         restore = self._status_before_archive(int(order.id), allowed=ARCHIVABLE_STATUSES)
+        assets = self._order_assets(order)
+        blocked = [
+            a.asset_code or str(a.id)
+            for a in assets
+            if (a.lifecycle_status or "").strip().lower() != LIFECYCLE_ACTIVE
+        ]
+        if blocked:
+            raise ConflictError(
+                "Cannot unarchive: these assets are no longer available — "
+                + ", ".join(blocked)
+            )
+        self._mark_assets_pending_transfer(assets)
         old_status = order.status
         order.status = restore
         _log(
@@ -1181,7 +1257,9 @@ class TransferOrderService:
         if not assets:
             assets = self._load_assets([int(item.asset_id) for item in order.items])
         self._assert_actor_may_submit_transfer(order, assets, actor_user_id=actor_user_id)
-        self._assert_assets_approved_for_transfer(assets)
+        self._assert_assets_approved_for_transfer(
+            assets, reserved_asset_ids={int(a.id) for a in assets}
+        )
         self._assert_same_from_cost_center(assets)
         if order.to_asset_custodian_id is None:
             raise ConflictError("Destination asset custodian is required before submitting.")
@@ -1396,6 +1474,7 @@ class TransferOrderService:
         old_status = order.status
         order.status = STATUS_CLOSED
         order.closed_at = datetime.now(timezone.utc)
+        self._restore_assets_active(self._order_assets(order))
         _log(
             self._db,
             order_id=int(order.id),
@@ -2409,12 +2488,21 @@ def apply_transfer_close(
     step_role_name: str | None = None,
     comment: str | None = None,
 ) -> None:
-    order = db.get(AssetTransferOrder, order_id)
+    order = db.scalar(
+        select(AssetTransferOrder)
+        .where(AssetTransferOrder.id == int(order_id))
+        .options(
+            selectinload(AssetTransferOrder.items).selectinload(AssetTransferOrderItem.asset),
+        )
+    )
     if order is None:
         return
     old_status = order.status
     order.status = STATUS_CLOSED
     order.closed_at = datetime.now(timezone.utc)
+    for item in order.items:
+        if item.asset is not None:
+            restore_from_pending_transfer(item.asset)
     _log(
         db,
         order_id=int(order.id),

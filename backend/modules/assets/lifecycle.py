@@ -16,6 +16,8 @@ LIFECYCLE_INACTIVE = "inactive"
 LIFECYCLE_DEACTIVATED = "deactivated"
 # Reserved by an open disposal order draft / in-flight disposal.
 LIFECYCLE_PENDING_DISPOSAL = "pending_disposal"
+# Reserved by an open transfer order draft / in-flight transfer.
+LIFECYCLE_PENDING_TRANSFER = "pending_transfer"
 # Scrapped via a closed disposal order — terminal, never reactivated.
 LIFECYCLE_DISPOSED = "disposed"
 # Legacy rows may still use this until migrated; treat as inactive + pending approval.
@@ -29,6 +31,7 @@ LIFECYCLE_INACTIVE_FILTER = frozenset(
         LIFECYCLE_PENDING_LEGACY,
         LIFECYCLE_DEACTIVATED,
         LIFECYCLE_PENDING_DISPOSAL,
+        LIFECYCLE_PENDING_TRANSFER,
         LIFECYCLE_DISPOSED,
     }
 )
@@ -41,7 +44,12 @@ APPROVAL_APPROVED = "approved"
 
 # Badge "Approved" is approval_status=approved unless lifecycle overrides the label.
 APPROVED_LIST_HIDDEN_LIFECYCLES = frozenset(
-    {LIFECYCLE_PENDING_DISPOSAL, LIFECYCLE_DISPOSED, LIFECYCLE_DEACTIVATED}
+    {
+        LIFECYCLE_PENDING_DISPOSAL,
+        LIFECYCLE_PENDING_TRANSFER,
+        LIFECYCLE_DISPOSED,
+        LIFECYCLE_DEACTIVATED,
+    }
 )
 
 
@@ -113,6 +121,30 @@ def mark_pending_disposal(asset: AssetMaster) -> dict[str, Any]:
 
 def restore_from_pending_disposal(asset: AssetMaster) -> dict[str, Any]:
     """Draft disposal removed/cancelled before completion — make the asset usable again."""
+    before = {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status}
+    asset.lifecycle_status = LIFECYCLE_ACTIVE
+    return {
+        "before": before,
+        "after": {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status},
+    }
+
+
+def is_pending_transfer(lifecycle_status: str | None) -> bool:
+    return (lifecycle_status or "").strip().lower() == LIFECYCLE_PENDING_TRANSFER
+
+
+def mark_pending_transfer(asset: AssetMaster) -> dict[str, Any]:
+    """Asset is locked for an open transfer order and cannot be reused elsewhere."""
+    before = {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status}
+    asset.lifecycle_status = LIFECYCLE_PENDING_TRANSFER
+    return {
+        "before": before,
+        "after": {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status},
+    }
+
+
+def restore_from_pending_transfer(asset: AssetMaster) -> dict[str, Any]:
+    """Transfer archived/deleted/closed — asset is approved/active again."""
     before = {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status}
     asset.lifecycle_status = LIFECYCLE_ACTIVE
     return {

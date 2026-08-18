@@ -380,7 +380,7 @@ export function DisposalOrdersListPage() {
               <TableHeader>
                 <AdminTableHeaderRow>
                   <SortableColumnHeader
-                    label="Order"
+                    label="Order ID"
                     columnKey="order_number"
                     sortBy={sortBy}
                     sortDir={sortDir}
@@ -440,8 +440,8 @@ export function DisposalOrdersListPage() {
                         onChange={(e) =>
                           setColumnFilterInputs((f) => ({ ...f, order_number: e.target.value }))
                         }
-                        aria-label="Filter order number"
-                        placeholder="Order number"
+                        aria-label="Filter order ID"
+                        placeholder="Order ID"
                         className={columnFilterControlClass}
                       />
                     </AdminTableHeadCell>

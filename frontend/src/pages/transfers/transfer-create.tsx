@@ -31,6 +31,7 @@ import type {
   TransferOrderDetail,
 } from "@/lib/transfer-types"
 import {
+  formatCostCenterWithCode,
   functionalLocationLabel,
   masterDisplayName,
   plantLabel,
@@ -48,6 +49,7 @@ type DraftAsset = Pick<
   | "plant_id"
   | "plant_name"
   | "cost_center"
+  | "cost_center_description"
   | "functional_location"
   | "functional_location_description"
   | "actual_location"
@@ -104,6 +106,7 @@ function toDraftAsset(a: AssetListItem): DraftAsset {
     plant_id: a.plant_id,
     plant_name: a.plant_name,
     cost_center: a.cost_center,
+    cost_center_description: a.cost_center_description,
     functional_location: a.functional_location,
     functional_location_description: a.functional_location_description,
     actual_location: a.actual_location,
@@ -519,11 +522,11 @@ export function TransferOrderCreatePage() {
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
             title={`1. Select assets (${assets.length})`}
-            description={
-              fromAssets
-                ? "Assets where you are the asset custodian (from Asset Master)."
-                : "Filter and select approved assets you custodiate. One transfer moves assets from a single cost center to one destination."
-            }
+            // description={
+            //   fromAssets
+            //     ? "Assets where you are the asset custodian (from Asset Master)."
+            //     : "Filter and select approved assets you custodiate. One transfer moves assets from a single cost center to one destination."
+            // }
             headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
           >
@@ -674,7 +677,13 @@ export function TransferOrderCreatePage() {
                                 {a.asset_name || "—"}
                               </div>
                             </AdminTableCell>
-                            <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
+                            <AdminTableCell>
+                              {formatCostCenterWithCode(
+                                a.cost_center,
+                                masters.costCenters,
+                                a.cost_center_description,
+                              )}
+                            </AdminTableCell>
                             <AdminTableCell>
                               {a.functional_location_description?.trim() ||
                                 a.functional_location ||
@@ -693,7 +702,13 @@ export function TransferOrderCreatePage() {
                           <div className="font-medium">{a.asset_code}</div>
                           <div className="text-xs text-muted-foreground">{a.asset_name || "—"}</div>
                         </AdminTableCell>
-                        <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
+                        <AdminTableCell>
+                          {formatCostCenterWithCode(
+                            a.cost_center,
+                            masters.costCenters,
+                            a.cost_center_description,
+                          )}
+                        </AdminTableCell>
                         <AdminTableCell>
                           {a.functional_location_description?.trim() ||
                             a.functional_location ||
@@ -709,11 +724,11 @@ export function TransferOrderCreatePage() {
 
           <AdminPanel
             title="2. Transfer destination"
-            description={
-              assets.length === 0
-                ? "Select assets first, then choose destination cost center and asset custodian."
-                : "Choose a different destination cost center and the asset custodian who will own the assets after receive. Locations are set when that custodian receives the assets."
-            }
+            // description={
+            //   assets.length === 0
+            //     ? "Select assets first, then choose destination cost center and asset custodian."
+            //     : "Choose a different destination cost center and the asset custodian who will own the assets after receive. Locations are set when that custodian receives the assets."
+            // }
             headerActions={<ArrowRightLeft className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
           >
