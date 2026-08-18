@@ -13,10 +13,9 @@ import {
   AdminPillBadge,
   AdminPrimaryButton,
   AutoGrowTextarea,
-  adminSwitchRowClass,
+  adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -644,6 +643,22 @@ export function CapexDetailPage() {
                 onChange={(next) => patch({ useful_life: next })}
               />
             </FormField>
+            {hasPermission("capitalization.submit_with_engineering") || form.requires_engineering ? (
+              <FormField id="requires_engineering" labelText="Submit with engineering">
+                <select
+                  id="requires_engineering"
+                  className={cn(adminSelectClass, "h-9")}
+                  value={form.requires_engineering ? "yes" : "no"}
+                  disabled={
+                    readOnly || !hasPermission("capitalization.submit_with_engineering")
+                  }
+                  onChange={(e) => patch({ requires_engineering: e.target.value === "yes" })}
+                >
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </select>
+              </FormField>
+            ) : null}
             <FormField
               id="functioning_comment"
               labelText="Comment on the functioning of the Asset"
@@ -658,26 +673,6 @@ export function CapexDetailPage() {
                 onChange={(next) => patch({ functioning_comment: next })}
               />
             </FormField>
-            {hasPermission("capitalization.submit_with_engineering") || form.requires_engineering ? (
-              <div className={cn(adminSwitchRowClass, "sm:col-span-2")}>
-                <div className="space-y-1">
-                  <Label htmlFor="requires_engineering" className="text-sm font-medium">
-                    Submit with engineering approval
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    When enabled, Engineering must approve after HOD before Central Finance.
-                  </p>
-                </div>
-                <Checkbox
-                  id="requires_engineering"
-                  checked={form.requires_engineering}
-                  disabled={
-                    readOnly || !hasPermission("capitalization.submit_with_engineering")
-                  }
-                  onCheckedChange={(v) => patch({ requires_engineering: v === true })}
-                />
-              </div>
-            ) : null}
           </div>
         </AdminPanel>
 

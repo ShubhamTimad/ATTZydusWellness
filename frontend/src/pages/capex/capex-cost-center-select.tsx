@@ -1,6 +1,7 @@
 import * as React from "react"
 
 import { adminSelectClass } from "@/components/layout/admin-ui"
+import { Input } from "@/components/ui/input"
 import { getJson } from "@/lib/api"
 import type { CostCenterMaster } from "@/lib/masters-types"
 import { cn } from "@/lib/utils"
@@ -41,14 +42,23 @@ export function CapexCostCenterSelect({
     }
   }, [])
 
-  const missing = value != null && !items.some((c) => c.id === value)
+  const selected = value != null ? items.find((c) => c.id === value) : undefined
+  const missing = value != null && !selected
+  const display =
+    selected != null
+      ? `${selected.code} — ${selected.name}${selected.plant_name ? ` (${selected.plant_name})` : ""}`
+      : fallbackLabel || (value != null ? `Cost center #${value}` : "No cost center")
+
+  if (disabled) {
+    return <Input id={id} value={display} disabled />
+  }
 
   return (
     <select
       id={id}
       className={cn(adminSelectClass, "h-9")}
       value={value == null ? "" : String(value)}
-      disabled={disabled || loading}
+      disabled={loading}
       onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
     >
       <option value="">{loading ? "Loading…" : "No cost center"}</option>

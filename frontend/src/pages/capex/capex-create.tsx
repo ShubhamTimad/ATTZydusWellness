@@ -10,10 +10,9 @@ import {
   AdminPanel,
   AdminPrimaryButton,
   AutoGrowTextarea,
-  adminSwitchRowClass,
+  adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, postJson } from "@/lib/api"
@@ -287,6 +286,19 @@ export function CapexCreatePage() {
                 placeholder="e.g. 5 Years"
               />
             </FormField>
+            {canSubmitWithEngineering ? (
+              <FormField id="requires_engineering" labelText="Submit with engineering">
+                <select
+                  id="requires_engineering"
+                  className={cn(adminSelectClass, "h-9")}
+                  value={form.requires_engineering ? "yes" : "no"}
+                  onChange={(e) => patch({ requires_engineering: e.target.value === "yes" })}
+                >
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </select>
+              </FormField>
+            ) : null}
             <FormField
               id="functioning_comment"
               labelText="Comment on the functioning of the Asset"
@@ -300,23 +312,6 @@ export function CapexCreatePage() {
                 onChange={(next) => patch({ functioning_comment: next })}
               />
             </FormField>
-            {canSubmitWithEngineering ? (
-              <div className={cn(adminSwitchRowClass, "sm:col-span-2")}>
-                <div className="space-y-1">
-                  <Label htmlFor="requires_engineering" className="text-sm font-medium">
-                    Submit with engineering approval
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    When enabled, Engineering must approve after HOD before Central Finance.
-                  </p>
-                </div>
-                <Checkbox
-                  id="requires_engineering"
-                  checked={Boolean(form.requires_engineering)}
-                  onCheckedChange={(v) => patch({ requires_engineering: v === true })}
-                />
-              </div>
-            ) : null}
           </div>
         </AdminPanel>
 
