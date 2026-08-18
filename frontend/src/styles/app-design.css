@@ -10,7 +10,7 @@
   --app-radius-surface: 0.625rem; /* 10px */
   --app-shadow-surface: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 14px rgb(15 23 42 / 0.06);
   --app-shadow-elevated: 0 8px 24px rgb(15 23 42 / 0.08);
-  --app-canvas: oklch(0.985 0.002 260);
+  --app-canvas: #F8F9FB;
   /* Shell header + page padding + detail toolbar */
   --app-detail-chrome-offset: 10.5rem;
 }

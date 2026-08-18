@@ -70,14 +70,6 @@ def _active_asset_filters():
     )
 
 
-def _rfid_asset_filters():
-    return (
-        *_active_asset_filters(),
-        AssetMaster.rfid_code.isnot(None),
-        AssetMaster.rfid_code != "",
-    )
-
-
 def _approved_asset_filters():
     return (
         *_active_asset_filters(),
@@ -221,11 +213,8 @@ def _assets_module(db: Session) -> dict[str, Any]:
         )
         or 0
     )
-    rfid_tagged_active = int(
-        db.scalar(select(func.count()).select_from(AssetMaster).where(*_rfid_asset_filters())) or 0
-    )
-    rfid_not_tagged = max(active_assets - rfid_tagged_active, 0)
-    rfid_coverage_pct = round((rfid_tagged_active / active_assets) * 100, 1) if active_assets else 0.0
+    rfid_not_tagged = max(total_assets - rfid_tagged, 0)
+    rfid_coverage_pct = round((rfid_tagged / total_assets) * 100, 1) if total_assets else 0.0
     pending_approvals = int(
         db.scalar(
             select(func.count())
@@ -289,7 +278,7 @@ def _assets_module(db: Session) -> dict[str, Any]:
         .select_from(AssetMaster)
         .join(AssetLocationInformation, AssetLocationInformation.asset_id == AssetMaster.id, isouter=True)
         .join(OrgUnit, OrgUnit.id == AssetLocationInformation.plant_id, isouter=True)
-        .where(*_active_asset_filters())
+        .where(AssetMaster.deleted_at.is_(None))
         .group_by(OrgUnit.name)
         .order_by(func.sum(case((_has_rfid_condition(), 1), else_=0)).desc())
     ).all()
