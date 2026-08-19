@@ -155,6 +155,16 @@ class AssetRfidAttachRequest(BaseModel):
     tag_color_id: int | None = None
 
 
+class AssetRemarkUpdateRequest(BaseModel):
+    remark: str | None = Field(default=None, max_length=4000)
+
+
+class AssetRemarkPublic(BaseModel):
+    asset_id: int
+    remark: str | None
+    previous_remark: str | None
+
+
 class AssetImagePublic(BaseModel):
     has_image: bool
     image_filename: str | None = None

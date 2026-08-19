@@ -6,7 +6,12 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from modules.orders.constants import ORDER_STATUS_REJECTED
-from modules.orders.progress import _rejection_cutoff_key, _step_order, _step_phase
+from modules.orders.progress import (
+    _approval_progress_keys,
+    _rejection_cutoff_key,
+    _step_order,
+    _step_phase,
+)
 
 
 def test_rejection_cutoff_after_completed_stops_before_approved() -> None:
@@ -89,3 +94,14 @@ def test_rejection_cutoff_creation_phase() -> None:
     assert (
         _rejection_cutoff_key(order, audit, has_closure_workflow=True) == "approved"
     )
+
+
+def test_progress_keys_assign_approve_close_is_one_approver() -> None:
+    wf = SimpleNamespace(
+        steps=[
+            SimpleNamespace(step_order=1, step_kind="assign", role_name="Operator"),
+            SimpleNamespace(step_order=2, step_kind="approve", role_name="Approver"),
+            SimpleNamespace(step_order=3, step_kind="close", role_name="Approver"),
+        ]
+    )
+    assert _approval_progress_keys(wf) == ("closure_approved",)

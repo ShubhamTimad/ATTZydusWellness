@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from core.auth import CurrentUser, get_current_user
 from core.permissions import require_any_permission, require_permission
 from db.session import get_db
-from modules.errors import ConflictError, NotFoundError
 from modules.orders.schema import (
     BulkScanAssetRequest,
     BulkScanAssetResponse,
@@ -21,6 +20,7 @@ from modules.orders.schema import (
     PhysicalOrderListResponse,
     RejectItemsRequest,
     RejectOrderRequest,
+    ApproveClosureRequest,
     ScanAssetRequest,
     ScanAssetResponse,
     SubmitClosureRequest,
@@ -29,7 +29,9 @@ from modules.orders.schema import (
     ValidateAssetsRequest,
     ValidateAssetsResponse,
 )
+from modules.assets.schema import AssetRemarkPublic, AssetRemarkUpdateRequest
 from modules.orders.service import PhysicalOrderService
+from modules.errors import ConflictError, NotFoundError, PermissionDeniedError
 
 router = APIRouter(prefix="/physical-orders", tags=["admin", "physical-orders"])
 
@@ -93,10 +95,16 @@ def list_assignees(
         None,
         description="Limit to users who cover every listed cost center (repeat the param).",
     ),
+    role_id: int | None = Query(
+        None,
+        description="Users in this workflow role (next approval level). Defaults to first Approve step.",
+    ),
 ) -> ExecutorListResponse:
-    """Users in the first Approve step of the Physical order workflow (closure handoff)."""
+    """Users in an Approve step of the Physical order workflow (closure handoff)."""
     try:
-        return svc.list_assignees(plant_id=plant_id, cost_center_ids=cost_center_id)
+        return svc.list_assignees(
+            plant_id=plant_id, cost_center_ids=cost_center_id, role_id=role_id
+        )
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
@@ -290,9 +298,14 @@ def approve_all_items(
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[object, Depends(require_any_permission("order.approve", "order.create"))],
+    body: ApproveClosureRequest | None = None,
 ) -> PhysicalOrderDetail:
     try:
-        return svc.approve_all_items(order_id, actor_user_id=int(current.subject))
+        return svc.approve_all_items(
+            order_id,
+            actor_user_id=int(current.subject),
+            next_assigned_user_id=body.next_assigned_user_id if body else None,
+        )
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
@@ -371,7 +384,7 @@ def reassign_order(
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[
         object,
-        Depends(require_any_permission("order.reassign", "order.create", "order.update", "order.manage")),
+        Depends(require_permission("order.reassign")),
     ],
 ) -> PhysicalOrderDetail:
     if body.assigned_to is None:
@@ -440,6 +453,46 @@ def restart_rejected_order(
         return svc.restart_rejected_order(order_id, actor_user_id=int(current.subject))
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.patch(
+    "/{order_id}/assets/{asset_id}/remark",
+    response_model=AssetRemarkPublic,
+)
+def update_order_asset_remark(
+    order_id: int,
+    asset_id: int,
+    body: AssetRemarkUpdateRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "order.execute",
+                "order.update",
+                "mobile.order.execute",
+                "mobile.order.view",
+                "mobile.asset.view",
+                "mobile.asset.scan",
+            )
+        ),
+    ],
+) -> AssetRemarkPublic:
+    """Save Asset Remark on asset master from an order line. Audited with actor."""
+    try:
+        return svc.update_order_asset_remark(
+            order_id,
+            asset_id,
+            body.remark,
+            actor_user_id=int(current.subject),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except PermissionDeniedError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
 
 
 @router.post("/{order_id}/scan", response_model=ScanAssetResponse)

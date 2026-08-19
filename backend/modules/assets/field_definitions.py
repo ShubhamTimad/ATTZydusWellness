@@ -41,6 +41,8 @@ IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
     "asset_type": ["asset type", "asset_type"],
     "category_code": [
         "asset category",
+        "asset category / group",
+        "asset category/group",
         "asset category code",
         "category",
         "category code",
@@ -68,7 +70,7 @@ IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
         "asset_description",
         "description",
     ],
-    "rfid_code": ["rfid code", "rfid_code", "rfid", "uhf_rfid_code"],
+    "rfid_code": ["rfid code", "rfid_code", "rfid", "rfid tag", "uhf_rfid_code"],
     "tag_color_code": ["tag color", "tag color code", "tag_color", "tag_color_code"],
     "asset_custodian_code": [
         "asset custodian",
@@ -494,3 +496,20 @@ def import_field_header_label(key: str, *, db: Any | None = None) -> str:
     if key in ASSET_REQUIRED_IMPORT_FIELD_KEYS:
         return f"{label} *"
     return label
+
+
+def _register_template_header_aliases() -> None:
+    """Keep parser aliases in sync with download-template / export titles."""
+    for key, label in ASSET_EXPORT_FIELD_LABELS.items():
+        aliases = IMPORT_COLUMN_ALIASES.get(key)
+        if aliases is None:
+            continue
+        text = (label or "").strip()
+        if not text:
+            continue
+        lower = {a.strip().lower() for a in aliases}
+        if text.lower() not in lower:
+            aliases.append(text)
+
+
+_register_template_header_aliases()

@@ -45,6 +45,24 @@ def test_map_headers_accepts_legacy_cost_center_label() -> None:
     assert mapped[1] == "capitalization_form_number"
 
 
+def test_map_headers_accepts_template_category_group_and_class() -> None:
+    """Downloaded template uses 'Asset Category / Group *', not 'Asset category *'."""
+    from modules.assets.field_definitions import import_field_header_label
+
+    mapped = _map_headers(
+        [
+            import_field_header_label("asset_name"),
+            import_field_header_label("asset_class_code"),
+            import_field_header_label("category_code"),
+            import_field_header_label("rfid_code"),
+        ]
+    )
+    assert mapped[0] == "asset_name"
+    assert mapped[1] == "asset_class_code"
+    assert mapped[2] == "category_code"
+    assert mapped[3] == "rfid_code"
+
+
 def test_parse_upload_file_skips_blank_rows() -> None:
     from modules.assets.import_parser import is_blank_import_row, parse_upload_file
 

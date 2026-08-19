@@ -74,6 +74,18 @@ const ORDER_ASSETS_PAGE_SIZE = 25
 const columnFilterControlClass = "h-8 w-full min-w-[6rem] text-xs"
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
 
+function orderAssigneesUrl(order: PhysicalOrderDetail, roleId?: number | null): string {
+  const params = new URLSearchParams({ plant_id: String(order.plant_id) })
+  const ccIds = order.cost_center_ids?.length
+    ? order.cost_center_ids
+    : order.cost_center_id != null
+      ? [order.cost_center_id]
+      : []
+  for (const id of ccIds) params.append("cost_center_id", String(id))
+  if (roleId != null) params.set("role_id", String(roleId))
+  return `/admin/physical-orders/assignees?${params}`
+}
+
 const ORDER_ACTION_BUSY_LABELS: Record<string, string> = {
   "/submit-closure": "Completing order…",
   "/approval/approve-all": "Approving…",
@@ -214,6 +226,7 @@ export function OrderDetailPage() {
   const [reassignOpen, setReassignOpen] = React.useState(false)
   const [assignOpen, setAssignOpen] = React.useState(false)
   const [closureAssignOpen, setClosureAssignOpen] = React.useState(false)
+  const [closureNextOpen, setClosureNextOpen] = React.useState(false)
   const [executors, setExecutors] = React.useState<ExecutorUser[]>([])
   const [executorRoleName, setExecutorRoleName] = React.useState<string | null>(null)
   const [reassignTo, setReassignTo] = React.useState("")
@@ -222,10 +235,7 @@ export function OrderDetailPage() {
   const canApprove = hasPermission("order.approve")
   const canExecute = hasPermission("order.execute")
   const canCreate = hasPermission("order.create")
-  const canReassignOrder =
-    hasPermission("order.reassign") ||
-    hasPermission("order.create") ||
-    hasPermission("order.manage")
+  const canReassignOrder = hasPermission("order.reassign")
 
   const load = React.useCallback(async (opts?: { quiet?: boolean }) => {
     if (!id) return
@@ -400,7 +410,11 @@ export function OrderDetailPage() {
             : "Review finished. Order rejected for rework on rejected assets.",
         )
       } else if (path === "/approval/approve-all" && res.status === "completed") {
-        toast.success("Lines approved.")
+        toast.success(
+          res.assigned_to_name
+            ? `Approved. Assigned next to ${res.assigned_to_name}.`
+            : "Approved.",
+        )
       } else if (path === "/start" && res.status === "in_progress") {
         toast.success("Verification started.")
       } else if (path === "/submit-closure") {
@@ -567,7 +581,7 @@ export function OrderDetailPage() {
       return (closureDecisions[item.id]?.choice ?? null) === "reject"
     })
 
-  async function submitClosureLineDecisions() {
+  async function submitClosureLineDecisions(nextAssignedUserId?: number | null) {
     if (!order || !id) return
     const pending = order.items.filter((item) => itemStatus(item) === "pending")
     const undecided = pending.filter((item) => {
@@ -612,7 +626,7 @@ export function OrderDetailPage() {
       // Approve remaining pending + finalize mixed or full approval.
       latest = await postJson<PhysicalOrderDetail>(
         `/admin/physical-orders/${id}/approval/approve-all`,
-        {},
+        nextAssignedUserId != null ? { next_assigned_user_id: nextAssignedUserId } : {},
       )
       setOrder(latest)
       if (latest.status === "approved") {
@@ -638,6 +652,10 @@ export function OrderDetailPage() {
     if (!order) return
     if (closureHasRejectChoice) {
       toast.error("One or more assets are marked Reject. Use Reject to finish review.")
+      return
+    }
+    if (order.needs_next_closure_assignee) {
+      setClosureNextOpen(true)
       return
     }
     await runAction("/approval/approve-all")
@@ -819,6 +837,10 @@ export function OrderDetailPage() {
                 disabled={busy}
                 onClick={() => {
                   if (closureHasRejectChoice) {
+                    if (order.needs_next_closure_assignee) {
+                      setClosureNextOpen(true)
+                      return
+                    }
                     void submitClosureLineDecisions()
                     return
                   }
@@ -834,7 +856,7 @@ export function OrderDetailPage() {
                   disabled={busy}
                   onClick={() => void beginClosureApproveAll()}
                 >
-                  Approve
+                  Approve{order.needs_next_closure_assignee ? " & assign next" : ""}
                 </AdminPrimaryButton>
               ) : null}
             </>
@@ -1463,9 +1485,7 @@ export function OrderDetailPage() {
           <DialogHeader>
             <DialogTitle>Reject order</DialogTitle>
             <DialogDescription>
-              This rejects every asset that is not already approved. Approved assets stay locked.
-              The order becomes Rejected and the assigned executor can Restart to rework only the
-              rejected assets.
+              Unapproved assets are rejected. Approved stay locked. Executor can Restart those only.
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body space-y-4">
@@ -1501,25 +1521,34 @@ export function OrderDetailPage() {
       <CapexAssigneePickerDialog
         open={closureAssignOpen}
         onOpenChange={setClosureAssignOpen}
-        assigneesUrl={
-          order
-            ? `/admin/physical-orders/assignees?plant_id=${order.plant_id}${(
-                order.cost_center_ids?.length
-                  ? order.cost_center_ids
-                  : order.cost_center_id != null
-                    ? [order.cost_center_id]
-                    : []
-              )
-                .map((id) => `&cost_center_id=${id}`)
-                .join("")}`
-            : undefined
-        }
-        roleLabel="Approver"
+        assigneesUrl={order ? orderAssigneesUrl(order) : undefined}
+        roleLabel={order?.closure_approver_role_name || "Approver"}
         confirmLabel="Complete"
         busy={busy}
         onConfirm={async (userId) => {
           const ok = await runAction("/submit-closure", { assignee_user_id: userId })
           if (ok) setClosureAssignOpen(false)
+        }}
+      />
+      <CapexAssigneePickerDialog
+        open={closureNextOpen}
+        onOpenChange={setClosureNextOpen}
+        assigneesUrl={
+          order ? orderAssigneesUrl(order, order.next_closure_role_id) : undefined
+        }
+        roleLabel={order?.next_closure_role_name || "Next approver"}
+        confirmLabel="Assign & approve"
+        busy={busy}
+        onConfirm={async (userId) => {
+          if (closureHasRejectChoice) {
+            await submitClosureLineDecisions(userId)
+            setClosureNextOpen(false)
+            return
+          }
+          const ok = await runAction("/approval/approve-all", {
+            next_assigned_user_id: userId,
+          })
+          if (ok) setClosureNextOpen(false)
         }}
       />
     </AdminPage>

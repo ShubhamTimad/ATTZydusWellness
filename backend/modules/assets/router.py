@@ -50,6 +50,8 @@ from modules.assets.schema import (
     AssetRfidAttachPublic,
     AssetRfidAttachRequest,
     AssetRfidUpdateRequest,
+    AssetRemarkPublic,
+    AssetRemarkUpdateRequest,
 )
 from modules.assets.service import (
     AssetMasterService,
@@ -872,4 +874,39 @@ def update_asset_rfid(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (DuplicateRfidError, InvalidRfidError) as exc:
         raise _rfid_error_response(exc) from exc
+
+
+@router.patch("/{asset_id}/remark", response_model=AssetRemarkPublic)
+def update_asset_remark(
+    asset_id: int,
+    payload: AssetRemarkUpdateRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "asset.update",
+                "asset.manage",
+                "mobile.asset.view",
+                "mobile.asset.scan",
+                "mobile.order.execute",
+                "mobile.order.view",
+            )
+        ),
+    ],
+) -> AssetRemarkPublic:
+    """Set Asset Remark on asset master only. Audited with actor and previous value."""
+    try:
+        return svc.update_asset_remark(
+            asset_id,
+            payload.remark,
+            actor_user_id=int(current.subject),
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 

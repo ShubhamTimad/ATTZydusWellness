@@ -58,7 +58,16 @@ def assignment_step_for_workflow(workflow: ApprovalWorkflow) -> ApprovalStep | N
     for step in steps:
         if _step_kind(step) == "assign":
             return step
+    if _physical_order_multi_step(workflow):
+        return steps[0]
     return steps[0]
+
+
+def _physical_order_multi_step(workflow: ApprovalWorkflow) -> bool:
+    return (
+        str(getattr(workflow, "entity_type", "") or "") == "physical_order_closure"
+        and len(_sorted_steps(workflow)) > 1
+    )
 
 
 def first_approval_step(workflow: ApprovalWorkflow) -> ApprovalStep:
@@ -66,12 +75,27 @@ def first_approval_step(workflow: ApprovalWorkflow) -> ApprovalStep:
     steps = _sorted_steps(workflow)
     if not steps:
         raise ConflictError("Active workflow has no steps configured.")
+    assign = next((s for s in steps if _step_kind(s) == "assign"), None)
+    if assign is None and _physical_order_multi_step(workflow):
+        assign = steps[0]
     for step in steps:
+        if assign is not None and int(step.id) == int(assign.id):
+            continue
         if _step_kind(step) != "assign":
             return step
     raise ConflictError(
         "Physical order workflow has only assignment steps. "
         "Add an Approve step for the role that approves and closes the order."
+    )
+
+
+def physical_same_role_close(current: ApprovalStep | None, nxt: ApprovalStep | None) -> bool:
+    """True when the next Physical-order step is Close for the same role — no extra picker."""
+    if current is None or nxt is None:
+        return False
+    return (
+        _step_kind(nxt) == "close"
+        and int(nxt.approver_role_id) == int(current.approver_role_id)
     )
 
 
@@ -1207,10 +1231,14 @@ class ApprovalEngineService:
                 kind=kind,
             )
 
+        is_physical_closure = str(req.entity_type) == "physical_order_closure"
         next_approval = next(
             (s for s in steps_sorted[idx + 1 :] if _step_kind(s) != "assign"),
             None,
         )
+        # Same-role Close is the order Close button, not another named handoff.
+        if is_physical_closure and physical_same_role_close(step, next_approval):
+            next_approval = None
         if next_approval is None:
             # Final approval. Disposal orders hand off to the receiver, so the
             # final approver (Store Person) must also name the receiving user.
@@ -1235,7 +1263,7 @@ class ApprovalEngineService:
             "capitalization_request",
             "capitalization_request_engineering",
         )
-        needs_named_next_approver = is_disposal or is_capex
+        needs_named_next_approver = is_disposal or is_capex or is_physical_closure
         if needs_named_next_approver:
             cur_role = self._db.get(Role, int(step.approver_role_id))
             nxt_role = self._db.get(Role, int(next_step.approver_role_id))

@@ -447,6 +447,7 @@ def _workflow_definition(db: Session, *, action_code: str, phase: str) -> OrderW
                 step_order=int(step.step_order),
                 role_name=role.name if role is not None else "Approvers",
                 required_approvals=int(step.required_approvals),
+                step_kind=str(getattr(step, "step_kind", None) or "approve"),
             )
         )
     return OrderWorkflowDefinition(
@@ -487,7 +488,35 @@ def _find_audit_actor(audit_rows: list[PhysicalOrderAudit], action: str, user_na
     return None
 
 
-def _step_order(*, show_creation_approval: bool, has_closure_workflow: bool) -> tuple[str, ...]:
+def _is_close_kind(step: OrderWorkflowStepDefinition) -> bool:
+    return str(getattr(step, "step_kind", None) or "approve").strip().lower() == "close"
+
+
+def _approval_progress_defs(
+    closure_wf: OrderWorkflowDefinition | None,
+) -> list[OrderWorkflowStepDefinition]:
+    """Approve levels only. Assign is executor; Close is the existing Closed node."""
+    if closure_wf is None or not closure_wf.steps:
+        return []
+    steps = sorted(closure_wf.steps, key=lambda s: int(s.step_order))
+    if len(steps) > 1:
+        steps = steps[1:]
+    return [s for s in steps if not _is_close_kind(s)]
+
+
+def _approval_progress_keys(closure_wf: OrderWorkflowDefinition | None) -> tuple[str, ...]:
+    steps = _approval_progress_defs(closure_wf)
+    if len(steps) <= 1:
+        return ("closure_approved",) if closure_wf is not None else ()
+    return tuple(f"closure_{s.step_order}" for s in steps)
+
+
+def _step_order(
+    *,
+    show_creation_approval: bool,
+    has_closure_workflow: bool,
+    closure_step_keys: tuple[str, ...] = ("closure_approved",),
+) -> tuple[str, ...]:
     """Business lifecycle keys in display order.
 
     Happy path: Draft → Assigned → In Progress → Completed → Approved → Closed.
@@ -498,7 +527,7 @@ def _step_order(*, show_creation_approval: bool, has_closure_workflow: bool) -> 
         keys.append("approved")
     keys.extend(["assigned", "in_progress", "completed"])
     if has_closure_workflow:
-        keys.append("closure_approved")
+        keys.extend(closure_step_keys)
     keys.append("closed")
     return tuple(keys)
 
@@ -509,6 +538,7 @@ def _active_step_key(
     show_creation_approval: bool,
     has_closure_workflow: bool,
     work_completed: bool = False,
+    current_closure_key: str | None = None,
 ) -> str | None:
     """Which timeline segment is current for each order status.
 
@@ -531,7 +561,7 @@ def _active_step_key(
     if order_status in (ORDER_STATUS_PENDING_CLOSURE, ORDER_STATUS_COMPLETED):
         # Work finished → highlight approval (or Close when no closure workflow).
         if has_closure_workflow:
-            return "closure_approved"
+            return current_closure_key or "closure_approved"
         return "closed"
     if order_status == ORDER_STATUS_CLOSED:
         return "closed"
@@ -633,9 +663,20 @@ def build_order_progress(
         )
     # Creation-approval UI for in-flight pending_approval, or after a creation reject.
     show_creation_approval = status == ORDER_STATUS_PENDING_APPROVAL or rejection_cutoff == "approved"
+    closure_step_keys = _approval_progress_keys(closure_wf)
+    closure_req = (
+        _latest_approval_request(db, order_id=int(order.id), entity_type=ENTITY_TYPE_CLOSURE)
+        if has_closure_workflow
+        else None
+    )
+    current_closure_key = None
+    if closure_req is not None and str(closure_req.status) == "pending" and closure_step_keys:
+        mapped = f"closure_{int(closure_req.current_step)}"
+        current_closure_key = mapped if mapped in closure_step_keys else closure_step_keys[0]
     step_order = _step_order(
         show_creation_approval=show_creation_approval,
         has_closure_workflow=has_closure_workflow,
+        closure_step_keys=closure_step_keys or ("closure_approved",),
     )
 
     verified = sum(1 for i in order.items if i.scan_time is not None)
@@ -645,6 +686,7 @@ def build_order_progress(
         show_creation_approval=show_creation_approval,
         has_closure_workflow=has_closure_workflow,
         work_completed=order.completed_at is not None,
+        current_closure_key=current_closure_key,
     )
 
     def phase(step_key: str) -> str:
@@ -735,16 +777,41 @@ def build_order_progress(
 
     if has_closure_workflow:
         awaiting_closure = status in (ORDER_STATUS_COMPLETED, ORDER_STATUS_PENDING_CLOSURE)
-        steps.append(
-            OrderLifecycleStepPublic(
-                key="closure_approved",
-                label="Pending approval" if awaiting_closure else "Approved",
-                status=phase("closure_approved"),
-                actor_name=_find_audit_actor(audit_rows, "closure_approved", user_name_fn),
-                occurred_at=_find_audit_time(audit_rows, "closure_approved"),
-                detail="Awaiting approval" if awaiting_closure else None,
+        approval_defs = _approval_progress_defs(closure_wf)
+        if len(approval_defs) <= 1:
+            steps.append(
+                OrderLifecycleStepPublic(
+                    key="closure_approved",
+                    label="Pending approval" if awaiting_closure else "Approved",
+                    status=phase("closure_approved"),
+                    actor_name=_find_audit_actor(audit_rows, "closure_approved", user_name_fn),
+                    occurred_at=_find_audit_time(audit_rows, "closure_approved"),
+                    detail="Awaiting approval" if awaiting_closure else None,
+                )
             )
-        )
+        else:
+            for spec in approval_defs:
+                key = f"closure_{spec.step_order}"
+                st = phase(key)
+                steps.append(
+                    OrderLifecycleStepPublic(
+                        key=key,
+                        label=spec.role_name,
+                        status=st,
+                        role_name=spec.role_name,
+                        actor_name=(
+                            _find_audit_actor(audit_rows, "closure_approved", user_name_fn)
+                            if st == "completed"
+                            else None
+                        ),
+                        occurred_at=(
+                            _find_audit_time(audit_rows, "closure_approved")
+                            if st == "completed"
+                            else None
+                        ),
+                        detail="Awaiting approval" if st == "active" else None,
+                    )
+                )
 
     steps.append(
         OrderLifecycleStepPublic(

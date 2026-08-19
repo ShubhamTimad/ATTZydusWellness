@@ -86,6 +86,7 @@ class PhysicalOrderItemPublic(BaseModel):
     verified_by_name: str | None
     physically_verified: bool
     last_verification_date: date | None = None
+    remark: str | None = None
 
 
 class PhysicalOrderListItem(BaseModel):
@@ -160,6 +161,7 @@ class OrderWorkflowStepDefinition(BaseModel):
     step_order: int
     role_name: str
     required_approvals: int
+    step_kind: str = "approve"
 
 
 class OrderWorkflowDefinition(BaseModel):
@@ -243,6 +245,11 @@ class PhysicalOrderDetail(BaseModel):
     can_unarchive: bool = False
     can_review_creation: bool = False
     can_review_closure: bool = False
+    is_final_closure_step: bool = True
+    needs_next_closure_assignee: bool = False
+    next_closure_role_id: int | None = None
+    next_closure_role_name: str | None = None
+    closure_approver_role_name: str | None = None
 
 
 class ExecutorUserPublic(BaseModel):
@@ -276,6 +283,12 @@ class RejectItemsRequest(BaseModel):
 
 class RejectOrderRequest(BaseModel):
     reason: str = Field(..., min_length=1)
+
+
+class ApproveClosureRequest(BaseModel):
+    """When another workflow level follows, name that user before approving."""
+
+    next_assigned_user_id: int | None = Field(default=None, ge=1)
 
 
 class ScanAssetRequest(BaseModel):

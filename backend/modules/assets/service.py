@@ -2741,6 +2741,51 @@ class AssetMasterService:
         self.attach_rfid(asset_id, rfid_code, actor_user_id=actor_user_id)
         return self.get_asset(asset_id)
 
+    def update_asset_remark(
+        self,
+        asset_id: int,
+        remark: str | None,
+        *,
+        actor_user_id: int,
+    ):
+        """Update only asset_master.remark and write field-level audit (who/when)."""
+        from modules.assets.schema import AssetRemarkPublic
+
+        asset = self._load_asset(asset_id)
+        self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
+        if (asset.approval_status or "").strip().lower() == APPROVAL_PENDING:
+            raise ConflictError("Cannot edit asset while approval is pending.")
+
+        previous = asset.remark
+        cleaned = remark.strip() if remark and remark.strip() else None
+        if cleaned == (previous.strip() if previous else None) or cleaned == previous:
+            return AssetRemarkPublic(
+                asset_id=int(asset.id),
+                remark=previous,
+                previous_remark=previous,
+            )
+
+        before = snapshot_asset(asset)
+        asset.remark = cleaned
+        asset.updated_at = _now()
+        self._db.flush()
+        changes = diff_snapshots(before, snapshot_asset(asset))
+        if changes:
+            log_asset_event(
+                self._db,
+                asset_id=asset.id,
+                actor_user_id=actor_user_id,
+                action="updated",
+                old_value=before,
+                new_value={"changes": changes, "source": "mobile_remark"},
+            )
+        self._db.commit()
+        return AssetRemarkPublic(
+            asset_id=int(asset.id),
+            remark=asset.remark,
+            previous_remark=previous,
+        )
+
     def update_asset(
         self, asset_id: int, data: AssetUpdateRequest, *, actor_user_id: int | None
     ) -> AssetDetailPublic:

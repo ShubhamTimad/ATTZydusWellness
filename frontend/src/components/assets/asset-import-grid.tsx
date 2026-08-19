@@ -64,6 +64,10 @@ const ImportCell = React.memo(function ImportCell({
   }
 
   if (colKind === "select" && selectOptions.length > 0) {
+    const options =
+      value && !selectOptions.some((o) => o.value === value)
+        ? [{ value, label: value }, ...selectOptions]
+        : selectOptions
     return (
       <div className="relative">
         <select
@@ -78,7 +82,7 @@ const ImportCell = React.memo(function ImportCell({
           )}
         >
           <option value="">—</option>
-          {selectOptions.map((o) => (
+          {options.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>

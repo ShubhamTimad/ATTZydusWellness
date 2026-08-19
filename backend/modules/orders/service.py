@@ -71,8 +71,10 @@ from modules.list_sort import apply_sort_dir
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow, TaskAuditLog
 from modules.platform.approvals.service import (
     ApprovalEngineService,
+    ApprovalError,
     assignment_step_for_workflow,
     first_approval_step,
+    physical_same_role_close,
 )
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
@@ -495,6 +497,71 @@ class PhysicalOrderService:
             return False
         req = self._latest_closure_approval_request(int(order.id))
         return req is not None and str(req.status) == "pending"
+
+    def _closure_handoff_fields(self, order: PhysicalOrder) -> dict[str, Any]:
+        """Next named approver for Complete / mid-workflow Approve."""
+        empty: dict[str, Any] = {
+            "is_final_closure_step": True,
+            "needs_next_closure_assignee": False,
+            "next_closure_role_id": None,
+            "next_closure_role_name": None,
+            "closure_approver_role_name": None,
+        }
+        wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
+        if wf is None or not wf.steps:
+            return empty
+        try:
+            first = first_approval_step(wf)
+        except ConflictError:
+            return empty
+        first_role = self._db.get(Role, int(first.approver_role_id))
+        empty["closure_approver_role_name"] = first_role.name if first_role is not None else None
+
+        steps = sorted(wf.steps, key=lambda s: int(s.step_order))
+        assign = assignment_step_for_workflow(wf)
+        approval_steps = [
+            s
+            for s in steps
+            if assign is None or int(s.id) != int(assign.id)
+        ]
+        if not approval_steps:
+            return empty
+
+        if not self._awaiting_closure_approval(order):
+            nxt = approval_steps[0]
+            role = self._db.get(Role, int(nxt.approver_role_id))
+            more_after = len(approval_steps) > 1
+            return {
+                "is_final_closure_step": not more_after,
+                "needs_next_closure_assignee": True,
+                "next_closure_role_id": int(nxt.approver_role_id),
+                "next_closure_role_name": role.name if role is not None else None,
+                "closure_approver_role_name": empty["closure_approver_role_name"],
+            }
+
+        req = self._latest_closure_approval_request(int(order.id))
+        if req is None:
+            return empty
+        current_order = int(req.current_step)
+        current = next((s for s in approval_steps if int(s.step_order) == current_order), None)
+        if current is None:
+            current = next((s for s in steps if int(s.step_order) == current_order), approval_steps[0])
+        idx = next((i for i, s in enumerate(approval_steps) if int(s.id) == int(current.id)), None)
+        nxt = approval_steps[idx + 1] if idx is not None and idx + 1 < len(approval_steps) else None
+        if nxt is None or physical_same_role_close(current, nxt):
+            return {
+                **empty,
+                "is_final_closure_step": True,
+                "closure_approver_role_name": empty["closure_approver_role_name"],
+            }
+        role = self._db.get(Role, int(nxt.approver_role_id))
+        return {
+            "is_final_closure_step": False,
+            "needs_next_closure_assignee": True,
+            "next_closure_role_id": int(nxt.approver_role_id),
+            "next_closure_role_name": role.name if role is not None else None,
+            "closure_approver_role_name": empty["closure_approver_role_name"],
+        }
 
     def _complete_closure_approval(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
         for item in order.items:
@@ -1104,12 +1171,26 @@ class PhysicalOrderService:
         *,
         plant_id: int | None = None,
         cost_center_ids: list[int] | None = None,
+        role_id: int | None = None,
     ) -> ExecutorListResponse:
-        """Users in the first Approve-step role (closure handoff after Complete)."""
-        role = self._first_approver_role_from_workflow()
+        """Users in an Approve-step role (closure handoff after Complete, or a later level)."""
+        if role_id is not None:
+            role = self._approver_role_from_workflow(int(role_id))
+        else:
+            role = self._first_approver_role_from_workflow()
         return self._role_users_response(
             role, plant_id=plant_id, cost_center_ids=cost_center_ids
         )
+
+    def _approver_role_from_workflow(self, role_id: int) -> Role:
+        wf = self._physical_order_workflow()
+        allowed = {int(s.approver_role_id) for s in (wf.steps or [])}
+        if int(role_id) not in allowed:
+            raise ConflictError("That role is not on the Physical order workflow.")
+        role = self._db.get(Role, int(role_id))
+        if role is None:
+            raise ConflictError("Workflow approval role is missing.")
+        return role
 
     def _role_users_response(
         self,
@@ -2115,6 +2196,7 @@ class PhysicalOrderService:
                 if item.scan_time is not None
                 else (inv.last_verification_date if inv else None)
             ),
+            remark=a.remark if a else None,
         )
 
     def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> PhysicalOrderDetail:
@@ -2167,6 +2249,7 @@ class PhysicalOrderService:
                 can_review_closure = (
                     self._find_pending_closure_task(order, actor_user_id=uid) is not None
                 )
+        handoff = self._closure_handoff_fields(order)
         return PhysicalOrderDetail(
             id=int(order.id),
             order_number=order.order_number,
@@ -2210,6 +2293,11 @@ class PhysicalOrderService:
             ),
             can_review_creation=can_review_creation,
             can_review_closure=can_review_closure,
+            is_final_closure_step=bool(handoff["is_final_closure_step"]),
+            needs_next_closure_assignee=bool(handoff["needs_next_closure_assignee"]),
+            next_closure_role_id=handoff["next_closure_role_id"],
+            next_closure_role_name=handoff["next_closure_role_name"],
+            closure_approver_role_name=handoff["closure_approver_role_name"],
         )
 
     def delete_draft_order(self, order_id: int, *, actor_user_id: int) -> None:
@@ -2416,16 +2504,53 @@ class PhysicalOrderService:
             order,
             actor_user_id=actor_user_id,
             after_creation_approval=False,
+            set_status_assigned=False,
         )
+        # Restart is the resume action — go straight to in_progress (no second Start).
+        order.status = ORDER_STATUS_IN_PROGRESS
+        order.started_at = _now_utc()
+        order.started_by = actor_user_id
         log_order_event(
             self._db,
             order_id=order_id,
             action="returned_for_execution",
             actor_user_id=actor_user_id,
-            new_value={"reason": "Restarted after full order rejection", "scope": "full"},
+            new_value={
+                "reason": "Restarted after full order rejection",
+                "scope": "full",
+                "status": ORDER_STATUS_IN_PROGRESS,
+            },
+        )
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="started",
+            actor_user_id=actor_user_id,
+            new_value={"reason": "Auto-started on restart"},
         )
         self._db.commit()
         return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def update_order_asset_remark(
+        self,
+        order_id: int,
+        asset_id: int,
+        remark: str | None,
+        *,
+        actor_user_id: int,
+    ):
+        """Update asset_master.remark for an asset on this physical order."""
+        from modules.assets.service import AssetMasterService
+
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        on_order = any(int(item.asset_id) == int(asset_id) for item in (order.items or []))
+        if not on_order:
+            raise NotFoundError("Asset", asset_id)
+        return AssetMasterService(self._db).update_asset_remark(
+            asset_id,
+            remark,
+            actor_user_id=actor_user_id,
+        )
 
     @staticmethod
     def _task_for_actor(
@@ -2516,7 +2641,13 @@ class PhysicalOrderService:
             )
         return self.get_order(order_id)
 
-    def approve_all_items(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+    def approve_all_items(
+        self,
+        order_id: int,
+        *,
+        actor_user_id: int,
+        next_assigned_user_id: int | None = None,
+    ) -> PhysicalOrderDetail:
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
             self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
@@ -2538,12 +2669,16 @@ class PhysicalOrderService:
                 return self.get_order(order_id)
             task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)
             if task is not None:
-                ApprovalEngineService(self._db).act_on_task(
-                    task_id=int(task.id),
-                    actor_user_id=actor_user_id,
-                    action="approve",
-                    comment=None,
-                )
+                try:
+                    ApprovalEngineService(self._db).act_on_task(
+                        task_id=int(task.id),
+                        actor_user_id=actor_user_id,
+                        action="approve",
+                        comment=None,
+                        next_assigned_user_id=next_assigned_user_id,
+                    )
+                except ApprovalError as exc:
+                    raise ConflictError(exc.message) from exc
             else:
                 self._complete_closure_approval(order, actor_user_id=actor_user_id)
                 self._db.commit()

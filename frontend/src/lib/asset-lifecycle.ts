@@ -225,7 +225,7 @@ type AssetProgressPanel = {
   }[]
 }
 
-/** Draft → Pending → role level(s) → Rejected (if stopped). One-level by default. */
+/** Draft → configured role level(s) → Rejected (if stopped). Do not add a fake pending node. */
 export function buildAssetProgress(detail: {
   approval_status: string
   approval_panel?: AssetProgressPanel | null
@@ -233,7 +233,6 @@ export function buildAssetProgress(detail: {
   const status = (detail.approval_status || "").toLowerCase()
   const isRejected = status === "rejected"
   const workflowSteps = currentAssetWorkflowSteps(detail.approval_panel)
-  const completedApprovals = workflowSteps.filter((s) => s.phase === "completed")
   const currentApproval = workflowSteps.find((s) => s.phase === "current")
   const rejectAtOrder = workflowSteps.find((s) => s.phase === "rejected")?.step_order
 
@@ -242,17 +241,6 @@ export function buildAssetProgress(detail: {
       key: "draft",
       label: "Draft",
       status: status === "draft" ? "active" : "completed",
-      approver_slots: [],
-    },
-    {
-      key: "pending_approval",
-      label: "Pending for approval",
-      status:
-        status === "pending" && completedApprovals.length === 0
-          ? "active"
-          : status === "draft"
-            ? "upcoming"
-            : "completed",
       approver_slots: [],
     },
   ]
@@ -321,11 +309,11 @@ export function buildAssetProgress(detail: {
     currentStepKey = "draft"
   } else if (status === "approved" || status === "not_required") {
     const lastApproved = [...steps].reverse().find((s) => s.key.startsWith("approved_by_"))
-    currentStepKey = lastApproved?.key ?? "pending_approval"
+    currentStepKey = lastApproved?.key ?? "draft"
   } else if (currentApproval) {
     currentStepKey = `approved_by_${currentApproval.step_order}`
-  } else if (status === "pending") {
-    currentStepKey = "pending_approval"
+  } else if (status === "pending" && workflowSteps.length > 0) {
+    currentStepKey = `approved_by_${workflowSteps[0]!.step_order}`
   }
 
   return { steps, currentStepKey }

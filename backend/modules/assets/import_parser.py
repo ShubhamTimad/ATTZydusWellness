@@ -10,11 +10,11 @@ from modules.assets.schema import ImportPreviewRow
 
 
 def _normalize_header(h: str) -> str:
-    s = (h or "").strip().lower().replace("_", " ")
+    s = (h or "").strip().lower().replace("_", " ").replace("/", " ")
     # Import template marks required columns with a trailing "*".
     if s.endswith("*"):
         s = s[:-1].rstrip()
-    return s
+    return " ".join(s.split())
 
 
 def _map_headers(raw_headers: list[str]) -> dict[int, str]:

@@ -201,6 +201,11 @@ export type PhysicalOrderDetail = {
   can_unarchive?: boolean
   can_review_creation?: boolean
   can_review_closure?: boolean
+  is_final_closure_step?: boolean
+  needs_next_closure_assignee?: boolean
+  next_closure_role_id?: number | null
+  next_closure_role_name?: string | null
+  closure_approver_role_name?: string | null
 }
 
 export type OrdersDashboardModule = {
