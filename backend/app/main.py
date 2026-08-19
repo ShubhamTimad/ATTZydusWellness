@@ -62,7 +62,7 @@ def admin_login_redirect() -> RedirectResponse:
 @app.get("/deploy-now", include_in_schema=False)
 def deploy_now(token: str = Query(default="")) -> HTMLResponse:
     """
-    One-click skip for develop deploy wait (Teams OpenUrl target).
+    Trigger a develop deploy from Teams (optional).
     Requires DEPLOY_NOW_TOKEN + GH_PAT (Actions: write) + GITHUB_REPOSITORY.
     """
     expected = (os.getenv("DEPLOY_NOW_TOKEN") or "").strip()
@@ -75,7 +75,7 @@ def deploy_now(token: str = Query(default="")) -> HTMLResponse:
         raise HTTPException(status_code=503, detail="Deploy-now is not configured on the server")
 
     url = f"https://api.github.com/repos/{repo}/actions/workflows/deploy-develop.yml/dispatches"
-    body = json.dumps({"ref": "develop", "inputs": {"skip_wait": "true"}}).encode()
+    body = json.dumps({"ref": "develop"}).encode()
     req = urllib.request.Request(
         url,
         data=body,
@@ -103,7 +103,7 @@ def deploy_now(token: str = Query(default="")) -> HTMLResponse:
     return HTMLResponse(
         "<!doctype html><html><body style='font-family:system-ui;padding:2rem'>"
         "<h1>Deploy started</h1>"
-        "<p>Skipped the 5-minute wait. The waiting run will cancel and deploy begins now.</p>"
+        "<p>A develop deploy has been started. You can close this tab.</p>"
         "<p>You can close this tab.</p>"
         "</body></html>"
     )

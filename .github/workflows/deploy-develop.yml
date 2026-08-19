@@ -1,23 +1,13 @@
 name: Deploy develop
 
-# Push to develop → Teams pending (≈5 min) → wait → deploy → Teams success/failure.
-#
-# Wait 5 min: do nothing.
-# Deploy now: Actions → Deploy develop → Run workflow (right side) →
-#   leave "Deploy now — skip the 5-minute wait" checked → Run workflow.
-#   (cancels the waiting push run via concurrency, then deploys immediately)
-# Or set secret DEPLOY_NOW_URL to /api/deploy-now?token=… for one-click from Teams.
+# Push to develop → Teams pending → deploy → Teams success/failure.
+# Manual: Actions → Deploy develop → Run workflow.
 # Cancel: open the run → Cancel workflow.
 
 on:
   push:
     branches: [develop]
   workflow_dispatch:
-    inputs:
-      skip_wait:
-        description: "Deploy now — skip the 5-minute wait"
-        type: boolean
-        default: true
 
 concurrency:
   group: deploy-develop
@@ -50,63 +40,34 @@ jobs:
       - name: Post pending deploy to Teams
         env:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
-          DEPLOY_NOW_URL: ${{ secrets.DEPLOY_NOW_URL }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/deploy-develop.yml
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
           ACTOR: ${{ github.actor }}
           SHA: ${{ github.sha }}
-          SKIP_WAIT: ${{ github.event_name == 'workflow_dispatch' && (inputs.skip_wait == true || inputs.skip_wait == 'true') }}
         run: |
           set -euo pipefail
           if [ -z "${TEAMS_WEBHOOK_URL:-}" ]; then
             echo "TEAMS_WEBHOOK_URL secret is not set — skip Teams notify"
             exit 0
           fi
-          if [ "${SKIP_WAIT}" = "true" ]; then
-            TITLE="Deploy develop starting now"
-            DETAIL="Skip-wait requested — deploying immediately after build.
+          export TITLE="Deploy develop starting"
+          export DETAIL="Build passed — deploying to the server now.
           Repo: ${REPO}
           Branch: ${BRANCH}
           Actor: ${ACTOR}
           Commit: ${SHA:0:7}
-          Run: ${RUN_URL}"
-            COLOR="Warning"
-          else
-            TITLE="Server update in ~5 minutes"
-            DETAIL="A develop deploy is queued.
+          Run: ${RUN_URL}
 
-          Repo: ${REPO}
-          Branch: ${BRANCH}
-          Actor: ${ACTOR}
-          Commit: ${SHA:0:7}
-
-          • Wait 5 minutes — do nothing; deploy starts automatically.
-          • Deploy now — ${WORKFLOW_URL}
-            → Run workflow → leave skip wait checked → Run workflow.
-          • Cancel — ${RUN_URL} → Cancel workflow."
-            COLOR="Warning"
-          fi
-          export TITLE DETAIL COLOR RUN_URL WORKFLOW_URL SKIP_WAIT DEPLOY_NOW_URL
+          Cancel: open the run → Cancel workflow."
+          export COLOR="Warning"
+          export RUN_URL
           python3 <<'PY' > /tmp/teams-payload.json
           import json, os
           title = os.environ["TITLE"]
           detail = os.environ["DETAIL"]
           color = os.environ.get("COLOR", "Warning")
           run_url = os.environ["RUN_URL"]
-          workflow_url = os.environ["WORKFLOW_URL"]
-          deploy_now = (os.environ.get("DEPLOY_NOW_URL") or "").strip()
-          skip = os.environ.get("SKIP_WAIT", "false") == "true"
-          actions = [{"type": "Action.OpenUrl", "title": "View / cancel run", "url": run_url}]
-          if not skip:
-              now_url = deploy_now or workflow_url
-              now_title = "Deploy now (no 5 min wait)" if deploy_now else "Run workflow → skip wait"
-              actions = [
-                  {"type": "Action.OpenUrl", "title": now_title, "url": now_url},
-                  {"type": "Action.OpenUrl", "title": "Wait / view run", "url": run_url},
-                  {"type": "Action.OpenUrl", "title": "Cancel run", "url": run_url},
-              ]
           payload = {
               "title": title,
               "text": detail,
@@ -123,7 +84,9 @@ jobs:
                           {"type": "TextBlock", "size": "Medium", "weight": "Bolder", "color": color, "text": title, "wrap": True},
                           {"type": "TextBlock", "text": detail, "wrap": True},
                       ],
-                      "actions": actions,
+                      "actions": [
+                          {"type": "Action.OpenUrl", "title": "View / cancel run", "url": run_url},
+                      ],
                   },
               }],
           }
@@ -135,30 +98,9 @@ jobs:
             && echo && echo "Teams pending notification sent" \
             || { echo; echo "::warning::TEAMS_WEBHOOK_URL notify failed — deploy will still continue"; }
 
-  wait-gate:
-    name: Wait 5 minutes (or skip)
-    needs: announce-pending
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.skip_wait == true || inputs.skip_wait == 'true')) }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Hold deploy window
-        env:
-          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/workflows/deploy-develop.yml
-        run: |
-          set -euo pipefail
-          echo "Waiting 5 minutes before deploy."
-          echo "To skip now: open ${WORKFLOW_URL}"
-          echo "  → Run workflow → leave skip wait checked → Run workflow"
-          for i in $(seq 1 30); do
-            echo "Wait tick ${i}/30 ($(date -u +%H:%M:%S) UTC)"
-            sleep 10
-          done
-          echo "Wait finished — proceeding to deploy"
-
   deploy:
     name: Deploy to server
-    needs: [announce-pending, wait-gate]
-    if: ${{ always() && needs.announce-pending.result == 'success' && (needs.wait-gate.result == 'success' || needs.wait-gate.result == 'skipped') }}
+    needs: [announce-pending]
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
@@ -249,7 +191,7 @@ jobs:
 
   notify-teams-success:
     name: Notify Teams on success
-    needs: [build, announce-pending, wait-gate, deploy]
+    needs: [build, announce-pending, deploy]
     if: ${{ always() && needs.deploy.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
@@ -314,8 +256,8 @@ jobs:
 
   notify-teams-failure:
     name: Notify Teams on failure
-    needs: [build, announce-pending, wait-gate, deploy]
-    if: ${{ always() && (needs.build.result == 'failure' || needs.announce-pending.result == 'failure' || needs.wait-gate.result == 'failure' || needs.deploy.result == 'failure') }}
+    needs: [build, announce-pending, deploy]
+    if: ${{ always() && (needs.build.result == 'failure' || needs.announce-pending.result == 'failure' || needs.deploy.result == 'failure') }}
     runs-on: ubuntu-latest
     steps:
       - name: Post failure to Teams
@@ -340,7 +282,7 @@ jobs:
           Commit: ${SHA:0:7}
           Run: ${RUN_URL}
 
-          Retry: Run workflow again (optionally with skip wait)."
+          Retry: Actions → Deploy develop → Run workflow."
           export COLOR="Attention"
           export RUN_URL WORKFLOW_URL
           python3 <<'PY' > /tmp/teams-payload.json
