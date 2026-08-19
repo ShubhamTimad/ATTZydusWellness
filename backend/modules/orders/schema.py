@@ -87,6 +87,12 @@ class PhysicalOrderItemPublic(BaseModel):
     physically_verified: bool
     last_verification_date: date | None = None
     remark: str | None = None
+    combined_asset_number: str | None = None
+    sub_no: str | None = None
+    category_name: str | None = None
+    asset_class: str | None = None
+    inventory_count: int | None = None
+    physical_count: int | None = None
 
 
 class PhysicalOrderListItem(BaseModel):

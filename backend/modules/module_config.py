@@ -301,7 +301,7 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
             {
                 "key": "order",
                 "title": "Orders (mobile)",
-                "actions": ["view", "execute", "scan"],
+                "actions": ["view", "execute", "scan", "bulk_verify"],
             },
         ],
     },

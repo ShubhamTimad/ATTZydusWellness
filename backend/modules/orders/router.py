@@ -534,9 +534,7 @@ def scan_assets_bulk(
         object,
         Depends(
             require_any_permission(
-                "order.execute",
-                "mobile.order.execute",
-                "mobile.order.scan",
+                "mobile.order.bulk_verify",
             )
         ),
     ],

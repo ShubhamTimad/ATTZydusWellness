@@ -2161,6 +2161,12 @@ class PhysicalOrderService:
                 selectinload(PhysicalOrder.items).selectinload(PhysicalOrderItem.asset).selectinload(
                     AssetMaster.financial
                 ),
+                selectinload(PhysicalOrder.items).selectinload(PhysicalOrderItem.asset).selectinload(
+                    AssetMaster.category
+                ),
+                selectinload(PhysicalOrder.items).selectinload(PhysicalOrderItem.asset).selectinload(
+                    AssetMaster.asset_class_master
+                ),
             )
         )
         if order is None:
@@ -2197,6 +2203,20 @@ class PhysicalOrderService:
                 else (inv.last_verification_date if inv else None)
             ),
             remark=a.remark if a else None,
+            combined_asset_number=a.combined_asset_number if a else None,
+            sub_no=a.sub_no if a else None,
+            category_name=a.category.name if a is not None and a.category is not None else None,
+            asset_class=(
+                a.asset_class_master.name
+                if a is not None and a.asset_class_master is not None
+                else (a.asset_class if a else None)
+            ),
+            inventory_count=inv.inventory_count if inv else None,
+            physical_count=(
+                1
+                if self._is_physically_verified(item)
+                else (inv.physical_count if inv else 0)
+            ),
         )
 
     def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> PhysicalOrderDetail:

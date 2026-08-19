@@ -13,6 +13,25 @@ from modules.platform.roles.model import Role
 from modules.rbac_constants import build_permission_code, feature_storage_key
 
 
+def _backfill_mobile_bulk_verify_grants(db: Session) -> int:
+    """Grant bulk verification to roles that already have mobile order scan."""
+    by_code = {p.code: p for p in db.scalars(select(Permission)).all() if p.code}
+    bulk = by_code.get("mobile.order.bulk_verify")
+    if bulk is None:
+        return 0
+    added = 0
+    roles = db.scalars(select(Role).options(selectinload(Role.permissions))).all()
+    for role in roles:
+        have = {p.code for p in role.permissions if p.code}
+        if "mobile.order.scan" not in have and "mobile.order:scan" not in have:
+            continue
+        if "mobile.order.bulk_verify" in have:
+            continue
+        role.permissions.append(bulk)
+        added += 1
+    return added
+
+
 def _backfill_dashboard_section_grants(db: Session) -> int:
     """
     Grant dashboard section perms to roles that already have related domain access,
@@ -98,20 +117,28 @@ def sync_all_modules_to_db(db: Session) -> dict[str, int]:
                             feature_id=feature.id,
                             action=action,
                             code=code,
-                            description=None,
+                            description=(
+                                "Bulk-verify order assets from a single RFID scan on mobile"
+                                if code == "mobile.order.bulk_verify"
+                                else None
+                            ),
                         )
                     )
                     created_permissions += 1
-                elif perm.code != code:
-                    conflict = db.scalar(
-                        select(Permission.id).where(Permission.code == code, Permission.id != perm.id)
-                    )
-                    if conflict is None:
-                        perm.code = code
-                        updated_codes += 1
+                else:
+                    if perm.code != code:
+                        conflict = db.scalar(
+                            select(Permission.id).where(Permission.code == code, Permission.id != perm.id)
+                        )
+                        if conflict is None:
+                            perm.code = code
+                            updated_codes += 1
+                    if code == "mobile.order.bulk_verify" and not (perm.description or "").strip():
+                        perm.description = "Bulk-verify order assets from a single RFID scan on mobile"
 
     db.flush()
     dashboard_grants_added = _backfill_dashboard_section_grants(db)
+    bulk_verify_grants_added = _backfill_mobile_bulk_verify_grants(db)
     db.commit()
     invalidate_permission_cache(None)
     return {
@@ -119,4 +146,5 @@ def sync_all_modules_to_db(db: Session) -> dict[str, int]:
         "permissions_created": created_permissions,
         "permission_codes_updated": updated_codes,
         "dashboard_grants_added": dashboard_grants_added,
+        "bulk_verify_grants_added": bulk_verify_grants_added,
     }

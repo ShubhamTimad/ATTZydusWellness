@@ -105,6 +105,7 @@ const ACTION_LABEL: Record<string, string> = {
   manage: "Manage",
   scan: "Scan",
   execute: "Execute",
+  bulk_verify: "Bulk verify",
   export: "Export",
   deactivate: "Deactivate",
   reactivate: "Reactivate",
@@ -116,7 +117,7 @@ function orderedActionColumns(actions: string[]): string[] {
   for (const a of ACTION_COLUMNS) {
     if (uniq.has(a)) out.push(a)
   }
-  for (const a of ["access", "act", "manage", "scan", "execute", "export"]) {
+  for (const a of ["access", "act", "manage", "scan", "execute", "bulk_verify", "export"]) {
     if (uniq.has(a)) out.push(a)
   }
   // Any other action types should still be shown (stable order).
