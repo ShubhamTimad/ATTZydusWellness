@@ -11,6 +11,7 @@ import { PasswordInput } from "@/components/ui/password-input"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import { loginRequestFields, validateLoginIdentifier } from "@/lib/login-identifier"
 import { clearAuthProfile, persistAuthFromMe } from "@/lib/permissions"
+import { clearSharedLastActive } from "@/lib/session-idle-events"
 
 type LoginResponse = {
   access_token?: string
@@ -74,6 +75,7 @@ export function AppLoginPage() {
   function clearTokens() {
     localStorage.removeItem("access_token")
     localStorage.removeItem("refresh_token")
+    clearSharedLastActive()
     clearAuthProfile()
   }
 

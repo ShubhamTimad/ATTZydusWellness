@@ -2723,8 +2723,8 @@ export function AssetsListPage() {
         requireComment
         title={
           bulkDecisionMode === "approve"
-            ? `Approve ${decisionEligibleRows.length} asset${decisionEligibleRows.length === 1 ? "" : "s"}`
-            : `Reject ${decisionEligibleRows.length} asset${decisionEligibleRows.length === 1 ? "" : "s"}`
+            ? `Approve ${decisionEligibleRows.length} Asset${decisionEligibleRows.length === 1 ? "" : "s"}`
+            : `Reject ${decisionEligibleRows.length} Asset${decisionEligibleRows.length === 1 ? "" : "s"}`
         }
         confirmLabel={bulkDecisionMode === "approve" ? "Approve" : "Reject"}
         needsNextAssignee={false}

@@ -48,7 +48,7 @@ class EmailDeliveryTestRequest(BaseModel):
 
 
 class SessionIdleSettingsPublic(BaseModel):
-    """Minutes of inactivity (no API use / tab not active on client) before automatic sign-out."""
+    """Minutes without user interaction (or API use) before automatic sign-out."""
 
     idle_timeout_minutes: int = Field(
         default=10,

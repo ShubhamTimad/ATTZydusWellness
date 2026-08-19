@@ -19,11 +19,17 @@ def _session_idle_seconds() -> float:
     return float(get_session_idle_timeout_minutes() * 60)
 
 
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _effective_last_activity(row: UserSession) -> datetime:
     last = getattr(row, "last_activity_at", None)
     if last is not None:
-        return last
-    return row.created_at
+        return _as_utc(last)
+    return _as_utc(row.created_at)
 
 
 def touch_session_from_access_claims(db: Session, claims: dict) -> None:

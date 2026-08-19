@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 import { SessionIdleProvider } from "@/context/session-idle-context"
 import { clearAuthProfile } from "@/lib/permissions"
+import { clearSharedLastActive } from "@/lib/session-idle-events"
 
 function hasToken() {
   try {
@@ -17,6 +18,7 @@ function hasToken() {
 function clearTokens() {
   localStorage.removeItem("access_token")
   localStorage.removeItem("refresh_token")
+  clearSharedLastActive()
   clearAuthProfile()
 }
 

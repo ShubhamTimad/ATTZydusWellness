@@ -61,6 +61,12 @@ def public_session_policy() -> SessionIdleSettingsPublic:
     return SessionIdleSettingsPublic(idle_timeout_minutes=get_session_idle_timeout_minutes())
 
 
+@router.get("/auth/session-touch")
+def session_touch(_user: CurrentUser = Depends(get_current_user)) -> dict[str, bool]:
+    """Authenticated no-op so idle middleware can bump last_activity_at."""
+    return {"ok": True}
+
+
 @router.get("/auth/app-version", response_model=AppVersionPublic)
 def public_app_version() -> AppVersionPublic:
     """Display version for the login screen (from Settings)."""

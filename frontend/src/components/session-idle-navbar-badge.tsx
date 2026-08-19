@@ -7,7 +7,7 @@ import {
 import { cn } from "@/lib/utils"
 
 export function SessionIdleNavbarBadge() {
-  const { remainingSeconds, isTabHidden } = useSessionIdle()
+  const { remainingSeconds } = useSessionIdle()
 
   if (remainingSeconds === null) return null
 
@@ -24,16 +24,11 @@ export function SessionIdleNavbarBadge() {
             ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
             : "border-border/80 bg-muted/40 text-muted-foreground",
       )}
-      title={
-        isTabHidden
-          ? "Session expires while this tab is in the background"
-          : "Time until automatic sign-out due to inactivity"
-      }
+      title="Time until automatic sign-out due to inactivity"
       aria-live="polite"
       aria-label={`Session expires in ${formatIdleCountdown(remainingSeconds)}`}
     >
       <Timer className="size-3.5 shrink-0 opacity-80" aria-hidden />
-      <span className="hidden sm:inline">{isTabHidden ? "Background" : ""}</span>
       <span>{formatIdleCountdown(remainingSeconds)}</span>
     </div>
   )
