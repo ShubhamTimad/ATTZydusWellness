@@ -1134,7 +1134,7 @@ export function AssetDetailPage() {
 
           {progress ? (
             <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-4 sm:px-4">
-              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-black">
                 Progress
               </p>
               <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />

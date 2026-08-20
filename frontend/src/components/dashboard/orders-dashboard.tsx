@@ -18,7 +18,7 @@ export function OrdersDashboard({ data }: { data: OrdersDashboardModule }) {
   const parts = orderInsightParts(data)
   const inProgressPct = dashboardPct(parts.inProgress, parts.total)
   const slices = [
-    { name: "In progress", value: parts.inProgress, color: DASHBOARD_COLOR.blue },
+    { name: "In Progress", value: parts.inProgress, color: DASHBOARD_COLOR.blue },
     { name: "Closed", value: parts.closed, color: DASHBOARD_COLOR.green },
   ]
 
@@ -29,12 +29,12 @@ export function OrdersDashboard({ data }: { data: OrdersDashboardModule }) {
       iconWrap={theme.iconWrap}
       metrics={[
         { value: parts.total, label: "Total" },
-        { value: parts.inProgress, label: "In progress" },
+        { value: parts.inProgress, label: "In Progress" },
         { value: parts.closed, label: "Closed" },
       ]}
       slices={slices}
       centerLabel={`${inProgressPct}%`}
-      centerCaption="In progress"
+      centerCaption="In Progress"
     />
   )
 }

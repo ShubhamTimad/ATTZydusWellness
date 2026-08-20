@@ -48,6 +48,14 @@ type MasterCrudPanelProps = {
   plants?: PlantOption[]
 }
 
+function MasterHeaderLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="text-sm font-medium uppercase tracking-wide text-black">
+      {children}
+    </span>
+  )
+}
+
 export function MasterCrudPanel({
   title,
   listUrl,
@@ -257,13 +265,41 @@ export function MasterCrudPanel({
       <Table className="app-table-head-sticky">
         <TableHeader>
           <AdminTableHeaderRow>
-            <AdminTableHeadCell>Code</AdminTableHeadCell>
-            <AdminTableHeadCell>{nameColumnLabel}</AdminTableHeadCell>
-            {kind === "tag-color" ? <AdminTableHeadCell>Color</AdminTableHeadCell> : null}
-            {kind === "location" ? <AdminTableHeadCell>Plant</AdminTableHeadCell> : null}
-            {kind === "location" ? <AdminTableHeadCell>Type</AdminTableHeadCell> : null}
-            <AdminTableHeadCell>Status</AdminTableHeadCell>
-            {showActions ? <AdminTableHeadCell className="w-40"> </AdminTableHeadCell> : null}
+            <AdminTableHeadCell>
+              <MasterHeaderLabel>Code</MasterHeaderLabel>
+            </AdminTableHeadCell>
+
+            <AdminTableHeadCell>
+              <MasterHeaderLabel>{nameColumnLabel}</MasterHeaderLabel>
+            </AdminTableHeadCell>
+
+            {kind === "tag-color" ? (
+              <AdminTableHeadCell>
+                <MasterHeaderLabel>Color</MasterHeaderLabel>
+              </AdminTableHeadCell>
+            ) : null}
+
+            {kind === "location" ? (
+              <AdminTableHeadCell>
+                <MasterHeaderLabel>Plant</MasterHeaderLabel>
+              </AdminTableHeadCell>
+            ) : null}
+
+            {kind === "location" ? (
+              <AdminTableHeadCell>
+                <MasterHeaderLabel>Type</MasterHeaderLabel>
+              </AdminTableHeadCell>
+            ) : null}
+
+            <AdminTableHeadCell>
+              <MasterHeaderLabel>Status</MasterHeaderLabel>
+            </AdminTableHeadCell>
+
+            {showActions ? (
+              <AdminTableHeadCell className="w-40">
+                <span aria-hidden="true">&nbsp;</span>
+              </AdminTableHeadCell>
+            ) : null}
           </AdminTableHeaderRow>
         </TableHeader>
         <TableBody>

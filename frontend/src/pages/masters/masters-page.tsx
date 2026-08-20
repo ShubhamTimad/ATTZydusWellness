@@ -40,14 +40,14 @@ export function MastersPage() {
         >
           <WorkspaceTabsList className="shrink-0">
           <WorkspaceTabsTrigger value="categories">Categories</WorkspaceTabsTrigger>
-          <WorkspaceTabsTrigger value="asset-classes">Asset classes</WorkspaceTabsTrigger>
-          <WorkspaceTabsTrigger value="functional">Functional locations</WorkspaceTabsTrigger>
-            <WorkspaceTabsTrigger value="actual">Actual locations</WorkspaceTabsTrigger>
-            <WorkspaceTabsTrigger value="cost-centers">Cost centers</WorkspaceTabsTrigger>
-            <WorkspaceTabsTrigger value="cc-custodians">CC custodians</WorkspaceTabsTrigger>
-            <WorkspaceTabsTrigger value="profit-centers">Profit centers</WorkspaceTabsTrigger>
-            <WorkspaceTabsTrigger value="tag-colors">Tag colors</WorkspaceTabsTrigger>
-            <WorkspaceTabsTrigger value="asset-conditions">Asset conditions</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="asset-classes">Asset Classes</WorkspaceTabsTrigger>
+          <WorkspaceTabsTrigger value="functional">Functional Locations</WorkspaceTabsTrigger>
+            <WorkspaceTabsTrigger value="actual">Actual Locations</WorkspaceTabsTrigger>
+            <WorkspaceTabsTrigger value="cost-centers">Cost Centers</WorkspaceTabsTrigger>
+            <WorkspaceTabsTrigger value="cc-custodians">CC Custodians</WorkspaceTabsTrigger>
+            <WorkspaceTabsTrigger value="profit-centers">Profit Centers</WorkspaceTabsTrigger>
+            <WorkspaceTabsTrigger value="tag-colors">Tag Colors</WorkspaceTabsTrigger>
+            <WorkspaceTabsTrigger value="asset-conditions">Asset Conditions</WorkspaceTabsTrigger>
           </WorkspaceTabsList>
 
         <WorkspaceTabsContent value="categories" className={TAB_PANEL}>

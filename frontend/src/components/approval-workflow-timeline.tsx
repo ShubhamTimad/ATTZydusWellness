@@ -122,7 +122,7 @@ function phaseStateBadge(phase: WorkflowStepPhase) {
           variant="outline"
           className="h-5 border-amber-400/80 bg-amber-50/90 font-semibold text-amber-900 dark:border-amber-600 dark:bg-amber-950/50 dark:text-amber-100"
         >
-          In progress
+          In Progress
         </Badge>
       )
     case "rejected":

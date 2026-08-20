@@ -666,7 +666,7 @@ export function DisposalOrderDetailPage() {
               Approve
             </AdminPrimaryButton>
           ) : null}
-          <AdminBackLink to="/dashboard/disposal-orders">Disposal orders</AdminBackLink>
+          <AdminBackLink to="/dashboard/disposal-orders">Disposal Orders</AdminBackLink>
         </div>
       }
     >
@@ -900,9 +900,17 @@ export function DisposalOrderDetailPage() {
               <Table>
                 <TableHeader>
                   <AdminTableHeaderRow>
-                    <AdminTableHeadCell className="h-9 px-4 py-2">Asset</AdminTableHeadCell>
-                    <AdminTableHeadCell className="h-9 px-4 py-2">From CC</AdminTableHeadCell>
-                    <AdminTableHeadCell className="h-9 px-4 py-2">From Loc 1</AdminTableHeadCell>
+                    <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                      Asset
+                    </AdminTableHeadCell>
+
+                    <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                      From CC
+                    </AdminTableHeadCell>
+
+                    <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                      From Loc 1
+                    </AdminTableHeadCell>
                     {order.can_edit ? (
                       <AdminTableHeadCell className="h-9 w-12 px-2 py-2">
                         <span className="sr-only">Remove</span>
@@ -1078,7 +1086,7 @@ export function DisposalOrderDetailPage() {
         {receiveEditable ? (
           <AdminPanel
             title="Receive"
-            description="Set scrapyard Actual Location 1 / 2, then assign Central Finance to close."
+            description=""
             contentClassName="px-4 py-3"
           >
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

@@ -133,7 +133,7 @@ export const TRANSFER_STATUS_TABS = [
 export const TRANSFER_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "draft", label: "Draft" },
   { value: "pending_approval", label: "Pending Approval" },
-  { value: "approved_by_cf", label: "Approved — pending receive" },
+  { value: "approved_by_cf", label: "Approved — Pending Receive" },
   { value: "received_by_cc2", label: "Received" },
   { value: "confirmed_by_cf", label: "Confirmed by CF" },
   { value: "closed", label: "Closed" },
@@ -152,7 +152,7 @@ export function transferStatusLabel(status: string): string {
     assigned_to_cf: "Pending Approval",
     rejected: "Rejected",
     in_rework: "Rejected", // legacy; normalized to rejected
-    approved_by_cf: "Approved — pending receive",
+    approved_by_cf: "Approved — Pending Receive",
     received_by_cc2: "Received",
     confirmed_by_cf: "Confirmed by CF",
     closed: "Closed",

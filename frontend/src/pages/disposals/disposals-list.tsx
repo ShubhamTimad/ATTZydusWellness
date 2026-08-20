@@ -422,7 +422,7 @@ export function DisposalOrdersListPage() {
                     onSort={toggleColumnSort}
                   />
                   <SortableColumnHeader
-                    label="Created"
+                    label="Creation Date"
                     columnKey="created_at"
                     sortBy={sortBy}
                     sortDir={sortDir}

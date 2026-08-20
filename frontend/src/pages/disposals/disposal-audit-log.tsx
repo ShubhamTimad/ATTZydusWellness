@@ -52,7 +52,7 @@ export function disposalAuditHeadline(ev: DisposalOrderAudit): string {
     case "step_approved":
       return step ? `Approved — ${step}` : "Approved"
     case "approved":
-      return step ? `Final approval — ${step}` : "Final approval — sent to receive"
+      return step ? `Final Approval — ${step}` : "Final Approval — sent to receive"
     case "rejected":
       return step ? `Rejected — ${step}` : "Rejected"
     case "received":

@@ -23,8 +23,8 @@ export function FinancialYearDashboard({ data }: { data: FinancialYearDashboardM
       icon={theme.icon}
       iconWrap={theme.iconWrap}
       metrics={[
-        { value: verified, label: "Total Verified Asset" },
-        { value: pending, label: "Remaining verification" },
+        { value: verified, label: "Total Verified Assets" },
+        { value: pending, label: "Remaining Verification" },
       ]}
       slices={slices}
       centerLabel={`${coverage}%`}

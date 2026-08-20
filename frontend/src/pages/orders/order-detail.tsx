@@ -177,7 +177,7 @@ function OrderSummaryField({
           "text-[10px] font-medium uppercase tracking-[0.06em]",
           tone === "warning" && "text-amber-800/80 dark:text-amber-200/80",
           tone === "success" && "text-emerald-800/80 dark:text-emerald-200/80",
-          !tone && "text-muted-foreground",
+          !tone && "text-black",
         )}
       >
         {label}
@@ -943,7 +943,7 @@ export function OrderDetailPage() {
 
       <AdminPanel className="shrink-0 overflow-hidden p-0">
         <div className={cn("border-b border-border/60 bg-muted/15 py-3", orderPanelPad)}>
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-black">
             Progress
           </p>
           <OrderLifecycleStepper
@@ -1123,10 +1123,10 @@ export function OrderDetailPage() {
           <Table className="app-table-head-sticky">
             <TableHeader>
               <AdminTableHeaderRow>
-                <AdminTableHeadCell>Asset</AdminTableHeadCell>
-                <AdminTableHeadCell>RFID</AdminTableHeadCell>
-                <AdminTableHeadCell>Status</AdminTableHeadCell>
-                <AdminTableHeadCell>Verified</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Asset</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">RFID</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Status</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Verified</AdminTableHeadCell>
                 {showClosureDecisionCols ? (
                   <>
                     <AdminTableHeadCell className="w-20 text-center">Approve</AdminTableHeadCell>

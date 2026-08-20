@@ -37,8 +37,8 @@ export function canReactivateAsset(lifecycleStatus: string): boolean {
 export function assetStatusLabel(lifecycleStatus: string, approvalStatus: string): string {
   const lifecycle = (lifecycleStatus || "").toLowerCase()
   if (lifecycle === "disposed") return "Disposed"
-  if (lifecycle === "pending_disposal") return "Pending disposal"
-  if (lifecycle === "pending_transfer") return "Pending transfer"
+  if (lifecycle === "pending_disposal") return "Pending Disposal"
+  if (lifecycle === "pending_transfer") return "Pending Transfer"
   if (lifecycle === "deactivated") return "Inactive"
   const approval = (approvalStatus || "").toLowerCase()
   if (approval === "draft") return "Draft"
@@ -91,13 +91,13 @@ export const ASSET_STATUS_FILTER_OPTIONS = [
   },
   {
     value: "pending_disposal",
-    label: "Pending disposal",
+    label: "Pending Disposal",
     approval_status: "",
     lifecycle_status: "pending_disposal",
   },
   {
     value: "pending_transfer",
-    label: "Pending transfer",
+    label: "Pending Transfer",
     approval_status: "",
     lifecycle_status: "pending_transfer",
   },

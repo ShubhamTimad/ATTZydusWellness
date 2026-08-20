@@ -732,7 +732,7 @@ export function TransferOrderDetailPage() {
               Close
             </AdminPrimaryButton>
           ) : null}
-          <AdminBackLink to="/dashboard/transfer-orders">Transfer orders</AdminBackLink>
+          <AdminBackLink to="/dashboard/transfer-orders">Transfer Orders</AdminBackLink>
         </div>
       }
     >
@@ -756,7 +756,7 @@ export function TransferOrderDetailPage() {
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
           <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5 sm:px-5">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-black">
               Progress
             </p>
             <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />
@@ -765,7 +765,7 @@ export function TransferOrderDetailPage() {
 
         {order.rejection_reason ? (
           <AdminPanel className="border-destructive/30 bg-destructive/5" contentClassName="px-4 py-3">
-            <p className="text-sm font-medium text-destructive">Rejection reason</p>
+            <p className="text-sm font-medium text-destructive">Rejection Reason</p>
             <p className="mt-1 text-sm">{order.rejection_reason}</p>
           </AdminPanel>
         ) : null}
@@ -933,9 +933,17 @@ export function TransferOrderDetailPage() {
               <Table>
                 <TableHeader>
                   <AdminTableHeaderRow>
-                    <AdminTableHeadCell className="h-9 px-4 py-2">Asset</AdminTableHeadCell>
-                    <AdminTableHeadCell className="h-9 px-4 py-2">From CC</AdminTableHeadCell>
-                    <AdminTableHeadCell className="h-9 px-4 py-2">From Loc 1</AdminTableHeadCell>
+                    <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                      Asset
+                    </AdminTableHeadCell>
+
+                    <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                      From CC
+                    </AdminTableHeadCell>
+
+                    <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                      From Loc 1
+                    </AdminTableHeadCell>
                   </AdminTableHeaderRow>
                 </TableHeader>
                 <TableBody>

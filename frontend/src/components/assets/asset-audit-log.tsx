@@ -21,8 +21,8 @@ export type AssetAuditLogRow = {
 }
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
-  physical_order_created: "Order created",
-  physical_verification_reset: "Order created",
+  physical_order_created: "Order Created",
+  physical_verification_reset: "Order Created",
   physical_order_verified: "Verified",
 }
 
@@ -183,6 +183,19 @@ function buildDisplayRows(rows: AssetAuditLogRow[]): DisplayRow[] {
   })
 }
 
+function auditFieldLabel(label: string): string {
+  const normalized = label.trim().toLowerCase()
+
+  const labels: Record<string, string> = {
+    "physical count": "Physical Count",
+    "physical_count": "Physical Count",
+    "last verification date": "Last Verification Date",
+    "last_verification_date": "Last Verification Date",
+  }
+
+  return labels[normalized] ?? label
+}
+
 function DeltaLine({
   label,
   from,
@@ -256,7 +269,7 @@ function ActivityCell({ row }: { row: DisplayRow }) {
             changes.map((c) => (
               <DeltaLine
                 key={`${c.field_label}-${c.from_value}-${c.to_value}`}
-                label={c.field_label}
+                label={auditFieldLabel(c.field_label)}    
                 from={c.from_value}
                 to={c.to_value}
               />
@@ -293,9 +306,17 @@ export function AssetAuditLog({ rows, loading }: { rows: AssetAuditLogRow[]; loa
           <Table className="app-table-head-sticky">
             <TableHeader>
               <AdminTableHeaderRow className="bg-muted/30 hover:bg-muted/30">
-                <AdminTableHeadCell className={cn(headClass, "w-[9.5rem]")}>Date / Time</AdminTableHeadCell>
-                <AdminTableHeadCell className={cn(headClass, "w-[7.5rem]")}>User</AdminTableHeadCell>
-                <AdminTableHeadCell className={headClass}>Event</AdminTableHeadCell>
+                <AdminTableHeadCell className="px-4 py-2.5 text-black">
+                  Date / Time
+                </AdminTableHeadCell>
+
+                <AdminTableHeadCell className="px-4 py-2.5 text-black">
+                  User
+                </AdminTableHeadCell>
+
+                <AdminTableHeadCell className="px-4 py-2.5 text-black">
+                  Event
+                </AdminTableHeadCell>
               </AdminTableHeaderRow>
             </TableHeader>
             <TableBody>
