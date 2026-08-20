@@ -50,7 +50,7 @@ type MasterCrudPanelProps = {
 
 function MasterHeaderLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="text-sm font-medium uppercase tracking-wide text-black">
+    <span className="text-xm font-bold uppercase tracking-wide text-black">
       {children}
     </span>
   )

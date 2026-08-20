@@ -129,7 +129,7 @@ export function CostCenterCustodiansPanel({ plants }: { plants: PlantOption[] })
 
   return (
     <AdminPanel
-      title="Cost center custodians"
+      title="Custodians"
       description="Assign which users may be asset custodians for each cost center. Transfer and asset forms use this list."
       contentClassName="px-5 py-5"
       footer={

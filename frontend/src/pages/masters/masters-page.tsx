@@ -44,7 +44,7 @@ export function MastersPage() {
           <WorkspaceTabsTrigger value="functional">Functional Locations</WorkspaceTabsTrigger>
             <WorkspaceTabsTrigger value="actual">Actual Locations</WorkspaceTabsTrigger>
             <WorkspaceTabsTrigger value="cost-centers">Cost Centers</WorkspaceTabsTrigger>
-            <WorkspaceTabsTrigger value="cc-custodians">CC Custodians</WorkspaceTabsTrigger>
+            <WorkspaceTabsTrigger value="cc-custodians">Custodians</WorkspaceTabsTrigger>
             <WorkspaceTabsTrigger value="profit-centers">Profit Centers</WorkspaceTabsTrigger>
             <WorkspaceTabsTrigger value="tag-colors">Tag Colors</WorkspaceTabsTrigger>
             <WorkspaceTabsTrigger value="asset-conditions">Asset Conditions</WorkspaceTabsTrigger>

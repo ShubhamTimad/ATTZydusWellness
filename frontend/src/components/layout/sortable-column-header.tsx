@@ -43,7 +43,7 @@ export function SortableColumnHeader({
       <button
         type="button"
         className={cn(
-          "inline-flex max-w-full items-center gap-1 rounded-sm text-left tracking-wide text-sm font-medium uppercase",
+          "inline-flex max-w-full items-center gap-1 rounded-sm text-left tracking-wide text-xm font-bold uppercase",
           "text-black",
           "hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           align === "right" && "ml-auto",
