@@ -42,23 +42,23 @@ from modules.platform.tasks.schema import TaskApprovalStepLinePublic
 
 _AUDIT_LABELS: dict[str, str] = {
     "order_created": "Order created",
-    "assignment_changed": "Executor assigned",
-    "reassigned": "Order reassigned",
-    "submitted_for_approval": "Submitted for creation approval",
-    "approved": "Creation approved",
-    "rejected": "Order rejected",
-    "started": "Physical verification started",
-    "asset_verified": "Asset physically verified (RFID scan)",
-    "closure_submitted": "Submitted for approval",
-    "closure_approved": "Closure approved",
+    "assignment_changed": "Executor Assigned",
+    "reassigned": "Order Reassigned",
+    "submitted_for_approval": "Submitted for Creation Approval",
+    "approved": "Creation Approved",
+    "rejected": "Order Rejected",
+    "started": "Physical Verification Started",
+    "asset_verified": "Asset Physically Verified (RFID Scan)",
+    "closure_submitted": "Submitted for Approval",
+    "closure_approved": "Closure Approved",
     "completed": "Completed",
-    "closed": "Order closed",
-    "returned_for_execution": "Returned to executor after closure rejection",
-    "execution_items_rejected": "Assets rejected",
-    "closure_items_rejected": "Assets rejected",
-    "closure_items_approved": "Assets approved",
-    "archived": "Order archived",
-    "unarchived": "Order unarchived",
+    "closed": "Order Closed",
+    "returned_for_execution": "Returned to Executor after Closure Rejection",
+    "execution_items_rejected": "Assets Rejected",
+    "closure_items_rejected": "Assets Rejected",
+    "closure_items_approved": "Assets Approved",
+    "archived": "Order Archived",
+    "unarchived": "Order Unarchived",
 }
 
 
@@ -93,16 +93,16 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         parts = [p for p in (code, rfid) if p]
         return " · ".join(parts) if parts else None
     if action == "rejected":
-        parts: list[str] = []
-        reason = new_value.get("reason") or new_value.get("comment") or new_value.get("phase")
-        if reason:
-            parts.append(str(reason))
-        assignee_name = new_value.get("assigned_to_name")
-        if assignee_name:
-            parts.append(f"Assigned to: {assignee_name}")
-        elif new_value.get("assigned_to") is not None:
-            parts.append(f"Assigned to: user #{new_value.get('assigned_to')}")
-        return " — ".join(parts) if parts else None
+        # Internal finish reasons are noisy; keep the trail as "Order rejected" only.
+        boilerplate = {
+            "approved remaining assets; rejected assets returned to executor.",
+            "closure review completed with rejected assets.",
+            "rejected",
+        }
+        reason = (new_value.get("reason") or new_value.get("comment") or "").strip()
+        if reason and reason.lower() not in boilerplate:
+            return reason
+        return None
     if action == "submitted_for_approval":
         rid = new_value.get("approval_request_id")
         next_name = new_value.get("next_assignee_name") or new_value.get("assigned_to_name")
@@ -282,6 +282,7 @@ def enrich_audit_rows(
     synthetic_id = -1
     has_closure_submitted = any(str(r.action) == "closure_submitted" for r in rows)
     has_completed = any(str(r.action) == "completed" for r in rows)
+    has_order_rejected = any(str(r.action) == "rejected" for r in rows)
 
     verified_assets = (
         _verified_assets_from_items(order_items, user_name_fn=user_name_fn) if order_items else []
@@ -353,6 +354,9 @@ def enrich_audit_rows(
     for r in rows:
         action = str(r.action)
         if action == "asset_verified":
+            continue
+        # Line rejects are applied right before order-level reject; keep one "Order rejected".
+        if action == "closure_items_rejected" and has_order_rejected:
             continue
         if action == "approved" and (r.new_value or {}).get("auto_approved"):
             continue
@@ -858,10 +862,10 @@ def build_order_progress(
             OrderLifecycleStepPublic(
                 key="rejected",
                 label="Rejected",
-                status="rejected",
+                status="Rejected",
                 actor_name=_find_audit_actor(audit_rows, "rejected", user_name_fn),
                 occurred_at=_find_audit_time(audit_rows, "rejected"),
-                detail="Order rejected",
+                detail="Order Rejected",
             )
         )
 

@@ -47,7 +47,54 @@ def test_rejected_detail_includes_assigned_to() -> None:
         None,
         {"reason": "Bad scan", "assigned_to": 7, "assigned_to_name": "Operator Demo"},
     )
-    assert detail == "Bad scan — Assigned to: Operator Demo"
+    assert detail == "Bad scan"
+
+
+def test_rejected_detail_hides_boilerplate_reason() -> None:
+    detail = _audit_detail(
+        "rejected",
+        None,
+        {
+            "reason": "Approved remaining assets; rejected assets returned to executor.",
+            "assigned_to_name": "Operator Demo",
+        },
+    )
+    assert detail is None
+
+
+def test_enrich_hides_line_rejects_when_order_rejected() -> None:
+    from datetime import datetime, timezone
+
+    from modules.orders.progress import enrich_audit_rows
+
+    rows = [
+        SimpleNamespace(
+            id=1,
+            action="closure_items_rejected",
+            actor_user_id=9,
+            old_value=None,
+            new_value={"asset_codes": ["DEMO-AST-020"], "reason": "J"},
+            created_at=datetime(2026, 8, 20, 12, 51, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            id=2,
+            action="rejected",
+            actor_user_id=9,
+            old_value=None,
+            new_value={
+                "reason": "Approved remaining assets; rejected assets returned to executor.",
+                "assigned_to_name": "Operator Demo",
+            },
+            created_at=datetime(2026, 8, 20, 12, 51, tzinfo=timezone.utc),
+        ),
+    ]
+    audit = enrich_audit_rows(
+        rows,
+        user_name_fn=lambda uid: "Approver Demo" if uid == 9 else "Operator Demo",
+    )
+    labels = [e.label for e in audit]
+    assert labels == ["Order Rejected"]
+    assert audit[0].detail is None
 
 
 def test_closure_submitted_detail_shows_assigned_approver() -> None:

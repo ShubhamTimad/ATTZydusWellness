@@ -225,13 +225,15 @@ type AssetProgressPanel = {
   }[]
 }
 
-/** Draft → configured role level(s) → Rejected (if stopped). Do not add a fake pending node. */
+/** Draft → configured role level(s) → Rejected (if stopped). While still draft, the next
+ *  node reads as pending approval; after submit it shows the role; when done, Approved by {role}. */
 export function buildAssetProgress(detail: {
   approval_status: string
   approval_panel?: AssetProgressPanel | null
 }): { steps: AssetProgressStep[]; currentStepKey: string } {
   const status = (detail.approval_status || "").toLowerCase()
   const isRejected = status === "rejected"
+  const isDraft = status === "draft"
   const workflowSteps = currentAssetWorkflowSteps(detail.approval_panel)
   const currentApproval = workflowSteps.find((s) => s.phase === "current")
   const rejectAtOrder = workflowSteps.find((s) => s.phase === "rejected")?.step_order
@@ -240,7 +242,7 @@ export function buildAssetProgress(detail: {
     {
       key: "draft",
       label: "Draft",
-      status: status === "draft" ? "active" : "completed",
+      status: isDraft ? "active" : "completed",
       approver_slots: [],
     },
   ]
@@ -285,9 +287,9 @@ export function buildAssetProgress(detail: {
 
     steps.push({
       key,
-      label: role,
+      label: isDraft ? "Pending for Approval" : role,
       status: s.phase === "current" ? "active" : "upcoming",
-      detail: s.assigned_user_name ?? null,
+      detail: isDraft ? null : (s.assigned_user_name ?? null),
       approver_slots: [],
     })
   }

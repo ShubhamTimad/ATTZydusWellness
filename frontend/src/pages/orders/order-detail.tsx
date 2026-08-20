@@ -393,21 +393,21 @@ export function OrderDetailPage() {
               : "Order returned to executor for rework."
             : res.status === "rejected"
               ? res.assigned_to_name
-                ? `Order rejected. ${res.assigned_to_name} can start verification again on rejected assets.`
-                : "Order rejected."
+                ? `Order Rejected. ${res.assigned_to_name} can start verification again on rejected assets.`
+                : "Order Rejected."
               : "Assets marked rejected.",
         )
       } else if (path === "/approval/reject-order") {
         toast.success(
           res.assigned_to_name
-            ? `Order rejected. ${res.assigned_to_name} can start verification again on rejected assets.`
-            : "Order rejected.",
+            ? `Order Rejected. ${res.assigned_to_name} can start verification again on rejected assets.`
+            : "Order Rejected.",
         )
       } else if (path === "/approval/approve-all" && res.status === "rejected") {
         toast.success(
           res.assigned_to_name
-            ? `Review finished. Order rejected so ${res.assigned_to_name} can rework rejected assets.`
-            : "Review finished. Order rejected for rework on rejected assets.",
+            ? `Review finished. Order Rejected so ${res.assigned_to_name} can rework rejected assets.`
+            : "Review finished. Order Rejected for rework on rejected assets.",
         )
       } else if (path === "/approval/approve-all" && res.status === "completed") {
         toast.success(
@@ -636,8 +636,8 @@ export function OrderDetailPage() {
       } else if (latest.status === "rejected") {
         toast.success(
           latest.assigned_to_name
-            ? `Review finished. Order rejected so ${latest.assigned_to_name} can rework rejected assets.`
-            : "Review finished. Order rejected for rework on rejected assets.",
+            ? `Review finished. Order Rejected so ${latest.assigned_to_name} can rework rejected assets.`
+            : "Review finished. Order Rejected for rework on rejected assets.",
         )
       } else {
         toast.success("Review updated.")

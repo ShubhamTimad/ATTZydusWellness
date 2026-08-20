@@ -2685,7 +2685,7 @@ class PhysicalOrderService:
                 self._finalize_closure_with_rejected_items(
                     order,
                     actor_user_id=actor_user_id,
-                    reason="Approved remaining assets; rejected assets returned to executor.",
+                    reason="Rejected",
                 )
                 self._db.commit()
                 return self.get_order(order_id)
