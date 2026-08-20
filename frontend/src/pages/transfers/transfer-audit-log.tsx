@@ -89,7 +89,7 @@ export function transferAuditHeadline(ev: TransferOrderAudit): string {
       return step ? `Approved — ${step}` : "Approved"
     case "approved":
     case "cf_approved":
-      return step ? `Final approval — ${step}` : "Final approval — sent to receive"
+      return step ? `Final Approval — ${step}` : "Final Approval — sent to receive"
     case "rejected":
     case "cf_rejected":
       return step ? `Rejected — ${step}` : "Rejected"

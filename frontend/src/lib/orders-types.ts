@@ -275,7 +275,7 @@ const ORDER_STATUS_LABELS: Record<string, string> = {
   pending_closure_approval: "Completed",
   completed: "Completed",
   closed: "Closed",
-  in_progress: "In progress",
+  in_progress: "In Progress",
   rejected: "Rejected",
   cancelled: "Archived",
 }

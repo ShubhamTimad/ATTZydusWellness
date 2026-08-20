@@ -345,7 +345,7 @@ export function OrdersListPage() {
                       onSort={toggleColumnSort}
                     />
                     <SortableColumnHeader
-                      label="Assets"
+                      label="Asset Count"
                       columnKey="asset_count"
                       sortBy={sortBy}
                       sortDir={sortDir}
@@ -373,7 +373,7 @@ export function OrdersListPage() {
                       onSort={toggleColumnSort}
                     />
                     <SortableColumnHeader
-                      label="Created"
+                      label="Creation Date"
                       columnKey="created_at"
                       sortBy={sortBy}
                       sortDir={sortDir}

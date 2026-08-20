@@ -518,7 +518,7 @@ export function CapexDetailPage() {
       <div className="space-y-[var(--app-grid-gap)]">
         <AdminPanel className="shrink-0 overflow-hidden p-0">
           <div className="border-b border-border/60 bg-muted/15 px-4 py-3 sm:px-5">
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-black">
               Progress
             </p>
             <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />
@@ -562,7 +562,7 @@ export function CapexDetailPage() {
                 onChange={(next) => patch({ asset_specifications: next })}
               />
             </FormField>
-            <FormField id="party_name" labelText="Name of the party">
+            <FormField id="party_name" labelText="Name of the Party">
               <AutoGrowTextarea
                 id="party_name"
                 value={form.party_name ?? ""}
@@ -582,7 +582,7 @@ export function CapexDetailPage() {
                 onChange={(next) => patch({ department: next })}
               />
             </FormField>
-            <FormField id="cost_center_id" labelText="Cost center">
+            <FormField id="cost_center_id" labelText="Cost Center">
               <CapexCostCenterSelect
                 value={form.cost_center_id}
                 disabled={readOnly}
@@ -633,7 +633,7 @@ export function CapexDetailPage() {
                 onChange={(next) => patch({ auc_code: next })}
               />
             </FormField>
-            <FormField id="useful_life" labelText="Useful life of assets">
+            <FormField id="useful_life" labelText="Useful life of Assets">
               <AutoGrowTextarea
                 id="useful_life"
                 value={form.useful_life ?? ""}
@@ -644,7 +644,7 @@ export function CapexDetailPage() {
               />
             </FormField>
             {hasPermission("capitalization.submit_with_engineering") || form.requires_engineering ? (
-              <FormField id="requires_engineering" labelText="Submit with engineering">
+              <FormField id="requires_engineering" labelText="Submit with Engineering">
                 <select
                   id="requires_engineering"
                   className={cn(adminSelectClass, "h-9")}

@@ -97,11 +97,13 @@ export function AuditTrailTable({
           <Table className="app-table-head-sticky w-full table-fixed">
             <TableHeader>
               <AdminTableHeaderRow className="bg-muted/30 hover:bg-muted/30">
-                <AdminTableHeadCell className={cn(headClass, "w-[9.5rem]")}>
+                <AdminTableHeadCell className={cn(headClass, "w-[9.5rem] !text-black")}>
                   Date / Time
                 </AdminTableHeadCell>
-                <AdminTableHeadCell className={cn(headClass, "w-[12rem]")}>User</AdminTableHeadCell>
-                <AdminTableHeadCell className={headClass}>Event</AdminTableHeadCell>
+                <AdminTableHeadCell className={cn(headClass, "w-[12rem] !text-black")}>
+                  User
+                </AdminTableHeadCell>
+                <AdminTableHeadCell className={cn(headClass, "!text-black")}>Event</AdminTableHeadCell>
               </AdminTableHeaderRow>
             </TableHeader>
             <TableBody>

@@ -808,7 +808,7 @@ export function TransferOrderDetailPage() {
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
           <div className={cn("border-b border-border/60 bg-muted/15 py-3", transferTextPad)}>
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-black">
               Progress
             </p>
             <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />
@@ -1002,9 +1002,11 @@ export function TransferOrderDetailPage() {
             <Table>
               <TableHeader>
                 <AdminTableHeaderRow>
-                  <AdminTableHeadCell className="h-9 px-4 py-2">Asset</AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2">From CC</AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2">From Loc 1</AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">Asset</AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">From CC</AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                    From Loc 1
+                  </AdminTableHeadCell>
                 </AdminTableHeaderRow>
               </TableHeader>
               <TableBody>

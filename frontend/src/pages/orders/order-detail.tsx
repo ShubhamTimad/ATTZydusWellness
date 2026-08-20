@@ -968,10 +968,10 @@ export function OrderDetailPage() {
           <Table className="app-table-head-sticky">
             <TableHeader>
               <AdminTableHeaderRow>
-                <AdminTableHeadCell>Asset</AdminTableHeadCell>
-                <AdminTableHeadCell>RFID</AdminTableHeadCell>
-                <AdminTableHeadCell>Status</AdminTableHeadCell>
-                <AdminTableHeadCell>Verified</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Asset</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">RFID</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Status</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Verified</AdminTableHeadCell>
               </AdminTableHeaderRow>
               {assetColumnFiltersOpen ? (
                 <AdminTableHeaderRow>

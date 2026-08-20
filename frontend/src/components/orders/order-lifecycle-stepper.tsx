@@ -80,9 +80,9 @@ function displayLabel(step: OrderLifecycleStep, orderStatus?: string, isCurrent?
     return "Draft"
   }
   if (step.key === "order_created") {
-    return orderStatus === "draft" ? "Draft" : "Order created"
+    return orderStatus === "draft" ? "Draft" : "Order Created"
   }
-  if (step.key === "in_progress") return "In progress"
+  if (step.key === "in_progress") return "In Progress"
   if (step.key === "closure_approved") {
     if (
       orderStatus === "completed" ||

@@ -109,7 +109,7 @@ export const DISPOSAL_STATUS_TABS = [
 export const DISPOSAL_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "draft", label: "Draft" },
   { value: "pending_approval", label: "Pending Approval" },
-  { value: "pending_receipt", label: "Pending receive" },
+  { value: "pending_receipt", label: "Pending Receive" },
   { value: "pending_cf_close", label: "Pending CF approval" },
   { value: "closed", label: "Closed" },
   { value: "rejected", label: "Rejected" },
@@ -127,7 +127,7 @@ export function disposalStatusLabel(status: string): string {
     pending_approval: "Pending Approval",
     rejected: "Rejected",
     in_rework: "Rejected",
-    pending_receipt: "Pending receive",
+    pending_receipt: "Pending Receive",
     pending_cf_close: "Pending CF approval",
     closed: "Closed",
     cancelled: "Archived",

@@ -1747,7 +1747,7 @@ export function AssetsListPage() {
         <AdminPrimaryButton type="button" className={cn(listToolbarBtnClass, "px-4")} asChild>
           <Link to="/dashboard/assets/new">
             <Plus className="size-4" aria-hidden />
-            Create asset
+            Create Asset
           </Link>
         </AdminPrimaryButton>
       ) : null}
@@ -1810,17 +1810,17 @@ export function AssetsListPage() {
             <WorkspaceTabsList>
               {ASSET_APPROVAL_STATUS_TABS.map((t) => (
                 <WorkspaceTabsTrigger key={t.key} value={t.key}>
-                  {t.key === "all" ? "All assets" : t.label}
+                  {t.key === "all" ? "All" : t.label}
                 </WorkspaceTabsTrigger>
               ))}
-              <WorkspaceTabsTrigger value="fy">Financial year physical verification</WorkspaceTabsTrigger>
+              <WorkspaceTabsTrigger value="fy">Financial Year Physical Verification</WorkspaceTabsTrigger>
             </WorkspaceTabsList>
           </WorkspaceTabs>
 
           {isFyTab && data?.financial_year_label ? (
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-black">
                   Verified assets
                 </p>
                 <p className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
@@ -1830,26 +1830,35 @@ export function AssetsListPage() {
                   of {data.total_rfid_assets ?? 0} RFID-tagged
                 </p>
               </div>
+
               <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-black">
                   Verification scans
                 </p>
                 <p className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
                   {data.total_fy_verification_events ?? 0}
                 </p>
-                <p className="text-[11px] text-muted-foreground">In selected date range</p>
+                <p className="text-[11px] text-muted-foreground">
+                  In selected date range
+                </p>
               </div>
+
               <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-2.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-black">
                   Pending assets
                 </p>
                 <p className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
                   {data.pending_assets_total ?? 0}
                 </p>
-                <p className="text-[11px] text-muted-foreground">No scan in range</p>
+                <p className="text-[11px] text-muted-foreground">
+                  No scan in range
+                </p>
               </div>
-              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/20 px-3 py-2.5 text-sm">
-                <span>{data.financial_year_label}</span>
+
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/20 px-3 py-2.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-black">
+                  {data.financial_year_label}
+                </span>
                 {data.scan_window_start && data.scan_window_end ? (
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {new Date(data.scan_window_start).toLocaleDateString()} –{" "}
@@ -2273,7 +2282,7 @@ export function AssetsListPage() {
             total={total}
             pageSize={pageSize}
             loading={loading}
-            itemLabel="assets"
+            itemLabel="Assets"
             onPageChange={setPage}
           />
         }

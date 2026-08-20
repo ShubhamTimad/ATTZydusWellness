@@ -35,7 +35,7 @@ export function WorkflowOrdersDashboard({
   const parts = workflowInsightParts(data)
   const inProgressPct = dashboardPct(parts.inProgress, parts.total)
   const slices = [
-    { name: "In progress", value: parts.inProgress, color: openColor },
+    { name: "In Progress", value: parts.inProgress, color: openColor },
     { name: "Closed", value: parts.closed, color: closedColor },
   ]
 
@@ -46,12 +46,12 @@ export function WorkflowOrdersDashboard({
       iconWrap={theme.iconWrap}
       metrics={[
         { value: parts.total, label: "Total" },
-        { value: parts.inProgress, label: "In progress" },
+        { value: parts.inProgress, label: "In Progress" },
         { value: parts.closed, label: "Closed" },
       ]}
       slices={slices}
       centerLabel={`${inProgressPct}%`}
-      centerCaption="In progress"
+      centerCaption="In Progress"
     />
   )
 }

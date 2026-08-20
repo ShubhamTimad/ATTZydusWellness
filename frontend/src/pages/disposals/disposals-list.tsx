@@ -394,14 +394,14 @@ export function DisposalOrdersListPage() {
                     onSort={toggleColumnSort}
                   />
                   <SortableColumnHeader
-                    label="From CC"
+                    label="From Source"
                     columnKey="from_cost_center_code"
                     sortBy={sortBy}
                     sortDir={sortDir}
                     onSort={toggleColumnSort}
                   />
                   <SortableColumnHeader
-                    label="Assets"
+                    label="Asset Count"
                     columnKey="asset_count"
                     sortBy={sortBy}
                     sortDir={sortDir}
@@ -422,7 +422,7 @@ export function DisposalOrdersListPage() {
                     onSort={toggleColumnSort}
                   />
                   <SortableColumnHeader
-                    label="Created"
+                    label="Creation Date"
                     columnKey="created_at"
                     sortBy={sortBy}
                     sortDir={sortDir}

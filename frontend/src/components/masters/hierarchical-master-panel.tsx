@@ -79,6 +79,14 @@ type HierarchicalMasterPanelProps = {
   plants: PlantOption[]
 }
 
+function MasterHeaderLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="text-xm font-bold uppercase tracking-wide text-black">
+      {children}
+    </span>
+  )
+}
+
 const ENDPOINTS: Record<HierarchyKind, string> = {
   "cost-center": "/admin/asset-masters/cost-centers",
   "profit-center": "/admin/asset-masters/profit-centers",
@@ -336,14 +344,43 @@ export function HierarchicalMasterPanel({
         <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>
-              <AdminTableHeadCell>Code</AdminTableHeadCell>
-              <AdminTableHeadCell>Name</AdminTableHeadCell>
-              <AdminTableHeadCell>{descriptionColumnLabel}</AdminTableHeadCell>
-              <AdminTableHeadCell>Plant</AdminTableHeadCell>
-              {parentColumn ? <AdminTableHeadCell>{parentColumn}</AdminTableHeadCell> : null}
-              {showScrapyardCol ? <AdminTableHeadCell>Scrapyard</AdminTableHeadCell> : null}
-              <AdminTableHeadCell>Status</AdminTableHeadCell>
-              {showActions ? <AdminTableHeadCell className="w-40"> </AdminTableHeadCell> : null}
+              <AdminTableHeadCell>
+                <MasterHeaderLabel>Code</MasterHeaderLabel>
+              </AdminTableHeadCell>
+
+              <AdminTableHeadCell>
+                <MasterHeaderLabel>Name</MasterHeaderLabel>
+              </AdminTableHeadCell>
+
+              <AdminTableHeadCell>
+                <MasterHeaderLabel>{descriptionColumnLabel}</MasterHeaderLabel>
+              </AdminTableHeadCell>
+
+              <AdminTableHeadCell>
+                <MasterHeaderLabel>Plant</MasterHeaderLabel>
+              </AdminTableHeadCell>
+
+              {parentColumn ? (
+                <AdminTableHeadCell>
+                  <MasterHeaderLabel>{parentColumn}</MasterHeaderLabel>
+                </AdminTableHeadCell>
+              ) : null}
+
+              {showScrapyardCol ? (
+                <AdminTableHeadCell>
+                  <MasterHeaderLabel>Scrapyard</MasterHeaderLabel>
+                </AdminTableHeadCell>
+              ) : null}
+
+              <AdminTableHeadCell>
+                <MasterHeaderLabel>Status</MasterHeaderLabel>
+              </AdminTableHeadCell>
+
+              {showActions ? (
+                <AdminTableHeadCell className="w-40">
+                  <span aria-hidden="true">&nbsp;</span>
+                </AdminTableHeadCell>
+              ) : null}
             </AdminTableHeaderRow>
           </TableHeader>
           <TableBody>

@@ -66,7 +66,7 @@ function DashboardSummaryStrip({
         key="orders"
         title="Physical Verification Orders"
         value={parts.open}
-        aside={{ text: `${parts.total} total` }}
+        aside={{ text: `${parts.total} Total` }}
         accent={DASHBOARD_COLOR.blue}
       />,
     )
@@ -78,7 +78,7 @@ function DashboardSummaryStrip({
         key="transfers"
         title="Transfer Orders"
         value={parts.open}
-        aside={{ text: `${parts.total} total` }}
+        aside={{ text: `${parts.total} Total` }}
         accent={DASHBOARD_COLOR.orange}
       />,
     )
@@ -90,7 +90,7 @@ function DashboardSummaryStrip({
         key="disposals"
         title="Disposal Orders"
         value={parts.open}
-        aside={{ text: `${parts.total} total` }}
+        aside={{ text: `${parts.total} Total` }}
         accent={DASHBOARD_COLOR.red}
       />,
     )
@@ -101,7 +101,7 @@ function DashboardSummaryStrip({
         key="rfid"
         title="RFID"
         value={assets.rfid_tagged}
-        aside={{ text: `${assets.total_assets} total` }}
+        aside={{ text: `${assets.total_assets} Total` }}
         accent={DASHBOARD_COLOR.purple}
       />,
     )
@@ -112,7 +112,7 @@ function DashboardSummaryStrip({
         key="users"
         title="Users"
         value={it.total_users}
-        aside={{ text: `${it.active_users} active` }}
+        aside={{ text: `${it.active_users} Active` }}
         accent={DASHBOARD_COLOR.green}
       />,
     )
