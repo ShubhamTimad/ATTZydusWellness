@@ -46,7 +46,7 @@ export function WhenCell({ at, muted }: { at: string; muted?: boolean }) {
   )
 }
 
-const cellClass = "px-4 py-2.5 align-top"
+const cellClass = "px-4 py-2.5 align-top whitespace-normal"
 const headClass = "px-4 py-2.5"
 
 export function AuditTrailTable({
@@ -94,11 +94,13 @@ export function AuditTrailTable({
             fillHeight ? "min-h-0 flex-1" : "min-h-[14rem] max-h-[min(22rem,48vh)]",
           )}
         >
-          <Table className="app-table-head-sticky">
+          <Table className="app-table-head-sticky w-full table-fixed">
             <TableHeader>
               <AdminTableHeaderRow className="bg-muted/30 hover:bg-muted/30">
-                <AdminTableHeadCell className={cn(headClass, "w-[9.5rem]")}>Date / Time</AdminTableHeadCell>
-                <AdminTableHeadCell className={cn(headClass, "w-[7.5rem]")}>User</AdminTableHeadCell>
+                <AdminTableHeadCell className={cn(headClass, "w-[9.5rem]")}>
+                  Date / Time
+                </AdminTableHeadCell>
+                <AdminTableHeadCell className={cn(headClass, "w-[12rem]")}>User</AdminTableHeadCell>
                 <AdminTableHeadCell className={headClass}>Event</AdminTableHeadCell>
               </AdminTableHeaderRow>
             </TableHeader>
@@ -112,11 +114,15 @@ export function AuditTrailTable({
                   <AdminTableCell className={cellClass}>
                     <WhenCell at={row.at} />
                   </AdminTableCell>
-                  <AdminTableCell className={cellClass}>
-                    <span className="text-sm font-medium text-foreground">{row.by}</span>
+                  <AdminTableCell className={cn(cellClass, "max-w-0 overflow-hidden")}>
+                    <span className="break-words text-sm font-medium text-foreground">
+                      {row.by}
+                    </span>
                   </AdminTableCell>
-                  <AdminTableCell className={cellClass}>
-                    <div className="min-w-0 text-sm leading-snug text-foreground">{row.activity}</div>
+                  <AdminTableCell className={cn(cellClass, "max-w-0 overflow-hidden")}>
+                    <div className="min-w-0 break-words text-sm leading-snug text-foreground">
+                      {row.activity}
+                    </div>
                   </AdminTableCell>
                 </AdminTableBodyRow>
               ))}

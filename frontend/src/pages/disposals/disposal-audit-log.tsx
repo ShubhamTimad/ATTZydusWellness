@@ -93,7 +93,9 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
     }
 
     const comment = fromNew(ev, "comment")
-    if (comment) lines.push(`Comment: ${comment}`)
+    if (comment) {
+      lines.push(action === "rejected" ? `Rejected Reason: ${comment}` : `Comment: ${comment}`)
+    }
 
     if (action === "received") {
       const cc = fromNew(ev, "cost_center")
@@ -175,17 +177,18 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
 function activityForEvent(ev: DisposalOrderAudit): React.ReactNode {
   const details = disposalAuditDetailLines(ev)
   return (
-    <div className="space-y-0.5">
-      <p className="font-medium">{disposalAuditHeadline(ev)}</p>
-      {details.length > 0 ? (
-        <ul className="space-y-0.5 text-[11px] leading-relaxed text-muted-foreground">
-          {details.map((line, i) => (
-            <li key={`${i}-${line}`} className="break-words">
-              {line}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+    <div className="min-w-0 space-y-1.5">
+      <p className="text-sm font-medium leading-snug text-foreground">
+        {disposalAuditHeadline(ev)}
+      </p>
+      {details.map((line) => (
+        <p
+          key={line}
+          className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground"
+        >
+          {line}
+        </p>
+      ))}
     </div>
   )
 }

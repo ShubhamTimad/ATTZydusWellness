@@ -637,7 +637,11 @@ export function AssetDetailPage() {
           canDeactivatePerm &&
             asset &&
             asset.action_allowed !== false &&
-            canDeactivateAsset(asset.lifecycle_status, asset.approval_status),
+            canDeactivateAsset(
+              asset.lifecycle_status,
+              asset.approval_status,
+              asset.active_physical_order,
+            ),
         ),
         canReactivate: Boolean(
           canReactivatePerm &&
@@ -949,11 +953,15 @@ export function AssetDetailPage() {
               value: String(c.id),
               label: assetCustodianLabel(c),
             })),
-            asset_condition_id: masters.assetConditions.map((c) => ({
+            asset_condition_id: masters.assetConditions
+              .filter((c) => c.is_active || c.id === a.asset_condition_id)
+              .map((c) => ({
               value: String(c.id),
               label: assetConditionLabel(c),
             })),
-            asset_class_id: masters.assetClasses.map((c) => ({
+            asset_class_id: masters.assetClasses
+              .filter((c) => c.is_active || c.id === a.asset_class_id)
+              .map((c) => ({
               value: String(c.id),
               label: assetClassLabel(c),
             })),

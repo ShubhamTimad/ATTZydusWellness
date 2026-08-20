@@ -80,7 +80,7 @@ function activityForEvent(ev: UserTimelineEvent): React.ReactNode {
           <div className="space-y-0.5 text-[11px] text-muted-foreground">
             {roleName ? <p>Role: {roleName}</p> : null}
             {plantName ? <p>Plant: {plantName}</p> : null}
-            {awaiting ? <p>Awaiting approval from {awaiting}</p> : null}
+            {awaiting ? <p>Awaiting Approval from {awaiting}</p> : null}
           </div>
         ) : null}
       </div>
@@ -102,7 +102,7 @@ function activityForEvent(ev: UserTimelineEvent): React.ReactNode {
       return (
         <div className="space-y-1">
           <p className="font-medium">
-            {ev.step != null ? `Step ${ev.step} · Awaiting approval` : "Awaiting approval"}
+            {ev.step != null ? `Step ${ev.step} · Awaiting Approval` : "Awaiting Approval"}
           </p>
           <p className="text-[11px] text-muted-foreground">
             {assignees}

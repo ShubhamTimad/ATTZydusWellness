@@ -18,11 +18,38 @@ export function isAssetPendingTransfer(lifecycleStatus: string): boolean {
   return (lifecycleStatus || "").toLowerCase() === "pending_transfer"
 }
 
-export function canDeactivateAsset(lifecycleStatus: string, approvalStatus: string): boolean {
+/** Mirrors backend ACTIVE_ORDER_STATUSES (not closed / cancelled / rejected). */
+const OPEN_PHYSICAL_ORDER_STATUSES = new Set([
+  "draft",
+  "pending_approval",
+  "approved",
+  "assigned",
+  "in_progress",
+  "pending_closure_approval",
+  "completed",
+])
+
+/** True when the asset is on an open physical order (list may show closed as fallback). */
+export function hasOpenPhysicalOrder(order?: {
+  order_status?: string | null
+  closed_at?: string | null
+} | null): boolean {
+  if (!order) return false
+  if (order.closed_at) return false
+  const status = (order.order_status || "").trim().toLowerCase()
+  return OPEN_PHYSICAL_ORDER_STATUSES.has(status)
+}
+
+export function canDeactivateAsset(
+  lifecycleStatus: string,
+  approvalStatus: string,
+  activePhysicalOrder?: { order_status?: string | null; closed_at?: string | null } | null,
+): boolean {
   if (
     isAssetDisposed(lifecycleStatus) ||
     isAssetPendingDisposal(lifecycleStatus) ||
-    isAssetPendingTransfer(lifecycleStatus)
+    isAssetPendingTransfer(lifecycleStatus) ||
+    hasOpenPhysicalOrder(activePhysicalOrder)
   ) {
     return false
   }

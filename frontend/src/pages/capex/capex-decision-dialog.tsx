@@ -163,9 +163,9 @@ export function CapexDecisionDialog({
               placeholder={
                 commentRequired
                   ? mode === "reject"
-                    ? "Reason for rejection…"
-                    : "Reason for approval…"
-                  : "Optional comment…"
+                    ? "Reason for Rejection"
+                    : "Reason for Approval"
+                  : "Optional Comment…"
               }
               rows={3}
               autoFocus={!showNextPicker}

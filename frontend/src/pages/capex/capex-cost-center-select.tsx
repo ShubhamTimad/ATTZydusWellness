@@ -61,7 +61,7 @@ export function CapexCostCenterSelect({
       disabled={loading}
       onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
     >
-      <option value="">{loading ? "Loading…" : "No Cost Center"}</option>
+      <option value="">{loading ? "Loading…" : "Select Cost Center"}</option>
       {missing ? (
         <option value={String(value)}>{fallbackLabel || `Cost center #${value}`}</option>
       ) : null}

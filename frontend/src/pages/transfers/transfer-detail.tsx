@@ -1,6 +1,5 @@
 import * as React from "react"
-import { ArrowRightLeft, Package } from "lucide-react"
-import { useNavigate, useParams } from "react-router-dom"
+import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
 
@@ -92,6 +91,58 @@ function DetailFact({
     </div>
   )
 }
+
+function SummaryField({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: React.ReactNode
+  tone?: "warning" | "success"
+}) {
+  return (
+    <div
+      className={cn(
+        "min-w-0 rounded-md px-2.5 py-1.5",
+        tone === "warning" && "bg-amber-50/90 dark:bg-amber-950/25",
+        tone === "success" && "bg-emerald-50/90 dark:bg-emerald-950/25",
+        !tone && "bg-muted/35",
+      )}
+    >
+      <p
+        className={cn(
+          "text-[10px] font-medium uppercase tracking-[0.06em]",
+          tone === "warning" && "text-amber-800/80 dark:text-amber-200/80",
+          tone === "success" && "text-emerald-800/80 dark:text-emerald-200/80",
+          !tone && "text-muted-foreground",
+        )}
+      >
+        {label}
+      </p>
+      <p
+        className={cn(
+          "mt-0.5 truncate text-sm font-semibold tabular-nums leading-snug",
+          tone === "warning" && "text-amber-950 dark:text-amber-50",
+          tone === "success" && "text-emerald-950 dark:text-emerald-50",
+          !tone && "text-foreground",
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function formatDt(iso: string | null | undefined) {
+  if (!iso) return "—"
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+}
+
+const transferTextPad = "px-[var(--app-card-padding)]"
 
 export function TransferOrderDetailPage() {
   const { id } = useParams()
@@ -498,6 +549,7 @@ export function TransferOrderDetailPage() {
     <AdminPage
       fullWidth
       dense
+      viewportFill
       description=""
       className="w-full gap-3 pb-6"
       actions={
@@ -736,12 +788,12 @@ export function TransferOrderDetailPage() {
         </div>
       }
     >
-      <div className="flex flex-col gap-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <div className="shrink-0">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             {order.order_number}
           </h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             {order.plant_name}
             {order.from_cost_center_code || order.to_cost_center_code
               ? ` · ${order.from_cost_center_code ?? "—"} → ${order.to_cost_center_code ?? "—"}`
@@ -755,44 +807,50 @@ export function TransferOrderDetailPage() {
         </div>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
-          <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5 sm:px-5">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <div className={cn("border-b border-border/60 bg-muted/15 py-3", transferTextPad)}>
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               Progress
             </p>
             <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />
           </div>
         </AdminPanel>
 
-        {order.rejection_reason ? (
-          <AdminPanel className="border-destructive/30 bg-destructive/5" contentClassName="px-4 py-3">
-            <p className="text-sm font-medium text-destructive">Rejection reason</p>
-            <p className="mt-1 text-sm">{order.rejection_reason}</p>
-          </AdminPanel>
-        ) : null}
+        <AdminPanel className="shrink-0 overflow-hidden p-0">
+          <div className={cn("space-y-2 py-3", transferTextPad)}>
+            <h3 className="text-sm font-semibold text-foreground">Transfer summary</h3>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
+              <SummaryField label="Assets" value={order.items.length} />
+              <SummaryField
+                label="From"
+                value={order.from_cost_center_code ?? "—"}
+              />
+              <SummaryField label="To" value={order.to_cost_center_code ?? "—"} />
+              <SummaryField label="Created" value={formatDt(order.created_at)} />
+              <SummaryField
+                label="Assignee"
+                value={order.assigned_to_name || order.to_asset_custodian_name || "—"}
+              />
+            </div>
+          </div>
+        </AdminPanel>
 
-        <div className="grid gap-3 lg:grid-cols-2">
-          <AdminPanel
-            title="Transfer destination"
-            description={
-              order.can_restart_transfer
-                ? "Receive again with updated locations, or click Transfer to change destination and restart the full approval flow on this same order."
-                : receiveEditable
-                  ? "Set Actual Location 1 / 2, then receive. Destination cost center stays as approved — same order id continues."
-                  : draftEditable
-                    ? "Update destination cost center and asset custodian. Locations are set when the destination custodian receives."
-                    : undefined
-            }
-            headerActions={<ArrowRightLeft className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="flex-1 px-4 py-3"
-            className="flex h-full flex-col"
-          >
+        <AdminPanel className="shrink-0 overflow-hidden p-0">
+          <div className={cn("space-y-3 py-3", transferTextPad)}>
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Transfer destination</h3>
+              {order.can_restart_transfer || receiveEditable || draftEditable ? (
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {order.can_restart_transfer
+                    ? "Receive again with updated locations, or click Transfer to change destination and restart the full approval flow on this same order."
+                    : receiveEditable
+                      ? "Set Actual Location 1 / 2, then receive. Destination cost center stays as approved — same order id continues."
+                      : "Update destination cost center and asset custodian. Locations are set when the destination custodian receives."}
+                </p>
+              ) : null}
+            </div>
             {draftEditable ? (
-              <div className="grid grid-cols-1 gap-3">
-                <FormField
-                  id="to_cc"
-                  labelText="Destination cost center"
-                  required
-                >
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <FormField id="to_cc" labelText="Destination cost center" required>
                   <select
                     id="to_cc"
                     className={adminSelectClass}
@@ -890,7 +948,9 @@ export function TransferOrderDetailPage() {
                           disabled={!toFunctionalLocation}
                         >
                           <option value="">
-                            {toFunctionalLocation ? "Select location" : "Select Actual Location 1 first"}
+                            {toFunctionalLocation
+                              ? "Select location"
+                              : "Select Actual Location 1 first"}
                           </option>
                           {masters.actualLocations.map((l) => (
                             <option key={l.id} value={l.code}>
@@ -921,55 +981,73 @@ export function TransferOrderDetailPage() {
                 ) : null}
               </dl>
             )}
-          </AdminPanel>
+          </div>
+        </AdminPanel>
 
-          <AdminPanel
-            title={`Assets (${order.items.length})`}
-            headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="flex min-h-0 flex-1 flex-col px-0 py-0"
-            className="flex h-full flex-col overflow-hidden"
+        <AdminPanel className="shrink-0 overflow-hidden p-0">
+          <div
+            className={cn(
+              "flex flex-nowrap items-center gap-2 border-b border-border/60 py-3",
+              transferTextPad,
+            )}
           >
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <AdminTableHeaderRow>
-                    <AdminTableHeadCell className="h-9 px-4 py-2">Asset</AdminTableHeadCell>
-                    <AdminTableHeadCell className="h-9 px-4 py-2">From CC</AdminTableHeadCell>
-                    <AdminTableHeadCell className="h-9 px-4 py-2">From Loc 1</AdminTableHeadCell>
-                  </AdminTableHeaderRow>
-                </TableHeader>
-                <TableBody>
-                  {order.items.length === 0 ? (
-                    <AdminTableEmptyRow colSpan={3}>No assets</AdminTableEmptyRow>
-                  ) : (
-                    order.items.map((item) => (
-                      <AdminTableBodyRow key={item.id} interactive={false}>
-                        <AdminTableCell className="min-h-0 px-4 py-2">
-                          <div className="font-medium">{item.asset_code}</div>
-                          <div className="text-xs text-muted-foreground">{item.asset_name || "—"}</div>
-                        </AdminTableCell>
-                        <AdminTableCell className="px-4 py-2">
-                          {formatCostCenterWithCode(
-                            item.from_cost_center_code,
-                            masters.costCenters,
-                            order.from_cost_center_description,
-                          )}
-                        </AdminTableCell>
-                        <AdminTableCell className="px-4 py-2">
-                          {item.from_functional_location_name ??
-                            item.from_functional_location ??
-                            "—"}
-                        </AdminTableCell>
-                      </AdminTableBodyRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </AdminPanel>
-        </div>
+            <p className="shrink-0 text-sm font-medium text-foreground">
+              Assets
+              <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
+                ({order.items.length})
+              </span>
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <AdminTableHeaderRow>
+                  <AdminTableHeadCell className="h-9 px-4 py-2">Asset</AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2">From CC</AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2">From Loc 1</AdminTableHeadCell>
+                </AdminTableHeaderRow>
+              </TableHeader>
+              <TableBody>
+                {order.items.length === 0 ? (
+                  <AdminTableEmptyRow colSpan={3}>No assets</AdminTableEmptyRow>
+                ) : (
+                  order.items.map((item) => (
+                    <AdminTableBodyRow key={item.id} interactive={false}>
+                      <AdminTableCell className="min-h-0 whitespace-normal px-4 py-2">
+                        <Link
+                          to={`/dashboard/assets/${item.asset_id}`}
+                          className="font-mono text-xs text-primary hover:underline"
+                        >
+                          {item.asset_code}
+                        </Link>
+                        <p className="mt-0.5 text-sm text-foreground">{item.asset_name || "—"}</p>
+                      </AdminTableCell>
+                      <AdminTableCell className="px-4 py-2">
+                        {formatCostCenterWithCode(
+                          item.from_cost_center_code,
+                          masters.costCenters,
+                          order.from_cost_center_description,
+                        )}
+                      </AdminTableCell>
+                      <AdminTableCell className="px-4 py-2">
+                        {item.from_functional_location_name ??
+                          item.from_functional_location ??
+                          "—"}
+                      </AdminTableCell>
+                    </AdminTableBodyRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </AdminPanel>
 
-        <TransferAuditLog events={order.audit} assetCodeById={assetCodeById} />
+        <TransferAuditLog
+          events={order.audit}
+          assetCodeById={assetCodeById}
+          fillHeight
+          className="min-h-[14rem]"
+        />
       </div>
 
       <CapexAssigneePickerDialog

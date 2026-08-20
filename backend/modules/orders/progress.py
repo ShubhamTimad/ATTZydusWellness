@@ -41,7 +41,7 @@ from modules.platform.tasks.service import _build_workflow_steps_for_request
 from modules.platform.tasks.schema import TaskApprovalStepLinePublic
 
 _AUDIT_LABELS: dict[str, str] = {
-    "order_created": "Order created",
+    "order_created": "Order Created",
     "assignment_changed": "Executor Assigned",
     "reassigned": "Order Reassigned",
     "submitted_for_approval": "Submitted for Creation Approval",
@@ -66,11 +66,7 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
     new_value = new_value or {}
     old_value = old_value or {}
     if action == "order_created":
-        name = new_value.get("assigned_to_name")
-        if name:
-            return str(name)
-        assignee = new_value.get("assigned_to")
-        return f"User #{assignee}" if assignee else None
+        return None
     if action == "assignment_changed":
         assignee = new_value.get("assigned_to")
         if assignee is not None:
@@ -93,7 +89,7 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         parts = [p for p in (code, rfid) if p]
         return " · ".join(parts) if parts else None
     if action == "rejected":
-        # Internal finish reasons are noisy; keep the trail as "Order rejected" only.
+        # Internal finish reasons are noisy; prefer the reviewer's reject reason.
         boilerplate = {
             "approved remaining assets; rejected assets returned to executor.",
             "closure review completed with rejected assets.",
@@ -101,7 +97,7 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         }
         reason = (new_value.get("reason") or new_value.get("comment") or "").strip()
         if reason and reason.lower() not in boilerplate:
-            return reason
+            return f"Rejected Reason: {reason}"
         return None
     if action == "submitted_for_approval":
         rid = new_value.get("approval_request_id")
@@ -124,17 +120,8 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         elif new_value.get("assignee_user_id") is not None:
             parts.append(f"Assigned to: user #{new_value.get('assignee_user_id')}")
         if new_value.get("resubmitted"):
-            parts.append("Resubmitted for approval")
+            pass
         return " — ".join(parts) if parts else None
-    if action == "returned_for_execution":
-        reason = new_value.get("reason")
-        codes = new_value.get("rejected_asset_codes") or []
-        parts = []
-        if codes:
-            parts.append(", ".join(str(c) for c in codes))
-        if reason:
-            parts.append(f"Reason: {reason}")
-        return " — ".join(parts) if parts else "Assets rejected by reviewer"
     if action == "execution_items_rejected":
         codes = new_value.get("asset_codes") or []
         reason = new_value.get("reason")
@@ -142,7 +129,7 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         if codes:
             parts.append(", ".join(str(c) for c in codes))
         if reason:
-            parts.append(f"Reason: {reason}")
+            parts.append(f"Rejected Reason: {reason}")
         return " — ".join(parts) if parts else None
     if action == "closure_items_rejected":
         codes = new_value.get("asset_codes") or []
@@ -151,8 +138,17 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         if codes:
             parts.append(", ".join(str(c) for c in codes))
         if reason:
-            parts.append(f"Reason: {reason}")
+            parts.append(f"Rejected Reason: {reason}")
         return " — ".join(parts) if parts else None
+    if action == "returned_for_execution":
+        reason = new_value.get("reason")
+        codes = new_value.get("rejected_asset_codes") or []
+        parts = []
+        if codes:
+            parts.append(", ".join(str(c) for c in codes))
+        if reason:
+            parts.append(f"Rejected Reason: {reason}")
+        return " — ".join(parts) if parts else "Assets rejected by reviewer"
     if action == "closure_items_approved":
         codes = new_value.get("asset_codes") or []
         if codes:
@@ -351,12 +347,42 @@ def enrich_audit_rows(
         for e in workflow_rows
     )
 
+    # Line rejects are folded into matching "Order Rejected" rows (same cycle only).
+    folded_reason_by_rejected_id: dict[int, str] = {}
+    if has_order_rejected:
+        pending_line_reason: str | None = None
+        chronological = sorted(
+            rows,
+            key=lambda row: (
+                getattr(row, "created_at", None) is None,
+                getattr(row, "created_at", None),
+                int(getattr(row, "id", 0) or 0),
+            ),
+        )
+        for row in chronological:
+            action_name = str(row.action)
+            if action_name in ("closure_items_rejected", "execution_items_rejected"):
+                reason = str((row.new_value or {}).get("reason") or "").strip()
+                if reason:
+                    pending_line_reason = reason
+            elif action_name == "rejected" and pending_line_reason:
+                folded_reason_by_rejected_id[int(row.id)] = pending_line_reason
+                pending_line_reason = None
+
+    boilerplate_reject_reasons = {
+        "approved remaining assets; rejected assets returned to executor.",
+        "closure review completed with rejected assets.",
+        "rejected",
+    }
+
     for r in rows:
         action = str(r.action)
         if action == "asset_verified":
             continue
         # Line rejects are applied right before order-level reject; keep one "Order rejected".
         if action == "closure_items_rejected" and has_order_rejected:
+            continue
+        if action == "execution_items_rejected" and has_order_rejected:
             continue
         if action == "approved" and (r.new_value or {}).get("auto_approved"):
             continue
@@ -366,10 +392,13 @@ def enrich_audit_rows(
         if action == "closure_approved" and has_workflow_closure_approve:
             continue
         new_value = dict(r.new_value or {})
-        if action == "order_created" and not new_value.get("assigned_to_name") and assigned_to_name:
-            new_value["assigned_to_name"] = assigned_to_name
-        if action == "rejected" and not new_value.get("assigned_to_name") and assigned_to_name:
-            new_value["assigned_to_name"] = assigned_to_name
+        if action == "rejected":
+            if not new_value.get("assigned_to_name") and assigned_to_name:
+                new_value["assigned_to_name"] = assigned_to_name
+            existing = str(new_value.get("reason") or new_value.get("comment") or "").strip()
+            folded = folded_reason_by_rejected_id.get(int(r.id))
+            if folded and (not existing or existing.lower() in boilerplate_reject_reasons):
+                new_value["reason"] = folded
         if action == "submitted_for_approval" and db is not None and order_id is not None:
             if not new_value.get("next_assignee_name") and not new_value.get("assigned_to_name"):
                 req = _latest_approval_request(
@@ -805,7 +834,7 @@ def build_order_progress(
                     status=phase("closure_approved"),
                     actor_name=_find_audit_actor(audit_rows, "closure_approved", user_name_fn),
                     occurred_at=_find_audit_time(audit_rows, "closure_approved"),
-                    detail="Awaiting approval" if awaiting_closure else None,
+                    detail="Awaiting Approval" if awaiting_closure else None,
                 )
             )
         else:
@@ -828,7 +857,7 @@ def build_order_progress(
                             if st == "completed"
                             else None
                         ),
-                        detail="Awaiting approval" if st == "active" else None,
+                        detail="Awaiting Approval" if st == "active" else None,
                     )
                 )
 

@@ -35,6 +35,8 @@ from modules.assets.lifecycle import (
     find_open_asset_approval_request,
     find_pending_asset_approval_request,
     is_awaiting_approval,
+    is_pending_disposal,
+    is_pending_transfer,
     set_asset_active_immediate,
     set_asset_approved_active,
     set_asset_deactivated,
@@ -645,6 +647,7 @@ class AssetMasterService:
         data: bytes,
         filename: str | None,
         actor_user_id: int,
+        part_of_create: bool = False,
     ) -> AssetImagePublic:
         content_type = validate_asset_image(data)
         asset = self._load_asset(asset_id)
@@ -656,14 +659,16 @@ class AssetMasterService:
         asset.image_filename = safe_filename or "asset-image"
         asset.updated_at = _now()
         self._db.flush()
-        log_asset_event(
-            self._db,
-            asset_id=asset.id,
-            actor_user_id=actor_user_id,
-            action="asset_image_updated" if had_image else "asset_image_added",
-            old_value=None,
-            new_value={"image_filename": asset.image_filename},
-        )
+        # Create flow uploads image right after create — keep a single "created" audit.
+        if not (part_of_create and not had_image):
+            log_asset_event(
+                self._db,
+                asset_id=asset.id,
+                actor_user_id=actor_user_id,
+                action="asset_image_updated" if had_image else "asset_image_added",
+                old_value=None,
+                new_value={"image_filename": asset.image_filename},
+            )
         self._db.commit()
         return AssetImagePublic(
             has_image=True,
@@ -1012,7 +1017,7 @@ class AssetMasterService:
                 self._db.commit()
             except Exception as exc:
                 self._db.rollback()
-                raise ConflictError(f"Submit for approval failed: {exc}") from exc
+                raise ConflictError(f"Submit for Approval failed: {exc}") from exc
         elif errors:
             self._db.rollback()
         return SubmitForApprovalResponse(
@@ -1020,6 +1025,54 @@ class AssetMasterService:
             activated_count=activated_count,
             errors=errors,
         )
+
+    def _asset_ids_viewer_can_approve(
+        self, asset_ids: list[int], *, viewer_user_id: int
+    ) -> set[int]:
+        """Asset ids whose pending creation/import approval task is assigned to the viewer."""
+        if not asset_ids:
+            return set()
+        from modules.platform.approvals.model import ApprovalRequest, ApprovalTask
+        from modules.platform.approvals.service import ApprovalEngineService
+
+        req_rows = self._db.execute(
+            select(ApprovalRequest.id, ApprovalRequest.entity_id).where(
+                ApprovalRequest.entity_type.in_(("asset_creation", "asset_import")),
+                ApprovalRequest.entity_id.in_([int(i) for i in asset_ids]),
+                ApprovalRequest.status == "pending",
+            )
+        ).all()
+        if not req_rows:
+            return set()
+        # Latest pending request wins if duplicates exist.
+        latest_by_asset: dict[int, int] = {}
+        for rid, aid in req_rows:
+            rid_i, aid_i = int(rid), int(aid)
+            if aid_i not in latest_by_asset or rid_i > latest_by_asset[aid_i]:
+                latest_by_asset[aid_i] = rid_i
+        req_to_asset = {rid: aid for aid, rid in latest_by_asset.items()}
+        if not req_to_asset:
+            return set()
+        uid = int(viewer_user_id)
+        role_ids = ApprovalEngineService(self._db)._role_ids_for_user(uid)
+        tasks = self._db.scalars(
+            select(ApprovalTask).where(
+                ApprovalTask.request_id.in_(list(req_to_asset.keys())),
+                ApprovalTask.task_type == "approval",
+                ApprovalTask.status == "pending",
+            )
+        ).all()
+        out: set[int] = set()
+        for t in tasks:
+            aid = req_to_asset.get(int(t.request_id))
+            if aid is None:
+                continue
+            if t.assigned_user_id is not None:
+                if int(t.assigned_user_id) == uid:
+                    out.add(aid)
+            elif t.assigned_role_id is not None and int(t.assigned_role_id) in role_ids:
+                out.add(aid)
+        return out
 
     def _pending_task_for_actor(self, *, asset_id: int, actor_user_id: int):
         """Pending approval task the actor may act on (user handoff or role pool)."""
@@ -2072,6 +2125,17 @@ class AssetMasterService:
             )
         cc_desc, fl_desc, al_desc = self._master_label_lookups(rows)
         active_orders = self._active_physical_orders_for_assets([int(a.id) for a in rows])
+        approvable_ids: set[int] = set()
+        if viewer_user_id is not None:
+            pending_row_ids = [
+                int(a.id)
+                for a in rows
+                if (a.approval_status or "").strip().lower() == APPROVAL_PENDING
+            ]
+            if pending_row_ids:
+                approvable_ids = self._asset_ids_viewer_can_approve(
+                    pending_row_ids, viewer_user_id=int(viewer_user_id)
+                )
         items: list[AssetListItem] = []
         for a in rows:
             loc = a.location
@@ -2118,6 +2182,7 @@ class AssetMasterService:
                     created_at=a.created_at,
                     active_physical_order=active_orders.get(int(a.id)),
                     action_allowed=asset_in_scope(a, scope),
+                    can_approve=int(a.id) in approvable_ids,
                 )
             )
         return AssetListResponse(
@@ -2964,9 +3029,28 @@ class AssetMasterService:
         )
         self._db.commit()
 
+    def _assert_asset_not_on_open_order(self, asset: AssetMaster) -> None:
+        """Block delete/deactivate while the asset is on an open order."""
+        if is_pending_transfer(asset.lifecycle_status):
+            raise ConflictError(
+                f"Asset {asset.asset_code} is on an open transfer and cannot be deleted or deactivated."
+            )
+        if is_pending_disposal(asset.lifecycle_status):
+            raise ConflictError(
+                f"Asset {asset.asset_code} is on an open disposal and cannot be deleted or deactivated."
+            )
+        open_orders = self._orders_for_assets_by_status([int(asset.id)], ACTIVE_ORDER_STATUSES)
+        info = open_orders.get(int(asset.id))
+        if info is not None:
+            raise ConflictError(
+                f"Asset {asset.asset_code} is on open physical order {info.order_number} "
+                "and cannot be deleted or deactivated."
+            )
+
     def soft_delete(self, asset_id: int, *, actor_user_id: int | None) -> None:
         asset = self._load_asset(asset_id)
         self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
+        self._assert_asset_not_on_open_order(asset)
         asset.deleted_at = _now()
         asset.lifecycle_status = LIFECYCLE_INACTIVE
         log_asset_event(
@@ -2981,6 +3065,7 @@ class AssetMasterService:
     def deactivate(self, asset_id: int, *, actor_user_id: int | None) -> AssetDetailPublic:
         asset = self._load_asset(asset_id)
         self._assert_asset_action_allowed(asset, actor_user_id=actor_user_id)
+        self._assert_asset_not_on_open_order(asset)
         if not can_deactivate(asset):
             raise ConflictError(
                 f"Asset {asset.asset_code} cannot be deactivated "

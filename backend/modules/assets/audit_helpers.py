@@ -294,15 +294,15 @@ def compact_order_audit_text(
     prefix = f"{ref} · " if ref else ""
 
     if action == "physical_order_created":
-        return f"{prefix}Order created".lstrip(" · ")
+        return f"{prefix}Order Created".lstrip(" · ")
     if action == "physical_order_approved":
-        return f"{prefix}Order approved".lstrip(" · ")
+        return f"{prefix}Order Approved".lstrip(" · ")
     if action == "physical_order_started":
-        return f"{prefix}Verification started".lstrip(" · ")
+        return f"{prefix}Verification Started".lstrip(" · ")
     if action == "physical_order_verified":
         return f"{prefix}Verified".lstrip(" · ")
     if action == "physical_verification_reset":
-        return f"{prefix}Order created".lstrip(" · ")
+        return f"{prefix}Order Created".lstrip(" · ")
     return f"{prefix}{action.replace('_', ' ')}".lstrip(" · ")
 
 
@@ -326,7 +326,7 @@ def activity_verb_for_action(action: str, new_value: dict[str, Any] | None, sour
     if action == "physical_order_verified":
         return "Verified in order"
     if action == "physical_verification_reset":
-        return "Order created"
+        return "Order Created"
     if action in ORDER_ASSET_AUDIT_ACTIONS:
         return "Physical order"
     if action == "created":
@@ -334,36 +334,36 @@ def activity_verb_for_action(action: str, new_value: dict[str, Any] | None, sour
         if not source:
             source = source_type or "manual"
         if source == "import":
-            return "Imported by"
+            return "Imported By"
         if source == "seed":
-            return "Created (seed data) by"
+            return "Created (seed data) By"
         if nv.get("pending_approval"):
-            return "Created manually by"
-        return "Created manually by"
+            return "Created Manually By"
+        return "Created Manually By"
     if action == "imported":
-        return "Imported by"
+        return "Imported By"
     if action == "updated":
-        return "Edited by"
+        return "Edited By"
     if action == "approved":
-        return "Approved by"
+        return "Approved By"
     if action == "activated":
-        return "Activated by"
+        return "Activated By"
     if action == "deactivated":
-        return "Deactivated by"
+        return "Deactivated By"
     if action == "reactivated":
-        return "Reactivated by"
+        return "Reactivated By"
     if action == "submitted_for_approval":
-        return "Submitted for approval by"
+        return "Submitted for Approval By"
     if action == "rejected":
-        return "Rejected by"
+        return "Rejected By"
     if action == "reassigned":
-        return "Reassigned by"
+        return "Reassigned By"
     if action == "deleted":
-        return "Deleted by"
+        return "Deleted By"
     if action == "rfid_updated":
-        return "RFID Updated by"
+        return "RFID Updated By"
     if action == "rfid_attached":
-        return "RFID Attached by"
+        return "RFID Attached By"
     return action.replace("_", " ").title() + " by"
 
 
@@ -404,7 +404,7 @@ def build_audit_summary(
             return f"Imported by {actor_name}"
         if source == "seed":
             return f"Created (seed data) by {actor_name}"
-        return f"Created manually by {actor_name}"
+        return f"Created Manually by {actor_name}"
     if action == "imported":
         return f"Imported by {actor_name}"
     if action == "updated":

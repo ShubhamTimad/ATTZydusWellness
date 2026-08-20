@@ -25,16 +25,9 @@ function ActivityCell({
   const detail = ev.detail?.trim() || ""
   const nextMatch = detail.match(/^(Assigned (?:to|role):\s*.+?)(?:\s+[—-]\s+|$)/i)
   const nextLine = nextMatch?.[1]?.trim() || null
-  const executorOnCreate =
-    ev.action === "order_created" &&
-    detail &&
-    !/^Assigned (?:to|role):/i.test(detail) &&
-    !detail.startsWith("Next")
-      ? detail
-      : null
   const restDetail = (() => {
     if (!detail) return null
-    if (executorOnCreate) return null
+    if (ev.action === "order_created") return null
     if (nextLine && detail.startsWith(nextLine)) {
       const rest = detail.slice(nextLine.length).replace(/^\s*[—-]\s*/, "").trim()
       return rest || null
@@ -75,21 +68,16 @@ function ActivityCell({
         ) : null}
       </div>
 
-      {executorOnCreate ? (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          <span>Executor: </span>
-          <span className="text-foreground">{executorOnCreate}</span>
-        </p>
-      ) : null}
-
-      {nextLine ? (
+      {nextLine && ev.action !== "order_created" ? (
         <p className="text-[11px] leading-relaxed text-muted-foreground">
           <span className="text-foreground">{nextLine}</span>
         </p>
       ) : null}
 
       {restDetail ? (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">{restDetail}</p>
+        <p className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
+          {restDetail}
+        </p>
       ) : null}
 
       {showVerifiedToggle && !expanded ? (

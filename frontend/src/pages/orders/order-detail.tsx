@@ -30,7 +30,6 @@ import { OrderAuditLog } from "@/components/orders/order-audit-log"
 import { OrderLifecycleStepper } from "@/components/orders/order-lifecycle-stepper"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -97,11 +96,6 @@ const ORDER_ACTION_BUSY_LABELS: Record<string, string> = {
   "/restart": "Restarting…",
   "/submit": "Submitting…",
   "/reassign": "Reassigning…",
-}
-
-type ClosureLineDecision = {
-  choice: "approve" | "reject" | null
-  reason: string
 }
 
 function formatDt(iso: string | null | undefined) {
@@ -206,9 +200,6 @@ export function OrderDetailPage() {
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
   const [busyAction, setBusyAction] = React.useState<string | null>(null)
-  const [closureDecisions, setClosureDecisions] = React.useState<
-    Record<number, ClosureLineDecision>
-  >({})
   const [assetSearchInput, setAssetSearchInput] = React.useState("")
   const [assetSearch, setAssetSearch] = React.useState("")
   const [assetColumnFiltersOpen, setAssetColumnFiltersOpen] = React.useState(false)
@@ -307,30 +298,6 @@ export function OrderDetailPage() {
     setAssetColumnFilterInputs({ ...DEFAULT_ASSET_COLUMN_FILTERS })
     setAssetColumnFilters({ ...DEFAULT_ASSET_COLUMN_FILTERS })
   }, [id])
-
-  React.useEffect(() => {
-    if (!order) return
-    setClosureDecisions((prev) => {
-      const next: Record<number, ClosureLineDecision> = {}
-      for (const item of order.items) {
-        const status = (item.verification_status || "").toLowerCase()
-        const existing = prev[item.id]
-        if (status === "approved") {
-          next[item.id] = { choice: "approve", reason: "" }
-        } else if (status === "rejected") {
-          next[item.id] = {
-            choice: "reject",
-            reason: item.rejection_reason || existing?.reason || "",
-          }
-        } else if (existing?.choice === "approve" || existing?.choice === "reject") {
-          next[item.id] = existing
-        } else {
-          next[item.id] = { choice: null, reason: "" }
-        }
-      }
-      return next
-    })
-  }, [order])
 
   React.useEffect(() => {
     if (!order) return
@@ -545,117 +512,8 @@ export function OrderDetailPage() {
     return canScan && !item.physically_verified
   }
 
-  function itemStatus(item: PhysicalOrderItem): string {
-    return (item.verification_status || "").toLowerCase()
-  }
-
-  function itemDecisionLocked(item: PhysicalOrderItem): boolean {
-    const status = itemStatus(item)
-    return status === "approved" || status === "rejected"
-  }
-
-  function setClosureChoice(item: PhysicalOrderItem, choice: "approve" | "reject" | null) {
-    if (itemDecisionLocked(item)) return
-    setClosureDecisions((prev) => ({
-      ...prev,
-      [item.id]: {
-        choice,
-        reason: choice === "reject" ? prev[item.id]?.reason || "" : "",
-      },
-    }))
-  }
-
-  function setClosureReason(itemId: number, reason: string) {
-    setClosureDecisions((prev) => ({
-      ...prev,
-      [itemId]: {
-        choice: prev[itemId]?.choice ?? "reject",
-        reason,
-      },
-    }))
-  }
-
-  const closureHasRejectChoice =
-    canReviewClosure &&
-    order.items.some((item) => {
-      const status = itemStatus(item)
-      if (status === "rejected") return true
-      return (closureDecisions[item.id]?.choice ?? null) === "reject"
-    })
-
-  async function submitClosureLineDecisions(nextAssignedUserId?: number | null) {
-    if (!order || !id) return
-    const pending = order.items.filter((item) => itemStatus(item) === "pending")
-    const undecided = pending.filter((item) => {
-      const choice = closureDecisions[item.id]?.choice ?? null
-      return choice !== "approve" && choice !== "reject"
-    })
-    if (undecided.length > 0) {
-      toast.error("Mark Approve or Reject for every pending asset.")
-      return
-    }
-
-    const toReject = pending.filter((item) => {
-      const choice = closureDecisions[item.id]?.choice
-      return choice === "reject"
-    })
-    const missingReason = toReject.filter(
-      (item) => !(closureDecisions[item.id]?.reason || "").trim(),
-    )
-    if (missingReason.length > 0) {
-      toast.error("Enter a rejection reason for every rejected asset.")
-      return
-    }
-
-    setBusy(true)
-    setBusyAction("/approval/reject-items")
-    try {
-      let latest = order
-      // Apply rejects first (group by reason to keep request count low).
-      const byReason = new Map<string, number[]>()
-      for (const item of toReject) {
-        const reason = (closureDecisions[item.id]?.reason || "").trim()
-        const ids = byReason.get(reason) ?? []
-        ids.push(item.id)
-        byReason.set(reason, ids)
-      }
-      for (const [reason, itemIds] of byReason) {
-        latest = await postJson<PhysicalOrderDetail>(
-          `/admin/physical-orders/${id}/approval/reject-items`,
-          { item_ids: itemIds, rejection_reason: reason },
-        )
-      }
-      // Approve remaining pending + finalize mixed or full approval.
-      latest = await postJson<PhysicalOrderDetail>(
-        `/admin/physical-orders/${id}/approval/approve-all`,
-        nextAssignedUserId != null ? { next_assigned_user_id: nextAssignedUserId } : {},
-      )
-      setOrder(latest)
-      if (latest.status === "approved") {
-        toast.success("Order approved.")
-      } else if (latest.status === "rejected") {
-        toast.success(
-          latest.assigned_to_name
-            ? `Review finished. Order Rejected so ${latest.assigned_to_name} can rework rejected assets.`
-            : "Review finished. Order Rejected for rework on rejected assets.",
-        )
-      } else {
-        toast.success("Review updated.")
-      }
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Action failed.")
-    } finally {
-      setBusy(false)
-      setBusyAction(null)
-    }
-  }
-
   async function beginClosureApproveAll() {
     if (!order) return
-    if (closureHasRejectChoice) {
-      toast.error("One or more assets are marked Reject. Use Reject to finish review.")
-      return
-    }
     if (order.needs_next_closure_assignee) {
       setClosureNextOpen(true)
       return
@@ -663,11 +521,7 @@ export function OrderDetailPage() {
     await runAction("/approval/approve-all")
   }
 
-  const showClosureDecisionCols = canReviewClosure
-  const showRejectColumn =
-    !showClosureDecisionCols && (order.rejected_item_count > 0 || isRejected)
-  const tableColSpan =
-    4 + (showClosureDecisionCols ? 3 : 0) + (showRejectColumn ? 1 : 0)
+  const tableColSpan = 4
   const activeProgressStep =
     order.progress.steps.find((step) => step.key === order.progress.current_step_key) ??
     order.progress.steps.find((step) => step.status === "active")
@@ -681,6 +535,7 @@ export function OrderDetailPage() {
     <AdminPage
       fullWidth
       dense
+      viewportFill
       description=""
       className="w-full gap-3 pb-6"
       actions={
@@ -838,29 +693,19 @@ export function OrderDetailPage() {
                 className="h-9"
                 disabled={busy}
                 onClick={() => {
-                  if (closureHasRejectChoice) {
-                    if (order.needs_next_closure_assignee) {
-                      setClosureNextOpen(true)
-                      return
-                    }
-                    void submitClosureLineDecisions()
-                    return
-                  }
                   setRejectReason("")
                   setRejectOpen(true)
                 }}
               >
                 Reject
               </Button>
-              {!closureHasRejectChoice ? (
-                <AdminPrimaryButton
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void beginClosureApproveAll()}
-                >
-                  Approve{order.needs_next_closure_assignee ? " & assign next" : ""}
-                </AdminPrimaryButton>
-              ) : null}
+              <AdminPrimaryButton
+                type="button"
+                disabled={busy}
+                onClick={() => void beginClosureApproveAll()}
+              >
+                Approve{order.needs_next_closure_assignee ? " & assign next" : ""}
+              </AdminPrimaryButton>
             </>
           ) : null}
           {canAssignSubmit ? (
@@ -906,7 +751,7 @@ export function OrderDetailPage() {
         </div>
       }
     >
-      <div className="flex flex-col gap-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
       <div className="shrink-0">
         <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
           {order.order_number}
@@ -1127,14 +972,6 @@ export function OrderDetailPage() {
                 <AdminTableHeadCell>RFID</AdminTableHeadCell>
                 <AdminTableHeadCell>Status</AdminTableHeadCell>
                 <AdminTableHeadCell>Verified</AdminTableHeadCell>
-                {showClosureDecisionCols ? (
-                  <>
-                    <AdminTableHeadCell className="w-20 text-center">Approve</AdminTableHeadCell>
-                    <AdminTableHeadCell className="w-20 text-center">Reject</AdminTableHeadCell>
-                    <AdminTableHeadCell className="min-w-[14rem]">Reason</AdminTableHeadCell>
-                  </>
-                ) : null}
-                {showRejectColumn ? <AdminTableHeadCell>Rejection</AdminTableHeadCell> : null}
               </AdminTableHeaderRow>
               {assetColumnFiltersOpen ? (
                 <AdminTableHeaderRow>
@@ -1191,16 +1028,6 @@ export function OrderDetailPage() {
                       className={columnFilterControlClass}
                     />
                   </AdminTableHeadCell>
-                  {showClosureDecisionCols ? (
-                    <>
-                      <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
-                      <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
-                      <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
-                    </>
-                  ) : null}
-                  {showRejectColumn ? (
-                    <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
-                  ) : null}
                 </AdminTableHeaderRow>
               ) : null}
             </TableHeader>
@@ -1216,8 +1043,6 @@ export function OrderDetailPage() {
                   const scannable = itemIsScannable(item)
                   const isSelectedForScan = selectedScanItemId === item.id
                   const rowTone = itemRowTone(item)
-                  const decision = closureDecisions[item.id] ?? { choice: null, reason: "" }
-                  const locked = itemDecisionLocked(item)
                   return (
                     <AdminTableBodyRow
                       key={item.id}
@@ -1280,72 +1105,6 @@ export function OrderDetailPage() {
                           "—"
                         )}
                       </AdminTableCell>
-                      {showClosureDecisionCols ? (
-                        <>
-                          <AdminTableCell className="text-center align-middle">
-                            <div
-                              className="flex justify-center"
-                              onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                              role="presentation"
-                            >
-                              <Checkbox
-                                checked={decision.choice === "approve"}
-                                disabled={locked || busy}
-                                aria-label={`Approve ${item.asset_code}`}
-                                onCheckedChange={(on) =>
-                                  setClosureChoice(item, on ? "approve" : null)
-                                }
-                              />
-                            </div>
-                          </AdminTableCell>
-                          <AdminTableCell className="text-center align-middle">
-                            <div
-                              className="flex justify-center"
-                              onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                              role="presentation"
-                            >
-                              <Checkbox
-                                checked={decision.choice === "reject"}
-                                disabled={locked || busy}
-                                aria-label={`Reject ${item.asset_code}`}
-                                onCheckedChange={(on) =>
-                                  setClosureChoice(item, on ? "reject" : null)
-                                }
-                              />
-                            </div>
-                          </AdminTableCell>
-                          <AdminTableCell className="align-middle">
-                            <div
-                              onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                              role="presentation"
-                            >
-                              {decision.choice === "reject" ? (
-                                <Input
-                                  value={decision.reason}
-                                  disabled={locked || busy}
-                                  placeholder="Reason (required)"
-                                  aria-label={`Rejection reason for ${item.asset_code}`}
-                                  className="h-9 w-full min-w-[12rem] text-sm"
-                                  onChange={(e) => setClosureReason(item.id, e.target.value)}
-                                />
-                              ) : (
-                                <span className="text-sm text-muted-foreground">—</span>
-                              )}
-                            </div>
-                          </AdminTableCell>
-                        </>
-                      ) : null}
-                      {showRejectColumn ? (
-                        <AdminTableCell className="whitespace-normal text-sm text-foreground">
-                          {item.verification_status === "rejected" || item.rejection_reason ? (
-                            <span className="text-destructive">
-                              {item.rejection_reason || "Rejected"}
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </AdminTableCell>
-                      ) : null}
                     </AdminTableBodyRow>
                   )
                 })
@@ -1363,7 +1122,7 @@ export function OrderDetailPage() {
         />
       </AdminPanel>
 
-      <OrderAuditLog rows={order.audit} />
+      <OrderAuditLog rows={order.audit} fillHeight className="min-h-[14rem]" />
       </div>
 
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
@@ -1485,9 +1244,9 @@ export function OrderDetailPage() {
       <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reject order</DialogTitle>
+            <DialogTitle>Reject Reason</DialogTitle>
             <DialogDescription>
-              Unapproved assets are rejected. Approved stay locked. Executor can Restart those only.
+              This rejects the entire order. The executor can restart and resubmit after rework.
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body space-y-4">
@@ -1496,7 +1255,8 @@ export function OrderDetailPage() {
               rows={3}
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Reason for rejection"
+              placeholder="Reject Reason (Required)"
+              aria-label="Reject Reason"
             />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setRejectOpen(false)}>
@@ -1508,6 +1268,7 @@ export function OrderDetailPage() {
                 disabled={!rejectReason.trim() || busy}
                 onClick={() => {
                   const reason = rejectReason.trim()
+                  if (!reason) return
                   void runAction("/approval/reject-order", { reason }).then((ok) => {
                     if (ok) setRejectOpen(false)
                   })
@@ -1542,11 +1303,6 @@ export function OrderDetailPage() {
         confirmLabel="Assign & approve"
         busy={busy}
         onConfirm={async (userId) => {
-          if (closureHasRejectChoice) {
-            await submitClosureLineDecisions(userId)
-            setClosureNextOpen(false)
-            return
-          }
           const ok = await runAction("/approval/approve-all", {
             next_assigned_user_id: userId,
           })

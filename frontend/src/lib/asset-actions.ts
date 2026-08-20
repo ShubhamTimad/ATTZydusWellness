@@ -4,6 +4,9 @@ import {
   canDeactivateAsset,
   canReactivateAsset,
   canSubmitForApproval,
+  hasOpenPhysicalOrder,
+  isAssetPendingDisposal,
+  isAssetPendingTransfer,
 } from "@/lib/asset-lifecycle"
 import {
   ArrowRightLeft,
@@ -68,13 +71,28 @@ export function eligiblePhysicalOrderAssets(rows: AssetListItem[]): AssetListIte
 
 export function eligibleDecisionAssets(rows: AssetListItem[]): AssetListItem[] {
   return rows.filter(
-    (r) => canActOnAsset(r) && (r.approval_status || "").toLowerCase() === "pending",
+    (r) =>
+      canActOnAsset(r) &&
+      (r.approval_status || "").toLowerCase() === "pending" &&
+      r.can_approve === true,
   )
 }
 
 export function eligibleDeactivateAssets(rows: AssetListItem[]): AssetListItem[] {
   return rows.filter(
-    (r) => canActOnAsset(r) && canDeactivateAsset(r.lifecycle_status, r.approval_status),
+    (r) =>
+      canActOnAsset(r) &&
+      canDeactivateAsset(r.lifecycle_status, r.approval_status, r.active_physical_order),
+  )
+}
+
+export function eligibleDeleteAssets(rows: AssetListItem[]): AssetListItem[] {
+  return rows.filter(
+    (r) =>
+      canActOnAsset(r) &&
+      !hasOpenPhysicalOrder(r.active_physical_order) &&
+      !isAssetPendingTransfer(r.lifecycle_status) &&
+      !isAssetPendingDisposal(r.lifecycle_status),
   )
 }
 
@@ -89,6 +107,7 @@ export function buildAssetListActionItems(opts: {
   submitEligibleCount?: number
   deactivateEligibleCount?: number
   reactivateEligibleCount?: number
+  deleteEligibleCount?: number
   transferEligibleCount?: number
   disposalEligibleCount?: number
   canDelete: boolean
@@ -107,6 +126,7 @@ export function buildAssetListActionItems(opts: {
     submitEligibleCount = 0,
     deactivateEligibleCount = 0,
     reactivateEligibleCount = 0,
+    deleteEligibleCount = selectedCount,
     transferEligibleCount = 0,
     disposalEligibleCount = 0,
     canDelete,
@@ -140,7 +160,7 @@ export function buildAssetListActionItems(opts: {
             : `${submitEligibleCount} Asset(s)`
     actions.push({
       id: "submit-for-approval",
-      label: "Submit for approval",
+      label: "Submit for Approval",
       hint,
       disabled: submitEligibleCount === 0,
       icon: Send,
@@ -209,7 +229,7 @@ export function buildAssetListActionItems(opts: {
         selectedCount === 0
           ? undefined
           : deactivateEligibleCount === 0
-            ? "No active assets in selection"
+            ? "No eligible assets (open order or inactive)"
             : deactivateEligibleCount < selectedCount
               ? `${deactivateEligibleCount} of ${selectedCount} active`
               : `${deactivateEligibleCount} Asset(s)`,
@@ -247,8 +267,15 @@ export function buildAssetListActionItems(opts: {
     actions.push({
       id: "delete",
       label: "Delete Selected",
-      hint: selectedCount > 0 ? `${selectedCount} Asset(s)` : undefined,
-      disabled: selectedCount === 0,
+      hint:
+        selectedCount === 0
+          ? undefined
+          : deleteEligibleCount === 0
+            ? "Assets on an open order cannot be deleted"
+            : deleteEligibleCount < selectedCount
+              ? `${deleteEligibleCount} of ${selectedCount} eligible`
+              : `${deleteEligibleCount} Asset(s)`,
+      disabled: deleteEligibleCount === 0,
       variant: "destructive",
       icon: Trash2,
     })
@@ -292,7 +319,7 @@ export function buildAssetDetailActionItems(opts: {
   if (canUpdate) {
     actions.push({
       id: "edit",
-      label: editing ? "Cancel edit" : "Edit asset",
+      label: editing ? "Cancel Edit" : "Edit Asset",
       hint: canEdit ? undefined : "Cannot edit while approval is pending",
       disabled: !canEdit && !editing,
       icon: Pencil,
@@ -302,7 +329,7 @@ export function buildAssetDetailActionItems(opts: {
   if (canSubmit && !editing) {
     actions.push({
       id: "submit",
-      label: "Submit for approval",
+      label: "Submit for Approval",
       icon: Send,
     })
   }
@@ -310,7 +337,7 @@ export function buildAssetDetailActionItems(opts: {
   if (canDeactivate && !editing) {
     actions.push({
       id: "deactivate",
-      label: "Deactivate asset",
+      label: "Deactivate Asset",
       icon: PowerOff,
     })
   }

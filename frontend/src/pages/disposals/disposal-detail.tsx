@@ -433,6 +433,7 @@ export function DisposalOrderDetailPage() {
     <AdminPage
       fullWidth
       dense
+      viewportFill
       description=""
       className="w-full gap-3 pb-6"
       actions={
@@ -670,12 +671,12 @@ export function DisposalOrderDetailPage() {
         </div>
       }
     >
-      <div className="flex flex-col gap-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <div className="shrink-0">
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             {order.order_number}
           </h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             {order.plant_name}
             {order.from_cost_center_code ? ` · ${order.from_cost_center_code}` : null}
             {order.assigned_to_name
@@ -694,16 +695,6 @@ export function DisposalOrderDetailPage() {
             <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />
           </div>
         </AdminPanel>
-
-        {order.rejection_comment ? (
-          <AdminPanel
-            className="border-destructive/30 bg-destructive/5"
-            contentClassName="px-4 py-3"
-          >
-            <p className="text-sm font-medium text-destructive">Rejection comment</p>
-            <p className="mt-1 text-sm">{order.rejection_comment}</p>
-          </AdminPanel>
-        ) : null}
 
         <div className="grid gap-3 lg:grid-cols-2">
           <AdminPanel
@@ -1137,7 +1128,11 @@ export function DisposalOrderDetailPage() {
           </AdminPanel>
         ) : null}
 
-        <DisposalAuditLog events={order.audit} />
+        <DisposalAuditLog
+          events={order.audit}
+          fillHeight
+          className="min-h-[14rem]"
+        />
           </div>
 
       <CapexAssigneePickerDialog

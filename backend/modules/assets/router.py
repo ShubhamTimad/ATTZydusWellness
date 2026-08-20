@@ -58,6 +58,7 @@ from modules.assets.service import (
     DuplicateAssetCodeError,
     DuplicateRfidError,
     ImportValidationError,
+    InvalidAssetMasterLookupError,
     InvalidRfidError,
     InvalidTagColorError,
     InvalidAssetImageError,
@@ -545,6 +546,7 @@ async def upload_asset_image(
         ),
     ],
     file: UploadFile = File(...),
+    part_of_create: bool = Query(False),
 ) -> AssetImagePublic:
     try:
         content = await file.read(MAX_ASSET_IMAGE_BYTES + 1)
@@ -553,6 +555,7 @@ async def upload_asset_image(
             data=content,
             filename=file.filename,
             actor_user_id=int(current.subject),
+            part_of_create=part_of_create,
         )
     except InvalidAssetImageError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -600,6 +603,11 @@ def create_asset(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "invalid_tag_color", "message": exc.message},
         ) from exc
+    except InvalidAssetMasterLookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.message,
+        ) from exc
     except PermissionDeniedError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ConflictError as exc:
@@ -631,6 +639,11 @@ def update_asset(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={"code": "invalid_tag_color", "message": exc.message},
+        ) from exc
+    except InvalidAssetMasterLookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.message,
         ) from exc
 
 

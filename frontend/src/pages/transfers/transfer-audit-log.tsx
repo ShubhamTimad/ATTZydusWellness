@@ -131,7 +131,13 @@ export function transferAuditDetailLines(
     }
 
     const comment = fromNew(ev, "comment") || fromNew(ev, "rejection_reason")
-    if (comment) lines.push(`Comment: ${comment}`)
+    if (comment) {
+      lines.push(
+        action === "rejected" || action === "cf_rejected"
+          ? `Rejected Reason: ${comment}`
+          : `Comment: ${comment}`,
+      )
+    }
 
     if (action === "cc2_assigned_to_cf") {
       const cc = fromNew(ev, "to_cost_center") || fromNew(ev, "cost_center")
@@ -230,17 +236,18 @@ function activityForEvent(
 ): React.ReactNode {
   const details = transferAuditDetailLines(ev, assetCodeById)
   return (
-    <div className="space-y-0.5">
-      <p className="font-medium">{transferAuditHeadline(ev)}</p>
-      {details.length > 0 ? (
-        <ul className="space-y-0.5 text-[11px] leading-relaxed text-muted-foreground">
-          {details.map((line, i) => (
-            <li key={`${i}-${line}`} className="break-words">
-              {line}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+    <div className="min-w-0 space-y-1.5">
+      <p className="text-sm font-medium leading-snug text-foreground">
+        {transferAuditHeadline(ev)}
+      </p>
+      {details.map((line) => (
+        <p
+          key={line}
+          className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground"
+        >
+          {line}
+        </p>
+      ))}
     </div>
   )
 }

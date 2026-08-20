@@ -14,12 +14,12 @@ def test_closure_items_approved_detail() -> None:
         {"asset_codes": ["10036", "10031"]},
     )
     assert detail == "10036, 10031"
-    assert _AUDIT_LABELS["closure_items_approved"] == "Assets approved"
+    assert _AUDIT_LABELS["closure_items_approved"] == "Assets Approved"
 
 
 def test_closure_submit_and_reject_labels() -> None:
-    assert _AUDIT_LABELS["closure_submitted"] == "Submitted for approval"
-    assert _AUDIT_LABELS["closure_items_rejected"] == "Assets rejected"
+    assert _AUDIT_LABELS["closure_submitted"] == "Submitted for Approval"
+    assert _AUDIT_LABELS["closure_items_rejected"] == "Assets Rejected"
     assert _AUDIT_LABELS["completed"] == "Completed"
 
 
@@ -29,7 +29,7 @@ def test_closure_items_rejected_detail_prefixes_reason() -> None:
         None,
         {"asset_codes": ["10036"], "reason": "For a reason"},
     )
-    assert detail == "10036 — Reason: For a reason"
+    assert detail == "10036 — Rejected Reason: For a reason"
 
 
 def test_assignment_changed_detail_shows_assigned_to() -> None:
@@ -41,13 +41,24 @@ def test_assignment_changed_detail_shows_assigned_to() -> None:
     assert detail == "Assigned to: Operator Demo"
 
 
+def test_order_created_has_no_executor_detail() -> None:
+    assert (
+        _audit_detail(
+            "order_created",
+            None,
+            {"assigned_to": 7, "assigned_to_name": "Operator Demo"},
+        )
+        is None
+    )
+
+
 def test_rejected_detail_includes_assigned_to() -> None:
     detail = _audit_detail(
         "rejected",
         None,
         {"reason": "Bad scan", "assigned_to": 7, "assigned_to_name": "Operator Demo"},
     )
-    assert detail == "Bad scan"
+    assert detail == "Rejected Reason: Bad scan"
 
 
 def test_rejected_detail_hides_boilerplate_reason() -> None:
@@ -94,7 +105,57 @@ def test_enrich_hides_line_rejects_when_order_rejected() -> None:
     )
     labels = [e.label for e in audit]
     assert labels == ["Order Rejected"]
-    assert audit[0].detail is None
+    assert audit[0].detail == "Rejected Reason: J"
+
+
+def test_enrich_keeps_each_reject_reason_separate() -> None:
+    from datetime import datetime, timezone
+
+    from modules.orders.progress import enrich_audit_rows
+
+    rows = [
+        SimpleNamespace(
+            id=1,
+            action="closure_items_rejected",
+            actor_user_id=9,
+            old_value=None,
+            new_value={"asset_codes": ["A1"], "reason": "First reason"},
+            created_at=datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            id=2,
+            action="rejected",
+            actor_user_id=9,
+            old_value=None,
+            new_value={
+                "reason": "Approved remaining assets; rejected assets returned to executor.",
+            },
+            created_at=datetime(2026, 8, 20, 12, 0, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            id=3,
+            action="closure_items_rejected",
+            actor_user_id=9,
+            old_value=None,
+            new_value={"asset_codes": ["A1"], "reason": "Second reason"},
+            created_at=datetime(2026, 8, 20, 13, 0, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            id=4,
+            action="rejected",
+            actor_user_id=9,
+            old_value=None,
+            new_value={
+                "reason": "Approved remaining assets; rejected assets returned to executor.",
+            },
+            created_at=datetime(2026, 8, 20, 13, 0, tzinfo=timezone.utc),
+        ),
+    ]
+    audit = enrich_audit_rows(rows, user_name_fn=lambda _uid: "Approver Demo")
+    rejected = [e for e in audit if e.label == "Order Rejected"]
+    by_id = {int(e.id): e.detail for e in rejected}
+    assert by_id[2] == "Rejected Reason: First reason"
+    assert by_id[4] == "Rejected Reason: Second reason"
 
 
 def test_closure_submitted_detail_shows_assigned_approver() -> None:
@@ -167,7 +228,7 @@ def test_enrich_audit_synthesizes_completed_before_closure_submit() -> None:
     )
     labels = [e.label for e in audit]
     assert "Completed" in labels
-    assert "Submitted for approval" in labels
+    assert "Submitted for Approval" in labels
     completed_idx = labels.index("Completed")
-    submitted_idx = labels.index("Submitted for approval")
+    submitted_idx = labels.index("Submitted for Approval")
     assert completed_idx < submitted_idx

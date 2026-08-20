@@ -42,6 +42,8 @@ export type AssetListItem = {
   active_physical_order?: AssetActivePhysicalOrder | null
   /** False when the viewer can see the row but not mutate it (other cost center). */
   action_allowed?: boolean
+  /** True when the viewer is the assigned approver (or in the assigned role) for pending approval. */
+  can_approve?: boolean
 }
 
 export type AssetRfidAttachResult = {

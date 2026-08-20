@@ -1,18 +1,19 @@
 import * as React from "react"
-import { Building2, Landmark, Mail, Phone, Shield, User, UsersRound } from "lucide-react"
+import { Building2, Landmark, Mail, Phone, Shield, UsersRound, XIcon } from "lucide-react"
 
 import { AdminStatusBadge } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Separator } from "@/components/ui/separator"
 import { getJson } from "@/lib/api"
 type MeProfile = {
   id: number
@@ -26,17 +27,6 @@ type MeProfile = {
   is_active: boolean
   is_superuser: boolean
   created_at: string
-}
-
-function formatDateTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    })
-  } catch {
-    return iso
-  }
 }
 
 function profileInitials(name: string, email: string | null): string {
@@ -114,7 +104,18 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 sm:max-w-[420px]" showCloseButton>
+      <DialogContent className="gap-0 sm:max-w-[420px]" showCloseButton={false}>
+        <DialogClose asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute top-2.5 right-2.5 z-10 size-10 rounded-full text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+            aria-label="Close"
+          >
+            <XIcon className="size-5" aria-hidden />
+          </Button>
+        </DialogClose>
         <div className="dialog-surface-header -mx-0 border-b border-primary/10">
           <DialogHeader className="px-0 pt-0">
             <DialogTitle className="sr-only">My profile</DialogTitle>
@@ -189,19 +190,6 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
             </div>
           )}
         </div>
-
-        {!loading && me ? (
-          <>
-            <Separator />
-            <p className="px-6 pb-5 text-center text-xs text-muted-foreground">
-              <User className="mr-1 inline size-3.5 opacity-60" aria-hidden />
-              Member since{" "}
-              <span className="font-medium tabular-nums text-foreground/80">
-                {formatDateTime(me.created_at)}
-              </span>
-            </p>
-          </>
-        ) : null}
       </DialogContent>
     </Dialog>
   )

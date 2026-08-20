@@ -315,7 +315,7 @@ export function AssetCreatePage() {
         const body = new FormData()
         body.append("file", imageFile)
         try {
-          await putFormData(`/admin/assets/${created.id}/image`, body)
+          await putFormData(`/admin/assets/${created.id}/image?part_of_create=true`, body)
         } catch {
           toast.error("Asset created, but the image could not be uploaded. Add it from Edit.")
         }
@@ -483,7 +483,9 @@ export function AssetCreatePage() {
                     onChange={(e) => patch({ asset_class_id: e.target.value })}
                   >
                     <option value="">—</option>
-                    {masters.assetClasses.map((c) => (
+                    {masters.assetClasses
+                      .filter((c) => c.is_active)
+                      .map((c) => (
                       <option key={c.id} value={String(c.id)}>
                         {assetClassLabel(c)}
                       </option>
@@ -514,7 +516,9 @@ export function AssetCreatePage() {
                     onChange={(e) => patch({ asset_condition_id: e.target.value })}
                   >
                     <option value="">—</option>
-                    {masters.assetConditions.map((c) => (
+                    {masters.assetConditions
+                      .filter((c) => c.is_active)
+                      .map((c) => (
                       <option key={c.id} value={String(c.id)}>
                         {assetConditionLabel(c)}
                       </option>

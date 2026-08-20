@@ -238,6 +238,8 @@ class AssetListItem(BaseModel):
     created_at: datetime
     active_physical_order: AssetActivePhysicalOrderPublic | None = None
     action_allowed: bool = True
+    # True when the viewer has a pending approval task for this asset (user or role).
+    can_approve: bool = False
 
 
 class AssetListResponse(BaseModel):

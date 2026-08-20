@@ -60,6 +60,7 @@ import {
   buildAssetListActionItems,
   canActOnAsset,
   eligibleDeactivateAssets,
+  eligibleDeleteAssets,
   eligibleDecisionAssets,
   eligiblePhysicalOrderAssets,
   eligibleReactivateAssets,
@@ -364,8 +365,15 @@ function buildQueryParams(
   if (search.trim()) q.set("search", search.trim())
   if (filters.plant_id) q.set("plant_id", filters.plant_id)
   if (filters.category_id) q.set("category_id", filters.category_id)
-  if (filters.lifecycle_status) q.set("lifecycle_status", filters.lifecycle_status)
-  if (filters.approval_status) q.set("approval_status", filters.approval_status)
+  // Approval tabs own approval_status — ignore conflicting Status/Approval column filters.
+  const tabMeta = ASSET_APPROVAL_STATUS_TABS.find((t) => t.key === listTab)
+  const tabApproval = tabMeta?.approval_status ?? ""
+  if (tabApproval) {
+    q.set("approval_status", tabApproval)
+  } else {
+    if (filters.lifecycle_status) q.set("lifecycle_status", filters.lifecycle_status)
+    if (filters.approval_status) q.set("approval_status", filters.approval_status)
+  }
   if (listTab !== "fy" && filters.rfid_status) q.set("rfid_status", filters.rfid_status)
   if (listTab === "fy") {
     q.set("fy_verification", fySubTab)
@@ -696,6 +704,16 @@ export function AssetsListPage() {
     field: "category_id" | "lifecycle_status" | "plant_id" | "approval_status",
     value: string,
   ) {
+    if (field === "approval_status") {
+      const matchingTab = ASSET_APPROVAL_STATUS_TABS.find(
+        (t) => t.key !== "all" && t.approval_status === value,
+      )
+      setListTab(matchingTab?.key ?? "all")
+      setFilters((f) => ({ ...f, approval_status: value, lifecycle_status: "" }))
+      setDraftFilters((f) => ({ ...f, approval_status: value, lifecycle_status: "" }))
+      setPage(1)
+      return
+    }
     setFilters((f) => ({ ...f, [field]: value }))
     setDraftFilters((f) => ({ ...f, [field]: value }))
     setPage(1)
@@ -1122,6 +1140,10 @@ export function AssetsListPage() {
     () => eligibleDeactivateAssets(selectedRows),
     [selectedRows],
   )
+  const deleteEligibleRows = React.useMemo(
+    () => eligibleDeleteAssets(selectedRows),
+    [selectedRows],
+  )
   const reactivateEligibleRows = React.useMemo(
     () => eligibleReactivateAssets(selectedRows),
     [selectedRows],
@@ -1148,6 +1170,7 @@ export function AssetsListPage() {
         submitEligibleCount: submitEligibleRows.length,
         deactivateEligibleCount: deactivateEligibleRows.length,
         reactivateEligibleCount: reactivateEligibleRows.length,
+        deleteEligibleCount: deleteEligibleRows.length,
         transferEligibleCount: transferEligibleRows.length,
         disposalEligibleCount: transferEligibleRows.length,
         canDelete,
@@ -1166,6 +1189,7 @@ export function AssetsListPage() {
       submitEligibleRows.length,
       deactivateEligibleRows.length,
       reactivateEligibleRows.length,
+      deleteEligibleRows.length,
       transferEligibleRows.length,
       canDelete,
       canUpdate,
@@ -1298,7 +1322,11 @@ export function AssetsListPage() {
 
   function openBulkDecision(mode: "approve" | "reject") {
     if (decisionEligibleRows.length === 0) {
-      toast.error("No pending assets in the selection.")
+      toast.error("No selected assets are pending approval assigned to you.")
+      return
+    }
+    if (mode === "reject" && selected.size !== 1) {
+      toast.error("Reject one asset at a time.")
       return
     }
     setBulkDecisionMode(mode)
@@ -1349,11 +1377,18 @@ export function AssetsListPage() {
   }
 
   async function deleteSelected() {
-    const ids = selectedRows.map((r) => r.id)
-    if (ids.length === 0) return
+    const rows = deleteEligibleRows
+    const ids = rows.map((r) => r.id)
+    if (ids.length === 0) {
+      toast.error("Assets on an open order cannot be deleted.")
+      return
+    }
     const ok = await confirmAsk({
       title: "Delete assets?",
-      description: `Delete ${ids.length} Selected Asset(s)? This cannot be undone.`,
+      description:
+        ids.length < selectedRows.length
+          ? `Delete ${ids.length} of ${selectedRows.length} selected asset(s)? Assets on an open order are skipped.`
+          : `Delete ${ids.length} Selected Asset(s)? This cannot be undone.`,
       confirmLabel: "Delete",
       destructive: true,
     })
@@ -1756,7 +1791,6 @@ export function AssetsListPage() {
                   ...DEFAULT_FILTERS,
                   plant_id: f.plant_id,
                   category_id: f.category_id,
-                  lifecycle_status: f.lifecycle_status,
                   rfid_status: f.rfid_status,
                   approval_status: tabMeta?.approval_status ?? "",
                 }))
@@ -1764,7 +1798,6 @@ export function AssetsListPage() {
                   ...DEFAULT_FILTERS,
                   plant_id: f.plant_id,
                   category_id: f.category_id,
-                  lifecycle_status: f.lifecycle_status,
                   rfid_status: f.rfid_status,
                   approval_status: tabMeta?.approval_status ?? "",
                 }))
@@ -1956,16 +1989,18 @@ export function AssetsListPage() {
 
           {selected.size > 0 && canDecide && decisionEligibleRows.length > 0 ? (
             <>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className={listToolbarBtnClass}
-                disabled={bulkActionBusy}
-                onClick={() => openBulkDecision("reject")}
-              >
-                Reject
-              </Button>
+              {selected.size === 1 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={listToolbarBtnClass}
+                  disabled={bulkActionBusy}
+                  onClick={() => openBulkDecision("reject")}
+                >
+                  Reject
+                </Button>
+              ) : null}
               <AdminPrimaryButton
                 type="button"
                 className={listToolbarBtnClass}
@@ -2708,7 +2743,7 @@ export function AssetsListPage() {
         roleLabel="Approver"
         confirmLabel={
           submitEligibleRows.length > 1
-            ? `Submit ${submitEligibleRows.length}`
+            ? "Submit"
             : "Submit"
         }
         busy={bulkActionBusy}
