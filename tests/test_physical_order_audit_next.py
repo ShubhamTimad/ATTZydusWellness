@@ -18,9 +18,9 @@ def test_closure_items_approved_detail() -> None:
 
 
 def test_closure_submit_and_reject_labels() -> None:
-    assert _AUDIT_LABELS["closure_submitted"] == "Submitted for closure approval"
+    assert _AUDIT_LABELS["closure_submitted"] == "Submitted for approval"
     assert _AUDIT_LABELS["closure_items_rejected"] == "Assets rejected"
-    assert _AUDIT_LABELS["completed"] == "Order completed"
+    assert _AUDIT_LABELS["completed"] == "Completed"
 
 
 def test_closure_items_rejected_detail_prefixes_reason() -> None:
@@ -85,3 +85,42 @@ def test_workflow_next_assignee_from_next_step_task() -> None:
         user_name_fn=lambda uid: "Approver Demo" if uid == 9 else None,
     )
     assert line == "Assigned to: Approver Demo"
+
+
+def test_enrich_audit_synthesizes_completed_before_closure_submit() -> None:
+    from datetime import datetime, timezone
+
+    from modules.orders.progress import enrich_audit_rows
+
+    completed_at = datetime(2026, 8, 20, 6, 17, tzinfo=timezone.utc)
+    submitted_at = datetime(2026, 8, 20, 6, 47, tzinfo=timezone.utc)
+    rows = [
+        SimpleNamespace(
+            id=1,
+            action="started",
+            actor_user_id=7,
+            old_value=None,
+            new_value=None,
+            created_at=datetime(2026, 8, 19, 18, 47, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            id=2,
+            action="closure_submitted",
+            actor_user_id=7,
+            old_value=None,
+            new_value={"assignee_user_name": "Approver Demo"},
+            created_at=submitted_at,
+        ),
+    ]
+    audit = enrich_audit_rows(
+        rows,
+        user_name_fn=lambda uid: "Operator Demo" if uid == 7 else "Approver Demo",
+        work_completed_at=completed_at,
+        work_completed_by=7,
+    )
+    labels = [e.label for e in audit]
+    assert "Completed" in labels
+    assert "Submitted for approval" in labels
+    completed_idx = labels.index("Completed")
+    submitted_idx = labels.index("Submitted for approval")
+    assert completed_idx < submitted_idx

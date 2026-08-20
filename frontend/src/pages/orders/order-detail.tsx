@@ -482,6 +482,8 @@ export function OrderDetailPage() {
   const executionSideReject =
     isRejected &&
     Boolean(order.assigned_at || order.started_at || order.completed_at)
+  const executorName =
+    order.started_by_name?.trim() || order.assigned_to_name?.trim() || null
   const canReviewCreation = Boolean(order.can_review_creation) && canApprove
   const canReviewClosure = Boolean(order.can_review_closure) && canApprove
   const canAssignSubmit =
@@ -911,7 +913,7 @@ export function OrderDetailPage() {
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {order.plant_name} · {order.cost_center_code}
-          {order.assigned_to_name ? ` · ${order.assigned_to_name}` : ""}
+          {executorName ? ` · ${executorName}` : ""}
         </p>
       </div>
       {canReviewCreation && order.approval_notice?.message ? (
@@ -976,7 +978,7 @@ export function OrderDetailPage() {
             />
             <OrderSummaryField
               label="Executor"
-              value={order.assigned_to_name || "—"}
+              value={executorName || "—"}
             />
           </div>
         </div>

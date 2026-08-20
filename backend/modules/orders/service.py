@@ -2242,6 +2242,8 @@ class PhysicalOrderService:
             order_id=order_id,
             order_items=list(order.items),
             assigned_to_name=user_name_fn(order.assigned_to) if order.assigned_to else None,
+            work_completed_at=order.completed_at,
+            work_completed_by=order.started_by,
         )
         progress = build_order_progress(
             self._db,
@@ -3226,6 +3228,13 @@ class PhysicalOrderService:
         order.completed_at = _now_utc()
         wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
         if wf:
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="completed",
+                actor_user_id=actor_user_id,
+            )
+            self._db.flush()
             # Mobile (and other clients) may omit assignee; default to first valid approver.
             resolved_assignee = assignee_user_id
             if resolved_assignee is None:

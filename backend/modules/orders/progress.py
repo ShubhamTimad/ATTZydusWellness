@@ -49,9 +49,9 @@ _AUDIT_LABELS: dict[str, str] = {
     "rejected": "Order rejected",
     "started": "Physical verification started",
     "asset_verified": "Asset physically verified (RFID scan)",
-    "closure_submitted": "Submitted for closure approval",
+    "closure_submitted": "Submitted for approval",
     "closure_approved": "Closure approved",
-    "completed": "Order completed",
+    "completed": "Completed",
     "closed": "Order closed",
     "returned_for_execution": "Returned to executor after closure rejection",
     "execution_items_rejected": "Assets rejected",
@@ -124,7 +124,7 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         elif new_value.get("assignee_user_id") is not None:
             parts.append(f"Assigned to: user #{new_value.get('assignee_user_id')}")
         if new_value.get("resubmitted"):
-            parts.append("Resubmitted for closure approval")
+            parts.append("Resubmitted for approval")
         return " — ".join(parts) if parts else None
     if action == "returned_for_execution":
         reason = new_value.get("reason")
@@ -275,11 +275,13 @@ def enrich_audit_rows(
     order_id: int | None = None,
     order_items: list[PhysicalOrderItem] | None = None,
     assigned_to_name: str | None = None,
+    work_completed_at: datetime | None = None,
+    work_completed_by: int | None = None,
 ) -> list[PhysicalOrderAuditPublic]:
     out: list[PhysicalOrderAuditPublic] = []
     synthetic_id = -1
-    has_real_closure_approval = any(str(r.action) == "closure_approved" for r in rows)
     has_closure_submitted = any(str(r.action) == "closure_submitted" for r in rows)
+    has_completed = any(str(r.action) == "completed" for r in rows)
 
     verified_assets = (
         _verified_assets_from_items(order_items, user_name_fn=user_name_fn) if order_items else []
@@ -351,8 +353,6 @@ def enrich_audit_rows(
     for r in rows:
         action = str(r.action)
         if action == "asset_verified":
-            continue
-        if action == "completed" and (has_real_closure_approval or has_closure_submitted):
             continue
         if action == "approved" and (r.new_value or {}).get("auto_approved"):
             continue
@@ -430,8 +430,23 @@ def enrich_audit_rows(
             )
         )
 
+    if has_closure_submitted and not has_completed and work_completed_at is not None:
+        synthetic_id -= 1
+        out.append(
+            PhysicalOrderAuditPublic(
+                id=synthetic_id,
+                action="completed",
+                label=_AUDIT_LABELS.get("completed", "Completed"),
+                detail=None,
+                actor_name=user_name_fn(work_completed_by) if work_completed_by else None,
+                old_value=None,
+                new_value=None,
+                created_at=work_completed_at,
+            )
+        )
+
     out.extend(workflow_rows)
-    out.sort(key=lambda e: e.created_at)
+    out.sort(key=lambda e: (e.created_at, e.id))
     return out
 
 
@@ -740,8 +755,8 @@ def build_order_progress(
                 actor_name=user_name_fn(order.assigned_by) if order.assigned_at else None,
                 occurred_at=order.assigned_at,
                 detail=(
-                    f"Executor: {user_name_fn(order.assigned_to)}"
-                    if order.assigned_to and order.assigned_at
+                    f"Executor: {user_name_fn(order.started_by or order.assigned_to)}"
+                    if (order.started_by or order.assigned_to) and order.assigned_at
                     else (
                         f"Pending: {user_name_fn(order.assigned_to)}"
                         if order.assigned_to
@@ -766,8 +781,8 @@ def build_order_progress(
                 label="Completed",
                 status=phase("completed"),
                 actor_name=(
-                    _find_audit_actor(audit_rows, "closure_submitted", user_name_fn)
-                    or _find_audit_actor(audit_rows, "completed", user_name_fn)
+                    _find_audit_actor(audit_rows, "completed", user_name_fn)
+                    or _find_audit_actor(audit_rows, "closure_submitted", user_name_fn)
                 ),
                 occurred_at=work_completed_at,
                 detail=None,

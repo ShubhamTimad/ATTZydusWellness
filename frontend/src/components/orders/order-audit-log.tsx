@@ -140,7 +140,9 @@ export function OrderAuditLog({
   const displayRows = React.useMemo(
     () =>
       [...rows].sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime() ||
+          b.id - a.id,
       ),
     [rows],
   )
