@@ -15,12 +15,26 @@ import {
 import { getJson } from "@/lib/api"
 import type { PlantOption } from "@/lib/masters-types"
 import { canListOrgUnitsForAssignments } from "@/lib/permissions"
+import { useUrlTab } from "@/lib/use-url-tab"
 
 const TAB_PANEL =
   "mt-0 flex min-h-0 flex-1 flex-col outline-none data-[state=inactive]:hidden"
 
+const MASTER_TAB_KEYS = [
+  "categories",
+  "asset-classes",
+  "functional",
+  "actual",
+  "cost-centers",
+  "cc-custodians",
+  "profit-centers",
+  "tag-colors",
+  "asset-conditions",
+] as const
+
 export function MastersPage() {
   const [plants, setPlants] = React.useState<PlantOption[]>([])
+  const [tab, setTab] = useUrlTab(MASTER_TAB_KEYS, "categories")
 
   React.useEffect(() => {
     if (!canListOrgUnitsForAssignments()) return
@@ -35,7 +49,8 @@ export function MastersPage() {
         <ListPageHeader className="shrink-0" title="Master" description="" />
 
         <WorkspaceTabs
-          defaultValue="categories"
+          value={tab}
+          onValueChange={setTab}
           className="flex min-h-0 flex-1 flex-col gap-[var(--app-grid-gap)]"
         >
           <WorkspaceTabsList className="shrink-0">

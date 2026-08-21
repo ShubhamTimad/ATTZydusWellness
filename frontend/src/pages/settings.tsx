@@ -27,6 +27,7 @@ import {
 import { getJson, postBlob, postJson, putJson } from "@/lib/api"
 import { formatAppDate } from "@/lib/dates"
 import { hasPermission } from "@/lib/permissions"
+import { useUrlTab } from "@/lib/use-url-tab"
 
 export type PasswordPolicy = {
   min_length: number
@@ -123,7 +124,10 @@ export function SettingsPage() {
   const [savingEmail, setSavingEmail] = React.useState(false)
   const [testingEmail, setTestingEmail] = React.useState(false)
   const [testToEmail, setTestToEmail] = React.useState("")
-  const [tab, setTab] = React.useState<"auth" | "password" | "email" | "financial" | "documents">("auth")
+  const [tab, setTab] = useUrlTab(
+    ["auth", "password", "email", "financial", "documents"] as const,
+    "auth",
+  )
   const [financialYear, setFinancialYear] = React.useState<FinancialYearSettings | null>(null)
   const [savingFinancialYear, setSavingFinancialYear] = React.useState(false)
   const [documentFormat, setDocumentFormat] = React.useState<DocumentFormatSettings | null>(null)
@@ -249,7 +253,7 @@ export function SettingsPage() {
 
   return (
     <AdminPage fullWidth>
-      <WorkspaceTabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
+      <WorkspaceTabs value={tab} onValueChange={setTab}>
         <WorkspaceTabsList>
           <WorkspaceTabsTrigger value="auth">Authentication</WorkspaceTabsTrigger>
           <WorkspaceTabsTrigger value="password">Password policy</WorkspaceTabsTrigger>

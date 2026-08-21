@@ -101,10 +101,21 @@ import type { ValidateAssetsResponse } from "@/lib/orders-types"
 import { ASSET_PHYSICAL_ORDER_STATUS_FILTERS, orderStatusLabel } from "@/lib/orders-types"
 import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
 import { formatAppDate } from "@/lib/dates"
+import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 export type AssetListTab = "all" | "draft" | "pending" | "rejected" | "approved" | "fy"
 export type AssetFySubTab = "verified" | "pending"
+
+const ASSET_LIST_TAB_KEYS = [
+  "all",
+  "draft",
+  "pending",
+  "rejected",
+  "approved",
+  "fy",
+] as const satisfies readonly AssetListTab[]
+const FY_SUB_TAB_KEYS = ["verified", "pending"] as const satisfies readonly AssetFySubTab[]
 
 export type AssetListColumnKey =
   | "asset_code"
@@ -393,35 +404,26 @@ function buildQueryParams(
 export function AssetsListPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const tabParam = searchParams.get("tab")
-  const initialTab: AssetListTab =
-    tabParam === "fy" ||
-    tabParam === "draft" ||
-    tabParam === "pending" ||
-    tabParam === "rejected" ||
-    tabParam === "approved"
-      ? tabParam
-      : "all"
-  const approvalTab = ASSET_APPROVAL_STATUS_TABS.find((t) => t.key === initialTab)
+  const [listTab, setListTab] = useUrlTab(ASSET_LIST_TAB_KEYS, "all")
+  const [fySubTab, setFySubTab] = useUrlTab(FY_SUB_TAB_KEYS, "verified", "fy_sub")
+  const approvalTab = ASSET_APPROVAL_STATUS_TABS.find((t) => t.key === listTab)
   const initialRfidStatus = searchParams.get("rfid_status")
   const validInitialRfid =
     initialRfidStatus === "tagged" || initialRfidStatus === "not_tagged" ? initialRfidStatus : ""
   const initialAllFilters: AssetListFilters = {
     ...DEFAULT_FILTERS,
-    rfid_status: initialTab !== "fy" ? validInitialRfid : "",
+    rfid_status: listTab !== "fy" ? validInitialRfid : "",
     approval_status: approvalTab?.approval_status ?? "",
   }
-  const [listTab, setListTab] = React.useState<AssetListTab>(initialTab)
-  const [fySubTab, setFySubTab] = React.useState<AssetFySubTab>("verified")
   const [data, setData] = React.useState<AssetListResponse | null>(null)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
-  const [page, setPage] = React.useState(1)
+  const [page, setPage] = useUrlPage()
   const [filters, setFilters] = React.useState<AssetListFilters>(
-    initialTab === "fy" ? DEFAULT_FY_FILTERS : initialAllFilters,
+    listTab === "fy" ? DEFAULT_FY_FILTERS : initialAllFilters,
   )
   const [draftFilters, setDraftFilters] = React.useState<AssetListFilters>(
-    initialTab === "fy" ? DEFAULT_FY_FILTERS : initialAllFilters,
+    listTab === "fy" ? DEFAULT_FY_FILTERS : initialAllFilters,
   )
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const [columnFiltersOpen, setColumnFiltersOpen] = React.useState(false)

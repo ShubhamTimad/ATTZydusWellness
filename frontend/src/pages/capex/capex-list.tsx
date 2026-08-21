@@ -41,10 +41,12 @@ import {
   type CapexFormListResponse,
 } from "@/lib/capex-types"
 import { hasPermission } from "@/lib/permissions"
+import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
 const columnFilterControlClass = "h-8 w-full min-w-[6rem] text-xs"
+const CAPEX_TAB_KEYS = ["all", "needs_action"] as const
 
 type CapexColumnFilters = {
   form_number: string
@@ -64,8 +66,8 @@ const DEFAULT_COLUMN_FILTERS: CapexColumnFilters = {
 
 export function CapexListPage() {
   const navigate = useNavigate()
-  const [tab, setTab] = React.useState("all")
-  const [page, setPage] = React.useState(1)
+  const [tab, setTab] = useUrlTab(CAPEX_TAB_KEYS, "all")
+  const [page, setPage] = useUrlPage()
   const [data, setData] = React.useState<CapexFormListResponse | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [searchInput, setSearchInput] = React.useState("")

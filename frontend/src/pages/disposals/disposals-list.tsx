@@ -42,11 +42,13 @@ import {
   type DisposalOrderListResponse,
 } from "@/lib/disposal-types"
 import { formatAppDate } from "@/lib/dates"
+import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
 const columnFilterControlClass = "h-8 w-full min-w-[6rem] text-xs"
 const DEFAULT_TAB = "all"
+const DISPOSAL_TAB_KEYS = ["all", "needs_action"] as const
 
 type DisposalColumnFilters = {
   order_number: string
@@ -79,8 +81,8 @@ type ListFilterCostCenter = {
 export function DisposalOrdersListPage() {
   const navigate = useNavigate()
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
-  const [tab, setTab] = React.useState<string>(DEFAULT_TAB)
-  const [page, setPage] = React.useState(1)
+  const [tab, setTab] = useUrlTab(DISPOSAL_TAB_KEYS, DEFAULT_TAB)
+  const [page, setPage] = useUrlPage()
   const [data, setData] = React.useState<DisposalOrderListResponse | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [busyId, setBusyId] = React.useState<number | null>(null)

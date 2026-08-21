@@ -42,6 +42,24 @@ function profileInitials(name: string, email: string | null): string {
   return `${a}${b}`.slice(0, 2)
 }
 
+/** Split comma-joined multi-values (e.g. cost centers) into readable lines. */
+function MultiLineValue({ value }: { value: string | null | undefined }) {
+  if (!value?.trim()) return <span>—</span>
+  const parts = value.split(", ").map((s) => s.trim()).filter(Boolean)
+  if (parts.length <= 1) {
+    return <span className="break-words">{value.trim()}</span>
+  }
+  return (
+    <ul className="mt-0.5 list-none space-y-1.5">
+      {parts.map((part) => (
+        <li key={part} className="break-words">
+          {part}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function ProfileRow({
   icon: Icon,
   label,
@@ -58,7 +76,7 @@ function ProfileRow({
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
-        <p className="mt-0.5 text-sm font-medium leading-snug text-foreground">{value}</p>
+        <div className="mt-0.5 text-sm font-medium leading-snug text-foreground">{value}</div>
       </div>
     </div>
   )
@@ -104,7 +122,10 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 sm:max-w-[420px]" showCloseButton={false}>
+      <DialogContent
+        className="flex max-h-[min(90dvh,40rem)] flex-col gap-0 overflow-hidden sm:max-w-[420px]"
+        showCloseButton={false}
+      >
         <DialogClose asChild>
           <Button
             type="button"
@@ -116,7 +137,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
             <XIcon className="size-5" aria-hidden />
           </Button>
         </DialogClose>
-        <div className="dialog-surface-header -mx-0 border-b border-primary/10">
+        <div className="dialog-surface-header shrink-0 -mx-0 border-b border-primary/10">
           <DialogHeader className="px-0 pt-0">
             <DialogTitle className="sr-only">My profile</DialogTitle>
             <DialogDescription className="sr-only">
@@ -133,7 +154,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
               </div>
             </div>
           ) : me ? (
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 pr-10">
               <Avatar className="size-14 ring-2 ring-primary/20 ring-offset-2 ring-offset-card">
                 <AvatarFallback className="bg-primary text-base font-semibold text-primary-foreground">
                   {initials}
@@ -162,7 +183,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
           )}
         </div>
 
-        <div className="px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
           {loading ? (
             <div className="space-y-3">
               {[1, 2, 3, 4].map((i) => (
@@ -181,12 +202,20 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
             </Alert>
           ) : (
             <div className="space-y-3">
-              <ProfileRow icon={Mail} label="Email" value={me.email ?? "—"} />
+              <ProfileRow icon={Mail} label="Email" value={<MultiLineValue value={me.email} />} />
               <ProfileRow icon={Phone} label="Mobile" value={me.phone ?? "—"} />
-              <ProfileRow icon={Building2} label="Plant" value={me.org_unit ?? "—"} />
-              <ProfileRow icon={UsersRound} label="Department" value={me.department ?? "—"} />
-              <ProfileRow icon={Landmark} label="Cost center" value={me.cost_center ?? "—"} />
-              <ProfileRow icon={Shield} label="Roles" value={me.role ?? "—"} />
+              <ProfileRow icon={Building2} label="Plant" value={<MultiLineValue value={me.org_unit} />} />
+              <ProfileRow
+                icon={UsersRound}
+                label="Department"
+                value={<MultiLineValue value={me.department} />}
+              />
+              <ProfileRow
+                icon={Landmark}
+                label="Cost center"
+                value={<MultiLineValue value={me.cost_center} />}
+              />
+              <ProfileRow icon={Shield} label="Roles" value={<MultiLineValue value={me.role} />} />
             </div>
           )}
         </div>

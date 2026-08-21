@@ -40,11 +40,13 @@ import {
   type PhysicalOrderListResponse,
 } from "@/lib/orders-types"
 import { formatAppDate } from "@/lib/dates"
+import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
 const columnFilterControlClass = "h-8 w-full min-w-[6rem] text-xs"
 const DEFAULT_TAB = "all"
+const ORDER_TAB_KEYS = ["all", "needs_action"] as const
 
 type OrderColumnFilters = {
   order_number: string
@@ -87,8 +89,8 @@ function tabCount(
 
 export function OrdersListPage() {
   const navigate = useNavigate()
-  const [tab, setTab] = React.useState(DEFAULT_TAB)
-  const [page, setPage] = React.useState(1)
+  const [tab, setTab] = useUrlTab(ORDER_TAB_KEYS, DEFAULT_TAB)
+  const [page, setPage] = useUrlPage()
   const [data, setData] = React.useState<PhysicalOrderListResponse | null>(null)
   const [loading, setLoading] = React.useState(false)
   const [searchInput, setSearchInput] = React.useState("")

@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson } from "@/lib/api"
 import { canAccessTasks, persistAuthFromMe } from "@/lib/permissions"
+import { useUrlTab } from "@/lib/use-url-tab"
 
 type UnifiedTaskRow = {
   id: number
@@ -88,7 +89,7 @@ function InboxTable({ rows, loading, canView, emptyMessage, onOpen }: InboxTable
 export function MyTasksPage() {
   const [rows, setRows] = React.useState<UnifiedTaskRow[] | null>(null)
   const [loading, setLoading] = React.useState(true)
-  const [inbox, setInbox] = React.useState<"active" | "done">("active")
+  const [inbox, setInbox] = useUrlTab(["active", "done"] as const, "active", "inbox")
   const navigate = useNavigate()
 
   const [, forcePermRefresh] = React.useReducer((x: number) => x + 1, 0)
@@ -133,7 +134,7 @@ export function MyTasksPage() {
         description=""
       />
 
-      <WorkspaceTabs value={inbox} onValueChange={(v) => setInbox(v as "active" | "done")}>
+      <WorkspaceTabs value={inbox} onValueChange={setInbox}>
         <WorkspaceTabsList>
           <WorkspaceTabsTrigger value="active">Active</WorkspaceTabsTrigger>
           <WorkspaceTabsTrigger value="done">Done</WorkspaceTabsTrigger>
