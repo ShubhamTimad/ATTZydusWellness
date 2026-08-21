@@ -53,6 +53,7 @@ import {
   type PhysicalOrderItem,
 } from "@/lib/orders-types"
 import { hasPermission } from "@/lib/permissions"
+import { formatAppDate as formatDate, formatAppDateTime as formatDt } from "@/lib/dates"
 import { cn } from "@/lib/utils"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 
@@ -102,19 +103,6 @@ const ORDER_ACTION_BUSY_LABELS: Record<string, string> = {
 type ClosureLineDecision = {
   choice: "approve" | "reject" | null
 }
-
-function formatDt(iso: string | null | undefined) {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-}
-
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString(undefined, { dateStyle: "medium" })
-}
-
 
 function matchesAssetSearch(item: PhysicalOrderItem, search: string): boolean {
   const q = search.trim().toLowerCase()

@@ -21,14 +21,8 @@ import {
   sanitizeNonNegativeNumericInput,
 } from "@/lib/asset-master-fields"
 import type { AssetViewSectionConfig } from "@/lib/asset-master-fields"
+import { formatAppDate as formatDate } from "@/lib/dates"
 import { useAssetFieldConfig } from "@/lib/use-asset-field-config"
-
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { dateStyle: "medium" })
-}
 
 export function AssetDetailSectionPanel({
   config,

@@ -44,6 +44,7 @@ import {
   type TransferOrderListResponse,
 } from "@/lib/transfer-types"
 import { formatCostCenterWithCode } from "@/lib/use-asset-masters"
+import { formatAppDate } from "@/lib/dates"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -635,7 +636,7 @@ export function TransferOrdersListPage() {
                         </AdminPillBadge>
                       </AdminTableCell>
                       <AdminTableCell className="text-muted-foreground">
-                        {new Date(row.created_at).toLocaleDateString()}
+                        {formatAppDate(row.created_at)}
                       </AdminTableCell>
                       {showDiscard ? (
                         <AdminTableCell className="text-right">

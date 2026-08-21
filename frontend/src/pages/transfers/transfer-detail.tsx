@@ -22,6 +22,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { formatAppDateTime as formatDt } from "@/lib/dates"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import {
   buildTransferProgress,
@@ -132,14 +133,6 @@ function SummaryField({
       </p>
     </div>
   )
-}
-
-function formatDt(iso: string | null | undefined) {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
 }
 
 const transferTextPad = "px-[var(--app-card-padding)]"

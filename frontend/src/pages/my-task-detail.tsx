@@ -13,6 +13,7 @@ import { AssetMasterDetailDialog } from "@/components/assets/asset-master-detail
 import { ApprovalWorkflowTimeline, type TaskApprovalStepLine } from "@/components/approval-workflow-timeline"
 import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import { ApiError, getJson, postJson } from "@/lib/api"
+import { formatAppDateTime as formatDateTime } from "@/lib/dates"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
@@ -73,13 +74,6 @@ type UnifiedTaskDetail = {
 
   comments: TaskComment[]
   audit_logs: TaskAuditLog[]
-}
-
-function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
 }
 
 function timeMs(iso: string | null | undefined): number {

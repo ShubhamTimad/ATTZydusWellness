@@ -11,6 +11,7 @@ import {
 } from "@/lib/asset-master-fields"
 import { renderPhysicalOrderInventoryField } from "@/lib/asset-physical-order-display"
 import { assetStatusLabel } from "@/lib/asset-lifecycle"
+import { formatAppDate as formatDate } from "@/lib/dates"
 import { cn } from "@/lib/utils"
 
 const SECTION_ICONS: Record<string, LucideIcon> = {
@@ -21,13 +22,6 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
 }
 
 const noop = () => {}
-
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { dateStyle: "medium" })
-}
 
 type SummaryItem = { label: string; value: React.ReactNode; mono?: boolean }
 

@@ -8,6 +8,7 @@ import {
 } from "@/components/layout/admin-ui"
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
+import { formatAppWhenParts } from "@/lib/dates"
 import { cn } from "@/lib/utils"
 
 export type AuditTrailRow = {
@@ -18,12 +19,7 @@ export type AuditTrailRow = {
 }
 
 export function formatWhenParts(iso: string): { date: string; time: string } {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return { date: iso, time: "" }
-  return {
-    date: d.toLocaleDateString(undefined, { dateStyle: "medium" }),
-    time: d.toLocaleTimeString(undefined, { timeStyle: "short" }),
-  }
+  return formatAppWhenParts(iso)
 }
 
 export function WhenCell({ at, muted }: { at: string; muted?: boolean }) {

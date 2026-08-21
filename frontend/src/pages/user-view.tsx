@@ -18,6 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
+import { formatAppDateTime as formatDateTime } from "@/lib/dates"
 import { hasPermission, isSuperuser } from "@/lib/permissions"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
@@ -53,13 +54,6 @@ function formatOrgList(
         : []
   if (list.length === 0) return "—"
   return list.map((d) => (d.code ? `${d.code} — ${d.name}` : d.name)).join(", ")
-}
-
-function formatDateTime(iso: string | undefined): string {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
 }
 
 export function UserViewPage() {

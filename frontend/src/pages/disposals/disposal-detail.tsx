@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { formatAppDateTime as formatWhen } from "@/lib/dates"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import type { CostCenterMaster } from "@/lib/masters-types"
 import {
@@ -76,14 +77,6 @@ function isSelectableOnThisOrder(
     return !lifecycle || lifecycle === "active" || lifecycle === "pending_disposal"
   }
   return !lifecycle || lifecycle === "active"
-}
-
-function formatWhen(iso: string | null | undefined): string {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
 }
 
 function FormField({

@@ -3,13 +3,8 @@ import { ChevronDown, ListTree } from "lucide-react"
 
 import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import { Button } from "@/components/ui/button"
+import { formatAppDateTime as formatDt } from "@/lib/dates"
 import type { PhysicalOrderAudit } from "@/lib/orders-types"
-
-function formatDt(iso: string | null | undefined) {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-}
 
 function ActivityCell({
   ev,

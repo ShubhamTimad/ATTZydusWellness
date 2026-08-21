@@ -19,13 +19,7 @@ import {
 } from "@/lib/asset-master-fields"
 import type { CategoryMaster, CostCenterMaster, PlantOption } from "@/lib/masters-types"
 import { categoryLabel, costCenterLabel, plantLabel } from "@/lib/use-asset-masters"
-
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { dateStyle: "medium" })
-}
+import { formatAppDate as formatDate } from "@/lib/dates"
 
 function displayValue(def: AssetMasterFieldDef, asset: AssetDetail): React.ReactNode {
   if (def.key === "inventory_count") return "1"

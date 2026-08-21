@@ -39,6 +39,7 @@ import type {
   SubmitForApprovalResult,
 } from "@/lib/assets-types"
 import { formatRfidAttachError, formatRfidAttachSuccess, formatSubmitForApprovalError, formatSubmitForApprovalSuccess } from "@/lib/assets-types"
+import { formatAppDate as formatDate, formatAppDateTime as formatDateTime } from "@/lib/dates"
 import {
   ASSET_VIEW_SECTIONS,
   type AssetViewSectionConfig,
@@ -80,26 +81,11 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   inventory: ClipboardList,
 }
 
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { dateStyle: "medium" })
-}
-
 const INVENTORY_READONLY = new Set([
   "inventory_count",
   "physical_count",
   "last_verification_date",
 ])
-
-
-function formatDateTime(iso: string | null | undefined) {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
-}
 
 type SummaryItem = { label: string; value: React.ReactNode; mono?: boolean }
 

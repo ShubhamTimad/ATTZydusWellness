@@ -39,6 +39,7 @@ import {
   orderTabEmptyMessage,
   type PhysicalOrderListResponse,
 } from "@/lib/orders-types"
+import { formatAppDate } from "@/lib/dates"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -534,7 +535,7 @@ export function OrdersListPage() {
                         <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>
                         <AdminTableCell>{row.created_by_name ?? "—"}</AdminTableCell>
                         <AdminTableCell>
-                          {new Date(row.created_at).toLocaleDateString()}
+                          {formatAppDate(row.created_at)}
                         </AdminTableCell>
                       </AdminTableBodyRow>
                     ))

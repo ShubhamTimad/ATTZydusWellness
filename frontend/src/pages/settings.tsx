@@ -25,6 +25,7 @@ import {
   WorkspaceTabsTrigger,
 } from "@/components/layout/list-page-ui"
 import { getJson, postBlob, postJson, putJson } from "@/lib/api"
+import { formatAppDate } from "@/lib/dates"
 import { hasPermission } from "@/lib/permissions"
 
 export type PasswordPolicy = {
@@ -783,8 +784,8 @@ export function SettingsPage() {
                     {financialYear.period_start && financialYear.period_end ? (
                       <>
                         {" "}
-                        ({new Date(financialYear.period_start).toLocaleDateString()} –{" "}
-                        {new Date(financialYear.period_end).toLocaleDateString()})
+                        ({formatAppDate(financialYear.period_start)} –{" "}
+                        {formatAppDate(financialYear.period_end)})
                       </>
                     ) : null}
                   </p>
@@ -953,7 +954,7 @@ export function SettingsPage() {
                         </div>
                         <div className="shrink-0 text-right text-xs text-muted-foreground">
                           <div>
-                            Generated on {new Date().toLocaleString()}
+                            Generated on {formatAppDate(new Date())}
                           </div>
                         </div>
                       </div>

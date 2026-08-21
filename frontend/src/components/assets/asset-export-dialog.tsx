@@ -222,9 +222,9 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
           <DialogTitle>
             {isRegister
               ? isPdf
-                ? "Asset register PDF"
-                : "Asset register Excel"
-              : "Export assets"}
+                ? "Asset Register PDF"
+                : "Asset Register Excel"
+              : "Export Assets"}
           </DialogTitle>
           {/* <DialogDescription>
             {isRegister
@@ -277,14 +277,14 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label>Cost center</Label>
+              <Label>Cost Center</Label>
               <select
                 className={adminSelectClass}
                 value={exportFilters.cost_center}
                 disabled={!plantId}
                 onChange={(e) => setExportFilters((f) => ({ ...f, cost_center: e.target.value }))}
               >
-                <option value="">{plantId ? "All" : "Select plant first"}</option>
+                <option value="">{plantId ? "All" : "Select Plant First"}</option>
                 {masters.costCenters.map((cc) => (
                   <option key={cc.id} value={cc.code}>
                     {masterOptionLabel(cc.code, cc.name)}
@@ -293,7 +293,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label>Functional location</Label>
+              <Label>Actual Location 1</Label>
               <select
                 className={adminSelectClass}
                 value={exportFilters.functional_location}
@@ -306,7 +306,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                   }))
                 }
               >
-                <option value="">{plantId ? "All" : "Select plant first"}</option>
+                <option value="">{plantId ? "All" : "Select Plant First"}</option>
                 {masters.functionalLocations.map((fl) => (
                   <option key={fl.id} value={fl.code}>
                     {masterOptionLabel(fl.code, fl.name)}
@@ -315,7 +315,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
               </select>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label>Actual location</Label>
+              <Label>Actual Location 2</Label>
               <select
                 className={adminSelectClass}
                 value={exportFilters.actual_location}
@@ -324,9 +324,9 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
               >
                 <option value="">
                   {!plantId
-                    ? "Select plant first"
+                    ? "Select Plant First"
                     : !exportFilters.functional_location
-                      ? "Select functional location first"
+                      ? "Select Actual Location 1 First"
                       : "All"}
                 </option>
                 {masters.actualLocations.map((al) => (
@@ -372,7 +372,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
           {!isPdf ? (
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label>{isRegister ? "Columns to include" : "Columns to export"}</Label>
+              <Label>{isRegister ? "Columns to Include" : "Columns to Export"}</Label>
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -381,7 +381,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                   className="h-7 bg-muted/40 px-2 text-xs"
                   onClick={() => setSelectedFields(new Set(allFieldKeys))}
                 >
-                  Select all
+                  Select All
                 </Button>
                 <Button
                   type="button"

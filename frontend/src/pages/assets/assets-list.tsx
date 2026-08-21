@@ -100,6 +100,7 @@ import { currentUserId, hasPermission, isSuperuser } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
 import { ASSET_PHYSICAL_ORDER_STATUS_FILTERS, orderStatusLabel } from "@/lib/orders-types"
 import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
+import { formatAppDate } from "@/lib/dates"
 import { cn } from "@/lib/utils"
 
 export type AssetListTab = "all" | "draft" | "pending" | "rejected" | "approved" | "fy"
@@ -250,7 +251,7 @@ function formatMasterLabel(_code: string | null | undefined, name: string | null
 }
 
 function formatListDate(value: string | null | undefined): string {
-  return value ? new Date(value).toLocaleDateString() : "—"
+  return formatAppDate(value)
 }
 
 function assetListCell(row: AssetListItem, key: AssetListColumnKey): React.ReactNode {
@@ -1861,8 +1862,8 @@ export function AssetsListPage() {
                 </span>
                 {data.scan_window_start && data.scan_window_end ? (
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {new Date(data.scan_window_start).toLocaleDateString()} –{" "}
-                    {new Date(data.scan_window_end).toLocaleDateString()}
+                    {formatAppDate(data.scan_window_start)} –{" "}
+                    {formatAppDate(data.scan_window_end)}
                   </p>
                 ) : null}
               </div>
@@ -2638,8 +2639,8 @@ export function AssetsListPage() {
                   {validationResult.financial_year_start && validationResult.financial_year_end ? (
                     <>
                       {" "}
-                      ({new Date(validationResult.financial_year_start).toLocaleDateString()} –{" "}
-                      {new Date(validationResult.financial_year_end).toLocaleDateString()})
+                      ({formatAppDate(validationResult.financial_year_start)} –{" "}
+                      {formatAppDate(validationResult.financial_year_end)})
                     </>
                   ) : null}
                   . Do you want to run physical verification again? Choosing yes clears physical count and
@@ -2669,7 +2670,7 @@ export function AssetsListPage() {
                       </td>
                       <td className="py-1.5 text-xs tabular-nums text-muted-foreground">
                         {a.last_verification_date
-                          ? new Date(a.last_verification_date).toLocaleDateString()
+                          ? formatAppDate(a.last_verification_date)
                           : "—"}
                       </td>
                     </tr>

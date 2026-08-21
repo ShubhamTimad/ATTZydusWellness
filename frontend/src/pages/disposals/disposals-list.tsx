@@ -41,6 +41,7 @@ import {
   type DisposalOrderListItem,
   type DisposalOrderListResponse,
 } from "@/lib/disposal-types"
+import { formatAppDate } from "@/lib/dates"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -573,7 +574,7 @@ export function DisposalOrdersListPage() {
                         </AdminPillBadge>
                       </AdminTableCell>
                       <AdminTableCell className="text-muted-foreground">
-                        {new Date(row.created_at).toLocaleDateString()}
+                        {formatAppDate(row.created_at)}
                       </AdminTableCell>
                       {showDiscard ? (
                         <AdminTableCell className="text-right">
