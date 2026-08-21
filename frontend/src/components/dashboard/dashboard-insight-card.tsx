@@ -45,19 +45,19 @@ export function DashboardStripCard({
       ? "text-[#EA4335]"
       : aside?.tone === "success"
         ? "text-[#34A853]"
-        : "text-muted-foreground"
+        : "text-foreground"
 
   return (
     <article className="min-w-0 px-5 py-4">
       <p className="flex items-center gap-2">
         <span className="h-3.5 w-[3px] shrink-0 rounded-full" style={{ backgroundColor: accent }} aria-hidden />
-        <span className="text-[13px] leading-snug text-foreground">{title}</span>
+        <span className="text-sm font-bold leading-snug text-foreground sm:text-[15px]">{title}</span>
       </p>
       <p className="mt-2.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span className="text-2xl leading-none font-bold tabular-nums tracking-tight text-foreground">{value}</span>
         {aside ? <span className={cn("text-[13px] tabular-nums", asideClass)}>{aside.text}</span> : null}
       </p>
-      {caption ? <p className="mt-2 truncate text-xs leading-none text-muted-foreground">{caption}</p> : null}
+      {caption ? <p className="mt-2 truncate text-xs leading-none text-foreground">{caption}</p> : null}
     </article>
   )
 }
@@ -104,14 +104,14 @@ function DashboardGauge({
           <p className="text-[1.75rem] leading-none font-bold tabular-nums tracking-tight text-foreground">
             {centerLabel}
           </p>
-          <p className="mt-1 text-sm text-muted-foreground">{centerCaption}</p>
+          <p className="mt-1 text-sm text-foreground">{centerCaption}</p>
         </div>
       </div>
       <ul className="mt-3 flex flex-wrap items-center justify-center gap-x-6 gap-y-1.5">
         {slices.map((slice) => (
           <li
             key={slice.name}
-            className="flex items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground"
+            className="flex items-center gap-1.5 text-xs whitespace-nowrap text-foreground"
           >
             <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: slice.color }} />
             {slice.name}
@@ -145,8 +145,8 @@ export function DashboardInsightCard({
     <section className="flex flex-col rounded-xl border border-border bg-card px-5 py-5 shadow-[var(--app-shadow-surface)]">
       <div className="flex min-w-0 items-center gap-2.5">
         <Icon className={cn("size-5 shrink-0", iconWrap)} aria-hidden />
-        <h2 className="truncate text-base font-semibold tracking-tight text-foreground">{title}</h2>
-        {subtitle ? <span className="truncate text-sm text-muted-foreground">{subtitle}</span> : null}
+        <h2 className="truncate text-base font-bold tracking-tight text-foreground">{title}</h2>
+        {subtitle ? <span className="truncate text-sm text-foreground">{subtitle}</span> : null}
       </div>
 
       <div className="mt-5 flex">
@@ -167,7 +167,7 @@ export function DashboardInsightCard({
             >
               {metric.value}
             </p>
-            <p className="mt-1.5 truncate text-xs text-muted-foreground">{metric.label}</p>
+            <p className="mt-1.5 truncate text-xs text-foreground">{metric.label}</p>
           </div>
         ))}
       </div>

@@ -24,7 +24,7 @@ export function OrdersDashboard({ data }: { data: OrdersDashboardModule }) {
 
   return (
     <DashboardInsightCard
-      title="Physical Verification Orders"
+      title="Physical Verification Order"
       icon={theme.icon}
       iconWrap={theme.iconWrap}
       metrics={[

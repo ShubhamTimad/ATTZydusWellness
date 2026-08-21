@@ -18,7 +18,7 @@ export function ItDashboard({ data }: { data: ItDashboardModule }) {
 
   return (
     <DashboardInsightCard
-      title="IT Users"
+      title="IT User"
       icon={theme.icon}
       iconWrap={theme.iconWrap}
       metrics={[

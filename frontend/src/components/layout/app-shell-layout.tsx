@@ -337,7 +337,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
       {visibleGroups.map((group) => (
         <div key={group.label} className="space-y-1">
           {!collapsed ? (
-            <p className="px-3 pb-0.5 text-[10px] font-semibold tracking-[0.08em] text-foreground uppercase">
+            <p className="px-3 pb-0.5 text-[10px] font-bold tracking-[0.08em] text-foreground uppercase">
               {group.label}
             </p>
           ) : null}
@@ -522,7 +522,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
             >
               <PanelLeft className="size-4 opacity-80" aria-hidden />
             </Button>
-            <h1 className="truncate text-base font-semibold tracking-tight text-foreground">{title}</h1>
+            <h1 className="truncate text-base font-bold tracking-tight text-foreground">{title}</h1>
           </div>
 
           <div className="flex shrink-0 items-center gap-3">
@@ -539,10 +539,10 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
                     {initials}
                   </AvatarFallback>
                 </Avatar>
-                <span className="hidden max-w-[160px] truncate text-sm font-medium md:inline">
+                <span className="hidden max-w-[160px] truncate text-sm font-medium text-foreground md:inline">
                   {displayName}
                 </span>
-                <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <ChevronDown className="size-4 shrink-0 text-foreground" aria-hidden />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-72 rounded-xl p-3 shadow-lg" sideOffset={8}>

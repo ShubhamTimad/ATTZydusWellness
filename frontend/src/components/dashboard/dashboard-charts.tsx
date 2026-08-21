@@ -152,7 +152,7 @@ export function DashboardDonutChart({
             {centerLabel}
           </span>
           {centerCaption ? (
-            <span className="text-[11px] text-muted-foreground">{centerCaption}</span>
+            <span className="text-[11px] text-foreground">{centerCaption}</span>
           ) : null}
         </div>
       ) : null}

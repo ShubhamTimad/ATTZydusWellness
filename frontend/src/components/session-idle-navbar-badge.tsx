@@ -22,7 +22,7 @@ export function SessionIdleNavbarBadge() {
           ? "border-destructive/40 bg-destructive/10 text-destructive"
           : urgent
             ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-            : "border-border/80 bg-muted/40 text-muted-foreground",
+            : "border-border/80 bg-muted/40 text-foreground",
       )}
       title="Time until automatic sign-out due to inactivity"
       aria-live="polite"

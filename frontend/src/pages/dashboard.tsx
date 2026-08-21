@@ -64,7 +64,7 @@ function DashboardSummaryStrip({
     cells.push(
       <DashboardStripCard
         key="orders"
-        title="Physical Verification Orders"
+        title="Physical Verification Order"
         value={parts.open}
         aside={{ text: `${parts.total} Total` }}
         accent={DASHBOARD_COLOR.blue}
@@ -76,7 +76,7 @@ function DashboardSummaryStrip({
     cells.push(
       <DashboardStripCard
         key="transfers"
-        title="Transfer Orders"
+        title="Transfer Order"
         value={parts.open}
         aside={{ text: `${parts.total} Total` }}
         accent={DASHBOARD_COLOR.orange}
@@ -88,7 +88,7 @@ function DashboardSummaryStrip({
     cells.push(
       <DashboardStripCard
         key="disposals"
-        title="Disposal Orders"
+        title="Disposal Order"
         value={parts.open}
         aside={{ text: `${parts.total} Total` }}
         accent={DASHBOARD_COLOR.red}
@@ -110,7 +110,7 @@ function DashboardSummaryStrip({
     cells.push(
       <DashboardStripCard
         key="users"
-        title="Users"
+        title="User"
         value={it.total_users}
         aside={{ text: `${it.active_users} Active` }}
         accent={DASHBOARD_COLOR.green}
@@ -201,7 +201,7 @@ export function DashboardPage() {
             {transfers ? (
               <WorkflowOrdersDashboard
                 key="transfers"
-                title="Asset Transfers"
+                title="Asset Transfer"
                 theme={DASHBOARD_THEMES.transfers}
                 data={transfers}
                 openColor={DASHBOARD_COLOR.red}
@@ -211,7 +211,7 @@ export function DashboardPage() {
             {disposals ? (
               <WorkflowOrdersDashboard
                 key="disposals"
-                title="Asset Disposals"
+                title="Asset Disposal"
                 theme={DASHBOARD_THEMES.disposals}
                 data={disposals}
                 openColor={DASHBOARD_COLOR.orange}

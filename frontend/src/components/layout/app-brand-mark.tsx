@@ -60,9 +60,9 @@ export function AppBrandMark({
       {showSubtitle ? (
         <p
           className={cn(
-            "truncate font-semibold uppercase tracking-[0.16em]",
+            "truncate font-bold uppercase tracking-[0.16em]",
             subtitleSizes[size],
-            onDark ? "text-white/60" : "text-muted-foreground",
+            onDark ? "text-white/60" : "text-foreground",
           )}
         >
           Asset Tagging & Tracking
