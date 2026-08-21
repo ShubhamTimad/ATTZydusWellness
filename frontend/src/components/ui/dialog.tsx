@@ -49,6 +49,9 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onPointerDownOutside,
+  onInteractOutside,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -63,6 +66,19 @@ function DialogContent({
           className
         )}
         {...props}
+        // Popups close only via the X / explicit actions — not overlay click or Escape.
+        onPointerDownOutside={(e) => {
+          e.preventDefault()
+          onPointerDownOutside?.(e)
+        }}
+        onInteractOutside={(e) => {
+          e.preventDefault()
+          onInteractOutside?.(e)
+        }}
+        onEscapeKeyDown={(e) => {
+          e.preventDefault()
+          onEscapeKeyDown?.(e)
+        }}
       >
         {children}
         {showCloseButton && (
