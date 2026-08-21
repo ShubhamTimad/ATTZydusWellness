@@ -30,6 +30,7 @@ import { OrderAuditLog } from "@/components/orders/order-audit-log"
 import { OrderLifecycleStepper } from "@/components/orders/order-lifecycle-stepper"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -58,7 +59,7 @@ import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-d
 type AssetColumnFilters = {
   asset: string
   rfid: string
-  status: "" | "pending" | "verified" | "rejected"
+  status: "" | "pending" | "verified" | "approved" | "rejected"
   verified_by: string
 }
 
@@ -98,6 +99,10 @@ const ORDER_ACTION_BUSY_LABELS: Record<string, string> = {
   "/reassign": "Reassigning…",
 }
 
+type ClosureLineDecision = {
+  choice: "approve" | "reject" | null
+}
+
 function formatDt(iso: string | null | undefined) {
   if (!iso) return "—"
   const d = new Date(iso)
@@ -134,6 +139,10 @@ function matchesAssetColumnFilters(item: PhysicalOrderItem, filters: AssetColumn
     if (item.physically_verified || item.verification_status === "rejected") return false
   } else if (filters.status === "verified") {
     if (!item.physically_verified) return false
+    if ((item.verification_status || "").toLowerCase() === "approved") return false
+    if ((item.verification_status || "").toLowerCase() === "rejected") return false
+  } else if (filters.status === "approved") {
+    if ((item.verification_status || "").toLowerCase() !== "approved") return false
   } else if (filters.status === "rejected") {
     if (item.verification_status !== "rejected") return false
   }
@@ -166,24 +175,10 @@ function OrderSummaryField({
         !tone && "bg-muted/35",
       )}
     >
-      <p
-        className={cn(
-          "text-[10px] font-medium uppercase tracking-[0.06em]",
-          tone === "warning" && "text-amber-800/80 dark:text-amber-200/80",
-          tone === "success" && "text-emerald-800/80 dark:text-emerald-200/80",
-          !tone && "text-muted-foreground",
-        )}
-      >
+      <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-black">
         {label}
       </p>
-      <p
-        className={cn(
-          "mt-0.5 truncate text-sm font-semibold tabular-nums leading-snug",
-          tone === "warning" && "text-amber-950 dark:text-amber-50",
-          tone === "success" && "text-emerald-950 dark:text-emerald-50",
-          !tone && "text-foreground",
-        )}
-      >
+      <p className="mt-0.5 truncate text-sm font-normal tabular-nums leading-snug text-black">
         {value}
       </p>
     </div>
@@ -200,6 +195,9 @@ export function OrderDetailPage() {
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState(false)
   const [busyAction, setBusyAction] = React.useState<string | null>(null)
+  const [closureDecisions, setClosureDecisions] = React.useState<
+    Record<number, ClosureLineDecision>
+  >({})
   const [assetSearchInput, setAssetSearchInput] = React.useState("")
   const [assetSearch, setAssetSearch] = React.useState("")
   const [assetColumnFiltersOpen, setAssetColumnFiltersOpen] = React.useState(false)
@@ -298,6 +296,27 @@ export function OrderDetailPage() {
     setAssetColumnFilterInputs({ ...DEFAULT_ASSET_COLUMN_FILTERS })
     setAssetColumnFilters({ ...DEFAULT_ASSET_COLUMN_FILTERS })
   }, [id])
+
+  React.useEffect(() => {
+    if (!order) return
+    setClosureDecisions((prev) => {
+      const next: Record<number, ClosureLineDecision> = {}
+      for (const item of order.items) {
+        const status = (item.verification_status || "").toLowerCase()
+        const existing = prev[item.id]
+        if (status === "approved") {
+          next[item.id] = { choice: "approve" }
+        } else if (status === "rejected") {
+          next[item.id] = { choice: "reject" }
+        } else if (existing?.choice === "approve" || existing?.choice === "reject") {
+          next[item.id] = existing
+        } else {
+          next[item.id] = { choice: null }
+        }
+      }
+      return next
+    })
+  }, [order])
 
   React.useEffect(() => {
     if (!order) return
@@ -474,6 +493,9 @@ export function OrderDetailPage() {
     Boolean(value.trim()),
   ).length
   const showStatusRejectedOption = order.rejected_item_count > 0
+  const showStatusApprovedOption = order.items.some(
+    (item) => (item.verification_status || "").toLowerCase() === "approved",
+  )
 
   const canReassign = isAssigned && canReassignOrder && !isClosed
   const canClose =
@@ -512,8 +534,101 @@ export function OrderDetailPage() {
     return canScan && !item.physically_verified
   }
 
+  function itemStatus(item: PhysicalOrderItem): string {
+    return (item.verification_status || "").toLowerCase()
+  }
+
+  function itemDecisionLocked(item: PhysicalOrderItem): boolean {
+    const status = itemStatus(item)
+    return status === "approved" || status === "rejected"
+  }
+
+  function setClosureChoice(item: PhysicalOrderItem, choice: "approve" | "reject" | null) {
+    if (itemDecisionLocked(item)) return
+    setClosureDecisions((prev) => ({
+      ...prev,
+      [item.id]: { choice },
+    }))
+  }
+
+  const closureHasRejectChoice =
+    canReviewClosure &&
+    order.items.some((item) => {
+      const status = itemStatus(item)
+      if (status === "rejected") return true
+      return (closureDecisions[item.id]?.choice ?? null) === "reject"
+    })
+
+  function closureLineDecisionsReady(): boolean {
+    if (!order) return false
+    const pending = order.items.filter((item) => itemStatus(item) === "pending")
+    return pending.every((item) => {
+      const choice = closureDecisions[item.id]?.choice ?? null
+      return choice === "approve" || choice === "reject"
+    })
+  }
+
+  async function submitClosureLineDecisions(
+    rejectionReason: string,
+    nextAssignedUserId?: number | null,
+  ): Promise<boolean> {
+    if (!order || !id) return false
+    const reason = rejectionReason.trim()
+    if (!reason) {
+      toast.error("Enter a rejection reason.")
+      return false
+    }
+    if (!closureLineDecisionsReady()) {
+      toast.error("Mark Approve or Reject for every pending asset.")
+      return false
+    }
+
+    const pending = order.items.filter((item) => itemStatus(item) === "pending")
+    const toReject = pending.filter((item) => closureDecisions[item.id]?.choice === "reject")
+
+    setBusy(true)
+    setBusyAction("/approval/reject-items")
+    try {
+      let latest = order
+      if (toReject.length > 0) {
+        latest = await postJson<PhysicalOrderDetail>(
+          `/admin/physical-orders/${id}/approval/reject-items`,
+          { item_ids: toReject.map((item) => item.id), rejection_reason: reason },
+        )
+      }
+      // Approve remaining pending + finalize mixed or full approval.
+      latest = await postJson<PhysicalOrderDetail>(
+        `/admin/physical-orders/${id}/approval/approve-all`,
+        nextAssignedUserId != null ? { next_assigned_user_id: nextAssignedUserId } : {},
+      )
+      setOrder(latest)
+      if (latest.status === "approved") {
+        toast.success("Order approved.")
+      } else if (latest.status === "rejected") {
+        toast.success(
+          latest.assigned_to_name
+            ? `Review finished. Order Rejected so ${latest.assigned_to_name} can rework rejected assets.`
+            : "Review finished. Order Rejected for rework on rejected assets.",
+        )
+      } else {
+        toast.success("Review updated.")
+      }
+      return true
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Action failed.")
+      return false
+    } finally {
+      setBusy(false)
+      setBusyAction(null)
+    }
+  }
+
   async function beginClosureApproveAll() {
     if (!order) return
+    if (closureHasRejectChoice) {
+      toast.error("One or more assets are marked Reject. Use Reject to finish review.")
+      return
+    }
     if (order.needs_next_closure_assignee) {
       setClosureNextOpen(true)
       return
@@ -521,7 +636,8 @@ export function OrderDetailPage() {
     await runAction("/approval/approve-all")
   }
 
-  const tableColSpan = 4
+  const showClosureDecisionCols = canReviewClosure
+  const tableColSpan = 4 + (showClosureDecisionCols ? 2 : 0)
   const activeProgressStep =
     order.progress.steps.find((step) => step.key === order.progress.current_step_key) ??
     order.progress.steps.find((step) => step.status === "active")
@@ -693,19 +809,25 @@ export function OrderDetailPage() {
                 className="h-9"
                 disabled={busy}
                 onClick={() => {
+                  if (closureHasRejectChoice && !closureLineDecisionsReady()) {
+                    toast.error("Mark Approve or Reject for every pending asset.")
+                    return
+                  }
                   setRejectReason("")
                   setRejectOpen(true)
                 }}
               >
                 Reject
               </Button>
-              <AdminPrimaryButton
-                type="button"
-                disabled={busy}
-                onClick={() => void beginClosureApproveAll()}
-              >
-                Approve{order.needs_next_closure_assignee ? " & assign next" : ""}
-              </AdminPrimaryButton>
+              {!closureHasRejectChoice ? (
+                <AdminPrimaryButton
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void beginClosureApproveAll()}
+                >
+                  Approve{order.needs_next_closure_assignee ? " & assign next" : ""}
+                </AdminPrimaryButton>
+              ) : null}
             </>
           ) : null}
           {canAssignSubmit ? (
@@ -747,7 +869,7 @@ export function OrderDetailPage() {
               Close
             </AdminPrimaryButton>
           ) : null}
-          <AdminBackLink to="/dashboard/orders">Orders</AdminBackLink>
+          <AdminBackLink to="/dashboard/orders">Order</AdminBackLink>
         </div>
       }
     >
@@ -804,7 +926,7 @@ export function OrderDetailPage() {
 
       <AdminPanel className="shrink-0 overflow-hidden p-0">
         <div className={cn("space-y-2 py-3", orderPanelPad)}>
-          <h3 className="text-sm font-semibold text-foreground">Order summary</h3>
+          <h3 className="text-sm font-semibold text-foreground">Order Summary</h3>
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
             <OrderSummaryField
               label="Pending"
@@ -826,6 +948,12 @@ export function OrderDetailPage() {
               value={executorName || "—"}
             />
           </div>
+          {isRejected && (order.rejection_reason || "").trim() ? (
+            <p className="text-sm text-destructive">
+              <span className="font-medium">Rejected Reason:</span>{" "}
+              {order.rejection_reason}
+            </p>
+          ) : null}
         </div>
 
         {canScan ? (
@@ -902,7 +1030,7 @@ export function OrderDetailPage() {
       <AdminPanel className="shrink-0 overflow-hidden p-0">
         <div className={cn("flex flex-nowrap items-center gap-2 border-b border-border/60 py-3", orderPanelPad)}>
           <p className="shrink-0 text-sm font-medium text-foreground">
-            Assets
+            Asset
             <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
               ({order.total_count})
             </span>
@@ -917,7 +1045,7 @@ export function OrderDetailPage() {
                 id="order-asset-search"
                 value={assetSearchInput}
                 onChange={(e) => setAssetSearchInput(e.target.value)}
-                placeholder="Search Assets"
+                placeholder="Search Asset"
                 className="h-9 w-full pl-9"
                 aria-label="Search order assets"
               />
@@ -972,6 +1100,16 @@ export function OrderDetailPage() {
                 <AdminTableHeadCell className="!text-black">RFID</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">Status</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">Verified</AdminTableHeadCell>
+                {showClosureDecisionCols ? (
+                  <>
+                    <AdminTableHeadCell className="w-20 text-center !text-black">
+                      Approve
+                    </AdminTableHeadCell>
+                    <AdminTableHeadCell className="w-20 text-center !text-black">
+                      Reject
+                    </AdminTableHeadCell>
+                  </>
+                ) : null}
               </AdminTableHeaderRow>
               {assetColumnFiltersOpen ? (
                 <AdminTableHeaderRow>
@@ -1012,6 +1150,9 @@ export function OrderDetailPage() {
                       <option value="">All</option>
                       <option value="pending">Pending</option>
                       <option value="verified">Verified</option>
+                      {showStatusApprovedOption || assetColumnFilterInputs.status === "approved" ? (
+                        <option value="approved">Approved</option>
+                      ) : null}
                       {showStatusRejectedOption || assetColumnFilterInputs.status === "rejected" ? (
                         <option value="rejected">Rejected</option>
                       ) : null}
@@ -1028,6 +1169,12 @@ export function OrderDetailPage() {
                       className={columnFilterControlClass}
                     />
                   </AdminTableHeadCell>
+                  {showClosureDecisionCols ? (
+                    <>
+                      <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
+                      <AdminTableHeadCell className="px-2 py-1.5">{"\u00a0"}</AdminTableHeadCell>
+                    </>
+                  ) : null}
                 </AdminTableHeaderRow>
               ) : null}
             </TableHeader>
@@ -1035,14 +1182,16 @@ export function OrderDetailPage() {
               {pagedItems.length === 0 ? (
                 <AdminTableEmptyRow colSpan={tableColSpan}>
                   {assetTotal === 0 && (assetSearch.trim() || activeAssetColumnFilterCount > 0)
-                    ? "No assets match your search or filters."
-                    : "No assets in this view."}
+                    ? "No Assets match your search or filters."
+                    : "No Assets in this view."}
                 </AdminTableEmptyRow>
               ) : (
                 pagedItems.map((item) => {
                   const scannable = itemIsScannable(item)
                   const isSelectedForScan = selectedScanItemId === item.id
                   const rowTone = itemRowTone(item)
+                  const decision = closureDecisions[item.id] ?? { choice: null }
+                  const locked = itemDecisionLocked(item)
                   return (
                     <AdminTableBodyRow
                       key={item.id}
@@ -1105,6 +1254,42 @@ export function OrderDetailPage() {
                           "—"
                         )}
                       </AdminTableCell>
+                      {showClosureDecisionCols ? (
+                        <>
+                          <AdminTableCell className="text-center align-middle">
+                            <div
+                              className="flex justify-center"
+                              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                              role="presentation"
+                            >
+                              <Checkbox
+                                checked={decision.choice === "approve"}
+                                disabled={locked || busy}
+                                aria-label={`Approve ${item.asset_code}`}
+                                onCheckedChange={(on) =>
+                                  setClosureChoice(item, on ? "approve" : null)
+                                }
+                              />
+                            </div>
+                          </AdminTableCell>
+                          <AdminTableCell className="text-center align-middle">
+                            <div
+                              className="flex justify-center"
+                              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                              role="presentation"
+                            >
+                              <Checkbox
+                                checked={decision.choice === "reject"}
+                                disabled={locked || busy}
+                                aria-label={`Reject ${item.asset_code}`}
+                                onCheckedChange={(on) =>
+                                  setClosureChoice(item, on ? "reject" : null)
+                                }
+                              />
+                            </div>
+                          </AdminTableCell>
+                        </>
+                      ) : null}
                     </AdminTableBodyRow>
                   )
                 })
@@ -1117,7 +1302,7 @@ export function OrderDetailPage() {
           totalPages={assetTotalPages}
           total={assetTotal}
           pageSize={ORDER_ASSETS_PAGE_SIZE}
-          itemLabel="assets"
+          itemLabel="Asset"
           onPageChange={setAssetPage}
         />
       </AdminPanel>
@@ -1246,7 +1431,9 @@ export function OrderDetailPage() {
           <DialogHeader>
             <DialogTitle>Reject Reason</DialogTitle>
             <DialogDescription>
-              This rejects the entire order. The executor can restart and resubmit after rework.
+              {canReviewClosure && closureHasRejectChoice
+                ? "Enter a Reason for Rejecting the Order"
+                : "Enter a Reason for Rejecting the Order"}
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body space-y-4">
@@ -1269,6 +1456,17 @@ export function OrderDetailPage() {
                 onClick={() => {
                   const reason = rejectReason.trim()
                   if (!reason) return
+                  if (canReviewClosure && closureHasRejectChoice) {
+                    if (order.needs_next_closure_assignee) {
+                      setRejectOpen(false)
+                      setClosureNextOpen(true)
+                      return
+                    }
+                    void submitClosureLineDecisions(reason).then((ok) => {
+                      if (ok) setRejectOpen(false)
+                    })
+                    return
+                  }
                   void runAction("/approval/reject-order", { reason }).then((ok) => {
                     if (ok) setRejectOpen(false)
                   })
@@ -1299,10 +1497,15 @@ export function OrderDetailPage() {
         assigneesUrl={
           order ? orderAssigneesUrl(order, order.next_closure_role_id) : undefined
         }
-        roleLabel={order?.next_closure_role_name || "Next approver"}
+        roleLabel={order?.next_closure_role_name || "Next Approver"}
         confirmLabel="Assign & approve"
         busy={busy}
         onConfirm={async (userId) => {
+          if (closureHasRejectChoice) {
+            await submitClosureLineDecisions(rejectReason, userId)
+            setClosureNextOpen(false)
+            return
+          }
           const ok = await runAction("/approval/approve-all", {
             next_assigned_user_id: userId,
           })

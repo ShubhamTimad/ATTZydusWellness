@@ -84,11 +84,11 @@ def transfer_needs_next_assignee(
 
 STATUS_LABELS: dict[str, str] = {
     STATUS_DRAFT: "Draft",
-    STATUS_PENDING_APPROVAL: "Pending approval",
-    STATUS_ASSIGNED_TO_CF: "Pending approval",
+    STATUS_PENDING_APPROVAL: "Pending Approval",
+    STATUS_ASSIGNED_TO_CF: "Pending Approval",
     STATUS_REJECTED: "Rejected",
     STATUS_IN_REWORK: "Rejected",  # legacy; normalized to rejected
-    STATUS_APPROVED_BY_CF: "Approved — pending receive",
+    STATUS_APPROVED_BY_CF: "Approved — Pending Receive",
     STATUS_RECEIVED_BY_CC2: "Received",
     STATUS_CONFIRMED_BY_CF: "Confirmed by CF",
     STATUS_CLOSED: "Closed",

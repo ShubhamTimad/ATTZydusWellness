@@ -514,7 +514,7 @@ export function TransferOrderDetailPage() {
           {},
         ),
       )
-      toast.success("Transfer restarted as draft — update destination, then submit for approval.")
+      toast.success("Transfer Restarted as Draft — update destination, then submit for approval.")
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not restart transfer")
     } finally {
@@ -633,7 +633,7 @@ export function TransferOrderDetailPage() {
               disabled={busy}
               onClick={() => void saveDraftChanges()}
             >
-              {busy ? "Saving…" : "Save changes"}
+              {busy ? "Saving…" : "Save Changes"}
             </Button>
           ) : null}
           {order.can_submit ? (
@@ -648,7 +648,7 @@ export function TransferOrderDetailPage() {
                 setPickerMode("submit")
               }}
             >
-              Submit for approval
+              Submit for Approval
             </AdminPrimaryButton>
           ) : null}
           {order.can_restart_transfer ? (
@@ -1011,7 +1011,7 @@ export function TransferOrderDetailPage() {
               </TableHeader>
               <TableBody>
                 {order.items.length === 0 ? (
-                  <AdminTableEmptyRow colSpan={3}>No assets</AdminTableEmptyRow>
+                  <AdminTableEmptyRow colSpan={3}>No Assets</AdminTableEmptyRow>
                 ) : (
                   order.items.map((item) => (
                     <AdminTableBodyRow key={item.id} interactive={false}>
@@ -1066,15 +1066,15 @@ export function TransferOrderDetailPage() {
         }
         roleLabel={
           pickerMode === "cc2_assign"
-            ? (panel?.next_step_role_name ?? "Next approver")
+            ? (panel?.next_step_role_name ?? "Next Approver")
             : "Approver"
         }
         confirmLabel={
           pickerMode === "submit"
             ? "Submit"
             : engineReceive
-              ? "Receive & assign next"
-              : "Receive & assign CF"
+              ? "Receive & Assign Next"
+              : "Receive & Assign CF"
         }
         busy={busy}
         onConfirm={async (userId) => {

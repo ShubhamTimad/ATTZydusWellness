@@ -1,7 +1,7 @@
 import * as React from "react"
 
 import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
-import type { DisposalOrderAudit } from "@/lib/disposal-types"
+import { disposalStatusLabel, type DisposalOrderAudit } from "@/lib/disposal-types"
 
 function text(value: unknown): string | null {
   if (value == null) return null
@@ -23,6 +23,12 @@ function fromOld(ev: DisposalOrderAudit, key: string): string | null {
   return text(ev.old_value?.[key])
 }
 
+function statusLine(value: string | null): string | null {
+  if (!value) return null
+  const labelled = disposalStatusLabel(value)
+  return labelled || value
+}
+
 function nextAssigneeLine(ev: DisposalOrderAudit): string | null {
   const name =
     fromNew(ev, "next_assignee_name") ||
@@ -38,15 +44,15 @@ function nextAssigneeLine(ev: DisposalOrderAudit): string | null {
 /** Short headline: decision + step role when present. */
 export function disposalAuditHeadline(ev: DisposalOrderAudit): string {
   const step = fromNew(ev, "step_role_name") || fromNew(ev, "role_name")
-  switch (ev.action) {
+  switch (ev.action.trim().toLowerCase()) {
     case "created":
       return "Created"
     case "updated":
       return "Updated"
     case "submitted":
-      return "Submitted for approval"
+      return "Submitted for Approval"
     case "resubmitted":
-      return "Resubmitted for approval"
+      return "Resubmitted for Approval"
     case "reassigned":
       return step ? `Reassigned — ${step}` : "Reassigned"
     case "step_approved":
@@ -63,6 +69,8 @@ export function disposalAuditHeadline(ev: DisposalOrderAudit): string {
       return "Archived"
     case "unarchived":
       return "Unarchived"
+    case "restarted":
+      return "Restarted"
     default:
       return ev.action.replaceAll("_", " ")
   }
@@ -75,7 +83,7 @@ export function disposalAuditHeadline(ev: DisposalOrderAudit): string {
  */
 export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
   const lines: string[] = []
-  const action = ev.action
+  const action = ev.action.trim().toLowerCase()
 
   if (
     action === "step_approved" ||
@@ -85,7 +93,8 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
     action === "closed" ||
     action === "submitted" ||
     action === "resubmitted" ||
-    action === "reassigned"
+    action === "reassigned" ||
+    action === "restarted"
   ) {
     const next = nextAssigneeLine(ev)
     if (next) {
@@ -111,8 +120,8 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
       if (disposed) lines.push(`Disposed: ${disposed}`)
     }
 
-    const statusTo = fromNew(ev, "status")
-    const statusFrom = fromOld(ev, "status")
+    const statusTo = statusLine(fromNew(ev, "status"))
+    const statusFrom = statusLine(fromOld(ev, "status"))
     if (statusTo && statusFrom && statusTo !== statusFrom) {
       lines.push(`Status: ${statusFrom} → ${statusTo}`)
     } else if (statusTo && (action === "rejected" || action === "approved" || action === "received")) {
@@ -129,6 +138,7 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
     "assigned_to",
     "assignee_user_id",
     "next_assignee_user_id",
+    "approval_request_id",
   ])
   const preferName: [string, string][] = [
     ["assigned_to", "assigned_to_name"],
@@ -141,13 +151,13 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
 
   const labels: Record<string, string> = {
     status: "Status",
-    order_number: "Order number",
-    assets: "Assets",
+    order_number: "Order Number",
+    assets: "Asset",
     asset_count: "Asset count",
-    disposed_assets: "Disposed assets",
-    reactivated_assets: "Reactivated assets",
-    requires_engineering: "Engineering approval",
-    remarks: "Remarks",
+    disposed_assets: "Disposed Asset",
+    reactivated_assets: "Reactivated Asset",
+    requires_engineering: "Engineering Approval",
+    remarks: "Remark",
     comment: "Comment",
     assignee_name: "Assignee",
     assigned_to_name: "Assigned to",
@@ -156,6 +166,7 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
     role_name: "Role",
     step_role_name: "Step",
     cost_center: "Cost center",
+    to_cost_center: "Destination",
     functional_location: "Location 1",
     actual_location: "Location 2",
   }

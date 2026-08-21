@@ -175,6 +175,7 @@ export type PhysicalOrderDetail = {
   cost_center_description: string
   status: string
   remarks: string | null
+  rejection_reason?: string | null
   created_by: number | null
   created_by_name: string | null
   assigned_to: number | null
@@ -263,8 +264,8 @@ export const ORDER_STATUS_TABS: OrderListTab[] = [
 ]
 
 export function orderTabEmptyMessage(tab: string): string {
-  if (tab === "needs_action") return "Nothing waiting on you right now."
-  return "No physical orders."
+  if (tab === "needs_action") return "No Pending Action Available"
+  return "No Physical Orders."
 }
 
 const ORDER_STATUS_LABELS: Record<string, string> = {

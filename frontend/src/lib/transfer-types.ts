@@ -142,8 +142,8 @@ export const TRANSFER_STATUS_FILTERS: { value: string; label: string }[] = [
 ]
 
 export function transferTabEmptyMessage(tab: string): string {
-  if (tab === "needs_action") return "Nothing waiting on you right now."
-  return "No transfer orders."
+  if (tab === "needs_action") return "No Pending Action Available"
+  return "No Transfer Orders."
 }
 export function transferStatusLabel(status: string): string {
   const map: Record<string, string> = {

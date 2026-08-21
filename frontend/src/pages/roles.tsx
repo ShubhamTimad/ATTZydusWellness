@@ -444,7 +444,7 @@ export function RolesPage() {
                 disabled={!selectedRoleId || !hasDirty}
                 variant={hasDirty ? "default" : "outline"}
               >
-                {hasDirty ? "Save changes" : "Save"}
+                {hasDirty ? "Save Changes" : "Save"}
               </AdminPrimaryButton>
             ) : null}
           </>
@@ -531,7 +531,7 @@ export function RolesPage() {
           title={selectedRole ? selectedRole.name : "Permissions"}
           description={
             hasDirty
-              ? "Unsaved changes — click Save changes"
+              ? "Unsaved Changes — Click Save Changes"
               : selectedRole?.description
                 ? selectedRole.description
                 : canSaveRole
@@ -902,7 +902,7 @@ export function RolesPage() {
                 disabled={savingDetails}
                 onClick={() => void saveRoleDetails()}
               >
-                {savingDetails ? "Saving…" : "Save changes"}
+                {savingDetails ? "Saving…" : "Save Changes"}
               </AdminPrimaryButton>
             </div>
           </div>

@@ -18,7 +18,7 @@ def _item(code: str, status: str, *, scan: bool = False) -> SimpleNamespace:
         id=hash(code) % 10_000,
         asset_code=code,
         verification_status=status,
-        rejection_reason="no" if status == ITEM_STATUS_REJECTED else None,
+        rejection_reason=None,
         scan_time="t" if scan else None,
         verified_by=1 if scan else None,
     )
@@ -30,6 +30,7 @@ def test_apply_rejection_keeps_approved_lines() -> None:
         status="completed",
         assigned_to=7,
         approval_request_id=None,
+        rejection_reason=None,
         items=[
             _item("A1", ITEM_STATUS_APPROVED, scan=True),
             _item("A2", ITEM_STATUS_PENDING, scan=False),
@@ -76,6 +77,8 @@ def test_apply_rejection_keeps_approved_lines() -> None:
     assert by_code["A4"].verification_status == ITEM_STATUS_REJECTED
     assert by_code["A4"].scan_time is None
     assert by_code["A4"].verified_by is None
+    assert by_code["A4"].rejection_reason is None
+    assert order.rejection_reason == "Reject rest"
 
 
 def test_reset_after_rejection_preserves_approved() -> None:
@@ -87,6 +90,7 @@ def test_reset_after_rejection_preserves_approved() -> None:
         started_by=1,
         closed_at=None,
         approval_request_id=None,
+        rejection_reason="Reject rest",
         items=[
             _item("B1", ITEM_STATUS_APPROVED, scan=True),
             _item("B2", ITEM_STATUS_REJECTED, scan=False),
@@ -107,6 +111,7 @@ def test_reset_after_rejection_preserves_approved() -> None:
     assert by_code["B2"].verification_status == ITEM_STATUS_PENDING
     assert order.completed_at is None
     assert order.started_at is None
+    assert order.rejection_reason is None
 
 
 def test_rejected_verified_line_becomes_pending_scan() -> None:
@@ -115,4 +120,4 @@ def test_rejected_verified_line_becomes_pending_scan() -> None:
     assert item.verification_status == ITEM_STATUS_REJECTED
     assert item.scan_time is None
     assert item.verified_by is None
-    assert item.rejection_reason == "mismatch"
+    assert item.rejection_reason is None

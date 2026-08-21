@@ -260,7 +260,7 @@ export function CapexListPage() {
                   total={total}
                   pageSize={pageSize}
                   loading={loading}
-                  itemLabel="forms"
+                  itemLabel="Forms"
                   onPageChange={setPage}
                 />
               }

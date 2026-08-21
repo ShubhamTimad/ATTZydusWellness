@@ -33,6 +33,7 @@ class PhysicalOrder(Base):
     )
     status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="draft", index=True)
     remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     approval_request_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("approval_requests.id", ondelete="SET NULL"), nullable=True
     )

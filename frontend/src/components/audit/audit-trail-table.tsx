@@ -73,7 +73,7 @@ export function AuditTrailTable({
       title="Audit Trail"
       description={
         rows.length > 0
-          ? `${rows.length} ${rows.length === 1 ? "entry" : "entries"}`
+          ? `${rows.length} ${rows.length === 1 ? "Entry" : "Entries"}`
           : (descriptionFallback ?? emptyDescription)
       }
       contentClassName={cn("p-0", fillHeight && "flex min-h-0 flex-1 flex-col")}

@@ -21,7 +21,7 @@ SUBMITTABLE_STATUSES = frozenset({STATUS_DRAFT, STATUS_REJECTED, STATUS_IN_REWOR
 
 STATUS_LABELS: dict[str, str] = {
     STATUS_DRAFT: "Draft",
-    STATUS_PENDING_APPROVAL: "Pending approval",
+    STATUS_PENDING_APPROVAL: "Pending Approval",
     STATUS_APPROVED: "Approved",
     STATUS_REJECTED: "Rejected",
     STATUS_IN_REWORK: "In rework",

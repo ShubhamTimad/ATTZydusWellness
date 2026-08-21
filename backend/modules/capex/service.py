@@ -155,18 +155,18 @@ _FIELD_LABELS: dict[str, str] = {
 }
 
 _AUDIT_LABELS: dict[str, str] = {
-    "created": "Form created",
-    "updated": "Form updated",
-    "submitted": "Submitted for approval",
+    "created": "Form Created",
+    "updated": "Form Ppdated",
+    "submitted": "Submitted for Approval",
     "resubmitted": "Resubmitted for approval",
-    "reassigned": "Approver reassigned",
-    "step_approved": "Step approved",
-    "approved": "Fully approved",
+    "reassigned": "Approver Reassigned",
+    "step_approved": "Step Approved",
+    "approved": "Fully Approved",
     "rejected": "Rejected",
-    "linked_to_asset": "Linked to asset",
-    "unlinked_from_asset": "Unlinked from asset",
-    "archived": "Form archived",
-    "unarchived": "Form unarchived",
+    "linked_to_asset": "Linked to Asset",
+    "unlinked_from_asset": "Unlinked from Asset",
+    "archived": "Form Archived",
+    "unarchived": "Form Unarchived",
 }
 
 

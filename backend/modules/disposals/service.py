@@ -859,9 +859,6 @@ class DisposalOrderService:
         if not _actor_may_discard_disposal(order, actor_user_id=actor_user_id, db=self._db):
             raise ConflictError("Only the order creator can restart this disposal order.")
         old_status = order.status
-        old_request_id = (
-            int(order.approval_request_id) if order.approval_request_id is not None else None
-        )
         order.status = STATUS_DRAFT
         order.rejection_comment = None
         order.approval_request_id = None
@@ -873,7 +870,7 @@ class DisposalOrderService:
             order_id=int(order.id),
             action="restarted",
             actor_user_id=actor_user_id,
-            old_value={"status": old_status, "approval_request_id": old_request_id},
+            old_value={"status": old_status},
             new_value={"status": order.status},
         )
         self._db.commit()

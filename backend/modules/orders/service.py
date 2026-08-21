@@ -256,7 +256,7 @@ class PhysicalOrderService:
             action="returned_for_execution",
             actor_user_id=actor_user_id,
             new_value={
-                "reason": reason or "Closure approval rejected.",
+                "reason": reason or "Closure Approval Rejected.",
                 "rejected_asset_codes": rejected_codes or [],
             },
         )
@@ -281,16 +281,20 @@ class PhysicalOrderService:
             except Exception:
                 pass
 
-    def _clear_item_verification(self, item: PhysicalOrderItem, *, rejected: bool, reason: str | None) -> None:
+    def _clear_item_verification(self, item: PhysicalOrderItem, *, rejected: bool, reason: str | None = None) -> None:
+        # reason is order-level only; kept as unused kwarg so callers stay stable.
+        _ = reason
         item.scan_time = None
         item.verified_by = None
         if rejected:
             item.verification_status = ITEM_STATUS_REJECTED
-            item.rejection_reason = (reason or "Rejected").strip() or "Rejected"
         else:
             item.verification_status = ITEM_STATUS_PENDING
-            item.rejection_reason = None
+        item.rejection_reason = None
 
+    def _set_order_rejection_reason(self, order: PhysicalOrder, reason: str | None) -> None:
+        cleaned = (reason or "").strip()
+        order.rejection_reason = cleaned or None
     @staticmethod
     def _item_asset_code(item: PhysicalOrderItem) -> str:
         asset = getattr(item, "asset", None)
@@ -321,11 +325,12 @@ class PhysicalOrderService:
             if item.verification_status == ITEM_STATUS_REJECTED:
                 item.scan_time = None
                 item.verified_by = None
+                item.rejection_reason = None
             else:
-                self._clear_item_verification(item, rejected=True, reason=cleaned)
+                self._clear_item_verification(item, rejected=True)
             rejected_codes.append(self._item_asset_code(item))
         order.status = ORDER_STATUS_REJECTED
-
+        self._set_order_rejection_reason(order, cleaned)
         creation_req: ApprovalRequest | None = None
         if order.approval_request_id is not None:
             creation_req = self._db.get(ApprovalRequest, int(order.approval_request_id))
@@ -373,6 +378,7 @@ class PhysicalOrderService:
         order.started_by = None
         order.closed_at = None
         order.approval_request_id = None
+        order.rejection_reason = None
         closure = self._latest_closure_approval_request(int(order.id))
         if closure is not None and str(closure.status) in ("pending", "in_rework", "rejected"):
             self._close_pending_approval_tasks(int(closure.id))
@@ -569,6 +575,7 @@ class PhysicalOrderService:
                 item.verification_status = ITEM_STATUS_APPROVED
                 item.rejection_reason = None
         order.status = ORDER_STATUS_APPROVED
+        order.rejection_reason = None
         if order.completed_at is None:
             order.completed_at = _now_utc()
         # Whole-order approval → update Inventory & verification for every scanned asset.
@@ -2192,7 +2199,7 @@ class PhysicalOrderService:
             asset_name=a.asset_name if a else "",
             rfid_code=a.rfid_code if a else None,
             verification_status=item.verification_status,
-            rejection_reason=item.rejection_reason,
+            rejection_reason=None,
             scan_time=item.scan_time,
             verified_by_name=verifier,
             physically_verified=self._is_physically_verified(item),
@@ -2283,6 +2290,7 @@ class PhysicalOrderService:
             cost_center_description=cc.name if cc else "",
             status=order.status,
             remarks=order.remarks,
+            rejection_reason=order.rejection_reason,
             created_by=order.created_by,
             created_by_name=user_name_fn(order.created_by),
             assigned_to=order.assigned_to,
@@ -2685,7 +2693,7 @@ class PhysicalOrderService:
                 self._finalize_closure_with_rejected_items(
                     order,
                     actor_user_id=actor_user_id,
-                    reason="Rejected",
+                    reason=(order.rejection_reason or "").strip() or "Rejected",
                 )
                 self._db.commit()
                 return self.get_order(order_id)
@@ -2784,10 +2792,12 @@ class PhysicalOrderService:
         if order.status == ORDER_STATUS_PENDING_APPROVAL:
             self._assert_creation_reviewer(order, actor_user_id=actor_user_id)
             id_set = set(item_ids)
+            reason = rejection_reason.strip()
             for item in order.items:
                 if item.id in id_set:
                     item.verification_status = ITEM_STATUS_REJECTED
-                    item.rejection_reason = rejection_reason.strip()
+                    item.rejection_reason = None
+            self._set_order_rejection_reason(order, reason)
             self._db.commit()
             return self.get_order(order_id)
         if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
@@ -2801,8 +2811,9 @@ class PhysicalOrderService:
                 raise ConflictError("Select at least one line item to reject.")
             rejected_codes: list[str] = []
             for item in selected:
-                self._clear_item_verification(item, rejected=True, reason=reason)
+                self._clear_item_verification(item, rejected=True)
                 rejected_codes.append(self._item_asset_code(item))
+            self._set_order_rejection_reason(order, reason)
             log_order_event(
                 self._db,
                 order_id=order_id,
@@ -2843,10 +2854,11 @@ class PhysicalOrderService:
             if item.verification_status == ITEM_STATUS_REJECTED:
                 continue
             item.verification_status = ITEM_STATUS_REJECTED
-            item.rejection_reason = reason
+            item.rejection_reason = None
             rejected_codes.append(self._item_asset_code(item))
         if not rejected_codes:
             raise ConflictError("No eligible line items to reject.")
+        self._set_order_rejection_reason(order, reason)
         log_order_event(
             self._db,
             order_id=order_id,
@@ -3325,7 +3337,7 @@ class PhysicalOrderService:
             self._reopen_for_execution(
                 order,
                 actor_user_id=actor_user_id,
-                reason="Closure approval rejected.",
+                reason="Closure Approval Rejected.",
                 rejected_codes=[self._item_asset_code(i) for i in rejected],
             )
         else:

@@ -437,8 +437,8 @@ def build_audit_summary(
     if action == "submitted_for_approval":
         assignee = str(nv.get("assignee_name") or "").strip()
         if assignee:
-            return f"Submitted for approval by {actor_name} → {assignee}"
-        return f"Submitted for approval by {actor_name}"
+            return f"Submitted for Approval by {actor_name} → {assignee}"
+        return f"Submitted for Approval by {actor_name}"
     if action == "rejected":
         comment = str(nv.get("comment") or "").strip()
         if comment:

@@ -1307,7 +1307,7 @@ export function AssetsListPage() {
         clearSelection()
         await load()
       } else if (!res.errors?.length) {
-        toast.error("No assets were submitted for approval.")
+        toast.error("No Asset were submitted for approval.")
       }
     } catch (e) {
       toast.error(
@@ -1367,7 +1367,7 @@ export function AssetsListPage() {
       if (res.errors?.length) {
         toast.error(res.errors[0] ?? "Some assets could not be processed.")
       } else if (res.processed_count === 0) {
-        toast.error("No assets were processed.")
+        toast.error("No Assets were processed.")
       }
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
@@ -1456,7 +1456,7 @@ export function AssetsListPage() {
       if (res.errors?.length) {
         toast.error(res.errors[0] ?? "Some assets could not be processed.")
       } else if (res.processed_count === 0) {
-        toast.error("No assets were processed.")
+        toast.error("No Assets were processed.")
       }
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
@@ -2282,7 +2282,7 @@ export function AssetsListPage() {
             total={total}
             pageSize={pageSize}
             loading={loading}
-            itemLabel="Assets"
+            itemLabel="Asset"
             onPageChange={setPage}
           />
         }
@@ -2340,7 +2340,7 @@ export function AssetsListPage() {
                     ? fySubTab === "verified"
                       ? "No physically verified assets for the current financial year."
                       : "No RFID-tagged assets pending financial year verification."
-                    : "No assets match your search or filters."}
+                    : "No Assets match your search or filters."}
                 </AdminTableEmptyRow>
               ) : (
                 items.map((row) => {

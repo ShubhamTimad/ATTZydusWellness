@@ -724,7 +724,7 @@ export function AssetDetailPage() {
       ) : null}
       {editing ? (
         <AdminPrimaryButton type="button" disabled={saving || acting} onClick={() => void save()}>
-          {saving ? "Saving…" : "Save changes"}
+          {saving ? "Saving…" : "Save Changes"}
         </AdminPrimaryButton>
       ) : null}
       {!editing && canReassign ? (
@@ -1200,6 +1200,7 @@ export function AssetDetailPage() {
         open={reassignOpen}
         onOpenChange={setReassignOpen}
         assigneesUrl={asset ? `/admin/assets/${asset.id}/assignees` : undefined}
+        excludeUserId={asset?.approval_panel?.current_assignee_user_id}
         roleLabel={reassignRoleName}
         confirmLabel="Reassign"
         busy={reassigning}

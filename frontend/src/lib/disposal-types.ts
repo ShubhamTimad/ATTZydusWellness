@@ -117,8 +117,8 @@ export const DISPOSAL_STATUS_FILTERS: { value: string; label: string }[] = [
 ]
 
 export function disposalTabEmptyMessage(tab: string): string {
-  if (tab === "needs_action") return "Nothing waiting on you right now."
-  return "No disposal orders."
+  if (tab === "needs_action") return "No Pending Action Available"
+  return "No Disposal Orders."
 }
 
 export function disposalStatusLabel(status: string): string {

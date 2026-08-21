@@ -82,7 +82,7 @@ function ActivityCell({
 
       {showVerifiedToggle && !expanded ? (
         <p className="text-[11px] text-muted-foreground">
-          {verifiedAssets.length} asset{verifiedAssets.length === 1 ? "" : "s"} verified — click{" "}
+          {verifiedAssets.length} Asset{verifiedAssets.length === 1 ? "" : "s"} Verified — click{" "}
           <ListTree className="mb-0.5 inline size-3.5" aria-hidden /> to view
         </p>
       ) : null}

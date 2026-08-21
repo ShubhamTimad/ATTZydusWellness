@@ -172,7 +172,7 @@ export function CreatePhysicalOrderDialog({
 
           <div className="space-y-2">
             <Label htmlFor="remarks" className="text-sm font-medium">
-              Remarks
+              Remark
             </Label>
             <textarea
               id="remarks"

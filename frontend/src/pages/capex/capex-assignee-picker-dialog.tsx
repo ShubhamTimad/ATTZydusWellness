@@ -14,6 +14,8 @@ type Props = {
   level?: string
   /** Full assignees API path (e.g. /admin/.../assignees?role_id=12). */
   assigneesUrl?: string
+  /** Hide this user from the list (e.g. current assignee on reassign). */
+  excludeUserId?: number | null
   roleLabel: string
   confirmLabel?: string
   busy?: boolean
@@ -25,6 +27,7 @@ export function CapexAssigneePickerDialog({
   onOpenChange,
   level,
   assigneesUrl,
+  excludeUserId,
   roleLabel,
   confirmLabel = "Continue",
   busy = false,
@@ -57,7 +60,12 @@ export function CapexAssigneePickerDialog({
       try {
         const res = await getJson<CapexAssigneeListResponse>(fetchUrl)
         if (!cancelled) {
-          setItems(res.items)
+          const excludeId = excludeUserId != null ? Number(excludeUserId) : null
+          setItems(
+            excludeId == null
+              ? res.items
+              : res.items.filter((u) => Number(u.id) !== excludeId),
+          )
           if (res.role_name) setResolvedRole(res.role_name)
         }
       } catch (e) {
@@ -72,7 +80,7 @@ export function CapexAssigneePickerDialog({
     return () => {
       cancelled = true
     }
-  }, [open, fetchUrl, roleLabel])
+  }, [open, fetchUrl, roleLabel, excludeUserId])
 
   async function confirm() {
     if (!selectedId) {

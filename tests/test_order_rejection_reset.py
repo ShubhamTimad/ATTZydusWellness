@@ -34,7 +34,8 @@ def test_full_rejection_clears_scans_and_marks_all_rejected() -> None:
     assert all(i.verification_status == ITEM_STATUS_REJECTED for i in items)
     assert all(i.scan_time is None for i in items)
     assert all(i.verified_by is None for i in items)
-    assert all(i.rejection_reason == "Nope" for i in items)
+    # Reason lives on the order, not each line.
+    assert all(i.rejection_reason is None for i in items)
 
 
 def test_reset_after_full_rejection_makes_everything_pending() -> None:
@@ -44,13 +45,13 @@ def test_reset_after_full_rejection_makes_everything_pending() -> None:
             scan_time=None,
             verified_by=None,
             verification_status=ITEM_STATUS_REJECTED,
-            rejection_reason="Nope",
+            rejection_reason=None,
         ),
         SimpleNamespace(
             scan_time=None,
             verified_by=None,
             verification_status=ITEM_STATUS_REJECTED,
-            rejection_reason="Nope",
+            rejection_reason=None,
         ),
     ]
     order = SimpleNamespace(
@@ -60,6 +61,7 @@ def test_reset_after_full_rejection_makes_everything_pending() -> None:
         started_by=1,
         closed_at=None,
         approval_request_id=9,
+        rejection_reason="Nope",
         id=1,
     )
     svc._latest_closure_approval_request = lambda _oid: None  # type: ignore[method-assign]
@@ -67,6 +69,7 @@ def test_reset_after_full_rejection_makes_everything_pending() -> None:
 
     assert all(i.verification_status == ITEM_STATUS_PENDING for i in items)
     assert all(i.rejection_reason is None for i in items)
+    assert order.rejection_reason is None
     assert order.completed_at is None
     assert order.started_at is None
     assert order.started_by is None
@@ -84,7 +87,7 @@ def test_partial_reopen_keeps_verified_only_rejected_need_rescan() -> None:
         scan_time=None,
         verified_by=None,
         verification_status=ITEM_STATUS_REJECTED,
-        rejection_reason="bad",
+        rejection_reason=None,
     )
     pending = SimpleNamespace(
         scan_time=None,
@@ -110,5 +113,5 @@ def test_partial_reopen_keeps_verified_only_rejected_need_rescan() -> None:
     assert verified.scan_time == "2026-08-04"
     assert verified.verification_status == ITEM_STATUS_APPROVED
     assert rejected.verification_status == ITEM_STATUS_REJECTED
-    assert rejected.rejection_reason == "bad"
+    assert rejected.rejection_reason is None
     assert pending.verification_status == ITEM_STATUS_PENDING

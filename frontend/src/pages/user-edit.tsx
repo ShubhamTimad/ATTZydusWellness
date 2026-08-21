@@ -384,7 +384,7 @@ export function UserEditPage() {
                 Cancel
               </Button>
               <AdminPrimaryButton type="submit" disabled={form.formState.isSubmitting || user.is_superuser}>
-                {form.formState.isSubmitting ? "Saving…" : "Save changes"}
+                {form.formState.isSubmitting ? "Saving…" : "Save Changes"}
               </AdminPrimaryButton>
             </div>
           </form>

@@ -185,7 +185,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
       return
     }
     if (selectedOnly && selectedAssetIds.length === 0) {
-      toast.error("No assets selected on the list.")
+      toast.error("No Assets selected on the list.")
       return
     }
     setBusy(true)

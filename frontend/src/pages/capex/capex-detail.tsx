@@ -1,10 +1,8 @@
 import * as React from "react"
-import { FileText, Link2, Printer, Send } from "lucide-react"
+import { FileText, Link2 } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
-
-import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
@@ -20,7 +18,6 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
-import type { AssetActionItem } from "@/lib/asset-actions"
 import {
   buildCapexProgress,
   capexCurrentStepKind,
@@ -189,50 +186,6 @@ export function CapexDetailPage() {
   const pickerCostCenterId = form?.cost_center_id ?? detail?.cost_center_id ?? null
   const costCenterParam = pickerCostCenterId ? `&cost_center_id=${pickerCostCenterId}` : ""
 
-  const toolbarActions = React.useMemo(() => {
-    const actions: AssetActionItem[] = [
-      {
-        id: "print",
-        label: "Print form",
-        icon: Printer,
-      },
-    ]
-    if (editable) {
-      actions.push({
-        id: "save",
-        label: saving ? "Saving…" : "Save changes",
-        icon: FileText,
-        disabled: saving,
-      })
-    }
-    if (canSubmit) {
-      actions.push({
-        id: "submit",
-        label: "Submit for approval",
-        icon: Send,
-      })
-    }
-    return actions
-  }, [editable, saving, canSubmit])
-
-  function handleToolbarAction(actionId: string) {
-    if (actionId === "print") {
-      if (!detail) return
-      void printCapexForm(detail).catch((e) => {
-        toast.error(e instanceof Error ? e.message : "Unable to open print dialog.")
-      })
-      return
-    }
-    if (actionId === "save") {
-      void save()
-      return
-    }
-    if (actionId === "submit") {
-      setSubmitAssignOpen(true)
-      return
-    }
-  }
-
   const patch = (p: Partial<CapexFormWritePayload>) =>
     setForm((f) => (f ? { ...f, ...p } : f))
 
@@ -353,6 +306,7 @@ export function CapexDetailPage() {
 
   const readOnly = !editable
   const progress = buildCapexProgress(detail)
+  const isDirty = JSON.stringify(form) !== JSON.stringify(detailToForm(detail))
 
   return (
     <AdminPage
@@ -503,13 +457,40 @@ export function CapexDetailPage() {
               </AdminPrimaryButton>
             </>
           ) : null}
-          {toolbarActions.length > 0 ? (
-            <AssetActionsMenu
-              actions={toolbarActions}
-              busy={saving || acting || reassigning}
-              onAction={handleToolbarAction}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9"
+            disabled={saving || acting || reassigning}
+            onClick={() => {
+              void printCapexForm(detail).catch((e) => {
+                toast.error(e instanceof Error ? e.message : "Unable to open print dialog.")
+              })
+            }}
+          >
+            Print Form
+          </Button>
+          {editable ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
               className="h-9"
-            />
+              disabled={!isDirty || saving || acting || reassigning}
+              onClick={() => void save()}
+            >
+              {saving ? "Saving…" : "Save Changes"}
+            </Button>
+          ) : null}
+          {canSubmit ? (
+            <AdminPrimaryButton
+              type="button"
+              disabled={saving || acting || reassigning}
+              onClick={() => setSubmitAssignOpen(true)}
+            >
+              Submit for Approval
+            </AdminPrimaryButton>
           ) : null}
           <AdminBackLink to="/dashboard/capitalization">Capitalization</AdminBackLink>
         </div>
@@ -738,6 +719,7 @@ export function CapexDetailPage() {
             ? `/admin/capitalization-forms/assignees?role_id=${reassignRoleId}${costCenterParam}`
             : undefined
         }
+        excludeUserId={detail.approval_panel?.current_assignee_user_id}
         roleLabel={reassignRoleName}
         confirmLabel="Reassign"
         busy={reassigning}

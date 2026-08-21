@@ -216,11 +216,11 @@ export function DisposalOrderCreatePage() {
 
   async function create(submit: boolean, assigneeUserId?: number) {
     if (selected.length === 0) {
-      toast.error("Add at least one asset.")
+      toast.error("Add at least one Asset.")
       return
     }
     if (submit && !toCostCenterId) {
-      toast.error("Select a scrapyard cost center.")
+      toast.error("Select a Scrapyard Cost Center.")
       return
     }
     if (submit && assigneeUserId == null) {
@@ -239,7 +239,7 @@ export function DisposalOrderCreatePage() {
       })
       toast.success(
         submit
-          ? `Disposal ${order.order_number} submitted for approval.`
+          ? `Disposal ${order.order_number} Submitted For Approval.`
           : `Draft ${order.order_number} saved.`,
       )
       try {
@@ -249,7 +249,7 @@ export function DisposalOrderCreatePage() {
       }
       navigate(`/dashboard/disposal-orders/${order.id}`, { replace: true })
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Failed to create disposal order.")
+      toast.error(e instanceof ApiError ? e.message : "Failed to create Disposal Order.")
     } finally {
       setBusy(false)
     }
@@ -261,7 +261,7 @@ export function DisposalOrderCreatePage() {
       dense
       description=""
       className="w-full pb-6"
-      actions={<AdminBackLink to="/dashboard/disposal-orders">Disposal orders</AdminBackLink>}
+      actions={<AdminBackLink to="/dashboard/disposal-orders">Disposal Order</AdminBackLink>}
     >
       <form
         className="space-y-[var(--app-grid-gap)]"
@@ -272,8 +272,8 @@ export function DisposalOrderCreatePage() {
       >
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
-            title={`1. Select assets (${selected.length})`}
-            description="Active, approved assets from a single plant. Their current cost center becomes the order's From CC."
+            title={`1. Select Asset `}
+            // description="Active, approved assets from a single plant. Their current cost center becomes the order's From CC."
             headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
           >
@@ -327,7 +327,7 @@ export function DisposalOrderCreatePage() {
                     className="h-9 w-full shadow-sm sm:w-auto"
                     onClick={() => setBrowseMore(true)}
                   >
-                    Select other assets
+                    Select Other Assets
                   </Button>
                 </div>
               )}
@@ -342,13 +342,13 @@ export function DisposalOrderCreatePage() {
                     </AdminTableHeadCell>
                     <AdminTableHeadCell>Asset</AdminTableHeadCell>
                     <AdminTableHeadCell>Cost center</AdminTableHeadCell>
-                    <AdminTableHeadCell>Location 1</AdminTableHeadCell>
+                    <AdminTableHeadCell>Actual Location 1</AdminTableHeadCell>
                   </AdminTableHeaderRow>
                 </TableHeader>
                 <TableBody>
                   {!showCatalog ? (
                     selected.length === 0 ? (
-                      <AdminTableEmptyRow colSpan={4}>No assets selected</AdminTableEmptyRow>
+                      <AdminTableEmptyRow colSpan={4}>No Assets selected</AdminTableEmptyRow>
                     ) : (
                       selected.map((a) => (
                         <AdminTableBodyRow
@@ -436,13 +436,13 @@ export function DisposalOrderCreatePage() {
           </AdminPanel>
 
           <AdminPanel
-            title="2. Disposal Details"
-            description="Pick the scrapyard destination, approval route, and notes for approvers."
+            title="2. Disposal Detail"
+            // description="Pick the scrapyard destination, approval route, and notes for approvers."
             headerActions={<PackageX className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4">
-              <FormField id="scrapyard_cc" labelText="Scrapyard cost center" required>
+              <FormField id="scrapyard_cc" labelText="Scrapyard Cost Center" required>
                 <select
                   id="scrapyard_cc"
                   className={adminSelectClass}
@@ -464,7 +464,7 @@ export function DisposalOrderCreatePage() {
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Mark cost centers as scrapyard under Asset Masters → Cost centers.
+                  {/* Mark cost centers as scrapyard under Asset Masters → Cost centers. */}
                 </p>
               </FormField>
               {canSubmitWithEngineering ? (
@@ -478,29 +478,29 @@ export function DisposalOrderCreatePage() {
                 >
                   <div className="min-w-0 flex-1 space-y-1">
                     <span className="block text-sm font-medium text-foreground">
-                      Submit with engineering approval
+                      Submit with Engineering Approval
                     </span>
-                    <span className="block text-xs text-muted-foreground">
-                      Routes the order through the disposal workflow that includes Engineering.
-                    </span>
+                    {/* <span className="block text-xs text-muted-foreground">
+                      Routes the order Th Engineering.
+                    </span> */}
                   </div>
                   <Checkbox
                     id="requires_engineering"
                     checked={requiresEngineering}
                     onCheckedChange={(v) => setRequiresEngineering(v === true)}
                     className="size-5 border-foreground/35 shadow-sm"
-                    aria-label="Submit with engineering approval"
+                    aria-label="Submit with Engineering Approval"
                   />
                 </label>
               ) : null}
 
-              <FormField id="remarks" labelText="Remarks">
+              <FormField id="remarks" labelText="Remark">
                 <textarea
                   id="remarks"
                   className={cn(adminTextareaClass, "min-h-[96px]")}
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Reason for disposal, condition notes…"
+                  placeholder="Reason for Disposal"
                   rows={4}
                 />
               </FormField>
@@ -525,10 +525,10 @@ export function DisposalOrderCreatePage() {
             disabled={busy}
             onClick={() => void create(false)}
           >
-            {busy ? "Saving…" : "Save draft"}
+            {busy ? "Saving…" : "Save Draft"}
           </Button>
           <AdminPrimaryButton type="submit" disabled={busy}>
-            Submit for approval
+            Submit for Approval
           </AdminPrimaryButton>
         </div>
       </form>

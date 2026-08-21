@@ -327,7 +327,7 @@ export function PlantsPage() {
                 Cancel
               </Button>
               <AdminPrimaryButton type="button" disabled={saving} onClick={() => void savePlant()}>
-                {saving ? "Saving…" : "Save changes"}
+                {saving ? "Saving…" : "Save Changes"}
               </AdminPrimaryButton>
             </div>
           </div>

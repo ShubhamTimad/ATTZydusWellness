@@ -694,7 +694,7 @@ export function TransferOrderCreatePage() {
                       })
                     )
                   ) : assets.length === 0 ? (
-                    <AdminTableEmptyRow colSpan={3}>No assets selected</AdminTableEmptyRow>
+                    <AdminTableEmptyRow colSpan={3}>No Assets selected</AdminTableEmptyRow>
                   ) : (
                     assets.map((a) => (
                       <AdminTableBodyRow key={a.id} interactive={false}>
@@ -930,7 +930,7 @@ export function TransferOrderCreatePage() {
             {busy ? "Saving…" : "Save draft"}
           </Button>
           <AdminPrimaryButton type="submit" disabled={busy}>
-            Submit for approval
+            Submit for Approval
           </AdminPrimaryButton>
         </div>
       </form>

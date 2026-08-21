@@ -125,7 +125,7 @@ export function CapexDecisionDialog({
           {showNextPicker ? (
             <div className="app-form-field">
               <Label htmlFor="capex_decision_next" className="app-form-label">
-                Next approver · {nextStepRoleName ?? "Next step"}
+                Next Approver · {nextStepRoleName ?? "Next Step"}
                 <RequiredFieldMark />
               </Label>
               <select

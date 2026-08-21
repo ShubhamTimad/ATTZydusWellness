@@ -337,8 +337,8 @@ export function CapexCreatePage() {
           {canSubmit ? (
             <AdminPrimaryButton type="submit" disabled={saving}>
               {form.requires_engineering && canSubmitWithEngineering
-                ? "Submit with engineering approval"
-                : "Submit for approval"}
+                ? "Submit with Engineering Approval"
+                : "Submit for Approval"}
             </AdminPrimaryButton>
           ) : null}
         </div>

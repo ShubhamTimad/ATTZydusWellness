@@ -429,6 +429,16 @@ export function DisposalOrderDetailPage() {
   const decisionConfirmLabel =
     stepKind === "receive" ? "Receive & assign next" : stepKind === "close" ? "Close" : "Approve"
 
+  const savedAssetIds = (order.items ?? []).map((i) => i.asset_id).slice().sort((a, b) => a - b)
+  const editAssetIds = editAssets.map((a) => a.asset_id).slice().sort((a, b) => a - b)
+  const isDirty =
+    order.can_edit &&
+    (requiresEngineering !== order.requires_engineering ||
+      (remarks.trim() || "") !== (order.remarks ?? "").trim() ||
+      (toCostCenterId || "") !==
+        (order.to_cost_center_id != null ? String(order.to_cost_center_id) : "") ||
+      JSON.stringify(editAssetIds) !== JSON.stringify(savedAssetIds))
+
   return (
     <AdminPage
       fullWidth
@@ -450,10 +460,10 @@ export function DisposalOrderDetailPage() {
               variant="outline"
               size="sm"
               className="h-9"
-              disabled={busy}
+              disabled={!isDirty || busy}
               onClick={() => void saveEdits()}
             >
-              {busy ? "Saving…" : "Save changes"}
+              {busy ? "Saving…" : "Save Changes"}
             </Button>
           ) : null}
           {order.can_delete ? (
@@ -595,7 +605,7 @@ export function DisposalOrderDetailPage() {
                 setPickerMode("submit")
               }}
             >
-              Submit for approval
+              Submit for Approval
             </AdminPrimaryButton>
           ) : null}
           {canDecide ? (
@@ -699,18 +709,18 @@ export function DisposalOrderDetailPage() {
         <div className="grid gap-3 lg:grid-cols-2">
           <AdminPanel
             title="Disposal Details"
-            description={
-              order.can_edit
-                ? "Update the approval route and remarks before submitting."
-                : undefined
-            }
+            // description={
+            //   order.can_edit
+            //     ? "Update the approval route and remarks before submitting."
+            //     : undefined
+            // }
             headerActions={<PackageX className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="flex-1 px-4 py-3"
             className="flex h-full flex-col"
           >
             {order.can_edit ? (
               <div className="grid grid-cols-1 gap-3">
-                <FormField labelText="From cost center">
+                <FormField labelText="From Cost Center">
                   <p className="text-sm">
                     {derivedFromCc
                       ? `${derivedFromCc.code}${
@@ -718,12 +728,12 @@ export function DisposalOrderDetailPage() {
                         }`
                       : "—"}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  {/* <p className="mt-1 text-xs text-muted-foreground">
                     Updates from the assets you select (same plant).
-                  </p>
+                  </p> */}
                 </FormField>
 
-                <FormField id="to_scrapyard_cc" labelText="Scrapyard cost center" required>
+                <FormField id="to_scrapyard_cc" labelText="Scrapyard Cost Center" required>
                   <select
                     id="to_scrapyard_cc"
                     className={adminSelectClass}
@@ -757,9 +767,9 @@ export function DisposalOrderDetailPage() {
                     <span className="block text-sm font-medium text-foreground">
                       Engineering Approval
                     </span>
-                    <span className="block text-xs text-muted-foreground">
+                    {/* <span className="block text-xs text-muted-foreground">
                       Routes through the Engineering disposal workflow.
-                    </span>
+                    </span> */}
                   </div>
                   <Checkbox
                     id="requires_engineering"
@@ -771,10 +781,11 @@ export function DisposalOrderDetailPage() {
                   />
                 </label>
 
-                <FormField id="remarks" labelText="Remarks">
+                <FormField id="remarks" labelText="Remark">
                   <textarea
                     id="remarks"
                     className={cn(adminTextareaClass, "min-h-[72px]")}
+                    placeholder="Reason for Disposal"
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
                     rows={2}
@@ -850,12 +861,12 @@ export function DisposalOrderDetailPage() {
           </AdminPanel>
 
           <AdminPanel
-            title={`Assets (${editAssets.length})`}
-            description={
-              order.can_edit
-                ? "Selected assets on this order. Use Select other assets to add or change them."
-                : undefined
-            }
+            title={`Asset (${editAssets.length})`}
+            // description={
+            //   order.can_edit
+            //     ? "Selected assets on this order. Use Select other assets to add or change them."
+            //     : undefined
+            // }
             headerActions={
               order.can_edit ? (
                 <div className="flex flex-wrap items-center gap-2">
@@ -867,7 +878,7 @@ export function DisposalOrderDetailPage() {
                     disabled={busy || editAssets.length === 0}
                     onClick={clearEditAssets}
                   >
-                    Clear all
+                    Clear All
                   </Button>
                   <Button
                     type="button"
@@ -877,7 +888,7 @@ export function DisposalOrderDetailPage() {
                     disabled={busy}
                     onClick={() => setAssetPickerOpen((open) => !open)}
                   >
-                    {assetPickerOpen ? "Hide asset list" : "Select other assets"}
+                    {assetPickerOpen ? "Hide asset list" : "Select Other Asset"}
                   </Button>
                 </div>
               ) : (
@@ -896,11 +907,11 @@ export function DisposalOrderDetailPage() {
                     </AdminTableHeadCell>
 
                     <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
-                      From CC
+                      From Source
                     </AdminTableHeadCell>
 
                     <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
-                      From Loc 1
+                      From Actual Location 1
                     </AdminTableHeadCell>
                     {order.can_edit ? (
                       <AdminTableHeadCell className="h-9 w-12 px-2 py-2">
@@ -913,8 +924,8 @@ export function DisposalOrderDetailPage() {
                   {editAssets.length === 0 ? (
                     <AdminTableEmptyRow colSpan={order.can_edit ? 4 : 3}>
                       {order.can_edit
-                        ? "No assets selected — click Select other assets to choose."
-                        : "No assets"}
+                        ? "No Assets selected — click Select other assets to choose."
+                        : "No Asset"}
                     </AdminTableEmptyRow>
                   ) : (
                     editAssets.map((item) => (
@@ -1157,7 +1168,7 @@ export function DisposalOrderDetailPage() {
         }
         roleLabel={
           pickerMode === "receive"
-            ? (panel?.next_step_role_name ?? "Next approver")
+            ? (panel?.next_step_role_name ?? "Next Approver")
             : "Approver"
         }
         confirmLabel={

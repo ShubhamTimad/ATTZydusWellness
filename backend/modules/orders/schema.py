@@ -225,6 +225,7 @@ class PhysicalOrderDetail(BaseModel):
     cost_center_description: str
     status: str
     remarks: str | None
+    rejection_reason: str | None = None
     created_by: int | None
     created_by_name: str | None
     assigned_to: int | None

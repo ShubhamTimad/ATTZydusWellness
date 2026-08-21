@@ -77,12 +77,12 @@ export function transferAuditHeadline(ev: TransferOrderAudit): string {
     case "updated":
       return "Updated"
     case "submitted":
-      return "Submitted for approval"
+      return "Submitted for Approval"
     case "resubmitted":
-      return "Resubmitted for approval"
+      return "Resubmitted for Approval"
     case "restart_transfer":
     case "restarted":
-      return "Transfer restarted"
+      return "Transfer Restarted"
     case "reassigned":
       return step ? `Reassigned — ${step}` : "Reassigned"
     case "step_approved":
@@ -197,7 +197,7 @@ export function transferAuditDetailLines(
     assets: "Assets",
     asset_codes: "Assets",
     asset_count: "Asset count",
-    remarks: "Remarks",
+    remarks: "Remark",
     comment: "Comment",
     rejection_reason: "Comment",
     assignee_name: "Assignee",

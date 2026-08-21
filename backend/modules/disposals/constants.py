@@ -67,11 +67,11 @@ SCRAPYARD_ASSIGNEE_LEVEL = RECEIVER_ASSIGNEE_LEVEL  # backward-compatible alias
 
 STATUS_LABELS: dict[str, str] = {
     STATUS_DRAFT: "Draft",
-    STATUS_PENDING_APPROVAL: "Pending approval",
+    STATUS_PENDING_APPROVAL: "Pending Approval",
     STATUS_REJECTED: "Rejected",
     STATUS_IN_REWORK: "Rejected",  # legacy; normalized to rejected
-    STATUS_PENDING_RECEIPT: "Pending receive",
-    STATUS_PENDING_CF_CLOSE: "Pending CF approval",
+    STATUS_PENDING_RECEIPT: "Pending Receive",
+    STATUS_PENDING_CF_CLOSE: "Pending CF Approval",
     STATUS_CLOSED: "Closed",
     STATUS_CANCELLED: "Archived",
 }

@@ -158,7 +158,7 @@ export function AssetImportPage() {
         toast.success(
           res.assets_removed > 0
             ? `Import cancelled. Removed ${res.assets_removed.toLocaleString()} partial assets.`
-            : "Import cancelled. No assets were kept.",
+            : "Import cancelled. No Asset were kept.",
         )
       } else {
         toast.info("Import cancelled.")

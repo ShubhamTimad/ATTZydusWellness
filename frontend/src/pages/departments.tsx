@@ -372,7 +372,7 @@ export function DepartmentsPage() {
                 Cancel
               </Button>
               <AdminPrimaryButton type="button" disabled={saving} onClick={() => void saveDepartment()}>
-                {saving ? "Saving…" : "Save changes"}
+                {saving ? "Saving…" : "Save Changes"}
               </AdminPrimaryButton>
             </div>
           </div>
