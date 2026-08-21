@@ -56,13 +56,12 @@ export function AssetActionsMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 overflow-visible p-1.5">
         <DropdownMenuLabel className="px-2.5 py-2 text-xs font-normal text-muted-foreground">
-          Choose an action
+          Choose an Action
         </DropdownMenuLabel>
         <DropdownMenuSeparator className="my-1" />
         {actions.map((action, index) => {
           const Icon = action.icon
           const isDisabled = Boolean(action.disabled) || busy
-          const disabledReason = isDisabled && action.hint ? action.hint : undefined
           const showSeparatorBefore =
             action.variant === "destructive" &&
             index > 0 &&
@@ -71,31 +70,20 @@ export function AssetActionsMenu({
           return (
             <React.Fragment key={action.id}>
               {showSeparatorBefore ? <DropdownMenuSeparator className="my-1.5" /> : null}
-              {/* Wrapper keeps hover; disabled items use pointer-events-none. */}
-              <span className="group/tip relative my-0.5 block w-full">
-                <DropdownMenuItem
-                  variant={action.variant}
-                  disabled={isDisabled}
-                  className="gap-2.5 px-2.5 py-2.5"
-                  onSelect={(e) => {
-                    e.preventDefault()
-                    if (isDisabled) return
-                    setOpen(false)
-                    onAction(action.id)
-                  }}
-                >
-                  {Icon ? <Icon className="size-4 shrink-0" aria-hidden /> : null}
-                  <span>{action.label}</span>
-                </DropdownMenuItem>
-                {disabledReason ? (
-                  <span
-                    role="tooltip"
-                    className="pointer-events-none absolute right-full top-1/2 z-[100] mr-2 hidden w-max max-w-56 -translate-y-1/2 rounded-md bg-foreground px-2.5 py-1.5 text-left text-[11px] leading-snug text-background shadow-md group-hover/tip:block"
-                  >
-                    {disabledReason}
-                  </span>
-                ) : null}
-              </span>
+              <DropdownMenuItem
+                variant={action.variant}
+                disabled={isDisabled}
+                className="gap-2.5 px-2.5 py-2.5"
+                onSelect={(e) => {
+                  e.preventDefault()
+                  if (isDisabled) return
+                  setOpen(false)
+                  onAction(action.id)
+                }}
+              >
+                {Icon ? <Icon className="size-4 shrink-0" aria-hidden /> : null}
+                <span>{action.label}</span>
+              </DropdownMenuItem>
             </React.Fragment>
           )
         })}

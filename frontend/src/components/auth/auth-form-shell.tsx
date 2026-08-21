@@ -1,5 +1,7 @@
 import * as React from "react"
 
+import { AuthBrandMark } from "@/components/auth/auth-brand-mark"
+import { AuthShellModeContext } from "@/components/auth/auth-shell-mode"
 import { getJson } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
@@ -18,6 +20,8 @@ export function AuthFormShell({
   footer,
   className,
 }: AuthFormShellProps) {
+  const mode = React.useContext(AuthShellModeContext)
+  const isRail = mode === "rail"
   const [version, setVersion] = React.useState<string | null>(null)
 
   React.useEffect(() => {
@@ -34,27 +38,83 @@ export function AuthFormShell({
     }
   }, [])
 
+  if (isRail) {
+    return (
+      <div className={cn("mx-auto flex h-full w-full flex-col", className)}>
+        <div className="mb-7 flex justify-center">
+          <AuthBrandMark size="lg" showSubtitle={false} />
+        </div>
+
+        <header className="mb-8 space-y-2 text-center">
+          <h1 className="text-[22px] leading-tight font-semibold tracking-tight text-foreground sm:text-2xl">
+            {title}
+          </h1>
+          {description ? (
+            <p className="mx-auto max-w-[22rem] text-[13px] leading-relaxed text-muted-foreground sm:text-sm">
+              {description}
+            </p>
+          ) : null}
+        </header>
+
+        <div className="flex flex-1 flex-col justify-center space-y-5">{children}</div>
+
+        <div className="mt-10 space-y-1.5 border-t border-border/40 pt-6 text-center">
+          {footer ? <div className="text-[13px] text-muted-foreground">{footer}</div> : null}
+          {version ? (
+            <p className="text-[11px] tabular-nums tracking-wide text-muted-foreground/70">
+              Version {version}
+            </p>
+          ) : null}
+          <p className="text-[11px] text-muted-foreground/60">
+            © {new Date().getFullYear()} Takeda
+            {version ? <span className="ml-1 tabular-nums">· v{version}</span> : null}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className={cn("w-full max-w-[420px]", className)}>
-      <div className="rounded-[1.25rem] border border-border/70 bg-card p-8 shadow-[var(--app-shadow-elevated)] sm:p-9">
-        <header className="mb-7 space-y-2">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">{title}</h1>
+    <div className={cn("w-full max-w-[440px]", className)}>
+      <div
+        className={cn(
+          "relative flex min-h-[min(32rem,calc(100svh-5rem))] flex-col overflow-hidden rounded-2xl",
+          "border border-border/50 bg-card/95",
+          "px-6 pt-8 pb-7 shadow-[0_8px_24px_rgba(15,23,42,0.08),0_24px_56px_-12px_rgba(15,23,42,0.28)]",
+          "backdrop-blur-xl sm:min-h-[34rem] sm:px-9 sm:pt-10 sm:pb-8",
+          "ring-1 ring-black/5",
+        )}
+      >
+        <div
+          className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary via-[#f03a40] to-primary/50"
+          aria-hidden
+        />
+
+        <div className="mb-8 flex justify-center pt-2">
+          <AuthBrandMark size="lg" showSubtitle={false} />
+        </div>
+
+        <header className="mb-8 space-y-2 text-center">
+          <h1 className="text-[1.35rem] font-semibold tracking-tight text-foreground sm:text-2xl">
+            {title}
+          </h1>
           {description ? (
             <p className="text-sm leading-relaxed text-muted-foreground">{description}</p>
           ) : null}
         </header>
 
-        <div className="space-y-5">{children}</div>
+        <div className="flex flex-1 flex-col justify-center space-y-5">{children}</div>
 
-        {version ? (
-          <p className="mt-4 text-center text-xs tabular-nums text-muted-foreground">
-            Version {version}
-          </p>
-        ) : null}
-
-        {footer ? (
-          <div className="mt-6 border-t border-border/60 pt-5 text-center text-sm text-muted-foreground">
-            {footer}
+        {version || footer ? (
+          <div className="mt-8 space-y-3 border-t border-border/50 pt-5">
+            {footer ? (
+              <div className="text-center text-sm text-muted-foreground">{footer}</div>
+            ) : null}
+            {version ? (
+              <p className="text-center text-[11px] tabular-nums tracking-wide text-muted-foreground/80">
+                Version {version}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>

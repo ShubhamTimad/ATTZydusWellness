@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -9,6 +9,7 @@ from core.auth import CurrentUser, get_current_user
 from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 
+from modules.platform.settings.login_background import InvalidLoginBackgroundError
 from modules.platform.settings.schema import (
     AppVersionPublic,
     AuthPolicyPublic,
@@ -16,6 +17,7 @@ from modules.platform.settings.schema import (
     EmailDeliveryPublic,
     EmailDeliveryTestRequest,
     FinancialYearSettingsPublic,
+    LoginBackgroundMetaPublic,
     PasswordPolicyPublic,
     SessionIdleSettingsPublic,
 )
@@ -144,6 +146,51 @@ def put_app_version(
     _: SettingsWrite,
 ) -> AppVersionPublic:
     return svc.put_app_version(payload)
+
+
+@router.get("/login-background/meta", response_model=LoginBackgroundMetaPublic)
+def get_login_background_meta(
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: SettingsRead,
+) -> LoginBackgroundMetaPublic:
+    return svc.get_login_background_meta()
+
+
+@router.get("/login-background")
+def get_login_background_admin(
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: SettingsRead,
+) -> Response:
+    blob = svc.get_login_background()
+    if blob is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No login background configured.")
+    data, content_type = blob
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.put("/login-background", response_model=LoginBackgroundMetaPublic)
+async def put_login_background(
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: SettingsWrite,
+    file: UploadFile = File(...),
+) -> LoginBackgroundMetaPublic:
+    data = await file.read()
+    try:
+        return svc.put_login_background(data)
+    except InvalidLoginBackgroundError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.delete("/login-background", status_code=status.HTTP_204_NO_CONTENT)
+def delete_login_background(
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: SettingsWrite,
+) -> None:
+    svc.delete_login_background()
 
 
 @router.get("/financial-year", response_model=FinancialYearSettingsPublic)

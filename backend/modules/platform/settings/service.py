@@ -13,6 +13,15 @@ from modules.platform.settings.session_idle import (
     SETTING_KEY as SESSION_IDLE_SETTING_KEY,
     get_session_idle_timeout_minutes,
 )
+from modules.platform.settings.login_background import (
+    SETTING_KEY as LOGIN_BACKGROUND_SETTING_KEY,
+    InvalidLoginBackgroundError,
+    clear_login_background_cache,
+    encode_login_background,
+    get_login_background_bytes,
+    login_background_configured,
+    validate_login_background,
+)
 from modules.platform.settings.lookup import clear_setting_cache
 from modules.platform.settings.model import Setting
 from modules.platform.settings.schema import (
@@ -21,6 +30,7 @@ from modules.platform.settings.schema import (
     DocumentFormatPublic,
     EmailDeliveryPublic,
     FinancialYearSettingsPublic,
+    LoginBackgroundMetaPublic,
     PasswordPolicyPublic,
     SessionIdleSettingsPublic,
 )
@@ -185,6 +195,32 @@ class SettingsService:
         self._db.commit()
         clear_setting_cache(SETTING_KEY)
         return self.get_app_version()
+
+    def get_login_background_meta(self) -> LoginBackgroundMetaPublic:
+        blob = get_login_background_bytes()
+        if blob is None:
+            return LoginBackgroundMetaPublic(configured=False, content_type=None)
+        return LoginBackgroundMetaPublic(configured=True, content_type=blob[1])
+
+    def get_login_background(self) -> tuple[bytes, str] | None:
+        return get_login_background_bytes()
+
+    def put_login_background(self, data: bytes) -> LoginBackgroundMetaPublic:
+        try:
+            content_type = validate_login_background(data)
+        except InvalidLoginBackgroundError:
+            raise
+        self._upsert(LOGIN_BACKGROUND_SETTING_KEY, encode_login_background(data, content_type))
+        self._db.commit()
+        clear_login_background_cache()
+        return LoginBackgroundMetaPublic(configured=True, content_type=content_type)
+
+    def delete_login_background(self) -> None:
+        row = self._db.scalar(select(Setting).where(Setting.key == LOGIN_BACKGROUND_SETTING_KEY))
+        if row is not None:
+            self._db.delete(row)
+            self._db.commit()
+        clear_login_background_cache()
 
     def get_financial_year(self) -> FinancialYearSettingsPublic:
         cfg = get_financial_year_config()

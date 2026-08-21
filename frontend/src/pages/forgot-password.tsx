@@ -2,6 +2,7 @@ import * as React from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
+import { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS } from "@/components/auth/auth-field-styles"
 import { AuthFormShell } from "@/components/auth/auth-form-shell"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -103,7 +104,7 @@ export function ForgotPasswordPage() {
             </div>
           </div>
         ) : (
-          <form onSubmit={onSubmit} className="space-y-4">
+          <form onSubmit={onSubmit} className="space-y-5">
             {error ? (
               <Alert variant="destructive">
                 <AlertTitle>Could not send reset link</AlertTitle>
@@ -111,7 +112,9 @@ export function ForgotPasswordPage() {
               </Alert>
             ) : null}
             <div className="app-form-field">
-              <Label htmlFor="forgot-email">Email</Label>
+              <Label htmlFor="forgot-email" className="text-[13px] font-medium sm:text-sm">
+                Email
+              </Label>
               <Input
                 id="forgot-email"
                 type="email"
@@ -120,11 +123,11 @@ export function ForgotPasswordPage() {
                 value={email}
                 onChange={(ev) => setEmail(ev.target.value)}
                 disabled={isSubmitting}
-                className="h-11"
+                className={AUTH_INPUT_CLASS}
                 required
               />
             </div>
-            <Button type="submit" className="h-11 w-full text-sm font-semibold" disabled={isSubmitting}>
+            <Button type="submit" className={AUTH_BUTTON_CLASS} disabled={isSubmitting}>
               {isSubmitting ? "Sending…" : "Send reset link"}
             </Button>
             <p className="text-center text-sm">

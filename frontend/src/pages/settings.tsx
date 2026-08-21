@@ -24,7 +24,7 @@ import {
   WorkspaceTabsList,
   WorkspaceTabsTrigger,
 } from "@/components/layout/list-page-ui"
-import { getJson, postBlob, postJson, putJson } from "@/lib/api"
+import { deleteJson, getBlob, getJson, postBlob, postJson, putFormData, putJson } from "@/lib/api"
 import { formatAppDate } from "@/lib/dates"
 import { hasPermission } from "@/lib/permissions"
 import { useUrlTab } from "@/lib/use-url-tab"
@@ -51,6 +51,11 @@ type SessionIdleSettings = {
 
 type AppVersionSettings = {
   version: string
+}
+
+type LoginBackgroundMeta = {
+  configured: boolean
+  content_type: string | null
 }
 
 type EmailDelivery = {
@@ -117,6 +122,10 @@ export function SettingsPage() {
   const [savingSessionIdle, setSavingSessionIdle] = React.useState(false)
   const [appVersion, setAppVersion] = React.useState<AppVersionSettings | null>(null)
   const [savingAppVersion, setSavingAppVersion] = React.useState(false)
+  const [loginBgMeta, setLoginBgMeta] = React.useState<LoginBackgroundMeta | null>(null)
+  const [loginBgPreviewUrl, setLoginBgPreviewUrl] = React.useState<string | null>(null)
+  const [loginBgBusy, setLoginBgBusy] = React.useState(false)
+  const loginBgInputRef = React.useRef<HTMLInputElement>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [savingAuth, setSavingAuth] = React.useState(false)
@@ -137,10 +146,24 @@ export function SettingsPage() {
     { kind: "pdf"; url: string } | { kind: "xlsx"; blob: Blob } | null
   >(null)
 
+  async function loadLoginBackgroundPreview(configured: boolean) {
+    setLoginBgPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+    if (!configured) return
+    try {
+      const blob = await getBlob("/admin/settings/login-background")
+      setLoginBgPreviewUrl(URL.createObjectURL(blob))
+    } catch {
+      setLoginBgPreviewUrl(null)
+    }
+  }
+
   async function load() {
     setLoadError(null)
     try {
-      const [data, auth, email, fy, idle, docs, ver] = await Promise.all([
+      const [data, auth, email, fy, idle, docs, ver, bgMeta] = await Promise.all([
         getJson<PasswordPolicy>("/admin/settings/password-policy"),
         getJson<AuthPolicy>("/admin/settings/auth-policy").catch(() => null),
         getJson<EmailDelivery>("/admin/settings/email-delivery").catch(() => null),
@@ -154,6 +177,10 @@ export function SettingsPage() {
         getJson<AppVersionSettings>("/admin/settings/app-version").catch(() => ({
           version: "1.0.0",
         })),
+        getJson<LoginBackgroundMeta>("/admin/settings/login-background/meta").catch(() => ({
+          configured: false,
+          content_type: null,
+        })),
       ])
       setPolicy(data)
       setAuthPolicy(auth)
@@ -162,6 +189,8 @@ export function SettingsPage() {
       setSessionIdle(idle)
       setDocumentFormat(docs)
       setAppVersion(ver)
+      setLoginBgMeta(bgMeta)
+      void loadLoginBackgroundPreview(bgMeta.configured)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load settings")
       setPolicy(null)
@@ -171,6 +200,12 @@ export function SettingsPage() {
 
   React.useEffect(() => {
     void load()
+    return () => {
+      setLoginBgPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    }
   }, [])
 
   async function save() {
@@ -449,6 +484,96 @@ export function SettingsPage() {
                     }}
                   >
                     {savingAppVersion ? "Saving…" : "Save version"}
+                  </AdminPrimaryButton>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Loading…</p>
+            )}
+          </AdminPanel>
+
+          <AdminPanel
+            title="Login background"
+            description="Optional full-page background image on the login screen. PNG, JPEG, or WebP. When unset, the default marketing layout is used."
+            contentClassName="space-y-4 px-5 py-5"
+          >
+            {loginBgMeta ? (
+              <>
+                <div className="overflow-hidden rounded-xl border border-border/70 bg-muted/30">
+                  {loginBgPreviewUrl ? (
+                    <img
+                      src={loginBgPreviewUrl}
+                      alt="Login background preview"
+                      className="h-40 w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-40 items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                      No custom background — login uses the default split layout.
+                    </div>
+                  )}
+                </div>
+                <input
+                  ref={loginBgInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    e.target.value = ""
+                    if (!file || !canWriteSettings) return
+                    setLoginBgBusy(true)
+                    toast.loading("Uploading…", { id: "login-bg-upload" })
+                    try {
+                      const fd = new FormData()
+                      fd.append("file", file)
+                      const meta = await putFormData<LoginBackgroundMeta>(
+                        "/admin/settings/login-background",
+                        fd,
+                      )
+                      setLoginBgMeta(meta)
+                      await loadLoginBackgroundPreview(meta.configured)
+                      toast.success("Login background updated", { id: "login-bg-upload" })
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Upload failed", {
+                        id: "login-bg-upload",
+                      })
+                    } finally {
+                      setLoginBgBusy(false)
+                    }
+                  }}
+                />
+                <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-4">
+                  {loginBgMeta.configured ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={loginBgBusy || !canWriteSettings}
+                      onClick={async () => {
+                        setLoginBgBusy(true)
+                        toast.loading("Removing…", { id: "login-bg-remove" })
+                        try {
+                          await deleteJson("/admin/settings/login-background")
+                          setLoginBgMeta({ configured: false, content_type: null })
+                          await loadLoginBackgroundPreview(false)
+                          toast.success("Background removed", { id: "login-bg-remove" })
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Remove failed", {
+                            id: "login-bg-remove",
+                          })
+                        } finally {
+                          setLoginBgBusy(false)
+                        }
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  ) : null}
+                  <AdminPrimaryButton
+                    type="button"
+                    disabled={loginBgBusy || !canWriteSettings}
+                    onClick={() => loginBgInputRef.current?.click()}
+                  >
+                    {loginBgBusy ? "Working…" : loginBgMeta.configured ? "Replace image" : "Upload image"}
                   </AdminPrimaryButton>
                 </div>
               </>

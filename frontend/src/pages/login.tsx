@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
 import { ShieldCheck } from "lucide-react"
 
+import { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS, AUTH_PASSWORD_CLASS } from "@/components/auth/auth-field-styles"
 import { AuthFormShell } from "@/components/auth/auth-form-shell"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -189,9 +190,11 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
         ) : null}
 
         {mfaChallenge ? (
-          <form className="space-y-4" onSubmit={submitOtp}>
+          <form className="space-y-5" onSubmit={submitOtp}>
             <div className="app-form-field">
-              <Label htmlFor="otp">6-digit code</Label>
+              <Label htmlFor="otp" className="text-[13px] font-medium sm:text-sm">
+                6-digit code
+              </Label>
               <Input
                 id="otp"
                 inputMode="numeric"
@@ -199,16 +202,16 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
                 value={otp}
                 onChange={(e) => setOtp(e.target.value)}
                 placeholder="000000"
-                className="h-11 text-center font-mono text-lg tracking-[0.35em]"
+                className={`${AUTH_INPUT_CLASS} text-center font-mono text-lg tracking-[0.35em]`}
               />
             </div>
-            <Button type="submit" className="h-11 w-full text-sm font-semibold">
+            <Button type="submit" className={AUTH_BUTTON_CLASS}>
               Continue
             </Button>
             <Button
               type="button"
               variant="outline"
-              className="h-11 w-full"
+              className={AUTH_BUTTON_CLASS}
               onClick={() => {
                 setMfaChallenge(null)
                 setOtp("")
@@ -219,16 +222,18 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
             </Button>
           </form>
         ) : (
-          <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
+          <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
             <div className="app-form-field">
-              <Label htmlFor="identifier">Email Address</Label>
+              <Label htmlFor="identifier" className="text-[13px] font-medium sm:text-sm">
+                Email Address
+              </Label>
               <Input
                 id="identifier"
                 type="email"
                 autoComplete="email"
                 placeholder="admin@example.com"
                 aria-invalid={!!form.formState.errors.identifier}
-                className="h-11"
+                className={AUTH_INPUT_CLASS}
                 {...form.register("identifier")}
               />
               {form.formState.errors.identifier?.message ? (
@@ -238,10 +243,12 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
 
             <div className="app-form-field">
               <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" className="text-[13px] font-medium sm:text-sm">
+                  Password
+                </Label>
                 <Link
                   to="/forgot-password?returnTo=%2Fadmin%2Flogin"
-                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                  className="text-[12px] font-medium text-primary underline-offset-2 hover:underline sm:text-[13px]"
                   tabIndex={-1}
                 >
                   Forgot password?
@@ -252,7 +259,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
                 autoComplete="current-password"
                 placeholder="Enter your password"
                 aria-invalid={!!form.formState.errors.password}
-                className="h-11"
+                className={AUTH_PASSWORD_CLASS}
                 {...form.register("password")}
               />
               {form.formState.errors.password?.message ? (
@@ -262,19 +269,21 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
 
             {policy?.captcha_enabled ? (
               <div className="app-form-field">
-                <Label htmlFor="captcha_token">Captcha token</Label>
+                <Label htmlFor="captcha_token" className="text-[13px] font-medium sm:text-sm">
+                  Captcha token
+                </Label>
                 <Input
                   id="captcha_token"
                   autoComplete="off"
                   value={captchaToken}
                   onChange={(e) => setCaptchaToken(e.target.value)}
                   placeholder="e.g. captcha-ok"
-                  className="h-11"
+                  className={AUTH_INPUT_CLASS}
                 />
               </div>
             ) : null}
 
-            <Button type="submit" className="h-11 w-full text-sm font-semibold" disabled={isSubmitting}>
+            <Button type="submit" className={AUTH_BUTTON_CLASS} disabled={isSubmitting}>
               {isSubmitting ? "Signing in…" : "Sign in"}
             </Button>
 

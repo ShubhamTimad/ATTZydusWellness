@@ -3,7 +3,7 @@ from typing import Annotated
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
@@ -71,6 +71,22 @@ def session_touch(_user: CurrentUser = Depends(get_current_user)) -> dict[str, b
 def public_app_version() -> AppVersionPublic:
     """Display version for the login screen (from Settings)."""
     return AppVersionPublic(version=get_app_version())
+
+
+@router.get("/auth/login-background")
+def public_login_background() -> Response:
+    """Custom login background image when configured in Settings; 404 when unset."""
+    from modules.platform.settings.login_background import get_login_background_bytes
+
+    blob = get_login_background_bytes()
+    if blob is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No login background configured.")
+    data, content_type = blob
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 async def get_login_payload(request: Request) -> LoginRequest:

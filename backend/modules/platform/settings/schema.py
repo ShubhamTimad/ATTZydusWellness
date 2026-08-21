@@ -64,6 +64,13 @@ class AppVersionPublic(BaseModel):
     version: str = Field(default="1.0.0", min_length=1, max_length=64)
 
 
+class LoginBackgroundMetaPublic(BaseModel):
+    """Whether a custom login background image is configured."""
+
+    configured: bool = False
+    content_type: str | None = None
+
+
 class DocumentSignatureFlags(BaseModel):
     """Which print/PDF flows render approval signature lines above the footer."""
 

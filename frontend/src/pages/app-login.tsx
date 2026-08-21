@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
 
+import { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS, AUTH_PASSWORD_CLASS } from "@/components/auth/auth-field-styles"
 import { AuthFormShell } from "@/components/auth/auth-form-shell"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -182,12 +183,12 @@ export function AppLoginPage() {
   return (
     <AppAuthMarketingLayout>
       <AuthFormShell
-        title={step === "otp" ? "Authenticator code" : "Welcome back"}
-        description={
-          step === "otp"
-            ? "Enter the 6-digit code from your authenticator app to finish signing in."
-            : "Sign in with your email to open the dashboard."
-        }
+        title={step === "otp" ? "Authenticator code" : "Login"}
+        // description={
+        //   step === "otp"
+        //     ? "Enter the 6-digit code from your authenticator app to finish signing in."
+        //     : "Sign in with your email to open the dashboard."
+        // }
       >
         {error ? (
           <Alert variant="destructive">
@@ -197,28 +198,32 @@ export function AppLoginPage() {
         ) : null}
 
         {step === "password" ? (
-          <form onSubmit={onSubmitPassword} className="space-y-4">
+          <form onSubmit={onSubmitPassword} className="space-y-5">
             <div className="app-form-field">
-              <Label htmlFor="identifier">Email Address</Label>
+              <Label htmlFor="identifier" className="text-[13px] font-medium sm:text-sm">
+                Email Address
+              </Label>
               <Input
                 id="identifier"
                 type="email"
                 autoComplete="email"
-                placeholder="Enter your email address"
+                placeholder="Enter Email Address"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 disabled={isSubmitting}
-                className="h-11"
+                className={AUTH_INPUT_CLASS}
                 required
               />
             </div>
 
             <div className="app-form-field">
               <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password" className="text-[13px] font-medium sm:text-sm">
+                  Password
+                </Label>
                 <Link
                   to="/forgot-password"
-                  className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                  className="text-[12px] font-medium text-primary underline-offset-2 hover:underline sm:text-[13px]"
                   tabIndex={-1}
                 >
                   Forgot password?
@@ -229,16 +234,18 @@ export function AppLoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
-                placeholder="Enter your password"
+                placeholder="Enter Password"
                 disabled={isSubmitting}
-                className="h-11"
+                className={AUTH_PASSWORD_CLASS}
                 required
               />
             </div>
 
             {policy?.captcha_enabled ? (
               <div className="app-form-field">
-                <Label htmlFor="captcha">Captcha token</Label>
+                <Label htmlFor="captcha" className="text-[13px] font-medium sm:text-sm">
+                  Captcha token
+                </Label>
                 <Input
                   id="captcha"
                   value={captchaToken}
@@ -246,19 +253,21 @@ export function AppLoginPage() {
                   disabled={isSubmitting}
                   placeholder="e.g. captcha-ok"
                   autoComplete="off"
-                  className="h-11"
+                  className={AUTH_INPUT_CLASS}
                 />
               </div>
             ) : null}
 
-            <Button type="submit" disabled={isSubmitting} className="h-11 w-full text-sm font-semibold">
+            <Button type="submit" disabled={isSubmitting} className={AUTH_BUTTON_CLASS}>
               {isSubmitting ? "Signing in…" : "Sign in"}
             </Button>
           </form>
         ) : (
-          <form onSubmit={onSubmitOtp} className="space-y-4">
+          <form onSubmit={onSubmitOtp} className="space-y-5">
             <div className="app-form-field">
-              <Label htmlFor="otp">6-digit code</Label>
+              <Label htmlFor="otp" className="text-[13px] font-medium sm:text-sm">
+                6-digit code
+              </Label>
               <Input
                 id="otp"
                 inputMode="numeric"
@@ -267,17 +276,17 @@ export function AppLoginPage() {
                 onChange={(e) => setOtp(e.target.value)}
                 disabled={isSubmitting}
                 placeholder="000000"
-                className="h-11 text-center font-mono text-lg tracking-[0.35em]"
+                className={`${AUTH_INPUT_CLASS} text-center font-mono text-lg tracking-[0.35em]`}
                 required
               />
             </div>
-            <Button type="submit" disabled={isSubmitting} className="h-11 w-full text-sm font-semibold">
+            <Button type="submit" disabled={isSubmitting} className={AUTH_BUTTON_CLASS}>
               {isSubmitting ? "Verifying…" : "Continue"}
             </Button>
             <Button
               type="button"
               variant="outline"
-              className="h-11 w-full"
+              className={AUTH_BUTTON_CLASS}
               disabled={isSubmitting}
               onClick={() => {
                 setStep("password")

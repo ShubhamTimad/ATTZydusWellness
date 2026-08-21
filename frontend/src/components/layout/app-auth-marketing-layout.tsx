@@ -2,7 +2,8 @@ import * as React from "react"
 import { BarChart3, Package, Radio } from "lucide-react"
 
 import { AuthBrandMark } from "@/components/auth/auth-brand-mark"
-import { getJson } from "@/lib/api"
+import { AuthShellModeContext } from "@/components/auth/auth-shell-mode"
+import { API_BASE_URL, getJson } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 type AppAuthMarketingLayoutProps = {
@@ -28,12 +29,17 @@ const FEATURES = [
   },
 ] as const
 
+const LOGIN_BG_URL = `${API_BASE_URL}/auth/login-background`
+
 export function AppAuthMarketingLayout({
   children,
   variant = "workspace",
 }: AppAuthMarketingLayoutProps) {
   const isAdmin = variant === "admin"
   const [version, setVersion] = React.useState<string | null>(null)
+  const [bgReady, setBgReady] = React.useState(false)
+  const [bgFailed, setBgFailed] = React.useState(false)
+  const usePhotoBg = bgReady && !bgFailed
 
   React.useEffect(() => {
     let cancelled = false
@@ -49,88 +55,138 @@ export function AppAuthMarketingLayout({
     }
   }, [])
 
-  return (
-    <div className="relative min-h-svh overflow-hidden bg-[#f4f5f7]">
-      {/* Ambient glow on form side */}
-      <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_100%_0%,color-mix(in_srgb,var(--primary)_12%,transparent),transparent_55%)]"
-        aria-hidden
-      />
+  React.useEffect(() => {
+    let cancelled = false
+    const img = new Image()
+    img.onload = () => {
+      if (!cancelled) {
+        setBgReady(true)
+        setBgFailed(false)
+      }
+    }
+    img.onerror = () => {
+      if (!cancelled) {
+        setBgReady(false)
+        setBgFailed(true)
+      }
+    }
+    img.src = `${LOGIN_BG_URL}?t=${Date.now()}`
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-      <div className="relative flex min-h-svh flex-col lg:flex-row">
-        {/* Marketing panel */}
-        <aside
-          className={cn(
-            "relative flex shrink-0 flex-col justify-between overflow-hidden px-8 py-10 text-white lg:w-[min(46%,520px)] lg:px-10 lg:py-12 xl:px-14",
-            isAdmin
-              ? "bg-[linear-gradient(155deg,#111827_0%,#1f2937_42%,#450a0a_100%)]"
-              : "bg-[linear-gradient(155deg,#111827_0%,#1f2937_38%,#7f1d1d_100%)]",
-          )}
-        >
-          <div
-            className="pointer-events-none absolute inset-0 opacity-[0.35]"
-            style={{
-              backgroundImage:
-                "linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
-              backgroundSize: "32px 32px",
-            }}
+  if (usePhotoBg) {
+    return (
+      <AuthShellModeContext.Provider value="rail">
+        <div className="relative h-svh max-h-svh w-full overflow-hidden">
+          <img
+            src={LOGIN_BG_URL}
+            alt=""
+            className="absolute inset-0 size-full object-cover object-center"
             aria-hidden
           />
-          <div
-            className="pointer-events-none absolute -top-24 -right-24 size-72 rounded-full bg-primary/20 blur-3xl"
-            aria-hidden
-          />
-          <div
-            className="pointer-events-none absolute bottom-0 left-0 size-56 rounded-full bg-white/5 blur-3xl"
-            aria-hidden
-          />
+          <div className="absolute inset-0 bg-black/25" aria-hidden />
 
-          <div className="relative z-10">
-            <AuthBrandMark size="lg" onDark className="hidden lg:flex" />
-            <AuthBrandMark size="md" onDark className="lg:hidden" />
-
-            <div className="mt-10 max-w-md space-y-4">
-              <p className="text-xs font-semibold tracking-[0.18em] text-primary-foreground/70 uppercase">
-                {isAdmin ? "Platform administration" : "Enterprise workspace"}
-              </p>
-              <h2 className="text-3xl leading-[1.15] font-semibold tracking-tight text-balance xl:text-4xl">
-                {isAdmin
-                  ? "Secure access to the admin console."
-                  : "Know where every asset is — and who verified it."}
-              </h2>
-              <p className="max-w-sm text-sm leading-relaxed text-white/70">
-                {isAdmin
-                  ? "Manage users, workflows, email templates, and platform settings."
-                  : "RFID tagging, physical verification, and approval workflows in one place."}
-              </p>
+          <div className="relative z-10 flex h-full items-center justify-center overflow-y-auto overscroll-contain p-5 sm:p-8 md:justify-end md:pr-[6%] lg:pr-[8%] xl:pr-[10%]">
+            <div
+              className={cn(
+                "my-auto flex w-full max-w-[420px] flex-col justify-center rounded-[28px] bg-white",
+                "min-h-[min(36rem,calc(100svh-3.5rem))] px-8 py-11 sm:min-h-[38rem] sm:px-10 sm:py-12",
+                "shadow-[0_20px_50px_-12px_rgba(0,0,0,0.35),0_8px_16px_-8px_rgba(0,0,0,0.2)]",
+              )}
+            >
+              {children}
             </div>
           </div>
+        </div>
+      </AuthShellModeContext.Provider>
+    )
+  }
 
-          <ul className="relative z-10 mt-10 hidden space-y-4 lg:block">
-            {FEATURES.map(({ icon: Icon, title, body }) => (
-              <li key={title} className="flex gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur-sm">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
-                  <Icon className="size-4" aria-hidden />
-                </div>
-                <div className="min-w-0 space-y-0.5">
-                  <p className="text-sm font-medium text-white">{title}</p>
-                  <p className="text-xs leading-relaxed text-white/60">{body}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+  return (
+    <AuthShellModeContext.Provider value="card">
+      <div className="relative h-svh max-h-svh overflow-hidden bg-[#f4f5f7]">
+        <div
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_100%_0%,color-mix(in_srgb,var(--primary)_12%,transparent),transparent_55%)]"
+          aria-hidden
+        />
 
-          <p className="relative z-10 mt-8 hidden text-xs text-white/45 lg:block">
-            © {new Date().getFullYear()} Takeda · Asset Tracking & Tagging
-            {version ? <span className="ml-2 tabular-nums">· v{version}</span> : null}
-          </p>
-        </aside>
+        <div className="relative flex h-full flex-col lg:flex-row">
+          <aside
+            className={cn(
+              "relative hidden shrink-0 flex-col justify-between overflow-hidden px-8 py-10 text-white lg:flex lg:w-[min(46%,520px)] lg:px-10 lg:py-12 xl:px-14",
+              isAdmin
+                ? "bg-[linear-gradient(155deg,#111827_0%,#1f2937_42%,#450a0a_100%)]"
+                : "bg-[linear-gradient(155deg,#111827_0%,#1f2937_38%,#7f1d1d_100%)]",
+            )}
+          >
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.35]"
+              style={{
+                backgroundImage:
+                  "linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
+                backgroundSize: "32px 32px",
+              }}
+              aria-hidden
+            />
+            <div
+              className="pointer-events-none absolute -top-24 -right-24 size-72 rounded-full bg-primary/20 blur-3xl"
+              aria-hidden
+            />
+            <div
+              className="pointer-events-none absolute bottom-0 left-0 size-56 rounded-full bg-white/5 blur-3xl"
+              aria-hidden
+            />
 
-        {/* Form panel */}
-        <main className="relative flex flex-1 flex-col items-center justify-center px-6 py-10 sm:px-10 lg:px-12 lg:py-16">
-          {children}
-        </main>
+            <div className="relative z-10">
+              <AuthBrandMark size="lg" onDark />
+
+              <div className="mt-10 max-w-md space-y-4">
+                <p className="text-xs font-semibold tracking-[0.18em] text-primary-foreground/70 uppercase">
+                  {isAdmin ? "Platform administration" : "Enterprise workspace"}
+                </p>
+                <h2 className="text-3xl leading-[1.15] font-semibold tracking-tight text-balance xl:text-4xl">
+                  {isAdmin
+                    ? "Secure access to the admin console."
+                    : "Know where every asset is — and who verified it."}
+                </h2>
+                <p className="max-w-sm text-sm leading-relaxed text-white/70">
+                  {isAdmin
+                    ? "Manage users, workflows, email templates, and platform settings."
+                    : "RFID tagging, physical verification, and approval workflows in one place."}
+                </p>
+              </div>
+            </div>
+
+            <ul className="relative z-10 mt-10 space-y-4">
+              {FEATURES.map(({ icon: Icon, title, body }) => (
+                <li
+                  key={title}
+                  className="flex gap-3 rounded-xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur-sm"
+                >
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                    <Icon className="size-4" aria-hidden />
+                  </div>
+                  <div className="min-w-0 space-y-0.5">
+                    <p className="text-sm font-medium text-white">{title}</p>
+                    <p className="text-xs leading-relaxed text-white/60">{body}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <p className="relative z-10 mt-8 text-xs text-white/45">
+              © {new Date().getFullYear()} Takeda · Asset Tracking & Tagging
+              {version ? <span className="ml-2 tabular-nums">· v{version}</span> : null}
+            </p>
+          </aside>
+
+          <main className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto overscroll-contain px-4 py-6 sm:px-10 lg:items-end lg:px-12 lg:py-10 xl:px-16">
+            <div className="w-full max-w-[440px]">{children}</div>
+          </main>
+        </div>
       </div>
-    </div>
+    </AuthShellModeContext.Provider>
   )
 }
