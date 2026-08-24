@@ -1,6 +1,6 @@
 import { DashboardInsightCard } from "@/components/dashboard/dashboard-insight-card"
 import {
-  DASHBOARD_COLOR,
+  DASHBOARD_STATUS,
   DASHBOARD_THEMES,
   dashboardPct,
 } from "@/components/dashboard/dashboard-theme"
@@ -18,13 +18,13 @@ export function OrdersDashboard({ data }: { data: OrdersDashboardModule }) {
   const parts = orderInsightParts(data)
   const inProgressPct = dashboardPct(parts.inProgress, parts.total)
   const slices = [
-    { name: "Active", value: parts.inProgress, color: DASHBOARD_COLOR.blue },
-    { name: "Closed", value: parts.closed, color: DASHBOARD_COLOR.green },
+    { name: "Active", value: parts.inProgress, color: DASHBOARD_STATUS.active },
+    { name: "Closed", value: parts.closed, color: DASHBOARD_STATUS.closed },
   ]
 
   return (
     <DashboardInsightCard
-      title="Physical Verification"
+      title="Physical Verification Order"
       icon={theme.icon}
       iconWrap={theme.iconWrap}
       metrics={[

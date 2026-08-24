@@ -1,6 +1,6 @@
 import { DashboardInsightCard } from "@/components/dashboard/dashboard-insight-card"
 import {
-  DASHBOARD_COLOR,
+  DASHBOARD_STATUS,
   DASHBOARD_THEMES,
   dashboardPct,
 } from "@/components/dashboard/dashboard-theme"
@@ -12,13 +12,13 @@ export function ItDashboard({ data }: { data: ItDashboardModule }) {
   const deactive = data.inactive_users
   const activePct = dashboardPct(active, active + deactive)
   const slices = [
-    { name: "Active", value: active, color: DASHBOARD_COLOR.orange },
-    { name: "Deactive", value: deactive, color: DASHBOARD_COLOR.green },
+    { name: "Active", value: active, color: DASHBOARD_STATUS.active },
+    { name: "Deactive", value: deactive, color: DASHBOARD_STATUS.inactive },
   ]
 
   return (
     <DashboardInsightCard
-      title="IT User"
+      title="Users"
       icon={theme.icon}
       iconWrap={theme.iconWrap}
       metrics={[

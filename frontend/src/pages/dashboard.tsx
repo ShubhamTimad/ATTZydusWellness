@@ -7,7 +7,7 @@ import {
 } from "@/components/dashboard/dashboard-insight-card"
 import { DashboardLoading } from "@/components/dashboard/dashboard-loading"
 import { ItDashboard } from "@/components/dashboard/it-dashboard"
-import { DASHBOARD_COLOR, DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
+import { DASHBOARD_COLOR, DASHBOARD_THEMES, dashboardPct } from "@/components/dashboard/dashboard-theme"
 import { FinancialYearDashboard, DashboardFyBadge } from "@/components/dashboard/financial-year-dashboard"
 import { orderInsightParts, OrdersDashboard } from "@/components/dashboard/orders-dashboard"
 import {
@@ -66,7 +66,6 @@ function DashboardSummaryStrip({
         key="orders"
         title="Physical Verification"
         value={parts.open}
-        aside={{ text: `${parts.total} Total` }}
         accent={DASHBOARD_COLOR.blue}
       />,
     )
@@ -78,7 +77,6 @@ function DashboardSummaryStrip({
         key="transfers"
         title="Transfer Order"
         value={parts.open}
-        aside={{ text: `${parts.total} Total` }}
         accent={DASHBOARD_COLOR.orange}
       />,
     )
@@ -90,7 +88,6 @@ function DashboardSummaryStrip({
         key="disposals"
         title="Disposal Order"
         value={parts.open}
-        aside={{ text: `${parts.total} Total` }}
         accent={DASHBOARD_COLOR.red}
       />,
     )
@@ -99,9 +96,8 @@ function DashboardSummaryStrip({
     cells.push(
       <DashboardStripCard
         key="rfid"
-        title="RFID Tagged"
-        value={assets.rfid_tagged}
-        aside={{ text: `${assets.total_assets} Total` }}
+        title="Asset Tagged"
+        value={`${dashboardPct(assets.rfid_tagged, assets.total_assets)}%`}
         accent={DASHBOARD_COLOR.purple}
       />,
     )
@@ -110,9 +106,8 @@ function DashboardSummaryStrip({
     cells.push(
       <DashboardStripCard
         key="users"
-        title="User"
-        value={it.total_users}
-        aside={{ text: `${it.active_users} Active` }}
+        title="Users"
+        value={it.active_users}
         accent={DASHBOARD_COLOR.green}
       />,
     )
@@ -208,21 +203,17 @@ export function DashboardPage() {
             {transfers ? (
               <WorkflowOrdersDashboard
                 key="transfers"
-                title="Asset Transfer"
+                title="Asset Transfer Order"
                 theme={DASHBOARD_THEMES.transfers}
                 data={transfers}
-                openColor={DASHBOARD_COLOR.red}
-                closedColor={DASHBOARD_COLOR.blue}
               />
             ) : null}
             {disposals ? (
               <WorkflowOrdersDashboard
                 key="disposals"
-                title="Asset Disposal"
+                title="Asset Disposal Order"
                 theme={DASHBOARD_THEMES.disposals}
                 data={disposals}
-                openColor={DASHBOARD_COLOR.orange}
-                closedColor={DASHBOARD_COLOR.red}
               />
             ) : null}
             {assets ? <AssetDashboard key="assets" data={assets} /> : null}

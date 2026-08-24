@@ -1,6 +1,6 @@
 import { DashboardInsightCard } from "@/components/dashboard/dashboard-insight-card"
 import {
-  DASHBOARD_COLOR,
+  DASHBOARD_STATUS,
   DASHBOARD_THEMES,
   dashboardPct,
 } from "@/components/dashboard/dashboard-theme"
@@ -13,8 +13,8 @@ export function AssetDashboard({ data }: { data: AssetsDashboardModule }) {
   const untagged = data.rfid_not_tagged
   const taggedPct = dashboardPct(tagged, total)
   const slices = [
-    { name: "Tagged", value: tagged, color: DASHBOARD_COLOR.green },
-    { name: "Untagged", value: untagged, color: DASHBOARD_COLOR.blue },
+    { name: "Tagged", value: tagged, color: DASHBOARD_STATUS.tagged },
+    { name: "Untagged", value: untagged, color: DASHBOARD_STATUS.untagged },
   ]
 
   return (

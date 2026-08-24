@@ -2,7 +2,7 @@ import { Calendar } from "lucide-react"
 
 import { DashboardInsightCard } from "@/components/dashboard/dashboard-insight-card"
 import {
-  DASHBOARD_COLOR,
+  DASHBOARD_STATUS,
   DASHBOARD_THEMES,
   dashboardPct,
 } from "@/components/dashboard/dashboard-theme"
@@ -59,8 +59,8 @@ export function FinancialYearDashboard({ data }: { data: FinancialYearDashboardM
   const pending = data.pending_fy_verification
   const coverage = data.coverage_pct > 0 ? Math.round(data.coverage_pct) : dashboardPct(verified, total)
   const slices = [
-    { name: "Pending", value: pending, color: DASHBOARD_COLOR.orange },
-    { name: "Verified", value: verified, color: DASHBOARD_COLOR.green },
+    { name: "Pending", value: pending, color: DASHBOARD_STATUS.pending },
+    { name: "Verified", value: verified, color: DASHBOARD_STATUS.verified },
   ]
 
   return (
@@ -69,8 +69,8 @@ export function FinancialYearDashboard({ data }: { data: FinancialYearDashboardM
       icon={theme.icon}
       iconWrap={theme.iconWrap}
       metrics={[
-        { value: verified, label: "Total Verified Assets" },
-        { value: pending, label: "Remaining Verification" },
+        { value: verified, label: "Verified Assets" },
+        { value: pending, label: "Pending Verification" },
       ]}
       slices={slices}
       centerLabel={`${coverage}%`}

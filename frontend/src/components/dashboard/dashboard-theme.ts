@@ -36,22 +36,33 @@ export type DashboardPanelTheme = {
   kpiTint?: string
 }
 
+/** Shared status colors — same meaning = same color on every dashboard card. */
 export const DASHBOARD_STATUS = {
-  progress: DASHBOARD_COLOR.blue,
-  complete: DASHBOARD_COLOR.green,
+  active: DASHBOARD_COLOR.blue,
+  pending: DASHBOARD_COLOR.orange,
+  closed: DASHBOARD_COLOR.green,
+  verified: DASHBOARD_COLOR.green,
+  tagged: DASHBOARD_COLOR.green,
   rejected: DASHBOARD_COLOR.red,
+  inactive: DASHBOARD_COLOR.red,
+  untagged: DASHBOARD_COLOR.red,
+  /** @deprecated use `active` */
+  progress: DASHBOARD_COLOR.blue,
+  /** @deprecated use `closed` / `verified` */
+  complete: DASHBOARD_COLOR.green,
+  /** @deprecated use `inactive` / `untagged` */
   rest: DASHBOARD_COLOR.gray,
 } as const
 
 /** Section chart / accent hex values (keep in sync with theme classes). */
 export const DASHBOARD_CHART = {
-  orders: DASHBOARD_COLOR.blue,
-  assets: DASHBOARD_COLOR.blue,
-  fy: DASHBOARD_COLOR.green,
-  fyPending: DASHBOARD_COLOR.gray,
-  it: DASHBOARD_COLOR.orange,
-  transfers: DASHBOARD_COLOR.orange,
-  disposals: DASHBOARD_COLOR.red,
+  orders: DASHBOARD_STATUS.active,
+  assets: DASHBOARD_STATUS.tagged,
+  fy: DASHBOARD_STATUS.verified,
+  fyPending: DASHBOARD_STATUS.pending,
+  it: DASHBOARD_STATUS.active,
+  transfers: DASHBOARD_STATUS.active,
+  disposals: DASHBOARD_STATUS.active,
 } as const
 
 const panelSurface = "border-border/80 bg-card"

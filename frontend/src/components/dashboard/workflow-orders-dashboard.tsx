@@ -1,5 +1,9 @@
 import { DashboardInsightCard } from "@/components/dashboard/dashboard-insight-card"
-import { dashboardPct, type DashboardPanelTheme } from "@/components/dashboard/dashboard-theme"
+import {
+  DASHBOARD_STATUS,
+  dashboardPct,
+  type DashboardPanelTheme,
+} from "@/components/dashboard/dashboard-theme"
 
 export type WorkflowOrdersModule = {
   total: number
@@ -23,20 +27,16 @@ export function WorkflowOrdersDashboard({
   title,
   theme,
   data,
-  openColor,
-  closedColor,
 }: {
   title: string
   theme: DashboardPanelTheme
   data: WorkflowOrdersModule
-  openColor: string
-  closedColor: string
 }) {
   const parts = workflowInsightParts(data)
   const inProgressPct = dashboardPct(parts.inProgress, parts.total)
   const slices = [
-    { name: "Active", value: parts.inProgress, color: openColor },
-    { name: "Closed", value: parts.closed, color: closedColor },
+    { name: "Active", value: parts.inProgress, color: DASHBOARD_STATUS.active },
+    { name: "Closed", value: parts.closed, color: DASHBOARD_STATUS.closed },
   ]
 
   return (
