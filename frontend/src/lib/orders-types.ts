@@ -94,6 +94,11 @@ export type PhysicalOrderItem = {
   verified_by_name: string | null
   physically_verified: boolean
   last_verification_date: string | null
+  inventory_count: number | null
+  physical_count: number | null
+  /** Per-asset remark on this order line (not Asset Master remark). */
+  remark: string | null
+  cost_center_code?: string | null
 }
 
 export type PhysicalOrderAuditVerifiedAsset = {

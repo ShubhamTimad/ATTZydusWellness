@@ -479,7 +479,7 @@ def update_order_asset_remark(
         ),
     ],
 ) -> AssetRemarkPublic:
-    """Save Asset Remark on asset master from an order line. Audited with actor."""
+    """Save per-asset remark on this order line (physical_order_items.remarks)."""
     try:
         return svc.update_order_asset_remark(
             order_id,

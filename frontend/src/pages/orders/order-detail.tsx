@@ -43,7 +43,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
-import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
+import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import {
   orderStatusLabel,
   orderStatusPillTone,
@@ -58,15 +58,27 @@ import { cn } from "@/lib/utils"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 
 type AssetColumnFilters = {
-  asset: string
+  asset_name: string
+  asset_code: string
   rfid: string
+  cost_center: string
+  verified_on: string
+  inventory_count: string
+  physical_count: string
+  order_remark: string
   status: "" | "pending" | "verified" | "approved" | "rejected"
   verified_by: string
 }
 
 const DEFAULT_ASSET_COLUMN_FILTERS: AssetColumnFilters = {
-  asset: "",
+  asset_name: "",
+  asset_code: "",
   rfid: "",
+  cost_center: "",
+  verified_on: "",
+  inventory_count: "",
+  physical_count: "",
+  order_remark: "",
   status: "",
   verified_by: "",
 }
@@ -113,16 +125,37 @@ function matchesAssetSearch(item: PhysicalOrderItem, search: string): boolean {
 }
 
 function matchesAssetColumnFilters(item: PhysicalOrderItem, filters: AssetColumnFilters): boolean {
-  const assetQ = filters.asset.trim().toLowerCase()
-  if (
-    assetQ &&
-    !item.asset_code.toLowerCase().includes(assetQ) &&
-    !item.asset_name.toLowerCase().includes(assetQ)
-  ) {
+  const assetNameQ = filters.asset_name.trim().toLowerCase()
+  if (assetNameQ && !item.asset_name.toLowerCase().includes(assetNameQ)) {
+    return false
+  }
+  const assetCodeQ = filters.asset_code.trim().toLowerCase()
+  if (assetCodeQ && !item.asset_code.toLowerCase().includes(assetCodeQ)) {
     return false
   }
   const rfidQ = filters.rfid.trim().toLowerCase()
   if (rfidQ && !(item.rfid_code || "").toLowerCase().includes(rfidQ)) return false
+  const costCenterQ = filters.cost_center.trim().toLowerCase()
+  if (costCenterQ && !(item.cost_center_code || "").toLowerCase().includes(costCenterQ)) return false
+  const verifiedOnQ = filters.verified_on.trim().toLowerCase()
+  if (
+    verifiedOnQ &&
+    !String(item.last_verification_date ? formatDate(item.last_verification_date) : "—")
+      .toLowerCase()
+      .includes(verifiedOnQ)
+  ) {
+    return false
+  }
+  const inventoryCountQ = filters.inventory_count.trim().toLowerCase()
+  if (inventoryCountQ && !String(item.inventory_count ?? 1).toLowerCase().includes(inventoryCountQ)) {
+    return false
+  }
+  const physicalCountQ = filters.physical_count.trim().toLowerCase()
+  if (physicalCountQ && !String(item.physical_count ?? 0).toLowerCase().includes(physicalCountQ)) {
+    return false
+  }
+  const orderRemarkQ = filters.order_remark.trim().toLowerCase()
+  if (orderRemarkQ && !(item.remark || "").toLowerCase().includes(orderRemarkQ)) return false
   if (filters.status === "pending") {
     if (item.physically_verified || item.verification_status === "rejected") return false
   } else if (filters.status === "verified") {
@@ -198,6 +231,9 @@ export function OrderDetailPage() {
   const [assetPage, setAssetPage] = React.useState(1)
   const [selectedScanItemId, setSelectedScanItemId] = React.useState<number | null>(null)
   const [scanValue, setScanValue] = React.useState("")
+  const [remarkDrafts, setRemarkDrafts] = React.useState<Record<number, string>>({})
+  const [savingRemarkItemId, setSavingRemarkItemId] = React.useState<number | null>(null)
+  const [remarkFocusItemId, setRemarkFocusItemId] = React.useState<number | null>(null)
   const [rejectOpen, setRejectOpen] = React.useState(false)
   const [rejectReason, setRejectReason] = React.useState("")
   const [reassignOpen, setReassignOpen] = React.useState(false)
@@ -284,6 +320,20 @@ export function OrderDetailPage() {
     setAssetColumnFilterInputs({ ...DEFAULT_ASSET_COLUMN_FILTERS })
     setAssetColumnFilters({ ...DEFAULT_ASSET_COLUMN_FILTERS })
   }, [id])
+
+  React.useEffect(() => {
+    if (!order) return
+    setRemarkDrafts((prev) => {
+      const next: Record<number, string> = {}
+      for (const item of order.items) {
+        const keepLocal =
+          (savingRemarkItemId === item.id || remarkFocusItemId === item.id) &&
+          prev[item.id] != null
+        next[item.id] = keepLocal ? prev[item.id] : (item.remark ?? "")
+      }
+      return next
+    })
+  }, [order, savingRemarkItemId, remarkFocusItemId])
 
   React.useEffect(() => {
     if (!order) return
@@ -413,9 +463,11 @@ export function OrderDetailPage() {
   }
 
   async function scan() {
-    if (!id || !scanValue.trim() || selectedScanItemId == null) return
+    if (!id || !scanValue.trim() || selectedScanItemId == null || !order) return
+    const scanItem = order.items.find((item) => item.id === selectedScanItemId)
     setBusy(true)
     try {
+      if (scanItem) await saveOrderRemark(scanItem)
       const res = await postJson<{
         item: PhysicalOrderItem
         verified_count: number
@@ -432,6 +484,36 @@ export function OrderDetailPage() {
       toast.error(e instanceof ApiError ? e.message : "Scan failed.")
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function saveOrderRemark(item: PhysicalOrderItem) {
+    if (!id || !order) return
+    if (order.status !== "in_progress") return
+    if (!canExecute || currentUserId == null || order.assigned_to !== currentUserId) return
+    const draft = (remarkDrafts[item.id] ?? "").trim()
+    const saved = (item.remark ?? "").trim()
+    if (draft === saved) return
+    setSavingRemarkItemId(item.id)
+    try {
+      await patchJson<{ asset_id: number; remark: string | null }>(
+        `/admin/physical-orders/${id}/assets/${item.asset_id}/remark`,
+        { remark: draft || null },
+      )
+      setOrder((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          items: prev.items.map((row) =>
+            row.id === item.id ? { ...row, remark: draft || null } : row,
+          ),
+        }
+      })
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to save order remark.")
+      setRemarkDrafts((prev) => ({ ...prev, [item.id]: item.remark ?? "" }))
+    } finally {
+      setSavingRemarkItemId(null)
     }
   }
 
@@ -495,7 +577,7 @@ export function OrderDetailPage() {
     const total = order.items.length
     if (pending > 0) {
       const ok = await confirmAsk({
-        title: "Assets still pending",
+        title: "Physical Verification Pending",
         description: `${pending} of ${total} asset${total === 1 ? "" : "s"} not scanned yet. Complete this order anyway?`,
         confirmLabel: "Complete anyway",
         cancelLabel: "Keep scanning",
@@ -547,15 +629,6 @@ export function OrderDetailPage() {
       return (closureDecisions[item.id]?.choice ?? null) === "reject"
     })
 
-  function closureLineDecisionsReady(): boolean {
-    if (!order) return false
-    const pending = order.items.filter((item) => itemStatus(item) === "pending")
-    return pending.every((item) => {
-      const choice = closureDecisions[item.id]?.choice ?? null
-      return choice === "approve" || choice === "reject"
-    })
-  }
-
   async function submitClosureLineDecisions(
     rejectionReason: string,
     nextAssignedUserId?: number | null,
@@ -566,13 +639,8 @@ export function OrderDetailPage() {
       toast.error("Enter a rejection reason.")
       return false
     }
-    if (!closureLineDecisionsReady()) {
-      toast.error("Mark Approve or Reject for every pending asset.")
-      return false
-    }
-
     const pending = order.items.filter((item) => itemStatus(item) === "pending")
-    const toReject = pending.filter((item) => closureDecisions[item.id]?.choice === "reject")
+    const toReject = pending.filter((item) => closureDecisions[item.id]?.choice !== "approve")
 
     setBusy(true)
     setBusyAction("/approval/reject-items")
@@ -625,7 +693,7 @@ export function OrderDetailPage() {
   }
 
   const showClosureDecisionCols = canReviewClosure
-  const tableColSpan = 4 + (showClosureDecisionCols ? 2 : 0)
+  const tableColSpan = 10 + (showClosureDecisionCols ? 2 : 0)
   const activeProgressStep =
     order.progress.steps.find((step) => step.key === order.progress.current_step_key) ??
     order.progress.steps.find((step) => step.status === "active")
@@ -797,10 +865,6 @@ export function OrderDetailPage() {
                 className="h-9"
                 disabled={busy}
                 onClick={() => {
-                  if (closureHasRejectChoice && !closureLineDecisionsReady()) {
-                    toast.error("Mark Approve or Reject for every pending asset.")
-                    return
-                  }
                   setRejectReason("")
                   setRejectOpen(true)
                 }}
@@ -866,10 +930,6 @@ export function OrderDetailPage() {
         <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
           {order.order_number}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {order.plant_name} · {order.cost_center_code}
-          {executorName ? ` · ${executorName}` : ""}
-        </p>
       </div>
       {canReviewCreation && order.approval_notice?.message ? (
         <Alert className="shrink-0 border-amber-200/80 bg-amber-50/90 dark:border-amber-900/50 dark:bg-amber-950/30">
@@ -937,14 +997,18 @@ export function OrderDetailPage() {
             />
           </div>
           {isRejected && (order.rejection_reason || "").trim() ? (
-            <p className="text-sm text-destructive">
-              <span className="font-medium">Rejected Reason:</span>{" "}
-              {order.rejection_reason}
-            </p>
+            <div className="rounded-lg border border-red-200 bg-red-50/70 px-3 py-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-red-700">
+                Rejected Reason
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-red-700">
+                {order.rejection_reason}
+              </p>
+            </div>
           ) : null}
         </div>
 
-        {canScan ? (
+        {canScan && selectedScanItem ? (
           <div className={cn("relative space-y-3 border-t border-border/60 py-4", orderPanelPad)}>
             {busy && busyLabel ? (
               <div
@@ -956,21 +1020,53 @@ export function OrderDetailPage() {
                 <span className="text-sm font-medium text-foreground">{busyLabel}</span>
               </div>
             ) : null}
-            {selectedScanItem ? (
-              <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <div className="min-w-0 shrink-0 sm:max-w-[14rem]">
-                    <p className="flex items-center gap-2 text-sm font-medium">
-                      <ScanLine className="size-4 shrink-0 text-primary" aria-hidden />
-                      <span className="truncate">Scan {selectedScanItem.asset_code}</span>
-                    </p>
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                      Expected RFID: {selectedScanItem.rfid_code ?? "—"}
-                    </p>
+            <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">
+                <div className="flex flex-col gap-3 border-b border-border/60 pb-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex min-w-0 items-start gap-2.5">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <ScanLine className="size-4" aria-hidden />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-foreground">
+                        Verify `{selectedScanItem.asset_code}`
+                      </p>
+                      <p className="mt-0.5 truncate text-sm text-foreground">{selectedScanItem.asset_name}</p>
+                      {/* <p className="mt-1 text-xs text-muted-foreground">
+                        Expected RFID:{" "}
+                        <span className="font-mono text-foreground">
+                          {selectedScanItem.rfid_code ?? "—"}
+                        </span>
+                      </p> */}
+                    </div>
                   </div>
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <Label htmlFor="scan" className="sr-only">
-                      Scan RFID
+                  <div className="flex shrink-0 items-center justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      onClick={() => {
+                        void saveOrderRemark(selectedScanItem)
+                        setSelectedScanItemId(null)
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-9 min-w-24"
+                      disabled={busy || !scanValue.trim()}
+                      onClick={() => void scan()}
+                    >
+                      Verify
+                    </Button>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+                  <div className="rounded-lg border border-border/60 bg-background p-3">
+                    <Label htmlFor="scan" className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Scan RFID Tag
                     </Label>
                     <Input
                       id="scan"
@@ -980,37 +1076,38 @@ export function OrderDetailPage() {
                       onKeyDown={(e) => {
                         if (e.key === "Enter") void scan()
                       }}
-                      placeholder="Scan RFID tag…"
-                      className="h-10 min-w-0 flex-1"
+                      placeholder="Scan or Enter RFID"
+                      className="mt-2 h-10"
                     />
-                    <Button
-                      type="button"
-                      className="h-10 shrink-0"
-                      disabled={busy || !scanValue.trim()}
-                      onClick={() => void scan()}
-                    >
-                      Verify
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-10 shrink-0"
-                      onClick={() => setSelectedScanItemId(null)}
-                    >
-                      Cancel
-                    </Button>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-background p-3">
+                    <Label htmlFor="order-remark" className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Order Remark
+                    </Label>
+                    <Input
+                      id="order-remark"
+                      value={remarkDrafts[selectedScanItem.id] ?? selectedScanItem.remark ?? ""}
+                      onChange={(e) =>
+                        setRemarkDrafts((prev) => ({
+                          ...prev,
+                          [selectedScanItem.id]: e.target.value,
+                        }))
+                      }
+                      onFocus={() => setRemarkFocusItemId(selectedScanItem.id)}
+                      onBlur={() => {
+                        void saveOrderRemark(selectedScanItem).finally(() =>
+                          setRemarkFocusItemId((cur) =>
+                            cur === selectedScanItem.id ? null : cur,
+                          ),
+                        )
+                      }}
+                      disabled={busy || savingRemarkItemId === selectedScanItem.id}
+                      placeholder="Optional Remark"
+                      className="mt-2 h-10"
+                    />
                   </div>
                 </div>
               </div>
-            ) : order.pending_physical_count > 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Select a pending asset below to scan its RFID tag, or use Complete when ready.
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                All assets scanned. Use Complete when ready.
-              </p>
-            )}
           </div>
         ) : null}
       </AdminPanel>
@@ -1084,10 +1181,16 @@ export function OrderDetailPage() {
           <Table className="app-table-head-sticky">
             <TableHeader>
               <AdminTableHeaderRow>
-                <AdminTableHeadCell className="!text-black">Asset</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Asset Name</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Asset Code</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">RFID</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Cost Center</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Inventory Count</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Physical Count</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Phy. Verification Date</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Order Remark</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">Status</AdminTableHeadCell>
-                <AdminTableHeadCell className="!text-black">Verified</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Verified By</AdminTableHeadCell>
                 {showClosureDecisionCols ? (
                   <>
                     <AdminTableHeadCell className="w-20 text-center !text-black">
@@ -1103,12 +1206,23 @@ export function OrderDetailPage() {
                 <AdminTableHeaderRow>
                   <AdminTableHeadCell className="px-2 py-1.5">
                     <Input
-                      value={assetColumnFilterInputs.asset}
+                      value={assetColumnFilterInputs.asset_name}
                       onChange={(e) =>
-                        setAssetColumnFilterInputs((f) => ({ ...f, asset: e.target.value }))
+                        setAssetColumnFilterInputs((f) => ({ ...f, asset_name: e.target.value }))
                       }
-                      aria-label="Filter asset code or name"
-                      placeholder="Code / name"
+                      aria-label="Filter asset name"
+                      placeholder="Asset Name"
+                      className={columnFilterControlClass}
+                    />
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="px-2 py-1.5">
+                    <Input
+                      value={assetColumnFilterInputs.asset_code}
+                      onChange={(e) =>
+                        setAssetColumnFilterInputs((f) => ({ ...f, asset_code: e.target.value }))
+                      }
+                      aria-label="Filter asset code"
+                      placeholder="Asset Code"
                       className={columnFilterControlClass}
                     />
                   </AdminTableHeadCell>
@@ -1120,6 +1234,61 @@ export function OrderDetailPage() {
                       }
                       aria-label="Filter RFID"
                       placeholder="RFID"
+                      className={columnFilterControlClass}
+                    />
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="px-2 py-1.5">
+                    <Input
+                      value={assetColumnFilterInputs.cost_center}
+                      onChange={(e) =>
+                        setAssetColumnFilterInputs((f) => ({ ...f, cost_center: e.target.value }))
+                      }
+                      aria-label="Filter cost center"
+                      placeholder="Cost Center"
+                      className={columnFilterControlClass}
+                    />
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="px-2 py-1.5">
+                    <Input
+                      value={assetColumnFilterInputs.inventory_count}
+                      onChange={(e) =>
+                        setAssetColumnFilterInputs((f) => ({ ...f, inventory_count: e.target.value }))
+                      }
+                      aria-label="Filter inventory count"
+                      placeholder="Inventory Count"
+                      className={columnFilterControlClass}
+                    />
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="px-2 py-1.5">
+                    <Input
+                      value={assetColumnFilterInputs.physical_count}
+                      onChange={(e) =>
+                        setAssetColumnFilterInputs((f) => ({ ...f, physical_count: e.target.value }))
+                      }
+                      aria-label="Filter physical count"
+                      placeholder="Physical Count"
+                      className={columnFilterControlClass}
+                    />
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="px-2 py-1.5">
+                    <Input
+                      value={assetColumnFilterInputs.verified_on}
+                      onChange={(e) =>
+                        setAssetColumnFilterInputs((f) => ({ ...f, verified_on: e.target.value }))
+                      }
+                      aria-label="Filter physical verification date"
+                      placeholder="Phy. Verification Date"
+                      className={columnFilterControlClass}
+                    />
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="px-2 py-1.5">
+                    <Input
+                      value={assetColumnFilterInputs.order_remark}
+                      onChange={(e) =>
+                        setAssetColumnFilterInputs((f) => ({ ...f, order_remark: e.target.value }))
+                      }
+                      aria-label="Filter order remark"
+                      placeholder="Order Remark"
                       className={columnFilterControlClass}
                     />
                   </AdminTableHeadCell>
@@ -1153,7 +1322,7 @@ export function OrderDetailPage() {
                         setAssetColumnFilterInputs((f) => ({ ...f, verified_by: e.target.value }))
                       }
                       aria-label="Filter verified by"
-                      placeholder="Verified by"
+                      placeholder="Verified By"
                       className={columnFilterControlClass}
                     />
                   </AdminTableHeadCell>
@@ -1192,12 +1361,19 @@ export function OrderDetailPage() {
                       )}
                       onClick={() => {
                         if (!scannable) return
+                        if (selectedScanItemId != null && selectedScanItemId !== item.id) {
+                          const previous = order.items.find((i) => i.id === selectedScanItemId)
+                          if (previous) void saveOrderRemark(previous)
+                        }
                         setSelectedScanItemId(item.id)
                         setScanValue("")
                         void load({ quiet: true })
                       }}
                     >
                       <AdminTableCell className="whitespace-normal">
+                        <p className="mt-0.5 text-sm text-foreground">{item.asset_name}</p>
+                      </AdminTableCell>
+                      <AdminTableCell className="font-mono text-xs text-foreground">
                         <Link
                           to={`/dashboard/assets/${item.asset_id}`}
                           className="font-mono text-xs text-primary hover:underline"
@@ -1205,10 +1381,26 @@ export function OrderDetailPage() {
                         >
                           {item.asset_code}
                         </Link>
-                        <p className="mt-0.5 text-sm text-foreground">{item.asset_name}</p>
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
                         {item.rfid_code ?? "—"}
+                      </AdminTableCell>
+                      <AdminTableCell className="font-mono text-xs text-foreground">
+                        {item.cost_center_code?.trim() ? item.cost_center_code : "—"}
+                      </AdminTableCell>
+                      <AdminTableCell className="tabular-nums text-foreground">
+                        {item.inventory_count ?? 1}
+                      </AdminTableCell>
+                      <AdminTableCell className="tabular-nums text-foreground">
+                        {item.physical_count ?? 0}
+                      </AdminTableCell>
+                      <AdminTableCell className="whitespace-nowrap text-sm text-foreground">
+                        {item.last_verification_date ? formatDate(item.last_verification_date) : "—"}
+                      </AdminTableCell>
+                      <AdminTableCell className="max-w-[14rem] text-sm text-foreground">
+                        <span className="block truncate" title={item.remark ?? undefined}>
+                          {item.remark?.trim() ? item.remark : "—"}
+                        </span>
                       </AdminTableCell>
                       <AdminTableCell>
                         {item.verification_status === "rejected" ? (
@@ -1232,12 +1424,11 @@ export function OrderDetailPage() {
                       </AdminTableCell>
                       <AdminTableCell className="whitespace-normal text-sm text-foreground">
                         {item.physically_verified ? (
-                          <>
-                            <div>{formatDate(item.last_verification_date)}</div>
-                            {item.verified_by_name ? (
-                              <div className="text-xs text-muted-foreground">{item.verified_by_name}</div>
-                            ) : null}
-                          </>
+                          item.verified_by_name ? (
+                            <div className="text-xs">{item.verified_by_name}</div>
+                          ) : (
+                            "—"
+                          )
                         ) : (
                           "—"
                         )}
@@ -1418,14 +1609,14 @@ export function OrderDetailPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reject Reason</DialogTitle>
-            <DialogDescription>
-              {canReviewClosure && closureHasRejectChoice
-                ? "Enter a Reason for Rejecting the Order"
-                : "Enter a Reason for Rejecting the Order"}
-            </DialogDescription>
           </DialogHeader>
           <div className="dialog-body space-y-4">
+            <div className="app-form-field">
+              <Label htmlFor="reject-reason" className="text-sm font-medium text-foreground">
+                Reject Reason <span className="text-destructive">*</span>
+              </Label>
             <textarea
+              id="reject-reason"
               className={cn("w-full rounded-md border border-input bg-background px-3 py-2 text-sm")}
               rows={3}
               value={rejectReason}
@@ -1433,6 +1624,7 @@ export function OrderDetailPage() {
               placeholder="Reject Reason (Required)"
               aria-label="Reject Reason"
             />
+            </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setRejectOpen(false)}>
                 Cancel

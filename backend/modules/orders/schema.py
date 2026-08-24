@@ -86,6 +86,7 @@ class PhysicalOrderItemPublic(BaseModel):
     verified_by_name: str | None
     physically_verified: bool
     last_verification_date: date | None = None
+    # Order-line remark (physical_order_items.remarks), not asset_master.remark.
     remark: str | None = None
     combined_asset_number: str | None = None
     sub_no: str | None = None
@@ -93,6 +94,7 @@ class PhysicalOrderItemPublic(BaseModel):
     asset_class: str | None = None
     inventory_count: int | None = None
     physical_count: int | None = None
+    cost_center_code: str | None = None
 
 
 class PhysicalOrderListItem(BaseModel):

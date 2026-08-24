@@ -2192,6 +2192,7 @@ class PhysicalOrderService:
         resolve_name = user_name_fn or self._user_name
         verifier = resolve_name(item.verified_by)
         inv = a.inventory if a else None
+        fin = a.financial if a else None
         return PhysicalOrderItemPublic(
             id=int(item.id),
             asset_id=int(item.asset_id),
@@ -2209,7 +2210,8 @@ class PhysicalOrderService:
                 if item.scan_time is not None
                 else (inv.last_verification_date if inv else None)
             ),
-            remark=a.remark if a else None,
+            # Per-line remark on this order (not asset_master.remark).
+            remark=(item.remarks.strip() if item.remarks and item.remarks.strip() else None),
             combined_asset_number=a.combined_asset_number if a else None,
             sub_no=a.sub_no if a else None,
             category_name=a.category.name if a is not None and a.category is not None else None,
@@ -2224,6 +2226,7 @@ class PhysicalOrderService:
                 if self._is_physically_verified(item)
                 else (inv.physical_count if inv else 0)
             ),
+            cost_center_code=(fin.cost_center.strip() if fin and fin.cost_center else None),
         )
 
     def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> PhysicalOrderDetail:
@@ -2569,17 +2572,41 @@ class PhysicalOrderService:
         *,
         actor_user_id: int,
     ):
-        """Update asset_master.remark for an asset on this physical order."""
-        from modules.assets.service import AssetMasterService
+        """Update physical_order_items.remarks for an asset line on this order."""
+        from modules.assets.schema import AssetRemarkPublic
 
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
-        on_order = any(int(item.asset_id) == int(asset_id) for item in (order.items or []))
-        if not on_order:
+        item = next(
+            (i for i in (order.items or []) if int(i.asset_id) == int(asset_id)),
+            None,
+        )
+        if item is None:
             raise NotFoundError("Asset", asset_id)
-        return AssetMasterService(self._db).update_asset_remark(
-            asset_id,
-            remark,
+
+        previous = item.remarks
+        cleaned = (remark or "").strip() or None
+        if previous == cleaned:
+            return AssetRemarkPublic(
+                asset_id=int(asset_id),
+                remark=cleaned,
+                previous_remark=previous,
+            )
+
+        item.remarks = cleaned
+        asset_code = item.asset.asset_code if item.asset else None
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="item_remark_updated",
             actor_user_id=actor_user_id,
+            old_value={"asset_id": int(asset_id), "asset_code": asset_code, "remarks": previous},
+            new_value={"asset_id": int(asset_id), "asset_code": asset_code, "remarks": cleaned},
+        )
+        self._db.commit()
+        return AssetRemarkPublic(
+            asset_id=int(asset_id),
+            remark=cleaned,
+            previous_remark=previous,
         )
 
     @staticmethod

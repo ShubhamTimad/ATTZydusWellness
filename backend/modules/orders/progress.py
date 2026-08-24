@@ -803,11 +803,11 @@ def build_order_progress(
                 status=phase("in_progress"),
                 actor_name=user_name_fn(order.started_by),
                 occurred_at=order.started_at,
-                detail=(
-                    f"{verified} of {total} assets scanned"
-                    if status == ORDER_STATUS_IN_PROGRESS and total
-                    else None
-                ),
+                # detail=(
+                #     f"{verified} of {total} assets scanned"
+                #     if status == ORDER_STATUS_IN_PROGRESS and total
+                #     else None
+                # ),
             ),
             OrderLifecycleStepPublic(
                 key="completed",
