@@ -8,7 +8,7 @@ import {
 import { DashboardLoading } from "@/components/dashboard/dashboard-loading"
 import { ItDashboard } from "@/components/dashboard/it-dashboard"
 import { DASHBOARD_COLOR, DASHBOARD_THEMES } from "@/components/dashboard/dashboard-theme"
-import { FinancialYearDashboard } from "@/components/dashboard/financial-year-dashboard"
+import { FinancialYearDashboard, DashboardFyBadge } from "@/components/dashboard/financial-year-dashboard"
 import { orderInsightParts, OrdersDashboard } from "@/components/dashboard/orders-dashboard"
 import {
   workflowInsightParts,
@@ -64,7 +64,7 @@ function DashboardSummaryStrip({
     cells.push(
       <DashboardStripCard
         key="orders"
-        title="Physical Verification Order"
+        title="Physical Verification"
         value={parts.open}
         aside={{ text: `${parts.total} Total` }}
         accent={DASHBOARD_COLOR.blue}
@@ -99,7 +99,7 @@ function DashboardSummaryStrip({
     cells.push(
       <DashboardStripCard
         key="rfid"
-        title="RFID"
+        title="RFID Tagged"
         value={assets.rfid_tagged}
         aside={{ text: `${assets.total_assets} Total` }}
         accent={DASHBOARD_COLOR.purple}
@@ -188,13 +188,20 @@ export function DashboardPage() {
 
       {!loading && hasAny ? (
         <>
-          <DashboardSummaryStrip
-            orders={orders}
-            transfers={transfers}
-            disposals={disposals}
-            assets={assets}
-            it={it}
-          />
+          <div className="flex flex-col gap-3">
+            {fy ? (
+              <div className="flex justify-end">
+                <DashboardFyBadge data={fy} />
+              </div>
+            ) : null}
+            <DashboardSummaryStrip
+              orders={orders}
+              transfers={transfers}
+              disposals={disposals}
+              assets={assets}
+              it={it}
+            />
+          </div>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {fy ? <FinancialYearDashboard key="fy" data={fy} /> : null}
             {orders ? <OrdersDashboard key="orders" data={orders} /> : null}

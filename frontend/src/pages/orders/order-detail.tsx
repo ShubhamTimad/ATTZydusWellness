@@ -629,6 +629,15 @@ export function OrderDetailPage() {
       return (closureDecisions[item.id]?.choice ?? null) === "reject"
     })
 
+  /** Every line must be Approve or Reject before header Approve/Reject can run. */
+  const closureAllLinesChosen =
+    canReviewClosure &&
+    order.items.every((item) => {
+      if (itemDecisionLocked(item)) return true
+      const choice = closureDecisions[item.id]?.choice ?? null
+      return choice === "approve" || choice === "reject"
+    })
+
   async function submitClosureLineDecisions(
     rejectionReason: string,
     nextAssignedUserId?: number | null,
@@ -681,6 +690,10 @@ export function OrderDetailPage() {
 
   async function beginClosureApproveAll() {
     if (!order) return
+    if (!closureAllLinesChosen) {
+      toast.error("Select Approve or Reject for every asset before continuing.")
+      return
+    }
     if (closureHasRejectChoice) {
       toast.error("One or more assets are marked Reject. Use Reject to finish review.")
       return
@@ -858,27 +871,45 @@ export function OrderDetailPage() {
           ) : null}
           {canReviewClosure ? (
             <>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9"
-                disabled={busy}
-                onClick={() => {
-                  setRejectReason("")
-                  setRejectOpen(true)
-                }}
+              <span
+                className="inline-flex"
+                title={
+                  !closureAllLinesChosen
+                    ? "Select Approve or Reject for every asset before you can reject this order."
+                    : undefined
+                }
               >
-                Reject
-              </Button>
-              {!closureHasRejectChoice ? (
-                <AdminPrimaryButton
+                <Button
                   type="button"
-                  disabled={busy}
-                  onClick={() => void beginClosureApproveAll()}
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  disabled={busy || !closureAllLinesChosen}
+                  onClick={() => {
+                    setRejectReason("")
+                    setRejectOpen(true)
+                  }}
                 >
-                  Approve{order.needs_next_closure_assignee ? " & assign next" : ""}
-                </AdminPrimaryButton>
+                  Reject
+                </Button>
+              </span>
+              {!closureHasRejectChoice ? (
+                <span
+                  className="inline-flex"
+                  title={
+                    !closureAllLinesChosen
+                      ? "Select Approve or Reject for every asset before you can approve this order."
+                      : undefined
+                  }
+                >
+                  <AdminPrimaryButton
+                    type="button"
+                    disabled={busy || !closureAllLinesChosen}
+                    onClick={() => void beginClosureApproveAll()}
+                  >
+                    Approve{order.needs_next_closure_assignee ? " & assign next" : ""}
+                  </AdminPrimaryButton>
+                </span>
               ) : null}
             </>
           ) : null}
@@ -1636,16 +1667,22 @@ export function OrderDetailPage() {
                 onClick={() => {
                   const reason = rejectReason.trim()
                   if (!reason) return
-                  if (canReviewClosure && closureHasRejectChoice) {
-                    if (order.needs_next_closure_assignee) {
-                      setRejectOpen(false)
-                      setClosureNextOpen(true)
+                  if (canReviewClosure) {
+                    if (!closureAllLinesChosen) {
+                      toast.error("Select Approve or Reject for every asset before continuing.")
                       return
                     }
-                    void submitClosureLineDecisions(reason).then((ok) => {
-                      if (ok) setRejectOpen(false)
-                    })
-                    return
+                    if (closureHasRejectChoice) {
+                      if (order.needs_next_closure_assignee) {
+                        setRejectOpen(false)
+                        setClosureNextOpen(true)
+                        return
+                      }
+                      void submitClosureLineDecisions(reason).then((ok) => {
+                        if (ok) setRejectOpen(false)
+                      })
+                      return
+                    }
                   }
                   void runAction("/approval/reject-order", { reason }).then((ok) => {
                     if (ok) setRejectOpen(false)

@@ -87,6 +87,35 @@ const INVENTORY_READONLY = new Set([
   "last_verification_date",
 ])
 
+/** Fingerprint of editable fields — used to enable Save only when something changed. */
+function assetEditSnapshot(a: AssetDetail): string {
+  const inventory = { ...(a.inventory ?? {}) }
+  for (const k of INVENTORY_READONLY) {
+    delete inventory[k as keyof typeof inventory]
+  }
+  return JSON.stringify({
+    asset_name: a.asset_name ?? "",
+    asset_code: a.asset_code ?? "",
+    combined_asset_number: a.combined_asset_number ?? null,
+    remark: a.remark ?? null,
+    sub_no: a.sub_no ?? null,
+    rfid_code: (a.rfid_code ?? "").trim() || null,
+    tag_color_id: (a.rfid_code ?? "").trim() ? a.tag_color_id ?? null : null,
+    asset_custodian_id: a.asset_custodian_id ?? null,
+    asset_condition_id: a.asset_condition_id ?? null,
+    serial_no: a.serial_no ?? null,
+    asset_class_id: a.asset_class_id ?? null,
+    asset_type: a.asset_type ?? null,
+    asset_category_id: a.asset_category_id ?? null,
+    ownership_type: a.ownership_type ?? null,
+    capitalization_form_id: a.capitalization_form_id ?? null,
+    information: a.information ?? {},
+    location: a.location ?? {},
+    financial: a.financial ?? {},
+    inventory,
+  })
+}
+
 type SummaryItem = { label: string; value: React.ReactNode; mono?: boolean }
 
 function SummaryStrip({ items }: { items: SummaryItem[] }) {
@@ -122,6 +151,7 @@ export function AssetDetailPage() {
   const [asset, setAsset] = React.useState<AssetDetail | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [editing, setEditing] = React.useState(false)
+  const [editBaseline, setEditBaseline] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [imageUrl, setImageUrl] = React.useState<string | null>(null)
   const [pendingImageFile, setPendingImageFile] = React.useState<File | null>(null)
@@ -273,6 +303,7 @@ export function AssetDetailPage() {
       setPendingImageFile(null)
       setRemoveImage(false)
       if (pendingImageFile || removeImage) setImageRevision((revision) => revision + 1)
+      setEditBaseline(null)
       setEditing(false)
       void loadAudit(refreshed.id)
       toast.success("Asset saved.")
@@ -483,6 +514,12 @@ export function AssetDetailPage() {
     tagColors: masters.tagColors,
   }
 
+  const editDirty =
+    editing &&
+    editBaseline != null &&
+    asset != null &&
+    (assetEditSnapshot(asset) !== editBaseline || pendingImageFile != null || removeImage)
+
   const inv = asset?.inventory?.inventory_count
   const phys = asset?.inventory?.physical_count
   const verified = Boolean(asset?.inventory?.last_verification_date)
@@ -678,8 +715,11 @@ export function AssetDetailPage() {
       if (editing) {
         setPendingImageFile(null)
         setRemoveImage(false)
+        setEditBaseline(null)
         setEditing(false)
-      } else {
+        void load().catch((e) => toast.error(e instanceof Error ? e.message : "Failed to reload asset"))
+      } else if (asset) {
+        setEditBaseline(assetEditSnapshot(asset))
         setEditing(true)
       }
       return
@@ -709,9 +749,18 @@ export function AssetDetailPage() {
         </AdminPillBadge>
       ) : null}
       {editing ? (
-        <AdminPrimaryButton type="button" disabled={saving || acting} onClick={() => void save()}>
-          {saving ? "Saving…" : "Save Changes"}
-        </AdminPrimaryButton>
+        <span
+          className="inline-flex"
+          title={editDirty ? undefined : "Change at least one field before saving"}
+        >
+          <AdminPrimaryButton
+            type="button"
+            disabled={saving || acting || !editDirty}
+            onClick={() => void save()}
+          >
+            {saving ? "Saving…" : "Save Changes"}
+          </AdminPrimaryButton>
+        </span>
       ) : null}
       {!editing && canReassign ? (
         <Button

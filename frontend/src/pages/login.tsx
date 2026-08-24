@@ -6,7 +6,12 @@ import { toast } from "sonner"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
 import { ShieldCheck } from "lucide-react"
 
-import { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS, AUTH_PASSWORD_CLASS } from "@/components/auth/auth-field-styles"
+import {
+  AUTH_BUTTON_CLASS,
+  AUTH_INPUT_CLASS,
+  AUTH_LABEL_CLASS,
+  AUTH_PASSWORD_CLASS,
+} from "@/components/auth/auth-field-styles"
 import { AuthFormShell } from "@/components/auth/auth-form-shell"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -192,7 +197,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
         {mfaChallenge ? (
           <form className="space-y-5" onSubmit={submitOtp}>
             <div className="app-form-field">
-              <Label htmlFor="otp" className="text-[13px] font-medium sm:text-sm">
+              <Label htmlFor="otp" className={AUTH_LABEL_CLASS}>
                 6-digit code
               </Label>
               <Input
@@ -224,7 +229,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
         ) : (
           <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
             <div className="app-form-field">
-              <Label htmlFor="identifier" className="text-[13px] font-medium sm:text-sm">
+              <Label htmlFor="identifier" className={AUTH_LABEL_CLASS}>
                 Email Address
               </Label>
               <Input
@@ -243,7 +248,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
 
             <div className="app-form-field">
               <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="password" className="text-[13px] font-medium sm:text-sm">
+                <Label htmlFor="password" className={AUTH_LABEL_CLASS}>
                   Password
                 </Label>
                 <Link
@@ -269,7 +274,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
 
             {policy?.captcha_enabled ? (
               <div className="app-form-field">
-                <Label htmlFor="captcha_token" className="text-[13px] font-medium sm:text-sm">
+                <Label htmlFor="captcha_token" className={AUTH_LABEL_CLASS}>
                   Captcha token
                 </Label>
                 <Input

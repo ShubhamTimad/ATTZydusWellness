@@ -1,3 +1,5 @@
+import * as React from "react"
+
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -48,8 +50,24 @@ export function AssetRfidDialog({
   // Tag color picker hidden for now — restore when product wants it back.
   const showTagColor = false
   // const showTagColor = value.trim().length > 0 && onTagColorChange != null
+
+  const [openedBaseline, setOpenedBaseline] = React.useState({ value: "", tagColorId: "" })
+  React.useEffect(() => {
+    if (!open) return
+    setOpenedBaseline({ value: value.trim(), tagColorId })
+    // Capture values only when the dialog opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open-only snapshot
+  }, [open])
+
+  const unchanged =
+    isUpdate &&
+    value.trim() === openedBaseline.value &&
+    (!showTagColor || tagColorId === openedBaseline.tagColorId)
+
   const canSave =
-    value.trim().length > 0 && (!showAssetCode || (assetCode?.trim().length ?? 0) > 0)
+    value.trim().length > 0 &&
+    (!showAssetCode || (assetCode?.trim().length ?? 0) > 0) &&
+    !unchanged
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -106,9 +124,9 @@ export function AssetRfidDialog({
               className="h-11 font-mono"
             />
 
-            <p className="text-xs text-muted-foreground">
+            {/* <p className="text-xs text-muted-foreground">
               RFID must be unique for every asset.
-            </p>
+            </p> */}
           </div>
 
           {showTagColor && onTagColorChange ? (
@@ -131,18 +149,29 @@ export function AssetRfidDialog({
               Cancel
             </Button>
 
-            <Button
-              type="button"
-              disabled={saving || !canSave}
-              onClick={onSave}
-              className="min-w-28"
+            <span
+              className="inline-flex"
+              title={
+                unchanged
+                  ? "Change the RFID code before updating"
+                  : !value.trim()
+                    ? "Enter an RFID code"
+                    : undefined
+              }
             >
-              {saving
-                ? "Saving..."
-                : isUpdate
-                  ? "Update RFID"
-                  : "Attach RFID"}
-            </Button>
+              <Button
+                type="button"
+                disabled={saving || !canSave}
+                onClick={onSave}
+                className="min-w-28"
+              >
+                {saving
+                  ? "Saving..."
+                  : isUpdate
+                    ? "Update RFID"
+                    : "Attach RFID"}
+              </Button>
+            </span>
           </div>
         </DialogFooter>
 

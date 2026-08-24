@@ -86,14 +86,13 @@ export function AppAuthMarketingLayout({
             className="absolute inset-0 size-full object-cover object-center"
             aria-hidden
           />
-          <div className="absolute inset-0 bg-black/25" aria-hidden />
 
-          <div className="relative z-10 flex h-full items-center justify-center overflow-y-auto overscroll-contain p-5 sm:p-8 md:justify-end md:pr-[6%] lg:pr-[8%] xl:pr-[10%]">
+          <div className="relative z-10 flex h-full items-center justify-center overflow-y-auto overscroll-contain p-5 sm:p-8 md:justify-end md:pr-[5%] lg:pr-[7%] xl:pr-[9%]">
             <div
               className={cn(
-                "my-auto flex w-full max-w-[420px] flex-col justify-center rounded-[28px] bg-white",
-                "min-h-[min(36rem,calc(100svh-3.5rem))] px-8 py-11 sm:min-h-[38rem] sm:px-10 sm:py-12",
-                "shadow-[0_20px_50px_-12px_rgba(0,0,0,0.35),0_8px_16px_-8px_rgba(0,0,0,0.2)]",
+                "my-auto flex w-full max-w-[400px] flex-col justify-center rounded-2xl border border-neutral-200 bg-white",
+                "min-h-[min(34rem,calc(100svh-3.5rem))] px-7 py-9 sm:min-h-[36rem] sm:px-9 sm:py-10",
+                "shadow-[0_16px_48px_-10px_rgba(0,0,0,0.35),0_6px_16px_-6px_rgba(0,0,0,0.18)]",
               )}
             >
               {children}

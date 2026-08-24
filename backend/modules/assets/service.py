@@ -2278,7 +2278,7 @@ class AssetMasterService:
         fy_token = financial_year
         if fy_token is None and fy_start_year is not None:
             fy_token = str(fy_start_year)
-        title = report_title or ("Asset Register" if fmt == "pdf" else "Asset Register")
+        title = report_title or ("Asset Register Report" if fmt == "pdf" else "Asset Register Report")
         if fmt == "pdf":
             content = build_asset_export_pdf(rows, export_fields, generated_by=generated_by)
             filename = report_filename(

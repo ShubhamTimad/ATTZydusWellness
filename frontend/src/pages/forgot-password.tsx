@@ -2,7 +2,7 @@ import * as React from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
-import { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS } from "@/components/auth/auth-field-styles"
+import { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS, AUTH_LABEL_CLASS } from "@/components/auth/auth-field-styles"
 import { AuthFormShell } from "@/components/auth/auth-form-shell"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -112,7 +112,7 @@ export function ForgotPasswordPage() {
               </Alert>
             ) : null}
             <div className="app-form-field">
-              <Label htmlFor="forgot-email" className="text-[13px] font-medium sm:text-sm">
+              <Label htmlFor="forgot-email" className={AUTH_LABEL_CLASS}>
                 Email
               </Label>
               <Input

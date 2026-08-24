@@ -111,7 +111,7 @@ def build_asset_export_xlsx(
     count = len(assets)
     write_xlsx_header(
         ws,
-        title="Asset Register",
+        title="Asset Register Report",
         subtitle=f"{count} asset{'s' if count != 1 else ''}",
         ncols=ncols,
         generated_by=generated_by,
@@ -149,7 +149,7 @@ def build_asset_export_pdf(
         rows.append(row)
     return build_pdf(
         ReportDocument(
-            title="Asset Register",
+            title="Asset Register Report",
             subtitle=f"{len(rows)} asset{'s' if len(rows) != 1 else ''}",
             headers=headers,
             rows=rows,

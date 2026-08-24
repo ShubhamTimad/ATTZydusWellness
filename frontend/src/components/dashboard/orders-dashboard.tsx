@@ -18,23 +18,23 @@ export function OrdersDashboard({ data }: { data: OrdersDashboardModule }) {
   const parts = orderInsightParts(data)
   const inProgressPct = dashboardPct(parts.inProgress, parts.total)
   const slices = [
-    { name: "In Progress", value: parts.inProgress, color: DASHBOARD_COLOR.blue },
+    { name: "Active", value: parts.inProgress, color: DASHBOARD_COLOR.blue },
     { name: "Closed", value: parts.closed, color: DASHBOARD_COLOR.green },
   ]
 
   return (
     <DashboardInsightCard
-      title="Physical Verification Order"
+      title="Physical Verification"
       icon={theme.icon}
       iconWrap={theme.iconWrap}
       metrics={[
         { value: parts.total, label: "Total" },
-        { value: parts.inProgress, label: "In Progress" },
+        { value: parts.inProgress, label: "Active" },
         { value: parts.closed, label: "Closed" },
       ]}
       slices={slices}
       centerLabel={`${inProgressPct}%`}
-      centerCaption="In Progress"
+      centerCaption="Active"
     />
   )
 }

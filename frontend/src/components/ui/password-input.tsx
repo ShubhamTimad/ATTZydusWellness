@@ -30,7 +30,7 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputPro
           tabIndex={-1}
           disabled={disabled}
           aria-label="Hold to show password"
-          className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-neutral-500 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
           onMouseDown={(e) => {
             e.preventDefault()
             if (!disabled) setVisible(true)

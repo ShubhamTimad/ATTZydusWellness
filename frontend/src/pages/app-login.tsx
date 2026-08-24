@@ -1,7 +1,12 @@
 import * as React from "react"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
 
-import { AUTH_BUTTON_CLASS, AUTH_INPUT_CLASS, AUTH_PASSWORD_CLASS } from "@/components/auth/auth-field-styles"
+import {
+  AUTH_BUTTON_CLASS,
+  AUTH_INPUT_CLASS,
+  AUTH_LABEL_CLASS,
+  AUTH_PASSWORD_CLASS,
+} from "@/components/auth/auth-field-styles"
 import { AuthFormShell } from "@/components/auth/auth-form-shell"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -200,7 +205,7 @@ export function AppLoginPage() {
         {step === "password" ? (
           <form onSubmit={onSubmitPassword} className="space-y-5">
             <div className="app-form-field">
-              <Label htmlFor="identifier" className="text-[13px] font-medium sm:text-sm">
+              <Label htmlFor="identifier" className={AUTH_LABEL_CLASS}>
                 Email Address
               </Label>
               <Input
@@ -218,12 +223,12 @@ export function AppLoginPage() {
 
             <div className="app-form-field">
               <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="password" className="text-[13px] font-medium sm:text-sm">
+                <Label htmlFor="password" className={AUTH_LABEL_CLASS}>
                   Password
                 </Label>
                 <Link
                   to="/forgot-password"
-                  className="text-[12px] font-medium text-primary underline-offset-2 hover:underline sm:text-[13px]"
+                  className="text-[12px] font-semibold text-primary underline-offset-2 hover:underline sm:text-[13px]"
                   tabIndex={-1}
                 >
                   Forgot password?
@@ -243,7 +248,7 @@ export function AppLoginPage() {
 
             {policy?.captcha_enabled ? (
               <div className="app-form-field">
-                <Label htmlFor="captcha" className="text-[13px] font-medium sm:text-sm">
+                <Label htmlFor="captcha" className={AUTH_LABEL_CLASS}>
                   Captcha token
                 </Label>
                 <Input
@@ -265,7 +270,7 @@ export function AppLoginPage() {
         ) : (
           <form onSubmit={onSubmitOtp} className="space-y-5">
             <div className="app-form-field">
-              <Label htmlFor="otp" className="text-[13px] font-medium sm:text-sm">
+              <Label htmlFor="otp" className={AUTH_LABEL_CLASS}>
                 6-digit code
               </Label>
               <Input

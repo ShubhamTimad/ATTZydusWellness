@@ -41,12 +41,12 @@ export function AuthFormShell({
   if (isRail) {
     return (
       <div className={cn("mx-auto flex h-full w-full flex-col", className)}>
-        <div className="mb-7 flex justify-center">
+        <div className="mb-6 flex justify-center">
           <AuthBrandMark size="lg" showSubtitle={false} />
         </div>
 
-        <header className="mb-8 space-y-2 text-center">
-          <h1 className="text-[22px] leading-tight font-semibold tracking-tight text-foreground sm:text-2xl">
+        <header className="mb-7 space-y-2 text-center">
+          <h1 className="text-[28px] leading-tight font-semibold tracking-tight text-foreground sm:text-[32px]">
             {title}
           </h1>
           {description ? (
@@ -58,14 +58,14 @@ export function AuthFormShell({
 
         <div className="flex flex-1 flex-col justify-center space-y-5">{children}</div>
 
-        <div className="mt-10 space-y-1.5 border-t border-border/40 pt-6 text-center">
-          {footer ? <div className="text-[13px] text-muted-foreground">{footer}</div> : null}
+        <div className="mt-8 space-y-1.5 border-t border-neutral-200 pt-5 text-center">
+          {footer ? <div className="text-[13px] text-neutral-600">{footer}</div> : null}
           {version ? (
-            <p className="text-[11px] tabular-nums tracking-wide text-muted-foreground/70">
+            <p className="text-xs tabular-nums tracking-wide text-neutral-500">
               Version {version}
             </p>
           ) : null}
-          <p className="text-[11px] text-muted-foreground/60">
+          <p className="text-xs text-neutral-500">
             © {new Date().getFullYear()} Takeda
             {version ? <span className="ml-1 tabular-nums">· v{version}</span> : null}
           </p>
