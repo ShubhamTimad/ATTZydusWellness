@@ -55,7 +55,7 @@ def _filter_options(kind: str, *, plant_options: list[ReportFilterOptionPublic],
             ReportFilterOptionPublic(
                 value=str(period.start.year),
                 label=(
-                    f"{period.label} (running)"
+                    f"{period.label}"
                     if period.start == current.start and period.end == current.end
                     else period.label
                 ),

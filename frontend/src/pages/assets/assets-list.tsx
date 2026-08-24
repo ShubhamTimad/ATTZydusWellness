@@ -1858,10 +1858,13 @@ export function AssetsListPage() {
                 </p>
               </div>
 
-              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/20 px-3 py-2.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-black">
+              <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-black">
+                  Financial year
+                </p>
+                <p className="mt-0.5 text-xl font-semibold leading-tight text-foreground">
                   {data.financial_year_label}
-                </span>
+                </p>
                 {data.scan_window_start && data.scan_window_end ? (
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {formatAppDate(data.scan_window_start)} –{" "}
@@ -1882,8 +1885,8 @@ export function AssetsListPage() {
               }}
             >
               <WorkspaceTabsList>
-                <WorkspaceTabsTrigger value="verified">Physically verified</WorkspaceTabsTrigger>
-                <WorkspaceTabsTrigger value="pending">Pending verification</WorkspaceTabsTrigger>
+                <WorkspaceTabsTrigger value="verified">Physically Verified</WorkspaceTabsTrigger>
+                <WorkspaceTabsTrigger value="pending">Pending Verification</WorkspaceTabsTrigger>
               </WorkspaceTabsList>
             </WorkspaceTabs>
           ) : null}
@@ -1970,7 +1973,7 @@ export function AssetsListPage() {
                 {fyYearOptions.map((option) => (
                   <option key={option.start_year} value={String(option.start_year)}>
                     {option.label}
-                    {option.is_current ? " (running)" : ""}
+                    {option.is_current ? " " : ""}
                   </option>
                 ))}
               </select>
@@ -2050,7 +2053,7 @@ export function AssetsListPage() {
                       {fyYearOptions.map((option) => (
                         <option key={option.start_year} value={String(option.start_year)}>
                           {option.label}
-                          {option.is_current ? " (running)" : ""}
+                          {option.is_current ? " " : ""}
                         </option>
                       ))}
                     </select>
