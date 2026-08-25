@@ -50,5 +50,7 @@ echo "==> Service status"
 docker compose --env-file "$ENV_FILE" ps
 
 echo ""
-echo "==> App: http://<server-ip>:${APP_PORT:-8083}/login"
+echo "==> App (HTTPS): https://\${DOMAIN:-dev.adityatavnoji.in}/login"
+echo "    Direct (loopback): http://127.0.0.1:\${APP_PORT:-8083}/login"
 echo "    Logs: docker compose --env-file $ENV_FILE logs -f backend"
+echo "    TLS setup: docs/HTTPS.md  (./scripts/ssl-init.sh)"

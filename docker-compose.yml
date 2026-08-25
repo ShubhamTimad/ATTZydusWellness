@@ -96,8 +96,10 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    # With HTTPS edge proxy: bind loopback only (public traffic uses :443).
+    # For direct IP:8083 access without proxy, set APP_HOST_BIND=0.0.0.0 in .env.docker.
     ports:
-      - "${APP_HOST_BIND:-0.0.0.0}:${APP_PORT:-8083}:80"
+      - "${APP_HOST_BIND:-127.0.0.1}:${APP_PORT:-8083}:80"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/ > /dev/null || exit 1"]
       interval: 20s
@@ -106,9 +108,51 @@ services:
     networks:
       - takeda_att_network
 
+  # Edge reverse proxy: Internet :80/:443 → frontend (Let's Encrypt).
+  # First cert: ./scripts/ssl-init.sh  (see docs/HTTPS.md)
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:-dev.adityatavnoji.in}
+    ports:
+      - "${PROXY_HTTP_BIND:-0.0.0.0}:80:80"
+      - "${PROXY_HTTPS_BIND:-0.0.0.0}:443:443"
+    volumes:
+      - ./deploy/proxy/entrypoint.sh:/entrypoint.sh:ro
+      - ./deploy/proxy/http.conf.template:/etc/nginx/templates/http.conf.template:ro
+      - ./deploy/proxy/https.conf.template:/etc/nginx/templates/https.conf.template:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - takeda_att_network
+
+  # Certificate renewal (initial issue via scripts/ssl-init.sh).
+  certbot:
+    image: certbot/certbot:v2.11.0
+    restart: unless-stopped
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h; done"
+    networks:
+      - takeda_att_network
+
 volumes:
   takeda_att_db_data:
   takeda_att_uploads:
+  certbot_www:
+  certbot_certs:
 
 networks:
   takeda_att_network:

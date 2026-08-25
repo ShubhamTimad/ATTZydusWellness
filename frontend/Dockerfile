@@ -28,6 +28,7 @@ ARG BACKEND_UPSTREAM_PORT=9005
 RUN apk add --no-cache curl
 
 COPY frontend/nginx.conf /tmp/default.conf
+COPY frontend/nginx-map.conf /etc/nginx/conf.d/00-map.conf
 RUN sed "s/__BACKEND_PORT__/${BACKEND_UPSTREAM_PORT}/" /tmp/default.conf > /etc/nginx/conf.d/default.conf
 COPY --from=build /app/frontend/dist /usr/share/nginx/html
 

@@ -4,7 +4,18 @@ Use `docker-compose.yml` with `.env.docker` (copy from `.env.docker.example`).
 
 ## URLs (what to open in the browser)
 
-Replace `YOUR_SERVER_IP` with your VPS public IP (e.g. `161.97.93.106`) or domain.
+**With HTTPS** (recommended — see [HTTPS.md](./HTTPS.md)):
+
+| What | URL |
+|------|-----|
+| App | `https://dev.adityatavnoji.in` |
+| Admin | `https://dev.adityatavnoji.in/admin/login` |
+| API | `https://dev.adityatavnoji.in/api/...` |
+| SSO callback (Entra) | `https://dev.adityatavnoji.in/api/auth/sso/callback` |
+
+**Legacy direct port** (only if edge proxy is stopped and `APP_HOST_BIND=0.0.0.0`):
+
+Replace `YOUR_SERVER_IP` with your VPS public IP (e.g. `161.97.93.106`).
 
 | What | URL | Notes |
 |------|-----|--------|
