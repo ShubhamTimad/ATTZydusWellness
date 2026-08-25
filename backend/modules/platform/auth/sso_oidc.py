@@ -362,7 +362,7 @@ def complete_sso_callback(
     if portal == "user" and user.is_superuser:
         raise SsoPortalMismatchError("Superadmin accounts must use admin SSO.")
 
-    tokens = AuthService(db).issue_token_pair(user)
+    tokens = AuthService(db).issue_token_pair(user, auth_method="sso")
     return tokens, portal
 
 

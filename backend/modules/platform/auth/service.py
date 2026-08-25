@@ -59,12 +59,15 @@ class AuthService:
         settings = get_settings()
         return timedelta(minutes=settings.access_token_expire_minutes)
 
-    def _issue_token_pair(self, user: User) -> TokenPair:
+    def _issue_token_pair(self, user: User, *, auth_method: str = "password") -> TokenPair:
         settings = get_settings()
         jti = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
+        method = (auth_method or "password").strip().lower()
+        if method not in ("password", "sso"):
+            method = "password"
         access = create_access_token(
-            {"sub": str(user.id), "jti": jti},
+            {"sub": str(user.id), "jti": jti, "amr": method},
             expires_delta=self._access_token_lifetime(),
         )
         delta = timedelta(days=settings.refresh_token_expire_days)
@@ -75,14 +78,15 @@ class AuthService:
                 user_id=user.id,
                 expires_at=now + delta,
                 last_activity_at=now,
+                auth_method=method,
             )
         )
         self._db.commit()
         return TokenPair(access_token=access, refresh_token=refresh)
 
-    def issue_token_pair(self, user: User) -> TokenPair:
+    def issue_token_pair(self, user: User, *, auth_method: str = "password") -> TokenPair:
         """Public: MFA verification, SSO, and other non-password login paths."""
-        return self._issue_token_pair(user)
+        return self._issue_token_pair(user, auth_method=auth_method)
 
     def assert_client_access(self, user: User, client_type: str | None) -> None:
         if (client_type or "web").lower() != "mobile":
@@ -191,6 +195,9 @@ class AuthService:
         row.revoked_at = now
         new_jti = str(uuid.uuid4())
         delta = timedelta(days=settings.refresh_token_expire_days)
+        auth_method = (getattr(row, "auth_method", None) or "password").strip().lower()
+        if auth_method not in ("password", "sso"):
+            auth_method = "password"
         new_refresh = create_refresh_token(
             subject=str(user_id), jti=new_jti, expires_delta=delta
         )
@@ -200,10 +207,11 @@ class AuthService:
                 user_id=user_id,
                 expires_at=now + delta,
                 last_activity_at=now,
+                auth_method=auth_method,
             )
         )
         access = create_access_token(
-            {"sub": str(user_id), "jti": new_jti},
+            {"sub": str(user_id), "jti": new_jti, "amr": auth_method},
             expires_delta=self._access_token_lifetime(),
         )
         self._db.commit()

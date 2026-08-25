@@ -23,6 +23,12 @@ class UserSession(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    # password | sso — controls whether SSO-specific idle policy applies.
+    auth_method: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        server_default="password",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

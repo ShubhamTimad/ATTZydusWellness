@@ -49,6 +49,7 @@ type AuthPolicy = {
 
 type SessionIdleSettings = {
   idle_timeout_minutes: number
+  apply_to_sso: boolean
 }
 
 type AppVersionSettings = {
@@ -189,6 +190,7 @@ export function SettingsPage() {
         getJson<FinancialYearSettings>("/admin/settings/financial-year").catch(() => null),
         getJson<SessionIdleSettings>("/admin/settings/session-idle").catch(() => ({
           idle_timeout_minutes: 10,
+          apply_to_sso: false,
         })),
         getJson<DocumentFormatSettings>("/admin/settings/document-format").catch(
           () => DEFAULT_DOCUMENT_FORMAT,
@@ -206,7 +208,10 @@ export function SettingsPage() {
       setEmailDelivery(email)
       setSsoSettings(sso)
       setFinancialYear(fy)
-      setSessionIdle(idle)
+      setSessionIdle({
+        idle_timeout_minutes: Number(idle?.idle_timeout_minutes) || 10,
+        apply_to_sso: Boolean(idle?.apply_to_sso),
+      })
       setDocumentFormat(docs)
       setAppVersion(ver)
       setLoginBgMeta(bgMeta)
@@ -591,7 +596,7 @@ export function SettingsPage() {
 
           <AdminPanel
             title="Session idle timeout"
-            // description="All users are signed out after this many minutes without activity, or while the browser tab is in the background. The server also ends the session if the app is closed."
+            description="Password sign-in always uses this timer. For SSO, use Apply to SSO below (off by default — no navbar countdown)."
             contentClassName="space-y-4 px-5 py-5"
           >
             {sessionIdle ? (
@@ -604,6 +609,7 @@ export function SettingsPage() {
                     min={1}
                     max={1440}
                     value={sessionIdle.idle_timeout_minutes}
+                    disabled={!canWriteSettings}
                     onChange={(e) => {
                       const n = parseInt(e.target.value, 10)
                       setSessionIdle((s) =>
@@ -611,9 +617,22 @@ export function SettingsPage() {
                       )
                     }}
                   />
-                  {/* <p className="text-xs text-muted-foreground">
-                    Default is 10 minutes. Applies to every signed-in user on the next sign-in or API call.
-                  </p> */}
+                </div>
+                <div className={adminSwitchRowClass}>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">Apply to SSO sessions</div>
+                    <div className="text-xs text-muted-foreground">
+                      Off (default): Microsoft/OIDC sessions stay signed in until logout or JWT expiry — no top
+                      navbar timer. On: SSO uses the same idle minutes as password sign-in.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={sessionIdle.apply_to_sso}
+                    disabled={!canWriteSettings}
+                    onCheckedChange={(v) =>
+                      setSessionIdle((s) => (s ? { ...s, apply_to_sso: Boolean(v) } : s))
+                    }
+                  />
                 </div>
                 <div className="flex justify-end border-t border-border/60 pt-4">
                   <AdminPrimaryButton
@@ -628,7 +647,10 @@ export function SettingsPage() {
                           "/admin/settings/session-idle",
                           sessionIdle as unknown as Record<string, unknown>
                         )
-                        setSessionIdle(updated)
+                        setSessionIdle({
+                          idle_timeout_minutes: updated.idle_timeout_minutes,
+                          apply_to_sso: Boolean(updated.apply_to_sso),
+                        })
                         toast.success("Saved", { id: "session-idle-save" })
                       } catch (e) {
                         const message = e instanceof Error ? e.message : "Save failed"

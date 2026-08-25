@@ -37,8 +37,16 @@ from modules.platform.auth.schema import (
 from modules.errors import NotFoundError
 from modules.platform.settings.service import SettingsService
 from modules.platform.settings.schema import AuthPolicyPublic, AppVersionPublic, SessionIdleSettingsPublic
-from modules.platform.settings.session_idle import get_session_idle_timeout_minutes
+from modules.platform.settings.session_idle import (
+    get_session_idle_timeout_minutes,
+    idle_policy_for_auth_method,
+)
 from modules.platform.settings.app_version import get_app_version
+from modules.platform.auth.model import UserSession
+from core.security import decode_access_token
+from jose import JWTError
+from datetime import datetime, timezone
+from sqlalchemy import select
 
 router = APIRouter(tags=["auth"])
 
@@ -56,10 +64,49 @@ def public_auth_policy(db: Session = Depends(get_db)) -> AuthPolicyPublic:
 
 
 @router.get("/auth/session-policy", response_model=SessionIdleSettingsPublic)
-def public_session_policy() -> SessionIdleSettingsPublic:
-    """Idle timeout for client auto sign-out (minutes, org-wide)."""
-    return SessionIdleSettingsPublic(idle_timeout_minutes=get_session_idle_timeout_minutes())
+def public_session_policy(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> SessionIdleSettingsPublic:
+    """
+    Idle policy for the current session.
 
+    With a Bearer token, SSO sessions honor Session idle → Apply to SSO (off by default).
+    Without a token, returns the global password idle policy.
+    """
+    auth = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+    if auth.lower().startswith("bearer "):
+        token = auth.split(None, 1)[1].strip()
+        try:
+            claims = decode_access_token(token)
+            auth_method: str | None = None
+            amr = claims.get("amr")
+            if isinstance(amr, str) and amr.strip():
+                auth_method = amr.strip().lower()
+            jti = claims.get("jti")
+            if auth_method is None and isinstance(jti, str) and jti:
+                now = datetime.now(timezone.utc)
+                row = db.scalar(
+                    select(UserSession).where(
+                        UserSession.refresh_jti == jti,
+                        UserSession.revoked_at.is_(None),
+                        UserSession.expires_at > now,
+                    )
+                )
+                if row is not None:
+                    auth_method = getattr(row, "auth_method", None)
+            if auth_method is not None:
+                enabled, minutes = idle_policy_for_auth_method(auth_method)
+                return SessionIdleSettingsPublic(
+                    idle_enabled=enabled,
+                    idle_timeout_minutes=minutes if enabled else 0,
+                )
+        except JWTError:
+            pass
+    return SessionIdleSettingsPublic(
+        idle_enabled=True,
+        idle_timeout_minutes=get_session_idle_timeout_minutes(),
+    )
 
 @router.get("/auth/session-touch")
 def session_touch(_user: CurrentUser = Depends(get_current_user)) -> dict[str, bool]:

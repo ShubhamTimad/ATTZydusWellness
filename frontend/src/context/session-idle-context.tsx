@@ -5,12 +5,15 @@ import {
   SESSION_ACTIVITY_EVENT,
   SESSION_IDLE_LOGOUT_EVENT,
   SESSION_LAST_ACTIVE_STORAGE_KEY,
+  readAccessTokenAmr,
   readSharedLastActive,
+  readStoredAuthMethod,
   writeSharedLastActive,
   type AuthLogoutReason,
 } from "@/lib/session-idle-events"
 
 type SessionPolicy = {
+  idle_enabled?: boolean
   idle_timeout_minutes: number
 }
 
@@ -42,6 +45,10 @@ export function formatIdleCountdown(totalSeconds: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
 }
 
+function isLikelySsoSession(): boolean {
+  return readAccessTokenAmr() === "sso" || readStoredAuthMethod() === "sso"
+}
+
 type SessionIdleProviderProps = {
   enabled: boolean
   onIdleLogout: (reason?: AuthLogoutReason) => void
@@ -50,29 +57,37 @@ type SessionIdleProviderProps = {
 
 export function SessionIdleProvider({ enabled, onIdleLogout, children }: SessionIdleProviderProps) {
   const timeoutMsRef = React.useRef(10 * 60 * 1000)
+  const idleOnRef = React.useRef(true)
   const lastActiveRef = React.useRef(Date.now())
   const lastUiRef = React.useRef(0)
   const lastStorageWriteRef = React.useRef(0)
   const lastServerTouchRef = React.useRef(0)
   const onLogoutRef = React.useRef(onIdleLogout)
-  const [remainingSeconds, setRemainingSeconds] = React.useState<number | null>(enabled ? 600 : null)
+  const [remainingSeconds, setRemainingSeconds] = React.useState<number | null>(null)
   const [isTabHidden, setIsTabHidden] = React.useState(false)
   const [idleTimeoutMinutes, setIdleTimeoutMinutes] = React.useState(10)
+  const [idleTracking, setIdleTracking] = React.useState(false)
 
   React.useEffect(() => {
     onLogoutRef.current = onIdleLogout
   }, [onIdleLogout])
 
-  const computeRemainingMs = React.useCallback(() => {
-    return Math.max(0, timeoutMsRef.current - (Date.now() - lastActiveRef.current))
-  }, [])
-
   React.useEffect(() => {
     if (!enabled) {
+      idleOnRef.current = false
+      timeoutMsRef.current = Number.POSITIVE_INFINITY
+      setIdleTracking(false)
       setRemainingSeconds(null)
       setIsTabHidden(false)
       return
     }
+
+    // Do not start the countdown until /auth/session-policy responds.
+    idleOnRef.current = false
+    timeoutMsRef.current = Number.POSITIVE_INFINITY
+    setIdleTracking(false)
+    setRemainingSeconds(null)
+
     const now = Date.now()
     lastActiveRef.current = readSharedLastActive(now)
     if (lastActiveRef.current === now) writeSharedLastActive(now)
@@ -82,25 +97,44 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
         const policy = await getJson<SessionPolicy>("/auth/session-policy")
         if (cancelled) return
         const minutes = Number(policy.idle_timeout_minutes)
-        if (Number.isFinite(minutes) && minutes >= 1) {
+        // Only show navbar timer when the server says idle is on for this session.
+        if (policy.idle_enabled === true && Number.isFinite(minutes) && minutes >= 1) {
+          idleOnRef.current = true
           timeoutMsRef.current = minutes * 60 * 1000
           setIdleTimeoutMinutes(minutes)
+          setIdleTracking(true)
           lastActiveRef.current = readSharedLastActive(Date.now())
-          setRemainingSeconds(Math.ceil(computeRemainingMs() / 1000))
+          setRemainingSeconds(
+            Math.ceil(Math.max(0, timeoutMsRef.current - (Date.now() - lastActiveRef.current)) / 1000),
+          )
+          return
         }
+        idleOnRef.current = false
+        timeoutMsRef.current = Number.POSITIVE_INFINITY
+        setIdleTracking(false)
+        setIdleTimeoutMinutes(0)
+        setRemainingSeconds(null)
       } catch {
-        /* keep default */
+        // Password sessions: fall back to 10m if policy cannot load. SSO stays off.
+        if (cancelled || isLikelySsoSession()) return
+        idleOnRef.current = true
+        timeoutMsRef.current = 10 * 60 * 1000
+        setIdleTimeoutMinutes(10)
+        setIdleTracking(true)
+        lastActiveRef.current = readSharedLastActive(Date.now())
+        setRemainingSeconds(Math.ceil(timeoutMsRef.current / 1000))
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [computeRemainingMs, enabled])
+  }, [enabled])
 
   React.useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !idleTracking) return
 
     const markActive = (source: "user" | "api") => {
+      if (!idleOnRef.current || !Number.isFinite(timeoutMsRef.current)) return
       const now = Date.now()
       lastActiveRef.current = now
       if (now - lastStorageWriteRef.current >= UI_THROTTLE_MS) {
@@ -126,6 +160,10 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
 
     const tick = () => {
       setIsTabHidden(document.hidden)
+      if (!idleOnRef.current || !Number.isFinite(timeoutMsRef.current)) {
+        setRemainingSeconds(null)
+        return
+      }
       const remainingMs = timeoutMsRef.current - (Date.now() - lastActiveRef.current)
       if (remainingMs <= 0) {
         onLogoutRef.current("session_idle")
@@ -135,6 +173,7 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
     }
 
     const onStorage = (event: StorageEvent) => {
+      if (!idleOnRef.current || !Number.isFinite(timeoutMsRef.current)) return
       if (event.key !== SESSION_LAST_ACTIVE_STORAGE_KEY || event.newValue == null) return
       const n = Number(event.newValue)
       if (!Number.isFinite(n) || n <= lastActiveRef.current) return
@@ -143,7 +182,9 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
     }
 
     setIsTabHidden(document.hidden)
-    setRemainingSeconds(Math.ceil(computeRemainingMs() / 1000))
+    setRemainingSeconds(
+      Math.ceil(Math.max(0, timeoutMsRef.current - (Date.now() - lastActiveRef.current)) / 1000),
+    )
 
     const onUser = () => markActive("user")
     const userEvents = ["mousedown", "mousemove", "keydown", "touchstart", "wheel", "click"] as const
@@ -156,6 +197,7 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
     const intervalId = window.setInterval(tick, 1000)
 
     const onApiIdle = (event: Event) => {
+      if (!idleOnRef.current) return
       const reason = (event as CustomEvent<{ reason?: AuthLogoutReason }>).detail?.reason
       onLogoutRef.current(reason)
     }
@@ -174,7 +216,7 @@ export function SessionIdleProvider({ enabled, onIdleLogout, children }: Session
       window.removeEventListener(SESSION_IDLE_LOGOUT_EVENT, onApiIdle)
       window.removeEventListener(SESSION_ACTIVITY_EVENT, onApiActivity)
     }
-  }, [computeRemainingMs, enabled])
+  }, [enabled, idleTracking])
 
   const value = React.useMemo(
     () => ({ remainingSeconds, isTabHidden, idleTimeoutMinutes }),

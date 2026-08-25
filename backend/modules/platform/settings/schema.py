@@ -97,13 +97,21 @@ class SsoSettingsPublic(BaseModel):
 
 
 class SessionIdleSettingsPublic(BaseModel):
-    """Minutes without user interaction (or API use) before automatic sign-out."""
+    """Admin idle settings and/or effective policy for the current session."""
 
     idle_timeout_minutes: int = Field(
         default=10,
-        ge=1,
+        ge=0,
         le=24 * 60,
-        description="Applied to every user session.",
+        description="Minutes of inactivity before sign-out when idle applies.",
+    )
+    idle_enabled: bool = Field(
+        default=True,
+        description="Client policy: when false, do not auto sign-out for inactivity (navbar timer off).",
+    )
+    apply_to_sso: bool = Field(
+        default=False,
+        description="Admin: when true, SSO sessions use the same idle minutes; when false (default), SSO skips idle.",
     )
 
 

@@ -18,7 +18,7 @@ import { PasswordInput } from "@/components/ui/password-input"
 import { ApiError, API_BASE_URL, getJson, postJson } from "@/lib/api"
 import { loginRequestFields, validateLoginIdentifier } from "@/lib/login-identifier"
 import { clearAuthProfile, persistAuthFromMe } from "@/lib/permissions"
-import { clearSharedLastActive } from "@/lib/session-idle-events"
+import { clearSharedLastActive, clearStoredAuthMethod, writeStoredAuthMethod } from "@/lib/session-idle-events"
 
 type LoginResponse = {
   access_token?: string
@@ -86,12 +86,14 @@ export function AppLoginPage() {
     localStorage.removeItem("access_token")
     localStorage.removeItem("refresh_token")
     clearSharedLastActive()
+    clearStoredAuthMethod()
     clearAuthProfile()
   }
 
   async function completeSession(accessToken: string, refreshToken: string) {
     localStorage.setItem("access_token", accessToken)
     localStorage.setItem("refresh_token", refreshToken)
+    writeStoredAuthMethod("password")
     const me = await getJson<MeResponse>("/me")
     const isSuper = me?.is_superuser === true
     if (isSuper) {

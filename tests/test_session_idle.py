@@ -52,7 +52,10 @@ def _session_row(db: Session, *, last_activity_at: datetime) -> UserSession:
 
 
 def test_touch_session_extends_recent_activity(db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("core.session_idle.get_session_idle_timeout_minutes", lambda: 10)
+    monkeypatch.setattr(
+        "core.session_idle.idle_policy_for_auth_method",
+        lambda _method: (True, 10),
+    )
     now = datetime.now(timezone.utc)
     row = _session_row(db, last_activity_at=now - timedelta(minutes=2))
     touch_session_from_access_claims(db, {"jti": row.refresh_jti})
@@ -66,10 +69,29 @@ def test_touch_session_extends_recent_activity(db: Session, monkeypatch: pytest.
 
 
 def test_touch_session_revokes_when_idle_exceeded(db: Session, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("core.session_idle.get_session_idle_timeout_minutes", lambda: 10)
+    monkeypatch.setattr(
+        "core.session_idle.idle_policy_for_auth_method",
+        lambda _method: (True, 10),
+    )
     now = datetime.now(timezone.utc)
     row = _session_row(db, last_activity_at=now - timedelta(minutes=11))
     with pytest.raises(SessionIdleExpiredError):
         touch_session_from_access_claims(db, {"jti": row.refresh_jti})
     db.refresh(row)
     assert row.revoked_at is not None
+
+
+def test_touch_session_skips_idle_for_sso_when_disabled(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "core.session_idle.idle_policy_for_auth_method",
+        lambda method: (False, 0) if method == "sso" else (True, 10),
+    )
+    now = datetime.now(timezone.utc)
+    row = _session_row(db, last_activity_at=now - timedelta(minutes=11))
+    row.auth_method = "sso"
+    db.commit()
+    touch_session_from_access_claims(db, {"jti": row.refresh_jti})
+    db.refresh(row)
+    assert row.revoked_at is None

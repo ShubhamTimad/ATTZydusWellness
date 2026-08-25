@@ -5,7 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { getJson } from "@/lib/api"
 import { clearAuthProfile, persistAuthFromMe } from "@/lib/permissions"
-import { clearSharedLastActive } from "@/lib/session-idle-events"
+import { clearSharedLastActive, clearStoredAuthMethod, writeStoredAuthMethod } from "@/lib/session-idle-events"
 
 type MeResponse = {
   id: number
@@ -101,6 +101,7 @@ export function SsoCallbackPage() {
       try {
         localStorage.setItem("access_token", handoff.access_token)
         localStorage.setItem("refresh_token", handoff.refresh_token)
+        writeStoredAuthMethod("sso")
         clearSharedLastActive()
         const me = await getJson<MeResponse>("/me")
         if (cancelled) return
@@ -110,6 +111,7 @@ export function SsoCallbackPage() {
           if (!me.is_superuser) {
             localStorage.removeItem("access_token")
             localStorage.removeItem("refresh_token")
+            clearStoredAuthMethod()
             clearAuthProfile()
             setError("Admin SSO requires a superuser account.")
             return
@@ -126,6 +128,7 @@ export function SsoCallbackPage() {
         clearHandoff()
         localStorage.removeItem("access_token")
         localStorage.removeItem("refresh_token")
+        clearStoredAuthMethod()
         clearAuthProfile()
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "SSO sign-in failed.")

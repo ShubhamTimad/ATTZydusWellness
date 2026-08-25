@@ -11,7 +11,9 @@ from modules.platform.settings.session_idle import (
     MAX_IDLE_MINUTES,
     MIN_IDLE_MINUTES,
     SETTING_KEY as SESSION_IDLE_SETTING_KEY,
+    SSO_IDLE_ENABLED_KEY,
     get_session_idle_timeout_minutes,
+    is_sso_idle_enabled,
 )
 from modules.platform.settings.login_background import (
     SETTING_KEY as LOGIN_BACKGROUND_SETTING_KEY,
@@ -250,6 +252,8 @@ class SettingsService:
     def get_session_idle(self) -> SessionIdleSettingsPublic:
         return SessionIdleSettingsPublic(
             idle_timeout_minutes=get_session_idle_timeout_minutes(),
+            apply_to_sso=is_sso_idle_enabled(),
+            idle_enabled=True,
         )
 
     def put_session_idle(self, payload: SessionIdleSettingsPublic) -> SessionIdleSettingsPublic:
@@ -257,10 +261,16 @@ class SettingsService:
             MIN_IDLE_MINUTES,
             min(MAX_IDLE_MINUTES, int(payload.idle_timeout_minutes)),
         )
+        apply = bool(payload.apply_to_sso)
         self._upsert(SESSION_IDLE_SETTING_KEY, str(minutes))
+        self._upsert(SSO_IDLE_ENABLED_KEY, "true" if apply else "false")
         self._db.commit()
-        clear_setting_cache(SESSION_IDLE_SETTING_KEY)
-        return SessionIdleSettingsPublic(idle_timeout_minutes=minutes)
+        clear_setting_cache(SESSION_IDLE_SETTING_KEY, SSO_IDLE_ENABLED_KEY)
+        return SessionIdleSettingsPublic(
+            idle_timeout_minutes=minutes,
+            apply_to_sso=apply,
+            idle_enabled=True,
+        )
 
     def get_app_version(self) -> AppVersionPublic:
         from modules.platform.settings.app_version import get_app_version

@@ -43,7 +43,7 @@ Use this as the end-to-end guide to implement or re-implement OIDC SSO in this c
 | Session after SSO | Keep **ATT JWTs** + `UserSession` (do not put Entra access tokens on every API call) |
 | Who may enter ATT? | Prefer **pre-provisioned** users; JIT optional via settings |
 | MFA | Entra MFA for SSO path; ATT TOTP MFA remains for **password** login only |
-| Idle timeout | Unchanged — same 10‑minute (configurable) idle for SSO and password sessions |
+| Idle timeout | **Password:** Session idle minutes. **SSO:** same minutes only if **Apply to SSO** is on (off by default → no navbar timer) |
 
 Collect from the client / IdP admin: **Tenant ID**, **Client ID**, **Client secret**, **Redirect URI(s)** per environment, email vs UPN claim, group assignment, JIT yes/no.
 
@@ -111,7 +111,8 @@ Core modules:
 | 5 | Inactive ATT user | Rejected |
 | 6 | Superuser on `/login` SSO | Told to use admin SSO |
 | 7 | Non-superuser on `/admin/login` SSO | Rejected |
-| 8 | Idle timeout after SSO | Same idle sign-out as password login |
+| 8 | Idle after SSO (Apply to SSO off) | No auto sign-out; no navbar timer |
+| 8b | Idle after SSO (Apply to SSO on) | Signs out after Session idle minutes |
 | 9 | Wrong redirect URI / secret | Clear error (token exchange / IdP mismatch) |
 
 ### What not to rebuild
@@ -149,6 +150,8 @@ IdP app registration
 | **Email claim** | `sso.email_claim` | Which ID token claim holds the user’s email | ATT matches/creates users by email | Primary lookup claim (default `email`). If missing, code also tries `preferred_username`, `upn`, and `unique_name` (common for Entra). Must contain `@`. |
 | **Subject claim** | `sso.subject_claim` | Stable unique user id from the IdP | Links the IdP identity to `users.external_subject` | Default `sub`. For **Entra**, prefer **`oid`** (object id). Stored once and reused on later logins. Falls back to `sub` if empty. |
 | **Allow JIT user creation** | `sso.allow_jit` | Just-in-time provisioning | Controls whether unknown users can enter on first SSO | **Off (recommended for production):** user must already exist in ATT (matching email) and be active. **On:** creates an active non-superuser with a random unusable password if no match is found. |
+
+SSO idle is **not** under this card. Use **Session idle timeout → Apply to SSO sessions** (`sso.idle_enabled`, default off). When off, SSO has no inactivity timer (navbar countdown hidden). When on, SSO uses the same **Idle timeout (minutes)**.
 
 ### Validation when enabling
 

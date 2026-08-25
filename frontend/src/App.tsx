@@ -51,7 +51,7 @@ import {
   SETTINGS_ACCESS_PERMISSIONS,
   TASK_ACCESS_PERMISSIONS,
 } from "@/lib/permissions"
-import { clearSharedLastActive } from "@/lib/session-idle-events"
+import { clearSharedLastActive, clearStoredAuthMethod } from "@/lib/session-idle-events"
 import type { NavbarUser } from "@/lib/navbar-user"
 
 function App() {
@@ -416,6 +416,7 @@ function clearTokens() {
   localStorage.removeItem("access_token")
   localStorage.removeItem("refresh_token")
   clearSharedLastActive()
+  clearStoredAuthMethod()
   clearAuthProfile()
 }
 

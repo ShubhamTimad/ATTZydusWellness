@@ -23,6 +23,7 @@ import { PasswordInput } from "@/components/ui/password-input"
 import { getJson, postJson, API_BASE_URL } from "@/lib/api"
 import { loginRequestFields, validateLoginIdentifier } from "@/lib/login-identifier"
 import { persistAuthFromMe } from "@/lib/permissions"
+import { writeStoredAuthMethod } from "@/lib/session-idle-events"
 
 const loginSchema = z.object({
   identifier: z
@@ -131,6 +132,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
 
       localStorage.setItem("access_token", accessToken)
       if (refreshToken) localStorage.setItem("refresh_token", refreshToken)
+      writeStoredAuthMethod("password")
 
       const me = await getJson<{
         is_superuser?: boolean
@@ -162,6 +164,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
       if (!accessToken) throw new Error("No access token")
       localStorage.setItem("access_token", accessToken)
       if (refreshToken) localStorage.setItem("refresh_token", refreshToken)
+      writeStoredAuthMethod("password")
       const me = await getJson<{ is_superuser?: boolean; permissions?: string[] }>("/me")
       persistAuthFromMe(me)
       toast.success("Signed in", { id: "mfa" })
