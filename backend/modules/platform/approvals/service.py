@@ -1631,7 +1631,7 @@ class ApprovalEngineService:
                     "user_name": user.full_name,
                     "username": user.username,
                     "email": user.email,
-                    "company_name": "Ultra Workspace",
+                    "company_name": "Takeda Asset Management",
                     # Always include keys used by templates; values may be blank.
                     "temp_password": "",
                     "setup_link": "",

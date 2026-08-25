@@ -260,7 +260,7 @@ class UserService:
                         "user_name": reloaded.full_name,
                         "username": reloaded.username,
                         "email": reloaded.email,
-                        "company_name": "Ultra Workspace",
+                        "company_name": "Takeda Asset Management",
                         "temp_password": plain_password,
                     },
                 )
@@ -677,7 +677,7 @@ class UserService:
             "user_name": user.full_name,
             "username": user.username,
             "email": user.email,
-            "company_name": "Ultra Workspace",
+            "company_name": "Takeda Asset Management",
             # keep template variables always present
             "temp_password": "",
             "setup_link": "",

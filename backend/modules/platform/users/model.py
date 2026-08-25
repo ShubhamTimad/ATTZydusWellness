@@ -15,6 +15,8 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True, index=True)
+    # IdP subject (OIDC sub / Entra oid) when the user signs in via SSO.
+    external_subject: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
     password_changed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

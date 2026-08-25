@@ -20,6 +20,9 @@ class AuthPolicyPublic(BaseModel):
     mfa_enabled: bool = False
     captcha_enabled: bool = False
     mfa_enforced: bool = False
+    # From SSO settings (read-only on PUT /auth-policy; edit via /settings/sso).
+    sso_enabled: bool = False
+    sso_button_label: str = "Sign in with SSO"
 
 
 class EmailDeliveryPublic(BaseModel):
@@ -44,6 +47,52 @@ class EmailDeliveryTestRequest(BaseModel):
     config: EmailDeliveryPublic | None = Field(
         default=None,
         description="Current form values; used when testing before save.",
+    )
+
+
+class SsoSettingsPublic(BaseModel):
+    """Provider-agnostic OIDC SSO (Microsoft Entra, Okta, Auth0, Keycloak, etc.)."""
+
+    enabled: bool = False
+    button_label: str = Field(
+        default="Sign in with SSO",
+        max_length=80,
+        description="Label shown on the login button.",
+    )
+    issuer: str = Field(
+        default="",
+        max_length=512,
+        description="OIDC issuer URL, e.g. https://login.microsoftonline.com/{tenant}/v2.0",
+    )
+    client_id: str = Field(default="", max_length=255)
+    client_secret: str = Field(
+        default="",
+        description="Leave empty on update to keep the stored secret.",
+    )
+    client_secret_configured: bool = False
+    redirect_uri: str = Field(
+        default="",
+        max_length=512,
+        description="Must match the IdP app registration callback URL.",
+    )
+    scopes: str = Field(
+        default="openid profile email",
+        max_length=255,
+        description="Space-separated OIDC scopes.",
+    )
+    email_claim: str = Field(
+        default="email",
+        max_length=64,
+        description="ID token claim used to match User.email (email or preferred_username).",
+    )
+    subject_claim: str = Field(
+        default="sub",
+        max_length=64,
+        description="Stable IdP subject claim (sub, or oid for Entra).",
+    )
+    allow_jit: bool = Field(
+        default=False,
+        description="If true, create an ATT user on first successful SSO (otherwise pre-provision only).",
     )
 
 

@@ -20,6 +20,8 @@ _SKIP_PREFIXES = (
     "/auth/policy",
     "/auth/session-policy",
     "/auth/app-version",
+    "/auth/login-background",
+    "/auth/sso",
     "/forgot-password",
     "/reset-password",
     "/docs",

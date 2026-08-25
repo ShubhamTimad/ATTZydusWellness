@@ -20,6 +20,7 @@ from modules.platform.settings.schema import (
     LoginBackgroundMetaPublic,
     PasswordPolicyPublic,
     SessionIdleSettingsPublic,
+    SsoSettingsPublic,
 )
 from modules.platform.settings.service import SettingsService
 
@@ -74,6 +75,26 @@ def put_auth_policy(
     _: AuthPolicyWrite,
 ) -> AuthPolicyPublic:
     return svc.put_auth_policy(payload)
+
+
+@router.get("/sso", response_model=SsoSettingsPublic)
+def get_sso_settings(
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: AuthPolicyRead,
+) -> SsoSettingsPublic:
+    return svc.get_sso_settings()
+
+
+@router.put("/sso", response_model=SsoSettingsPublic)
+def put_sso_settings(
+    payload: SsoSettingsPublic,
+    svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: AuthPolicyWrite,
+) -> SsoSettingsPublic:
+    try:
+        return svc.put_sso_settings(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/email-delivery", response_model=EmailDeliveryPublic)

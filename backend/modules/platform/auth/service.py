@@ -81,7 +81,7 @@ class AuthService:
         return TokenPair(access_token=access, refresh_token=refresh)
 
     def issue_token_pair(self, user: User) -> TokenPair:
-        """Public: used after MFA verification."""
+        """Public: MFA verification, SSO, and other non-password login paths."""
         return self._issue_token_pair(user)
 
     def assert_client_access(self, user: User, client_type: str | None) -> None:
@@ -288,7 +288,7 @@ class AuthService:
                 "user_name": user.full_name,
                 "email": user.email,
                 "reset_link": reset_link,
-                "company_name": "Ultra Workspace",
+                "company_name": "Takeda Asset Management",
                 "expiry_minutes": expires_minutes,
             },
         )
@@ -338,6 +338,6 @@ class AuthService:
                 payload={
                     "user_name": user.full_name,
                     "email": user.email,
-                    "company_name": "Ultra Workspace",
+                    "company_name": "Takeda Asset Management",
                 },
             )

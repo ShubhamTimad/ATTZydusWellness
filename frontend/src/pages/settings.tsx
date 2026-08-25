@@ -43,6 +43,8 @@ type AuthPolicy = {
   mfa_enabled: boolean
   captcha_enabled: boolean
   mfa_enforced: boolean
+  sso_enabled?: boolean
+  sso_button_label?: string
 }
 
 type SessionIdleSettings = {
@@ -68,6 +70,20 @@ type EmailDelivery = {
   smtp_use_tls: boolean
   smtp_from_email: string
   smtp_from_name: string
+}
+
+type SsoSettings = {
+  enabled: boolean
+  button_label: string
+  issuer: string
+  client_id: string
+  client_secret: string
+  client_secret_configured: boolean
+  redirect_uri: string
+  scopes: string
+  email_claim: string
+  subject_claim: string
+  allow_jit: boolean
 }
 
 type FinancialYearSettings = {
@@ -133,6 +149,8 @@ export function SettingsPage() {
   const [savingEmail, setSavingEmail] = React.useState(false)
   const [testingEmail, setTestingEmail] = React.useState(false)
   const [testToEmail, setTestToEmail] = React.useState("")
+  const [ssoSettings, setSsoSettings] = React.useState<SsoSettings | null>(null)
+  const [savingSso, setSavingSso] = React.useState(false)
   const [tab, setTab] = useUrlTab(
     ["auth", "password", "email", "financial", "documents"] as const,
     "auth",
@@ -163,10 +181,11 @@ export function SettingsPage() {
   async function load() {
     setLoadError(null)
     try {
-      const [data, auth, email, fy, idle, docs, ver, bgMeta] = await Promise.all([
+      const [data, auth, email, sso, fy, idle, docs, ver, bgMeta] = await Promise.all([
         getJson<PasswordPolicy>("/admin/settings/password-policy"),
         getJson<AuthPolicy>("/admin/settings/auth-policy").catch(() => null),
         getJson<EmailDelivery>("/admin/settings/email-delivery").catch(() => null),
+        getJson<SsoSettings>("/admin/settings/sso").catch(() => null),
         getJson<FinancialYearSettings>("/admin/settings/financial-year").catch(() => null),
         getJson<SessionIdleSettings>("/admin/settings/session-idle").catch(() => ({
           idle_timeout_minutes: 10,
@@ -185,6 +204,7 @@ export function SettingsPage() {
       setPolicy(data)
       setAuthPolicy(auth)
       setEmailDelivery(email)
+      setSsoSettings(sso)
       setFinancialYear(fy)
       setSessionIdle(idle)
       setDocumentFormat(docs)
@@ -382,6 +402,191 @@ export function SettingsPage() {
                   </div>
                 </>
               )}
+          </AdminPanel>
+
+          <AdminPanel
+            title="Single sign-on (OIDC)"
+            description="Works with Microsoft Entra ID, Okta, Auth0, Keycloak, and any OpenID Connect provider. Redirect URI must match the IdP app registration."
+            contentClassName="space-y-4 px-5 py-5"
+          >
+            {!ssoSettings ? (
+              <Alert variant="destructive">
+                <AlertTitle>SSO settings unavailable</AlertTitle>
+                <AlertDescription>Missing permission: auth_policy.view or settings.view</AlertDescription>
+              </Alert>
+            ) : (
+              <>
+                <div className={adminSwitchRowClass}>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">Enable SSO</div>
+                    <div className="text-xs text-muted-foreground">
+                      Show SSO on login pages. Requires issuer, client ID, secret, and redirect URI.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={ssoSettings.enabled}
+                    disabled={!canWriteAuth}
+                    onCheckedChange={(v) =>
+                      setSsoSettings((p) => (p ? { ...p, enabled: Boolean(v) } : p))
+                    }
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="sso_button_label">Button label</Label>
+                    <Input
+                      id="sso_button_label"
+                      value={ssoSettings.button_label}
+                      disabled={!canWriteAuth}
+                      onChange={(e) =>
+                        setSsoSettings((p) => (p ? { ...p, button_label: e.target.value } : p))
+                      }
+                      placeholder="Sign in with Microsoft"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="sso_issuer">OIDC issuer</Label>
+                    <Input
+                      id="sso_issuer"
+                      value={ssoSettings.issuer}
+                      disabled={!canWriteAuth}
+                      onChange={(e) =>
+                        setSsoSettings((p) => (p ? { ...p, issuer: e.target.value } : p))
+                      }
+                      placeholder="https://login.microsoftonline.com/{tenant-id}/v2.0"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sso_client_id">Client ID</Label>
+                    <Input
+                      id="sso_client_id"
+                      value={ssoSettings.client_id}
+                      disabled={!canWriteAuth}
+                      onChange={(e) =>
+                        setSsoSettings((p) => (p ? { ...p, client_id: e.target.value } : p))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sso_client_secret">Client secret</Label>
+                    <Input
+                      id="sso_client_secret"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={
+                        ssoSettings.client_secret_configured
+                          ? "•••••••• (leave blank to keep)"
+                          : "Client secret"
+                      }
+                      value={ssoSettings.client_secret}
+                      disabled={!canWriteAuth}
+                      onChange={(e) =>
+                        setSsoSettings((p) => (p ? { ...p, client_secret: e.target.value } : p))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="sso_redirect_uri">Redirect URI</Label>
+                    <Input
+                      id="sso_redirect_uri"
+                      value={ssoSettings.redirect_uri}
+                      disabled={!canWriteAuth}
+                      onChange={(e) =>
+                        setSsoSettings((p) => (p ? { ...p, redirect_uri: e.target.value } : p))
+                      }
+                      placeholder="https://api.example.com/auth/sso/callback"
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor="sso_scopes">Scopes</Label>
+                    <Input
+                      id="sso_scopes"
+                      value={ssoSettings.scopes}
+                      disabled={!canWriteAuth}
+                      onChange={(e) =>
+                        setSsoSettings((p) => (p ? { ...p, scopes: e.target.value } : p))
+                      }
+                      placeholder="openid profile email"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sso_email_claim">Email claim</Label>
+                    <Input
+                      id="sso_email_claim"
+                      value={ssoSettings.email_claim}
+                      disabled={!canWriteAuth}
+                      onChange={(e) =>
+                        setSsoSettings((p) => (p ? { ...p, email_claim: e.target.value } : p))
+                      }
+                      placeholder="email"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="sso_subject_claim">Subject claim</Label>
+                    <Input
+                      id="sso_subject_claim"
+                      value={ssoSettings.subject_claim}
+                      disabled={!canWriteAuth}
+                      onChange={(e) =>
+                        setSsoSettings((p) => (p ? { ...p, subject_claim: e.target.value } : p))
+                      }
+                      placeholder="sub"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Use <code className="text-[11px]">oid</code> for Microsoft Entra if preferred.
+                    </p>
+                  </div>
+                </div>
+
+                <div className={adminSwitchRowClass}>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">Allow JIT user creation</div>
+                    <div className="text-xs text-muted-foreground">
+                      Off = only pre-provisioned ATT users can sign in. On = create a user on first SSO.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={ssoSettings.allow_jit}
+                    disabled={!canWriteAuth}
+                    onCheckedChange={(v) =>
+                      setSsoSettings((p) => (p ? { ...p, allow_jit: Boolean(v) } : p))
+                    }
+                  />
+                </div>
+
+                <div className="flex justify-end border-t border-border/60 pt-4">
+                  <AdminPrimaryButton
+                    type="button"
+                    disabled={savingSso || !canWriteAuth}
+                    onClick={async () => {
+                      if (!ssoSettings) return
+                      setSavingSso(true)
+                      toast.loading("Saving SSO settings…", { id: "sso-settings-save" })
+                      try {
+                        const updated = await putJson<SsoSettings>(
+                          "/admin/settings/sso",
+                          {
+                            ...ssoSettings,
+                            client_secret: ssoSettings.client_secret,
+                          } as unknown as Record<string, unknown>,
+                        )
+                        setSsoSettings({ ...updated, client_secret: "" })
+                        toast.success("Saved", { id: "sso-settings-save" })
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "Save failed", {
+                          id: "sso-settings-save",
+                        })
+                      } finally {
+                        setSavingSso(false)
+                      }
+                    }}
+                  >
+                    {savingSso ? "Saving…" : "Save SSO settings"}
+                  </AdminPrimaryButton>
+                </div>
+              </>
+            )}
           </AdminPanel>
 
           <AdminPanel

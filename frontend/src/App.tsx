@@ -23,6 +23,7 @@ import { MyTaskDetailPage } from "@/pages/my-task-detail"
 import { ForgotPasswordPage } from "@/pages/forgot-password"
 import { ResetPasswordPage } from "@/pages/reset-password"
 import { MfaSetupPage } from "@/pages/mfa-setup"
+import { SsoCallbackPage } from "@/pages/sso-callback"
 import { AssetCreatePage, AssetDetailPage, AssetImportPage, AssetsListPage } from "@/pages/assets"
 import { MastersPage } from "@/pages/masters/masters-page"
 import { OrderDetailPage, OrdersListPage } from "@/pages/orders"
@@ -62,6 +63,7 @@ function App() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/mfa/setup" element={<MfaSetupPage />} />
+        <Route path="/sso/callback" element={<SsoCallbackPage />} />
         <Route path="/login" element={<AppLoginRoute />} />
         <Route path="/dashboard" element={<AppRoute />}>
           <Route

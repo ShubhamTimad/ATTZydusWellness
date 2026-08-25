@@ -33,12 +33,21 @@ from modules.platform.settings.schema import (
     LoginBackgroundMetaPublic,
     PasswordPolicyPublic,
     SessionIdleSettingsPublic,
+    SsoSettingsPublic,
 )
 from modules.platform.settings.smtp_config import (
     get_smtp_config,
     normalize_smtp_host,
     resolve_smtp_config_error,
     smtp_config_from_public,
+)
+from modules.platform.settings.sso_config import (
+    DEFAULT_BUTTON_LABEL,
+    DEFAULT_EMAIL_CLAIM,
+    DEFAULT_SCOPES,
+    DEFAULT_SUBJECT_CLAIM,
+    normalize_issuer,
+    resolve_sso_config_error,
 )
 from modules.platform.users.model import User
 from modules.platform.mfa.policy_hooks import maybe_send_mfa_setup_for_user
@@ -82,11 +91,19 @@ class SettingsService:
                 return default
             return str(row.value).strip().lower() in ("1", "true", "yes", "on")
 
+        def s(key: str, default: str = "") -> str:
+            row = self._db.scalar(select(Setting).where(Setting.key == key))
+            if row is None or row.value is None:
+                return default
+            return str(row.value).strip() or default
+
         return AuthPolicyPublic(
             password_enabled=b("auth.password_enabled", True),
             mfa_enabled=b("auth.mfa_enabled", False),
             captcha_enabled=b("auth.captcha_enabled", False),
             mfa_enforced=b("auth.mfa_enforced", False),
+            sso_enabled=b("sso.enabled", False),
+            sso_button_label=s("sso.button_label", DEFAULT_BUTTON_LABEL) or DEFAULT_BUTTON_LABEL,
         )
 
     def put_auth_policy(self, payload: AuthPolicyPublic) -> AuthPolicyPublic:
@@ -113,6 +130,69 @@ class SettingsService:
                 maybe_send_mfa_setup_for_user(self._db, u, event_code="MFA_SETUP_REQUIRED")
 
         return self.get_auth_policy()
+
+    def get_sso_settings(self) -> SsoSettingsPublic:
+        def s(key: str, default: str = "") -> str:
+            row = self._db.scalar(select(Setting).where(Setting.key == key))
+            if row is None or row.value is None:
+                return default
+            return str(row.value).strip()
+
+        def b(key: str, default: bool) -> bool:
+            raw = s(key, "")
+            if not raw:
+                return default
+            return raw.lower() in ("1", "true", "yes", "on")
+
+        return SsoSettingsPublic(
+            enabled=b("sso.enabled", False),
+            button_label=s("sso.button_label", DEFAULT_BUTTON_LABEL) or DEFAULT_BUTTON_LABEL,
+            issuer=normalize_issuer(s("sso.issuer")),
+            client_id=s("sso.client_id"),
+            client_secret="",
+            client_secret_configured=bool(s("sso.client_secret")),
+            redirect_uri=s("sso.redirect_uri"),
+            scopes=s("sso.scopes", DEFAULT_SCOPES) or DEFAULT_SCOPES,
+            email_claim=s("sso.email_claim", DEFAULT_EMAIL_CLAIM) or DEFAULT_EMAIL_CLAIM,
+            subject_claim=s("sso.subject_claim", DEFAULT_SUBJECT_CLAIM) or DEFAULT_SUBJECT_CLAIM,
+            allow_jit=b("sso.allow_jit", False),
+        )
+
+    def put_sso_settings(self, payload: SsoSettingsPublic) -> SsoSettingsPublic:
+        current = self.get_sso_settings()
+        hint = resolve_sso_config_error(
+            payload,
+            secret_configured=current.client_secret_configured,
+        )
+        if hint:
+            raise ValueError(hint)
+        mapping: list[tuple[str, str]] = [
+            ("sso.enabled", "true" if payload.enabled else "false"),
+            (
+                "sso.button_label",
+                (payload.button_label.strip() or DEFAULT_BUTTON_LABEL)[:80],
+            ),
+            ("sso.issuer", normalize_issuer(payload.issuer)),
+            ("sso.client_id", payload.client_id.strip()),
+            ("sso.redirect_uri", payload.redirect_uri.strip()),
+            ("sso.scopes", (payload.scopes.strip() or DEFAULT_SCOPES)[:255]),
+            (
+                "sso.email_claim",
+                (payload.email_claim.strip() or DEFAULT_EMAIL_CLAIM)[:64],
+            ),
+            (
+                "sso.subject_claim",
+                (payload.subject_claim.strip() or DEFAULT_SUBJECT_CLAIM)[:64],
+            ),
+            ("sso.allow_jit", "true" if payload.allow_jit else "false"),
+        ]
+        if payload.client_secret.strip():
+            mapping.append(("sso.client_secret", payload.client_secret.strip()))
+        for key, value in mapping:
+            self._upsert(key, value)
+        self._db.commit()
+        clear_setting_cache(*[k for k, _ in mapping])
+        return self.get_sso_settings()
 
     def get_email_delivery(self) -> EmailDeliveryPublic:
         def s(key: str, default: str = "") -> str:

@@ -143,7 +143,7 @@ export function AdminOverviewPage() {
   ].filter((l) => l.show)
 
   return (
-    <AdminPage fullWidth description="Manage users, plants, roles, security, and system configuration from one place.">
+    <AdminPage fullWidth>
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading summary…</p>
       ) : stats.length > 0 ? (

@@ -13,13 +13,14 @@ import {
   AUTH_PASSWORD_CLASS,
 } from "@/components/auth/auth-field-styles"
 import { AuthFormShell } from "@/components/auth/auth-form-shell"
+import { SsoSignInButton } from "@/components/auth/sso-sign-in-button"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
-import { getJson, postJson } from "@/lib/api"
+import { getJson, postJson, API_BASE_URL } from "@/lib/api"
 import { loginRequestFields, validateLoginIdentifier } from "@/lib/login-identifier"
 import { persistAuthFromMe } from "@/lib/permissions"
 
@@ -52,6 +53,8 @@ type PublicAuthPolicy = {
   mfa_enabled: boolean
   captcha_enabled: boolean
   mfa_enforced: boolean
+  sso_enabled?: boolean
+  sso_button_label?: string
 }
 
 export type LoginPageProps = {
@@ -62,8 +65,9 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const legacyReset = (searchParams.get("reset_token") ?? "").trim()
+  const ssoErrorParam = (searchParams.get("sso_error") ?? "").trim()
 
-  const [serverError, setServerError] = React.useState<string | null>(null)
+  const [serverError, setServerError] = React.useState<string | null>(ssoErrorParam || null)
   const [mfaChallenge, setMfaChallenge] = React.useState<string | null>(null)
   const [otp, setOtp] = React.useState("")
   const [policy, setPolicy] = React.useState<PublicAuthPolicy | null>(null)
@@ -176,7 +180,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
         description={
           mfaChallenge
             ? "Enter the code from your authenticator app."
-            : "Superadmin access to platform settings, users, and workflows."
+            : " "
         }
         footer={
           !mfaChallenge ? (
@@ -291,6 +295,15 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
             <Button type="submit" className={AUTH_BUTTON_CLASS} disabled={isSubmitting}>
               {isSubmitting ? "Signing in…" : "Sign in"}
             </Button>
+
+            {policy?.sso_enabled ? (
+              <SsoSignInButton
+                label={policy.sso_button_label}
+                portal="admin"
+                href={`${API_BASE_URL}/auth/sso/login?portal=admin`}
+                disabled={isSubmitting}
+              />
+            ) : null}
 
             <p className="text-center text-sm text-muted-foreground">
               <Link to="/login" className="font-medium text-primary underline-offset-2 hover:underline">

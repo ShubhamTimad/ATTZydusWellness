@@ -8,13 +8,14 @@ import {
   AUTH_PASSWORD_CLASS,
 } from "@/components/auth/auth-field-styles"
 import { AuthFormShell } from "@/components/auth/auth-form-shell"
+import { SsoSignInButton } from "@/components/auth/sso-sign-in-button"
 import { AppAuthMarketingLayout } from "@/components/layout/app-auth-marketing-layout"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
-import { ApiError, getJson, postJson } from "@/lib/api"
+import { ApiError, API_BASE_URL, getJson, postJson } from "@/lib/api"
 import { loginRequestFields, validateLoginIdentifier } from "@/lib/login-identifier"
 import { clearAuthProfile, persistAuthFromMe } from "@/lib/permissions"
 import { clearSharedLastActive } from "@/lib/session-idle-events"
@@ -42,12 +43,15 @@ type PublicAuthPolicy = {
   mfa_enabled: boolean
   captcha_enabled: boolean
   mfa_enforced: boolean
+  sso_enabled?: boolean
+  sso_button_label?: string
 }
 
 export function AppLoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const legacyReset = (searchParams.get("reset_token") ?? "").trim()
+  const ssoErrorParam = (searchParams.get("sso_error") ?? "").trim()
 
   const [identifier, setIdentifier] = React.useState("")
   const [password, setPassword] = React.useState("")
@@ -55,7 +59,7 @@ export function AppLoginPage() {
   const [otp, setOtp] = React.useState("")
   const [challengeToken, setChallengeToken] = React.useState<string | null>(null)
   const [step, setStep] = React.useState<"password" | "otp">("password")
-  const [error, setError] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(ssoErrorParam || null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [policy, setPolicy] = React.useState<PublicAuthPolicy | null>(null)
 
@@ -266,6 +270,15 @@ export function AppLoginPage() {
             <Button type="submit" disabled={isSubmitting} className={AUTH_BUTTON_CLASS}>
               {isSubmitting ? "Signing in…" : "Sign in"}
             </Button>
+
+            {policy?.sso_enabled ? (
+              <SsoSignInButton
+                label={policy.sso_button_label}
+                portal="user"
+                href={`${API_BASE_URL}/auth/sso/login?portal=user`}
+                disabled={isSubmitting}
+              />
+            ) : null}
           </form>
         ) : (
           <form onSubmit={onSubmitOtp} className="space-y-5">
