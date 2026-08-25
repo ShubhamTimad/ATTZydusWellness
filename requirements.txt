@@ -38,3 +38,6 @@ Pillow>=10.3.0
 
 # Testing
 pytest>=8.2.0
+
+# Observability (optional — active only when SENTRY_DSN is set)
+sentry-sdk[fastapi]>=2.0.0

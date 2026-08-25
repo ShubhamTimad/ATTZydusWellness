@@ -114,8 +114,22 @@ The frontend nginx container proxies `/api/*` to the backend and serves the Reac
 | `SEED_SYSTEM_EMAIL_TEMPLATES` | `true` — ensure forgot-password / core email templates on start |
 | `BOOTSTRAP_SUPERUSER_EMAIL` | First admin email (used only when no superuser exists) |
 | `BOOTSTRAP_SUPERUSER_PASSWORD` | First admin password (change after first login) |
+| `SENTRY_DSN` | Sentry project DSN (empty = disabled). See [SENTRY.md](./SENTRY.md) |
+| `SENTRY_ENVIRONMENT` | Usually `production` on the VPS |
+| `VITE_SENTRY_DSN` | Browser SDK DSN (baked at frontend image build; can match `SENTRY_DSN`) |
 
-## What is **not** auto-seeded
+## Sentry (optional)
+
+1. Set `SENTRY_DSN` / `VITE_SENTRY_DSN` in `.env.docker` (never commit; never put the DSN in a Dockerfile).
+2. Use `SENTRY_ENVIRONMENT=production` and `SENTRY_TRACES_SAMPLE_RATE=0.1` on the server.
+3. Rebuild so the frontend picks up `VITE_*`:
+
+```bash
+./scripts/docker-deploy.sh --build
+docker compose --env-file .env.docker logs backend | grep sentry_
+```
+
+Full steps: [SENTRY.md](./SENTRY.md).
 
 Do **not** run these on production — they insert demo plants, assets, orders, and users:
 

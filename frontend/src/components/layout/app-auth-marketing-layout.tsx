@@ -37,9 +37,8 @@ export function AppAuthMarketingLayout({
 }: AppAuthMarketingLayoutProps) {
   const isAdmin = variant === "admin"
   const [version, setVersion] = React.useState<string | null>(null)
-  const [bgReady, setBgReady] = React.useState(false)
-  const [bgFailed, setBgFailed] = React.useState(false)
-  const usePhotoBg = bgReady && !bgFailed
+  // Pending uses the photo shell so the default marketing layout never flashes first.
+  const [bgStatus, setBgStatus] = React.useState<"pending" | "ready" | "failed">("pending")
 
   React.useEffect(() => {
     let cancelled = false
@@ -55,36 +54,24 @@ export function AppAuthMarketingLayout({
     }
   }, [])
 
-  React.useEffect(() => {
-    let cancelled = false
-    const img = new Image()
-    img.onload = () => {
-      if (!cancelled) {
-        setBgReady(true)
-        setBgFailed(false)
-      }
-    }
-    img.onerror = () => {
-      if (!cancelled) {
-        setBgReady(false)
-        setBgFailed(true)
-      }
-    }
-    img.src = `${LOGIN_BG_URL}?t=${Date.now()}`
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  if (usePhotoBg) {
+  if (bgStatus !== "failed") {
     return (
       <AuthShellModeContext.Provider value="rail">
-        <div className="relative h-svh max-h-svh w-full overflow-hidden">
+        <div className="relative h-svh max-h-svh w-full overflow-hidden bg-[#111827]">
           <img
             src={LOGIN_BG_URL}
             alt=""
-            className="absolute inset-0 size-full object-cover object-center"
+            className={cn(
+              "absolute inset-0 size-full object-cover object-center transition-opacity duration-300",
+              bgStatus === "ready" ? "opacity-100" : "opacity-0",
+            )}
             aria-hidden
+            onLoad={() => setBgStatus("ready")}
+            onError={() => setBgStatus("failed")}
+            ref={(el) => {
+              // Cached images can be complete before onLoad attaches.
+              if (el?.complete && el.naturalWidth > 0) setBgStatus("ready")
+            }}
           />
 
           <div className="relative z-10 flex h-full items-center justify-center overflow-y-auto overscroll-contain p-5 sm:p-8 md:justify-end md:pr-[5%] lg:pr-[7%] xl:pr-[9%]">

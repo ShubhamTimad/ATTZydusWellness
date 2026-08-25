@@ -27,6 +27,7 @@ _SKIP_PREFIXES = (
     "/docs",
     "/openapi.json",
     "/redoc",
+    "/sentry-debug",
 )
 
 

@@ -1,19 +1,33 @@
 import os
 import json
+import logging
 import urllib.error
 import urllib.request
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from admin_api.routes import router as admin_api_router
 from app_api.routes import router as app_api_router
+from core.logging_setup import configure_logging
+from core.request_context import get_request_id
+from core.request_logging_middleware import RequestLoggingMiddleware
+from core.sentry_setup import capture_exception, init_sentry, sentry_enabled
 from modules.platform.audit import AdminAuditMiddleware
 from modules.platform.auth.session_idle_middleware import SessionIdleMiddleware
 
 from db.session import SessionLocal
 from modules.rbac_sync import sync_all_modules_to_db
+
+configure_logging()
+init_sentry()
+logger = logging.getLogger(__name__)
+
+
+def _request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", None) or get_request_id()
 
 # Behind nginx, the API is mounted at /api/ (see frontend/nginx.conf). Swagger UI
 # must fetch /api/openapi.json; without root_path it requests /openapi.json and
@@ -31,6 +45,55 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Outermost: times full stack and stamps X-Request-ID on every response.
+app.add_middleware(RequestLoggingMiddleware)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    logger.warning(
+        "request_validation_failed",
+        extra={
+            "event": "request_validation_failed",
+            "method": request.method,
+            "path": request.url.path,
+            "error_count": len(exc.errors()),
+        },
+    )
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors(), "request_id": _request_id(request)},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    if exc.status_code >= 500:
+        capture_exception(exc)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail, "request_id": _request_id(request)},
+        headers=exc.headers,
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    # Custom handlers swallow the exception; send to Sentry explicitly.
+    capture_exception(exc)
+    logger.exception(
+        "unhandled_exception",
+        extra={
+            "event": "unhandled_exception",
+            "method": request.method,
+            "path": request.url.path,
+            "error_type": type(exc).__name__,
+        },
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "request_id": _request_id(request)},
+    )
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -38,6 +101,31 @@ def _env_flag(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+@app.get("/sentry-debug", include_in_schema=False)
+def sentry_debug(
+    request: Request,
+    token: str = Query(default=""),
+) -> JSONResponse:
+    """
+    Fire a test exception to Sentry (verify DSN on local/Docker/server).
+
+    Only works when ``SENTRY_DEBUG_TOKEN`` is set and matches ``?token=…``.
+    Example: GET /api/sentry-debug?token=your-secret  (behind nginx ROOT_PATH=/api)
+    """
+    expected = (os.getenv("SENTRY_DEBUG_TOKEN") or "").strip()
+    if not expected or token != expected:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not sentry_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "Sentry is not configured (set SENTRY_DSN).",
+                "request_id": _request_id(request),
+            },
+        )
+    raise RuntimeError("Sentry debug probe — safe to ignore")
 
 
 @app.get("/admin", include_in_schema=False)

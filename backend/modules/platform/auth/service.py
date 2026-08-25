@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 import hashlib
+import logging
 import os
 import secrets
 from urllib.parse import quote
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from core.captcha import captcha_is_valid
 from core.config import get_settings
+from core.request_context import set_user_id
 from core.session_idle import SessionIdleExpiredError, assert_refresh_session_active
 from core.password_policy import PasswordExpiredError, is_password_expired
 from core.password_policy import validate_password
@@ -38,8 +40,11 @@ from modules.platform.auth.login_result import (
 from modules.platform.auth.schema import LoginRequest, TokenPair, UserMe
 from modules.platform.auth_policy.service import get_global_policy
 from modules.errors import NotFoundError
+from modules.platform.mfa.service import MfaService
 from modules.platform.users.model import User
 from modules.platform.emails.service import EmailNotificationService
+
+logger = logging.getLogger(__name__)
 
 
 class InvalidCredentialsError(Exception):
@@ -126,24 +131,40 @@ class AuthService:
             or not user.is_active
             or not verify_password(data.password, user.hashed_password)
         ):
+            logger.warning("login_failed", extra={"event": "login_failed", "reason": "invalid_credentials"})
             raise InvalidCredentialsError
         if is_password_expired(user):
+            logger.warning(
+                "login_failed",
+                extra={"event": "login_failed", "reason": "password_expired", "user_id": int(user.id)},
+            )
             raise PasswordExpiredError
 
+        set_user_id(int(user.id))
         self.assert_client_access(user, data.client_type)
 
         if user.is_superuser:
+            logger.info("login_ok", extra={"event": "login_ok", "outcome": "tokens", "auth_method": "password"})
             return LoginOutcomeTokens(tokens=self._issue_token_pair(user))
 
         pol = get_global_policy(self._db)
         if not pol.password_enabled:
+            logger.warning(
+                "login_failed",
+                extra={"event": "login_failed", "reason": "password_login_disabled", "user_id": int(user.id)},
+            )
             raise PasswordLoginDisabledError
         if pol.captcha_enabled and not captcha_is_valid(
             token=data.captcha_token, captcha_enabled=True
         ):
+            logger.warning(
+                "login_failed",
+                extra={"event": "login_failed", "reason": "captcha_invalid", "user_id": int(user.id)},
+            )
             raise CaptchaInvalidError
 
         if not pol.mfa_enabled:
+            logger.info("login_ok", extra={"event": "login_ok", "outcome": "tokens", "auth_method": "password"})
             return LoginOutcomeTokens(tokens=self._issue_token_pair(user))
 
         mfa = user.mfa_record
@@ -153,11 +174,14 @@ class AuthService:
                 msvc = MfaService(self._db)
                 raw = msvc.create_setup_token(int(user.id))
                 exp_min = int((os.environ.get("MFA_SETUP_TOKEN_EXPIRE_MINUTES") or "10080").strip() or "10080")
+                logger.info("login_ok", extra={"event": "login_ok", "outcome": "mfa_setup"})
                 return LoginOutcomeMfaSetup(setup_token=raw, expires_in_seconds=max(60, exp_min * 60))
+            logger.info("login_ok", extra={"event": "login_ok", "outcome": "tokens", "auth_method": "password"})
             return LoginOutcomeTokens(tokens=self._issue_token_pair(user))
 
         msvc = MfaService(self._db)
         ch = msvc.create_login_challenge(int(user.id))
+        logger.info("login_ok", extra={"event": "login_ok", "outcome": "mfa_otp"})
         return LoginOutcomeMfaOtp(challenge_token=ch, expires_in_seconds=600)
 
     def refresh(self, refresh_token: str) -> TokenPair:
@@ -180,17 +204,27 @@ class AuthService:
             )
         )
         if row is None:
+            logger.warning("refresh_failed", extra={"event": "refresh_failed", "reason": "session_missing"})
             raise InvalidRefreshTokenError
         try:
             assert_refresh_session_active(self._db, row)
         except SessionIdleExpiredError as exc:
+            logger.warning(
+                "refresh_failed",
+                extra={"event": "refresh_failed", "reason": "idle_expired", "user_id": user_id},
+            )
             raise InvalidRefreshTokenError from exc
 
         user = self._db.get(User, user_id)
         if user is None or not bool(user.is_active):
             row.revoked_at = now
             self._db.commit()
+            logger.warning(
+                "refresh_failed",
+                extra={"event": "refresh_failed", "reason": "user_inactive", "user_id": user_id},
+            )
             raise InvalidRefreshTokenError
+        set_user_id(user_id)
 
         row.revoked_at = now
         new_jti = str(uuid.uuid4())

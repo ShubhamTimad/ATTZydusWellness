@@ -6,6 +6,7 @@ Thumbs.db
 .env.*
 !.env.example
 !.env.docker.example
+!frontend/.env.example
 *.pem
 *.key
 *.p12

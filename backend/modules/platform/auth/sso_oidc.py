@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from core.config import get_settings
+from core.request_context import set_user_id
 from core.security import hash_password
 from modules.platform.auth.schema import TokenPair
 from modules.platform.auth.service import AuthService
@@ -362,7 +363,12 @@ def complete_sso_callback(
     if portal == "user" and user.is_superuser:
         raise SsoPortalMismatchError("Superadmin accounts must use admin SSO.")
 
+    set_user_id(int(user.id))
     tokens = AuthService(db).issue_token_pair(user, auth_method="sso")
+    logger.info(
+        "sso_user_resolved",
+        extra={"event": "sso_user_resolved", "portal": portal, "user_id": int(user.id)},
+    )
     return tokens, portal
 
 

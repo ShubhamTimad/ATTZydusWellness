@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,6 +22,8 @@ from modules.platform.auth.sso_oidc import (
     portal_from_state,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/auth/sso", tags=["auth", "sso"])
 
 
@@ -28,15 +31,22 @@ router = APIRouter(prefix="/auth/sso", tags=["auth", "sso"])
 def sso_login(
     portal: Annotated[str, Query(description="user | admin")] = "user",
 ) -> RedirectResponse:
+    portal_norm = portal if portal in ("user", "admin") else "user"
     try:
-        url = build_authorize_redirect(portal=portal if portal in ("user", "admin") else "user")
+        url = build_authorize_redirect(portal=portal_norm)
     except SsoNotConfiguredError as exc:
+        logger.warning("sso_login_blocked", extra={"event": "sso_login_blocked", "reason": "not_configured", "portal": portal_norm})
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="SSO is not enabled or is incomplete. Configure it in Settings.",
         ) from exc
     except SsoProtocolError as exc:
+        logger.warning(
+            "sso_login_blocked",
+            extra={"event": "sso_login_blocked", "reason": "protocol", "portal": portal_norm, "detail": str(exc)[:180]},
+        )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+    logger.info("sso_login_started", extra={"event": "sso_login_started", "portal": portal_norm})
     return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
 
 
@@ -52,12 +62,20 @@ def sso_callback(
 
     if error:
         msg = (error_description or error or "SSO sign-in was cancelled.").strip()
+        logger.warning(
+            "sso_callback_idp_error",
+            extra={"event": "sso_callback_idp_error", "portal": portal, "idp_error": (error or "")[:80]},
+        )
         return RedirectResponse(
             url=frontend_sso_error_url(portal=portal, error=msg[:200]),
             status_code=status.HTTP_302_FOUND,
         )
 
     if not code or not state:
+        logger.warning(
+            "sso_callback_failed",
+            extra={"event": "sso_callback_failed", "reason": "missing_code_or_state", "portal": portal},
+        )
         return RedirectResponse(
             url=frontend_sso_error_url(portal=portal, error="Missing SSO authorization code."),
             status_code=status.HTTP_302_FOUND,
@@ -66,11 +84,19 @@ def sso_callback(
     try:
         tokens, portal = complete_sso_callback(db, code=code, state=state)
     except SsoNotConfiguredError:
+        logger.warning(
+            "sso_callback_failed",
+            extra={"event": "sso_callback_failed", "reason": "not_configured", "portal": portal},
+        )
         return RedirectResponse(
             url=frontend_sso_error_url(portal=portal, error="SSO is not configured."),
             status_code=status.HTTP_302_FOUND,
         )
     except SsoUserNotAuthorizedError:
+        logger.warning(
+            "sso_callback_failed",
+            extra={"event": "sso_callback_failed", "reason": "not_authorized", "portal": portal},
+        )
         return RedirectResponse(
             url=frontend_sso_error_url(
                 portal=portal,
@@ -79,19 +105,33 @@ def sso_callback(
             status_code=status.HTTP_302_FOUND,
         )
     except SsoPortalMismatchError as exc:
+        logger.warning(
+            "sso_callback_failed",
+            extra={"event": "sso_callback_failed", "reason": "portal_mismatch", "portal": portal, "detail": str(exc)[:180]},
+        )
         return RedirectResponse(
             url=frontend_sso_error_url(portal=portal, error=str(exc)),
             status_code=status.HTTP_302_FOUND,
         )
     except SsoProtocolError as exc:
+        logger.warning(
+            "sso_callback_failed",
+            extra={"event": "sso_callback_failed", "reason": "protocol", "portal": portal, "detail": str(exc)[:180]},
+        )
         return RedirectResponse(
             url=frontend_sso_error_url(portal=portal, error=str(exc)[:220]),
             status_code=status.HTTP_302_FOUND,
         )
     except Exception as exc:
-        import logging
-
-        logging.getLogger(__name__).exception("SSO callback failed")
+        logger.exception(
+            "sso_callback_failed",
+            extra={
+                "event": "sso_callback_failed",
+                "reason": "unexpected",
+                "portal": portal,
+                "error_type": type(exc).__name__,
+            },
+        )
         return RedirectResponse(
             url=frontend_sso_error_url(
                 portal=portal,
@@ -100,6 +140,7 @@ def sso_callback(
             status_code=status.HTTP_302_FOUND,
         )
 
+    logger.info("sso_callback_ok", extra={"event": "sso_callback_ok", "portal": portal})
     return RedirectResponse(
         url=frontend_sso_success_url(portal=portal, tokens=tokens),
         status_code=status.HTTP_302_FOUND,
