@@ -133,38 +133,62 @@ jobs:
 
             echo "Deploying $NEW_SHA (previous was $PREVIOUS_SHA)"
 
+            # When DOMAIN is set, start edge proxy + certbot (Compose profile https).
+            COMPOSE_HTTPS=""
+            if grep -qE '^DOMAIN=[^[:space:]#]+' .env.docker; then
+              COMPOSE_HTTPS="--profile https"
+              echo "DOMAIN set — enabling Compose profile https (proxy on 80/443)"
+            fi
+
             docker compose --env-file .env.docker --profile https down --remove-orphans
             docker compose --env-file .env.docker build
-            docker compose --env-file .env.docker up -d
+            # shellcheck disable=SC2086
+            docker compose --env-file .env.docker $COMPOSE_HTTPS up -d
 
             echo "Waiting for containers..."
             sleep 25
 
             echo "===== docker compose ps ====="
-            docker compose --env-file .env.docker ps
+            # shellcheck disable=SC2086
+            docker compose --env-file .env.docker $COMPOSE_HTTPS ps
 
             FAILED=0
 
-            if docker compose --env-file .env.docker ps | grep -Eiq 'Exit|exited|Restarting|unhealthy|dead'; then
+            # shellcheck disable=SC2086
+            if docker compose --env-file .env.docker $COMPOSE_HTTPS ps | grep -Eiq 'Exit|exited|Restarting|unhealthy|dead'; then
               echo "STATUS CHECK FAILED"
               FAILED=1
             fi
 
             echo "===== recent logs ====="
-            docker compose --env-file .env.docker logs --tail=100 || true
+            # shellcheck disable=SC2086
+            docker compose --env-file .env.docker $COMPOSE_HTTPS logs --tail=100 || true
 
-            if docker compose --env-file .env.docker logs --tail=300 2>&1 | grep -Eiq 'Traceback|FATAL|panic|Error response from daemon|npm ERR'; then
+            # shellcheck disable=SC2086
+            if docker compose --env-file .env.docker $COMPOSE_HTTPS logs --tail=300 2>&1 | grep -Eiq 'Traceback|FATAL|panic|Error response from daemon|npm ERR'; then
               echo "LOG CHECK found serious errors"
               FAILED=1
             fi
 
-            if ! curl -fsS -o /dev/null --max-time 15 http://127.0.0.1:8083/; then
-              echo "Frontend HTTP check failed"
+            APP_PORT="$(grep -E '^APP_PORT=' .env.docker | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
+            APP_PORT="${APP_PORT:-8083}"
+
+            if ! curl -fsS -o /dev/null --max-time 15 "http://127.0.0.1:${APP_PORT}/"; then
+              echo "Frontend HTTP check failed (127.0.0.1:${APP_PORT})"
               FAILED=1
             fi
-            if ! curl -fsS -o /dev/null --max-time 15 http://127.0.0.1:8083/api/docs; then
-              echo "API docs HTTP check failed"
+            if ! curl -fsS -o /dev/null --max-time 15 "http://127.0.0.1:${APP_PORT}/api/docs"; then
+              echo "API docs HTTP check failed (127.0.0.1:${APP_PORT})"
               FAILED=1
+            fi
+
+            DOMAIN="$(grep -E '^DOMAIN=' .env.docker | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'" || true)"
+            if [ -n "$DOMAIN" ]; then
+              if curl -fsSk -o /dev/null --max-time 20 "https://${DOMAIN}/"; then
+                echo "HTTPS check OK: https://${DOMAIN}/"
+              else
+                echo "HTTPS check skipped/failed for https://${DOMAIN}/ (run ./scripts/ssl-init.sh once if first TLS setup)"
+              fi
             fi
 
             if [ "$FAILED" -ne 0 ]; then
@@ -175,11 +199,17 @@ jobs:
               fi
 
               git checkout "$PREVIOUS_SHA"
+              COMPOSE_HTTPS=""
+              if grep -qE '^DOMAIN=[^[:space:]#]+' .env.docker; then
+                COMPOSE_HTTPS="--profile https"
+              fi
               docker compose --env-file .env.docker --profile https down --remove-orphans
               docker compose --env-file .env.docker build
-              docker compose --env-file .env.docker up -d
+              # shellcheck disable=SC2086
+              docker compose --env-file .env.docker $COMPOSE_HTTPS up -d
               sleep 20
-              docker compose --env-file .env.docker ps
+              # shellcheck disable=SC2086
+              docker compose --env-file .env.docker $COMPOSE_HTTPS ps
 
               echo "Reverted to $PREVIOUS_SHA because new deploy failed"
               exit 1

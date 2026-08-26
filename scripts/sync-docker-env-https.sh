@@ -3,8 +3,8 @@
 # without wiping secrets (JWT, DB password, Sentry DSN, SMTP, etc.).
 #
 # Syncs only *active* (uncommented) keys from the example — so with the default
-# HTTP block active, this applies IP:8083 URLs. After you uncomment HTTPS in the
-# example and comment HTTP FRONTEND_*, re-run to apply HTTPS.
+# HTTPS block active, this applies assets.timadit.com URLs. For HTTP IP fallback,
+# comment DOMAIN / HTTPS FRONTEND_* in the example and uncomment block B, then re-run.
 #
 #   ./scripts/sync-docker-env-https.sh
 #
@@ -37,6 +37,8 @@ VITE_API_URL
 ROOT_PATH
 DOMAIN
 CERTBOT_EMAIL
+PROXY_HTTP_PORT
+PROXY_HTTPS_PORT
 FRONTEND_ORIGIN
 FRONTEND_APP_URL
 FRONTEND_ADMIN_URL
@@ -78,5 +80,5 @@ done
 mv "$tmp" "$TARGET"
 echo ""
 echo "==> Updated $TARGET (secrets preserved)."
-echo "    docker compose --env-file $TARGET up -d"
-echo "    # HTTPS only after uncommenting block B in the example + ./scripts/ssl-init.sh"
+echo "    docker compose --env-file $TARGET --profile https up -d"
+echo "    # First TLS cert (once): ./scripts/ssl-init.sh"

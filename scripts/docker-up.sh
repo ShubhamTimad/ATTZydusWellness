@@ -17,8 +17,16 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+compose() {
+  if grep -qE '^DOMAIN=[^[:space:]#]+' "$ENV_FILE"; then
+    docker compose --env-file "$ENV_FILE" --profile https "$@"
+  else
+    docker compose --env-file "$ENV_FILE" "$@"
+  fi
+}
+
 echo "==> Starting stack (no rebuild) using $ENV_FILE"
-docker compose --env-file "$ENV_FILE" up -d
+compose up -d
 
 echo ""
-docker compose --env-file "$ENV_FILE" ps
+compose ps

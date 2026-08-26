@@ -20,6 +20,15 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+# HTTPS edge proxy (profile https) when DOMAIN is set in .env.docker.
+compose() {
+  if grep -qE '^DOMAIN=[^[:space:]#]+' "$ENV_FILE"; then
+    docker compose --env-file "$ENV_FILE" --profile https "$@"
+  else
+    docker compose --env-file "$ENV_FILE" "$@"
+  fi
+}
+
 BUILD=0
 SERVICE=""
 for arg in "$@"; do
@@ -35,21 +44,27 @@ echo "==> Using env file: $ENV_FILE"
 if [ "$BUILD" -eq 1 ]; then
   if [ -n "$SERVICE" ]; then
     echo "==> Rebuilding: $SERVICE"
-    docker compose --env-file "$ENV_FILE" up -d --build "$SERVICE"
+    compose up -d --build "$SERVICE"
   else
     echo "==> Full rebuild (this can take several minutes)…"
-    docker compose --env-file "$ENV_FILE" up -d --build
+    compose up -d --build
   fi
 else
   echo "==> Fast start (no rebuild). Use --build after git pull."
-  docker compose --env-file "$ENV_FILE" up -d
+  compose up -d
 fi
 
 echo ""
 echo "==> Service status"
-docker compose --env-file "$ENV_FILE" ps
+compose ps
 
+DOMAIN="$(grep -E '^DOMAIN=' "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'" || true)"
 echo ""
-echo "==> App: http://127.0.0.1:\${APP_PORT:-8083}/login (set FRONTEND_* to public IP:port)"
+if [ -n "$DOMAIN" ]; then
+  echo "==> App: https://${DOMAIN}/login"
+  echo "    Loopback: http://127.0.0.1:\${APP_PORT:-8083}/login"
+  echo "    First TLS cert (once): ./scripts/ssl-init.sh"
+else
+  echo "==> App: http://127.0.0.1:\${APP_PORT:-8083}/login"
+fi
 echo "    Logs: docker compose --env-file $ENV_FILE logs -f backend"
-echo "    Optional TLS: docs/HTTPS.md  (./scripts/ssl-init.sh — profile https)"

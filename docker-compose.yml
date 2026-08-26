@@ -107,9 +107,8 @@ services:
     networks:
       - takeda_att_network
 
-  # Edge reverse proxy (opt-in). Default `up -d` skips this so host :80/:9080/:443
-  # conflicts cannot break HTTP:8083 deploys. Enable with: --profile https
-  # First cert: ./scripts/ssl-init.sh (docs/HTTPS.md).
+  # Edge reverse proxy (opt-in via profile https, or automatic when DOMAIN is set
+  # in deploy scripts). Default host ports: 80 + 443. First cert: ./scripts/ssl-init.sh.
   proxy:
     profiles: ["https"]
     image: nginx:1.27-alpine
@@ -118,9 +117,9 @@ services:
       frontend:
         condition: service_healthy
     environment:
-      DOMAIN: ${DOMAIN:-dev.adityatavnoji.in}
+      DOMAIN: ${DOMAIN:-assets.timadit.com}
     ports:
-      - "${PROXY_HTTP_BIND:-0.0.0.0}:${PROXY_HTTP_PORT:-18080}:80"
+      - "${PROXY_HTTP_BIND:-0.0.0.0}:${PROXY_HTTP_PORT:-80}:80"
       - "${PROXY_HTTPS_BIND:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443"
     volumes:
       - ./deploy/proxy/entrypoint.sh:/entrypoint.sh:ro

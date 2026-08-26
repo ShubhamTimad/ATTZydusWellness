@@ -2,7 +2,7 @@
 # Select HTTP vs HTTPS nginx config based on whether certs exist.
 set -eu
 
-DOMAIN="${DOMAIN:-dev.adityatavnoji.in}"
+DOMAIN="${DOMAIN:-assets.timadit.com}"
 TEMPLATE_DIR="/etc/nginx/templates"
 OUT="/etc/nginx/conf.d/default.conf"
 CERT="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"

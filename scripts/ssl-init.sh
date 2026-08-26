@@ -3,9 +3,8 @@
 #
 # Prerequisites:
 #   - DNS A record: DOMAIN → this server
-#   - PROXY_HTTP_PORT (default 18080) and PROXY_HTTPS_PORT (default 443) reachable
-#   - For Let's Encrypt HTTP-01: public :80 must reach this proxy (forward
-#     host :80 → PROXY_HTTP_PORT if something else owns :80)
+#   - PROXY_HTTP_PORT (default 80) and PROXY_HTTPS_PORT (default 443) reachable
+#   - For Let's Encrypt HTTP-01: public :80 must reach this proxy
 #   - Core stack running: docker compose --env-file .env.docker up -d
 #   - This script starts proxy/certbot via Compose profile "https"
 #
@@ -31,7 +30,7 @@ DOMAIN="$(grep -E '^DOMAIN=' "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '\r' |
 CERTBOT_EMAIL="$(grep -E '^CERTBOT_EMAIL=' "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'")"
 set +a
 
-DOMAIN="${DOMAIN:-dev.adityatavnoji.in}"
+DOMAIN="${DOMAIN:-assets.timadit.com}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 
 if [ -z "$CERTBOT_EMAIL" ]; then

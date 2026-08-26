@@ -20,13 +20,21 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+compose() {
+  if grep -qE '^DOMAIN=[^[:space:]#]+' "$ENV_FILE"; then
+    docker compose --env-file "$ENV_FILE" --profile https "$@"
+  else
+    docker compose --env-file "$ENV_FILE" "$@"
+  fi
+}
+
 if [ -n "$SERVICE" ]; then
   echo "==> Rebuilding and starting: $SERVICE"
-  docker compose --env-file "$ENV_FILE" up -d --build "$SERVICE"
+  compose up -d --build "$SERVICE"
 else
   echo "==> Rebuilding and starting all services"
-  docker compose --env-file "$ENV_FILE" up -d --build
+  compose up -d --build
 fi
 
 echo ""
-docker compose --env-file "$ENV_FILE" ps
+compose ps
