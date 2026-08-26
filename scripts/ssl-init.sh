@@ -3,7 +3,9 @@
 #
 # Prerequisites:
 #   - DNS A record: DOMAIN → this server
-#   - Ports 80 and 443 open on the firewall
+#   - PROXY_HTTP_PORT (default 9080) and PROXY_HTTPS_PORT (default 443) reachable
+#   - For Let's Encrypt HTTP-01: public :80 must reach this proxy (forward
+#     host :80 → PROXY_HTTP_PORT if something else owns :80)
 #   - Stack running: docker compose --env-file .env.docker up -d
 #
 # Usage (on the server):
@@ -46,7 +48,7 @@ done
 echo "==> Ensuring proxy / frontend / certbot are up"
 docker compose --env-file "$ENV_FILE" up -d frontend proxy certbot
 
-echo "==> Waiting for proxy on :80"
+echo "==> Waiting for proxy HTTP (container :80)"
 i=0
 until docker compose --env-file "$ENV_FILE" exec -T proxy wget -q -O /dev/null http://127.0.0.1/ 2>/dev/null; do
   i=$((i + 1))

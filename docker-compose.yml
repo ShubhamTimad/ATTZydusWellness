@@ -107,8 +107,8 @@ services:
     networks:
       - takeda_att_network
 
-  # Edge reverse proxy: Internet :80/:443 → frontend (Let's Encrypt).
-  # First cert: ./scripts/ssl-init.sh  (see docs/HTTPS.md)
+  # Edge reverse proxy: host PROXY_HTTP_PORT (default 9080) + :443 → frontend.
+  # Avoids host :80/:8080 conflicts. First cert: ./scripts/ssl-init.sh (docs/HTTPS.md).
   proxy:
     image: nginx:1.27-alpine
     restart: unless-stopped
@@ -118,8 +118,8 @@ services:
     environment:
       DOMAIN: ${DOMAIN:-dev.adityatavnoji.in}
     ports:
-      - "${PROXY_HTTP_BIND:-0.0.0.0}:80:80"
-      - "${PROXY_HTTPS_BIND:-0.0.0.0}:443:443"
+      - "${PROXY_HTTP_BIND:-0.0.0.0}:${PROXY_HTTP_PORT:-9080}:80"
+      - "${PROXY_HTTPS_BIND:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443"
     volumes:
       - ./deploy/proxy/entrypoint.sh:/entrypoint.sh:ro
       - ./deploy/proxy/http.conf.template:/etc/nginx/templates/http.conf.template:ro
