@@ -107,9 +107,11 @@ services:
     networks:
       - takeda_att_network
 
-  # Edge reverse proxy: host PROXY_HTTP_PORT (default 9080) + :443 → frontend.
-  # Avoids host :80/:8080 conflicts. First cert: ./scripts/ssl-init.sh (docs/HTTPS.md).
+  # Edge reverse proxy (opt-in). Default `up -d` skips this so host :80/:9080/:443
+  # conflicts cannot break HTTP:8083 deploys. Enable with: --profile https
+  # First cert: ./scripts/ssl-init.sh (docs/HTTPS.md).
   proxy:
+    profiles: ["https"]
     image: nginx:1.27-alpine
     restart: unless-stopped
     depends_on:
@@ -118,7 +120,7 @@ services:
     environment:
       DOMAIN: ${DOMAIN:-dev.adityatavnoji.in}
     ports:
-      - "${PROXY_HTTP_BIND:-0.0.0.0}:${PROXY_HTTP_PORT:-9080}:80"
+      - "${PROXY_HTTP_BIND:-0.0.0.0}:${PROXY_HTTP_PORT:-18080}:80"
       - "${PROXY_HTTPS_BIND:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443"
     volumes:
       - ./deploy/proxy/entrypoint.sh:/entrypoint.sh:ro
@@ -138,6 +140,7 @@ services:
 
   # Certificate renewal (initial issue via scripts/ssl-init.sh).
   certbot:
+    profiles: ["https"]
     image: certbot/certbot:v2.11.0
     restart: unless-stopped
     volumes:

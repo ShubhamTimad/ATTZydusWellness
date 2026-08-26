@@ -117,8 +117,8 @@ The frontend nginx container proxies `/api/*` to the backend and serves the Reac
 |----------|---------|
 | `APP_PORT` | Host port for the web UI (default `8083`) |
 | `APP_HOST_BIND` | Bind address (`127.0.0.1` behind reverse proxy, `0.0.0.0` for direct access) |
-| `PROXY_HTTP_PORT` | Host port for edge proxy HTTP (default `9080`; not 80/8080) |
-| `PROXY_HTTPS_PORT` | Host port for edge proxy HTTPS (default `443`) |
+| `PROXY_HTTP_PORT` | Host port for edge proxy HTTP (default `18080`; only with `--profile https`) |
+| `PROXY_HTTPS_PORT` | Host port for edge proxy HTTPS (default `443`; only with `--profile https`) |
 | `BACKEND_PORT` | Internal API port (default `9005`; must match nginx upstream build arg) |
 | `VITE_API_URL` | Baked into frontend at build time (use `/api`) |
 | `FRONTEND_APP_URL` / `FRONTEND_ORIGIN` | Public URL for reset links and CORS |

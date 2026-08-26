@@ -3,10 +3,11 @@
 #
 # Prerequisites:
 #   - DNS A record: DOMAIN → this server
-#   - PROXY_HTTP_PORT (default 9080) and PROXY_HTTPS_PORT (default 443) reachable
+#   - PROXY_HTTP_PORT (default 18080) and PROXY_HTTPS_PORT (default 443) reachable
 #   - For Let's Encrypt HTTP-01: public :80 must reach this proxy (forward
 #     host :80 → PROXY_HTTP_PORT if something else owns :80)
-#   - Stack running: docker compose --env-file .env.docker up -d
+#   - Core stack running: docker compose --env-file .env.docker up -d
+#   - This script starts proxy/certbot via Compose profile "https"
 #
 # Usage (on the server):
 #   ./scripts/ssl-init.sh
@@ -45,12 +46,14 @@ for arg in "$@"; do
   esac
 done
 
+COMPOSE="docker compose --env-file $ENV_FILE --profile https"
+
 echo "==> Ensuring proxy / frontend / certbot are up"
-docker compose --env-file "$ENV_FILE" up -d frontend proxy certbot
+$COMPOSE up -d frontend proxy certbot
 
 echo "==> Waiting for proxy HTTP (container :80)"
 i=0
-until docker compose --env-file "$ENV_FILE" exec -T proxy wget -q -O /dev/null http://127.0.0.1/ 2>/dev/null; do
+until $COMPOSE exec -T proxy wget -q -O /dev/null http://127.0.0.1/ 2>/dev/null; do
   i=$((i + 1))
   if [ "$i" -ge 30 ]; then
     echo "Proxy did not become ready." >&2
@@ -61,7 +64,7 @@ done
 
 echo "==> Requesting certificate for ${DOMAIN}"
 # Run a one-off certbot using the same volumes as the renew service.
-docker compose --env-file "$ENV_FILE" run --rm --entrypoint certbot certbot certonly \
+$COMPOSE run --rm --entrypoint certbot certbot certonly \
   --webroot -w /var/www/certbot \
   -d "$DOMAIN" \
   --email "$CERTBOT_EMAIL" \
@@ -71,10 +74,10 @@ docker compose --env-file "$ENV_FILE" run --rm --entrypoint certbot certbot cert
   $FORCE
 
 echo "==> Reloading proxy with HTTPS config"
-docker compose --env-file "$ENV_FILE" up -d --force-recreate proxy
+$COMPOSE up -d --force-recreate proxy
 
 echo ""
 echo "==> Done. Verify:"
 echo "    curl -I http://${DOMAIN}"
 echo "    curl -I https://${DOMAIN}"
-echo "    docker compose --env-file ${ENV_FILE} ps"
+echo "    docker compose --env-file ${ENV_FILE} --profile https ps"
