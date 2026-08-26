@@ -96,10 +96,9 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-    # With HTTPS edge proxy: bind loopback only (public traffic uses :443).
-    # For direct IP:8083 access without proxy, set APP_HOST_BIND=0.0.0.0 in .env.docker.
+    # Default: public :8083 (HTTP). For HTTPS-only edge proxy, set APP_HOST_BIND=127.0.0.1.
     ports:
-      - "${APP_HOST_BIND:-127.0.0.1}:${APP_PORT:-8083}:80"
+      - "${APP_HOST_BIND:-0.0.0.0}:${APP_PORT:-8083}:80"
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/ > /dev/null || exit 1"]
       interval: 20s

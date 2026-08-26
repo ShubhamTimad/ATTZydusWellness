@@ -1,8 +1,11 @@
 #!/usr/bin/env sh
-# Upsert HTTPS / public-URL keys from .env.docker.example into .env.docker
+# Upsert public-URL / bind keys from .env.docker.example into .env.docker
 # without wiping secrets (JWT, DB password, Sentry DSN, SMTP, etc.).
 #
-# Run on the server after git pull:
+# Syncs only *active* (uncommented) keys from the example — so with the default
+# HTTP block active, this applies IP:8083 URLs. After you uncomment HTTPS in the
+# example and comment HTTP FRONTEND_*, re-run to apply HTTPS.
+#
 #   ./scripts/sync-docker-env-https.sh
 #
 set -eu
@@ -25,7 +28,7 @@ if [ ! -f "$TARGET" ]; then
   exit 0
 fi
 
-# Keys that should follow the committed example (domain / HTTPS / bind).
+# Keys that should follow the committed example when present as active lines.
 KEYS="
 APP_HOST_BIND
 APP_PORT
@@ -50,7 +53,6 @@ upsert() {
   key="$1"
   val="$2"
   if grep -qE "^${key}=" "$tmp"; then
-    # Replace existing assignment (first match).
     awk -v k="$key" -v v="$val" '
       BEGIN { done=0 }
       $0 ~ ("^" k "=") && !done { print k "=" v; done=1; next }
@@ -62,6 +64,7 @@ upsert() {
   fi
 }
 
+echo "==> Syncing active keys from $EXAMPLE → $TARGET"
 for key in $KEYS; do
   line="$(grep -E "^${key}=" "$EXAMPLE" | tail -1 || true)"
   if [ -z "$line" ]; then
@@ -74,7 +77,6 @@ done
 
 mv "$tmp" "$TARGET"
 echo ""
-echo "==> Updated $TARGET from $EXAMPLE (HTTPS/public URL keys only)."
-echo "    Review secrets still in $TARGET, then:"
+echo "==> Updated $TARGET (secrets preserved)."
 echo "    docker compose --env-file $TARGET up -d"
-echo "    ./scripts/ssl-init.sh   # if cert not issued yet"
+echo "    # HTTPS only after uncommenting block B in the example + ./scripts/ssl-init.sh"
