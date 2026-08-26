@@ -175,7 +175,7 @@ jobs:
               fi
 
               git checkout "$PREVIOUS_SHA"
-              docker compose --env-file .env.docker down
+              docker compose --env-file .env.docker --profile https down --remove-orphans
               docker compose --env-file .env.docker build
               docker compose --env-file .env.docker up -d
               sleep 20
