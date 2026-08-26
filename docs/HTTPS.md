@@ -17,9 +17,19 @@ Internet → :443/:80 (proxy) → frontend:80 → /api → backend
 
 ## Configure `.env.docker`
 
+Committed defaults live in **`.env.docker.example`** (domain, HTTPS URLs, `CERTBOT_EMAIL`, bind address).
+
+On an existing server after `git pull`, sync those keys without wiping secrets:
+
+```bash
+./scripts/sync-docker-env-https.sh
+```
+
+Or set manually:
+
 ```env
 DOMAIN=dev.adityatavnoji.in
-CERTBOT_EMAIL=you@example.com
+CERTBOT_EMAIL=bharat.solanke@timadit.com
 
 # Public URLs (HTTPS — required for Entra SSO redirect URI, CORS, emails)
 FRONTEND_ORIGIN=https://dev.adityatavnoji.in
@@ -29,6 +39,7 @@ FRONTEND_ADMIN_URL=https://dev.adityatavnoji.in/admin
 # App nginx only on loopback (public users use https://domain)
 APP_HOST_BIND=127.0.0.1
 APP_PORT=8083
+ROOT_PATH=/api
 ```
 
 SSO redirect URI in Entra / ATT settings:
