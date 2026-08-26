@@ -133,11 +133,14 @@ jobs:
 
             echo "Deploying $NEW_SHA (previous was $PREVIOUS_SHA)"
 
-            # When DOMAIN is set, start edge proxy + certbot (Compose profile https).
+            # Built-in edge proxy only when ENABLE_EDGE_PROXY=true (default false —
+            # host :80/:443 owned by another reverse proxy → 127.0.0.1:8083).
             COMPOSE_HTTPS=""
-            if grep -qE '^DOMAIN=[^[:space:]#]+' .env.docker; then
+            if grep -qE '^ENABLE_EDGE_PROXY=(true|1|yes)$' .env.docker; then
               COMPOSE_HTTPS="--profile https"
-              echo "DOMAIN set — enabling Compose profile https (proxy on 80/443)"
+              echo "ENABLE_EDGE_PROXY=true — Compose profile https"
+            else
+              echo "External TLS proxy mode — core stack only (db/backend/frontend)"
             fi
 
             docker compose --env-file .env.docker --profile https down --remove-orphans
@@ -187,7 +190,7 @@ jobs:
               if curl -fsSk -o /dev/null --max-time 20 "https://${DOMAIN}/"; then
                 echo "HTTPS check OK: https://${DOMAIN}/"
               else
-                echo "HTTPS check skipped/failed for https://${DOMAIN}/ (run ./scripts/ssl-init.sh once if first TLS setup)"
+                echo "HTTPS soft-fail for https://${DOMAIN}/ (configure external proxy → 127.0.0.1:${APP_PORT})"
               fi
             fi
 
@@ -200,7 +203,7 @@ jobs:
 
               git checkout "$PREVIOUS_SHA"
               COMPOSE_HTTPS=""
-              if grep -qE '^DOMAIN=[^[:space:]#]+' .env.docker; then
+              if grep -qE '^ENABLE_EDGE_PROXY=(true|1|yes)$' .env.docker; then
                 COMPOSE_HTTPS="--profile https"
               fi
               docker compose --env-file .env.docker --profile https down --remove-orphans

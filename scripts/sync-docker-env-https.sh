@@ -2,9 +2,8 @@
 # Upsert public-URL / bind keys from .env.docker.example into .env.docker
 # without wiping secrets (JWT, DB password, Sentry DSN, SMTP, etc.).
 #
-# Syncs only *active* (uncommented) keys from the example — so with the default
-# HTTPS block active, this applies assets.timadit.com URLs. For HTTP IP fallback,
-# comment DOMAIN / HTTPS FRONTEND_* in the example and uncomment block B, then re-run.
+# Syncs only *active* (uncommented) keys from the example — HTTPS public URLs
+# for assets.timadit.com behind an external reverse proxy by default.
 #
 #   ./scripts/sync-docker-env-https.sh
 #
@@ -36,6 +35,7 @@ BACKEND_PORT
 VITE_API_URL
 ROOT_PATH
 DOMAIN
+ENABLE_EDGE_PROXY
 CERTBOT_EMAIL
 PROXY_HTTP_PORT
 PROXY_HTTPS_PORT
@@ -80,5 +80,6 @@ done
 mv "$tmp" "$TARGET"
 echo ""
 echo "==> Updated $TARGET (secrets preserved)."
-echo "    docker compose --env-file $TARGET --profile https up -d"
-echo "    # First TLS cert (once): ./scripts/ssl-init.sh"
+echo "    docker compose --env-file $TARGET up -d"
+echo "    # External proxy → http://127.0.0.1:8083  (ENABLE_EDGE_PROXY=false)"
+echo "    # Built-in edge only if ENABLE_EDGE_PROXY=true + ./scripts/ssl-init.sh"

@@ -1,105 +1,110 @@
-# HTTPS (Let's Encrypt) for Docker
+# HTTPS for Docker (external reverse proxy)
 
-Edge proxy terminates TLS and forwards to the existing `frontend` container.
 Public URL: **https://assets.timadit.com**
 
+Host **:80 / :443** are owned by another reverse proxy on this server. This stack
+does **not** bind those ports. TLS terminates on the external proxy; it forwards
+to the ATT frontend on loopback:
+
 ```text
-Internet → :443 / :80 (proxy, profile https) → frontend:80 → /api → backend
-                         ↑
-                   Let's Encrypt (certbot)
+Internet → :443/:80 (your existing proxy) → http://127.0.0.1:8083 → frontend → /api → backend
 ```
 
-When `DOMAIN` is set in `.env.docker`, deploy scripts and CI start Compose profile **`https`** (proxy + certbot). Frontend stays on loopback **`APP_PORT=8083`**.
+`ENABLE_EDGE_PROXY=false` (default) — CI and deploy scripts start only `db` /
+`backend` / `frontend`. Set `ENABLE_EDGE_PROXY=true` only if you want this repo’s
+optional `proxy` + `certbot` (and free host ports for them).
 
 ## Prerequisites
 
-1. DNS A record: `assets.timadit.com` → server public IP (`161.97.93.106`)  
-2. Firewall: allow **80** and **443** (TCP)  
-3. No other process bound to host ports 80/443  
-4. First certificate: `./scripts/ssl-init.sh` (once; renewals are automatic)
+1. DNS A: `assets.timadit.com` → `161.97.93.106`  
+2. External proxy vhost for `assets.timadit.com` with TLS → `http://127.0.0.1:8083`  
+3. `.env.docker` public URLs set to `https://assets.timadit.com`  
+4. `APP_HOST_BIND=127.0.0.1` so the app is not exposed on a second public port  
+
+### Example external nginx server block
+
+```nginx
+server {
+    listen 80;
+    server_name assets.timadit.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name assets.timadit.com;
+    # ssl_certificate / ssl_certificate_key — your certs
+
+    client_max_body_size 50m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8083;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+        proxy_read_timeout 300s;
+    }
+}
+```
 
 ## Configure `.env.docker`
-
-**Default in `.env.docker.example`:** HTTPS via `assets.timadit.com`.
-
-Sync active keys from the example without wiping secrets:
 
 ```bash
 ./scripts/sync-docker-env-https.sh
 ```
 
-### HTTPS mode (active)
+Active keys (from `.env.docker.example`):
 
 ```env
 DOMAIN=assets.timadit.com
-CERTBOT_EMAIL=bharat.solanke@timadit.com
+ENABLE_EDGE_PROXY=false
 APP_HOST_BIND=127.0.0.1
 APP_PORT=8083
-PROXY_HTTP_PORT=80
-PROXY_HTTPS_PORT=443
 FRONTEND_ORIGIN=https://assets.timadit.com
 FRONTEND_APP_URL=https://assets.timadit.com
 FRONTEND_ADMIN_URL=https://assets.timadit.com/admin
 SSO_REDIRECT_URI=https://assets.timadit.com/api/auth/sso/callback
 ```
 
-SSO redirect URI in Entra / ATT settings:
+SSO (Entra) redirect URI:
 
 ```text
 https://assets.timadit.com/api/auth/sso/callback
 ```
 
-### HTTP IP fallback (optional)
-
-Comment out `DOMAIN` / HTTPS `FRONTEND_*` / set `APP_HOST_BIND=0.0.0.0` and use `http://161.97.93.106:8083` (see block B in `.env.docker.example`).
-
-## Start / certificate
-
-On the **server**:
+## Start / deploy
 
 ```bash
 git pull origin develop
-./scripts/sync-docker-env-https.sh   # optional — applies example public URL keys
-docker compose --env-file .env.docker --profile https up -d --build frontend
-
-# First time only — issue Let's Encrypt cert (needs DNS + :80 reachable)
-./scripts/ssl-init.sh
-
-docker compose --env-file .env.docker --profile https up -d backend
+./scripts/sync-docker-env-https.sh
+./scripts/docker-deploy.sh --build
+docker compose --env-file .env.docker up -d backend
 ```
 
-Later deploys (GitHub Actions / `./scripts/docker-deploy.sh`) recreate the stack **including** proxy when `DOMAIN` is set. Cert volumes persist across `docker compose down` (no `-v`).
+Do **not** run `./scripts/ssl-init.sh` in this mode (that starts this repo’s edge proxy).
 
 ## Verify
 
 ```bash
-docker compose --env-file .env.docker --profile https ps
-
-curl -I http://assets.timadit.com
+curl -I http://127.0.0.1:8083/
 curl -I https://assets.timadit.com
 curl -fsS https://assets.timadit.com/api/docs >/dev/null && echo api_ok
-
-echo | openssl s_client -connect assets.timadit.com:443 -servername assets.timadit.com 2>/dev/null | openssl x509 -noout -dates -subject
-
-docker compose --env-file .env.docker --profile https run --rm --entrypoint certbot certbot renew --dry-run
 ```
 
-Loopback (CI health check):
+## Optional: built-in edge proxy
 
-```bash
-curl -I http://127.0.0.1:8083/
-```
-
-## Renewal
-
-The `certbot` service runs `certbot renew` every 12 hours. The `proxy` entrypoint reloads nginx every 6 hours so new certs are picked up.
+Only if host ports are free and you set `ENABLE_EDGE_PROXY=true`, then
+`./scripts/ssl-init.sh` / Compose profile `https`. Prefer non-80 ports
+(`PROXY_HTTP_PORT=18080`, `PROXY_HTTPS_PORT=8443`) if 80/443 stay taken.
 
 ## Files
 
 | Path | Role |
 |------|------|
-| `deploy/proxy/*` | Edge nginx templates + entrypoint |
-| `scripts/ssl-init.sh` | First certificate |
-| `docker-compose.yml` | `proxy` + `certbot` (profile `https`) |
-| `.github/workflows/deploy-develop.yml` | CI starts profile `https` when `DOMAIN` is set |
-| `frontend/nginx.conf` | Passes `X-Forwarded-Proto` to the API |
+| `.env.docker.example` | `ENABLE_EDGE_PROXY=false` + HTTPS public URLs |
+| `scripts/compose-profile.sh` | Adds `--profile https` only when edge proxy enabled |
+| `.github/workflows/deploy-develop.yml` | Same gate for CI |
+| `deploy/proxy/*` | Optional built-in edge (off by default) |

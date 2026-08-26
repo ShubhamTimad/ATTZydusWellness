@@ -20,13 +20,10 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# HTTPS edge proxy (profile https) when DOMAIN is set in .env.docker.
+PROFILE="$(./scripts/compose-profile.sh "$ENV_FILE")"
+# shellcheck disable=SC2086
 compose() {
-  if grep -qE '^DOMAIN=[^[:space:]#]+' "$ENV_FILE"; then
-    docker compose --env-file "$ENV_FILE" --profile https "$@"
-  else
-    docker compose --env-file "$ENV_FILE" "$@"
-  fi
+  docker compose --env-file "$ENV_FILE" $PROFILE "$@"
 }
 
 BUILD=0
@@ -39,7 +36,7 @@ for arg in "$@"; do
   esac
 done
 
-echo "==> Using env file: $ENV_FILE"
+echo "==> Using env file: $ENV_FILE${PROFILE:+ ($PROFILE)}"
 
 if [ "$BUILD" -eq 1 ]; then
   if [ -n "$SERVICE" ]; then
@@ -62,8 +59,7 @@ DOMAIN="$(grep -E '^DOMAIN=' "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '\r' |
 echo ""
 if [ -n "$DOMAIN" ]; then
   echo "==> App: https://${DOMAIN}/login"
-  echo "    Loopback: http://127.0.0.1:\${APP_PORT:-8083}/login"
-  echo "    First TLS cert (once): ./scripts/ssl-init.sh"
+  echo "    Upstream for external proxy: http://127.0.0.1:\${APP_PORT:-8083}"
 else
   echo "==> App: http://127.0.0.1:\${APP_PORT:-8083}/login"
 fi

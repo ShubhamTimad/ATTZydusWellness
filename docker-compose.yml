@@ -107,8 +107,9 @@ services:
     networks:
       - takeda_att_network
 
-  # Edge reverse proxy (opt-in via profile https, or automatic when DOMAIN is set
-  # in deploy scripts). Default host ports: 80 + 443. First cert: ./scripts/ssl-init.sh.
+  # Optional edge proxy (Compose profile https). Off by default — host :80/:443
+  # belong to an external reverse proxy → 127.0.0.1:APP_PORT. Enable only when
+  # ENABLE_EDGE_PROXY=true (see scripts/compose-profile.sh).
   proxy:
     profiles: ["https"]
     image: nginx:1.27-alpine

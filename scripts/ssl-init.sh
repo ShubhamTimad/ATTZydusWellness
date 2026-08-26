@@ -1,11 +1,14 @@
 #!/usr/bin/env sh
-# Obtain the first Let's Encrypt certificate for DOMAIN (webroot via proxy).
+# Obtain the first Let's Encrypt certificate for DOMAIN (webroot via THIS repo's proxy).
+#
+# Prefer an external reverse proxy when host :80/:443 are already taken
+# (ENABLE_EDGE_PROXY=false — see docs/HTTPS.md). Use this script only when
+# ENABLE_EDGE_PROXY=true and PROXY_* ports are free.
 #
 # Prerequisites:
 #   - DNS A record: DOMAIN → this server
-#   - PROXY_HTTP_PORT (default 80) and PROXY_HTTPS_PORT (default 443) reachable
-#   - For Let's Encrypt HTTP-01: public :80 must reach this proxy
-#   - Core stack running: docker compose --env-file .env.docker up -d
+#   - PROXY_HTTP_PORT / PROXY_HTTPS_PORT reachable and free
+#   - ENABLE_EDGE_PROXY=true in .env.docker
 #   - This script starts proxy/certbot via Compose profile "https"
 #
 # Usage (on the server):
@@ -32,6 +35,13 @@ set +a
 
 DOMAIN="${DOMAIN:-assets.timadit.com}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
+
+if ! grep -qE '^ENABLE_EDGE_PROXY=(true|1|yes)$' "$ENV_FILE"; then
+  echo "ENABLE_EDGE_PROXY is not true in $ENV_FILE." >&2
+  echo "Host :80/:443 should use your external reverse proxy → http://127.0.0.1:8083." >&2
+  echo "See docs/HTTPS.md. Set ENABLE_EDGE_PROXY=true only to use this repo's proxy." >&2
+  exit 1
+fi
 
 if [ -z "$CERTBOT_EMAIL" ]; then
   echo "Set CERTBOT_EMAIL in $ENV_FILE (Let's Encrypt registration)." >&2

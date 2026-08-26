@@ -6,6 +6,8 @@ Use `docker-compose.yml` with `.env.docker` (copy from `.env.docker.example`).
 
 **With HTTPS** (recommended — see [HTTPS.md](./HTTPS.md)):
 
+TLS on the **server’s existing reverse proxy** → `http://127.0.0.1:8083`.
+
 | What | URL |
 |------|-----|
 | App | `https://assets.timadit.com` |
@@ -13,7 +15,7 @@ Use `docker-compose.yml` with `.env.docker` (copy from `.env.docker.example`).
 | API | `https://assets.timadit.com/api/...` |
 | SSO callback (Entra) | `https://assets.timadit.com/api/auth/sso/callback` |
 
-**Legacy direct port** (only if edge proxy is stopped and `APP_HOST_BIND=0.0.0.0`):
+**Legacy direct port** (only if `APP_HOST_BIND=0.0.0.0` and no external proxy):
 
 Replace `YOUR_SERVER_IP` with your VPS public IP (e.g. `161.97.93.106`).
 
@@ -24,42 +26,41 @@ Replace `YOUR_SERVER_IP` with your VPS public IP (e.g. `161.97.93.106`).
 | **Workspace home** | `http://YOUR_SERVER_IP:8083/dashboard` | After login |
 | **API (via nginx)** | `http://YOUR_SERVER_IP:8083/api/...` | Used by the SPA automatically |
 
-**Do not use port `9005` in the browser.** That is the backend port **inside Docker only** (not published to the host). With HTTPS, users open the domain; CI health-checks still use loopback `APP_PORT` (default `8083`).
+**Do not use port `9005` in the browser.** That is the backend port **inside Docker only**. With HTTPS, users open the domain; CI health-checks use loopback `APP_PORT` (default `8083`).
 
 ### If the page does not load from your PC
 
-1. **Check all containers are up:**
+1. **Check core containers:**
    ```bash
-   docker compose --env-file .env.docker --profile https ps
+   docker compose --env-file .env.docker ps
    ```
-   You should see `frontend`, `backend`, `db`, and (for HTTPS) `proxy` / `certbot` **healthy** or **running**.
+   Expect `frontend`, `backend`, and `db` healthy. Built-in `proxy` should **not** be running when `ENABLE_EDGE_PROXY=false`.
 
-2. **HTTPS mode** (default) — frontend is loopback-only; public traffic hits proxy `:80`/`:443`:
+2. **HTTPS + external proxy** (default):
    ```env
    DOMAIN=assets.timadit.com
+   ENABLE_EDGE_PROXY=false
    APP_HOST_BIND=127.0.0.1
    APP_PORT=8083
-   PROXY_HTTP_PORT=80
-   PROXY_HTTPS_PORT=443
    ```
-   Direct IP:8083 from the internet will not work (by design). Use `https://assets.timadit.com`.
+   External proxy must forward `assets.timadit.com` → `http://127.0.0.1:8083`. Direct public `:8083` will not work (loopback bind).
 
 3. **Test on the server:**
    ```bash
    curl -I http://127.0.0.1:8083/
    curl -I https://assets.timadit.com/
-   docker compose --env-file .env.docker --profile https logs --tail=50 frontend proxy
+   docker compose --env-file .env.docker logs --tail=50 frontend
    ```
 
-4. **Firewall** — allow inbound TCP **80** and **443** (and **8083** only if using HTTP IP fallback).
+4. **Firewall** — allow **80** and **443** on the **external** proxy (not ATT’s container ports).
 
-5. **Set public URLs** in `.env.docker` (for CORS and password-reset links):
+5. **Public URLs** in `.env.docker`:
    ```env
    FRONTEND_ORIGIN=https://assets.timadit.com
    FRONTEND_APP_URL=https://assets.timadit.com
    FRONTEND_ADMIN_URL=https://assets.timadit.com/admin
    ```
-   Then restart backend: `docker compose --env-file .env.docker --profile https up -d backend`
+   Then: `docker compose --env-file .env.docker up -d backend`
 
 ## First deploy or update
 
@@ -117,8 +118,9 @@ The frontend nginx container proxies `/api/*` to the backend and serves the Reac
 |----------|---------|
 | `APP_PORT` | Host port for the web UI (default `8083`) |
 | `APP_HOST_BIND` | Bind address (`127.0.0.1` behind reverse proxy, `0.0.0.0` for direct access) |
-| `PROXY_HTTP_PORT` | Host port for edge proxy HTTP (default `80`; with `--profile https`) |
-| `PROXY_HTTPS_PORT` | Host port for edge proxy HTTPS (default `443`; with `--profile https`) |
+| `ENABLE_EDGE_PROXY` | `true` = start this repo’s proxy/certbot (`--profile https`). Default `false` (external TLS proxy) |
+| `PROXY_HTTP_PORT` | Host HTTP port for built-in edge proxy (only if `ENABLE_EDGE_PROXY=true`) |
+| `PROXY_HTTPS_PORT` | Host HTTPS port for built-in edge proxy (only if `ENABLE_EDGE_PROXY=true`) |
 | `BACKEND_PORT` | Internal API port (default `9005`; must match nginx upstream build arg) |
 | `VITE_API_URL` | Baked into frontend at build time (use `/api`) |
 | `FRONTEND_APP_URL` / `FRONTEND_ORIGIN` | Public URL for reset links and CORS |

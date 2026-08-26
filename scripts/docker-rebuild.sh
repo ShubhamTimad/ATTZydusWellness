@@ -20,12 +20,10 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+PROFILE="$(./scripts/compose-profile.sh "$ENV_FILE")"
+# shellcheck disable=SC2086
 compose() {
-  if grep -qE '^DOMAIN=[^[:space:]#]+' "$ENV_FILE"; then
-    docker compose --env-file "$ENV_FILE" --profile https "$@"
-  else
-    docker compose --env-file "$ENV_FILE" "$@"
-  fi
+  docker compose --env-file "$ENV_FILE" $PROFILE "$@"
 }
 
 if [ -n "$SERVICE" ]; then
