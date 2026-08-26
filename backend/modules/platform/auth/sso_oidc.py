@@ -65,7 +65,7 @@ def _pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
-def _sign_state(*, portal: str, code_verifier: str) -> str:
+def _sign_state(*, portal: str, code_verifier: str, silent: bool = False) -> str:
     settings = get_settings()
     now = datetime.now(timezone.utc)
     return jwt.encode(
@@ -73,6 +73,7 @@ def _sign_state(*, portal: str, code_verifier: str) -> str:
             "typ": _STATE_TYP,
             "portal": portal,
             "cv": code_verifier,
+            "silent": bool(silent),
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(minutes=15)).timestamp()),
         },
@@ -110,29 +111,74 @@ def _fetch_discovery(cfg: SsoConfig) -> dict[str, Any]:
         raise SsoProtocolError("Failed to load OIDC discovery document.") from exc
 
 
-def build_authorize_redirect(*, portal: str) -> str:
+# IdP errors that mean "no usable session" for prompt=none; retry interactively.
+_SILENT_RETRY_ERRORS = frozenset({"login_required", "interaction_required", "consent_required"})
+
+
+def authorize_query_params(
+    *,
+    client_id: str,
+    redirect_uri: str,
+    scopes: str,
+    state: str,
+    code_challenge: str,
+    prompt: str | None = None,
+) -> dict[str, str]:
+    """Build OIDC authorize query params (authorization code + PKCE)."""
+    params: dict[str, str] = {
+        "client_id": client_id,
+        "response_type": "code",
+        "redirect_uri": redirect_uri,
+        "scope": scopes,
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "response_mode": "query",
+    }
+    if prompt:
+        params["prompt"] = prompt
+    return params
+
+
+def build_authorize_redirect(*, portal: str, prompt: str | None = None) -> str:
+    """Start OIDC authorize. Use prompt='none' for silent SSO (existing IdP session)."""
     cfg = get_sso_config()
     if cfg is None:
         raise SsoNotConfiguredError
     if portal not in ("user", "admin"):
         portal = "user"
+    prompt_norm = (prompt or "").strip().lower() or None
+    if prompt_norm and prompt_norm not in ("none", "login", "consent", "select_account"):
+        prompt_norm = None
+    silent = prompt_norm == "none"
     discovery = _fetch_discovery(cfg)
     authorize = discovery.get("authorization_endpoint")
     if not authorize:
         raise SsoProtocolError("OIDC discovery missing authorization_endpoint.")
     verifier, challenge = _pkce_pair()
-    state = _sign_state(portal=portal, code_verifier=verifier)
-    params = {
-        "client_id": cfg.client_id,
-        "response_type": "code",
-        "redirect_uri": cfg.redirect_uri,
-        "scope": cfg.scopes,
-        "state": state,
-        "code_challenge": challenge,
-        "code_challenge_method": "S256",
-        "response_mode": "query",
-    }
+    state = _sign_state(portal=portal, code_verifier=verifier, silent=silent)
+    params = authorize_query_params(
+        client_id=cfg.client_id,
+        redirect_uri=cfg.redirect_uri,
+        scopes=cfg.scopes,
+        state=state,
+        code_challenge=challenge,
+        prompt=prompt_norm,
+    )
     return f"{authorize}?{urlencode(params)}"
+
+
+def is_silent_retry_error(error: str | None) -> bool:
+    return (error or "").strip().lower() in _SILENT_RETRY_ERRORS
+
+
+def state_was_silent(state: str | None) -> bool:
+    if not state:
+        return False
+    try:
+        return bool(_parse_state(state).get("silent"))
+    except SsoProtocolError:
+        return False
 
 
 def _exchange_code(cfg: SsoConfig, discovery: dict[str, Any], *, code: str, code_verifier: str) -> dict[str, Any]:
@@ -397,3 +443,30 @@ def frontend_sso_success_url(*, portal: str, tokens: TokenPair) -> str:
 def frontend_sso_error_url(*, portal: str, error: str) -> str:
     login = "/admin/login" if portal == "admin" else "/login"
     return f"{_frontend_base()}{login}?{urlencode({'sso_error': error})}"
+
+
+def interactive_sso_login_relative_url(*, portal: str) -> str:
+    """Same-directory relative URL so ROOT_PATH=/api stays intact on redirect."""
+    portal_norm = portal if portal in ("user", "admin") else "user"
+    return f"login?{urlencode({'portal': portal_norm})}"
+
+
+if __name__ == "__main__":
+    # ponytail: authorize params + silent retry classification (no IdP round-trip).
+    p = authorize_query_params(
+        client_id="cid",
+        redirect_uri="https://assets.timadit.com/api/auth/sso/callback",
+        scopes="openid profile email",
+        state="st",
+        code_challenge="ch",
+        prompt="none",
+    )
+    assert p["response_type"] == "code"
+    assert p["code_challenge_method"] == "S256"
+    assert p["prompt"] == "none"
+    assert "id_token" not in p.get("response_type", "")
+    assert is_silent_retry_error("login_required")
+    assert is_silent_retry_error("interaction_required")
+    assert not is_silent_retry_error("access_denied")
+    assert interactive_sso_login_relative_url(portal="user") == "login?portal=user"
+    print("sso_oidc ok")

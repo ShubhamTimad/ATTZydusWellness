@@ -19,7 +19,10 @@ from modules.platform.auth.sso_oidc import (
     complete_sso_callback,
     frontend_sso_error_url,
     frontend_sso_success_url,
+    interactive_sso_login_relative_url,
+    is_silent_retry_error,
     portal_from_state,
+    state_was_silent,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,12 +33,20 @@ router = APIRouter(prefix="/auth/sso", tags=["auth", "sso"])
 @router.get("/login")
 def sso_login(
     portal: Annotated[str, Query(description="user | admin")] = "user",
+    prompt: Annotated[
+        str | None,
+        Query(description="OIDC prompt; use none for silent SSO"),
+    ] = None,
 ) -> RedirectResponse:
     portal_norm = portal if portal in ("user", "admin") else "user"
+    prompt_norm = (prompt or "").strip().lower() or None
     try:
-        url = build_authorize_redirect(portal=portal_norm)
+        url = build_authorize_redirect(portal=portal_norm, prompt=prompt_norm)
     except SsoNotConfiguredError as exc:
-        logger.warning("sso_login_blocked", extra={"event": "sso_login_blocked", "reason": "not_configured", "portal": portal_norm})
+        logger.warning(
+            "sso_login_blocked",
+            extra={"event": "sso_login_blocked", "reason": "not_configured", "portal": portal_norm},
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="SSO is not enabled or is incomplete. Configure it in Settings.",
@@ -43,10 +54,22 @@ def sso_login(
     except SsoProtocolError as exc:
         logger.warning(
             "sso_login_blocked",
-            extra={"event": "sso_login_blocked", "reason": "protocol", "portal": portal_norm, "detail": str(exc)[:180]},
+            extra={
+                "event": "sso_login_blocked",
+                "reason": "protocol",
+                "portal": portal_norm,
+                "detail": str(exc)[:180],
+            },
         )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
-    logger.info("sso_login_started", extra={"event": "sso_login_started", "portal": portal_norm})
+    logger.info(
+        "sso_login_started",
+        extra={
+            "event": "sso_login_started",
+            "portal": portal_norm,
+            "prompt": prompt_norm or "default",
+        },
+    )
     return RedirectResponse(url=url, status_code=status.HTTP_302_FOUND)
 
 
@@ -61,6 +84,20 @@ def sso_callback(
     portal = portal_from_state(state)
 
     if error:
+        # Silent prompt=none failed → fall back to interactive Microsoft sign-in.
+        if state_was_silent(state) and is_silent_retry_error(error):
+            logger.info(
+                "sso_silent_fallback",
+                extra={
+                    "event": "sso_silent_fallback",
+                    "portal": portal,
+                    "idp_error": (error or "")[:80],
+                },
+            )
+            return RedirectResponse(
+                url=interactive_sso_login_relative_url(portal=portal),
+                status_code=status.HTTP_302_FOUND,
+            )
         msg = (error_description or error or "SSO sign-in was cancelled.").strip()
         logger.warning(
             "sso_callback_idp_error",
@@ -107,7 +144,12 @@ def sso_callback(
     except SsoPortalMismatchError as exc:
         logger.warning(
             "sso_callback_failed",
-            extra={"event": "sso_callback_failed", "reason": "portal_mismatch", "portal": portal, "detail": str(exc)[:180]},
+            extra={
+                "event": "sso_callback_failed",
+                "reason": "portal_mismatch",
+                "portal": portal,
+                "detail": str(exc)[:180],
+            },
         )
         return RedirectResponse(
             url=frontend_sso_error_url(portal=portal, error=str(exc)),
@@ -116,7 +158,12 @@ def sso_callback(
     except SsoProtocolError as exc:
         logger.warning(
             "sso_callback_failed",
-            extra={"event": "sso_callback_failed", "reason": "protocol", "portal": portal, "detail": str(exc)[:180]},
+            extra={
+                "event": "sso_callback_failed",
+                "reason": "protocol",
+                "portal": portal,
+                "detail": str(exc)[:180],
+            },
         )
         return RedirectResponse(
             url=frontend_sso_error_url(portal=portal, error=str(exc)[:220]),
