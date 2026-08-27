@@ -18,9 +18,9 @@ from modules.platform.auth.sso_oidc import (
     build_authorize_redirect,
     complete_sso_callback,
     frontend_sso_error_url,
+    frontend_sso_silent_miss_url,
     frontend_sso_success_url,
-    interactive_sso_login_relative_url,
-    is_silent_retry_error,
+    is_silent_miss_error,
     portal_from_state,
     state_was_silent,
 )
@@ -84,18 +84,18 @@ def sso_callback(
     portal = portal_from_state(state)
 
     if error:
-        # Silent prompt=none failed → fall back to interactive Microsoft sign-in.
-        if state_was_silent(state) and is_silent_retry_error(error):
+        # Silent prompt=none missed (no Entra session) → ATT login form, no interactive retry.
+        if state_was_silent(state) and is_silent_miss_error(error):
             logger.info(
-                "sso_silent_fallback",
+                "sso_silent_miss",
                 extra={
-                    "event": "sso_silent_fallback",
+                    "event": "sso_silent_miss",
                     "portal": portal,
                     "idp_error": (error or "")[:80],
                 },
             )
             return RedirectResponse(
-                url=interactive_sso_login_relative_url(portal=portal),
+                url=frontend_sso_silent_miss_url(portal=portal),
                 status_code=status.HTTP_302_FOUND,
             )
         msg = (error_description or error or "SSO sign-in was cancelled.").strip()

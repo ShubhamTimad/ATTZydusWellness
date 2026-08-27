@@ -186,11 +186,11 @@ After that, **roles and permissions** work as usual via `GET /me`.
 | Runtime config | `backend/modules/platform/settings/sso_config.py` → `get_sso_config()` (DB + env fallback) |
 | Public policy | `GET /auth/policy` includes `sso_enabled`, `sso_button_label` |
 | OIDC start | `GET /auth/sso/login?portal=user\|admin` (`prompt=none` for silent) |
-| OIDC callback | `GET /auth/sso/callback` (silent `login_required` → interactive retry) |
+| OIDC callback | `GET /auth/sso/callback` (silent miss → `/login?sso_skip=1`, no interactive retry) |
 | OIDC logic | `backend/modules/platform/auth/sso_oidc.py` |
 | Routes | `backend/modules/platform/auth/sso_routes.py` |
 | User link column | `users.external_subject` (migration `094`) |
-| Login / auto-SSO | `frontend/src/pages/app-login.tsx` (auto `prompt=none` when SSO on) |
+| Login / auto-SSO | `frontend/src/pages/app-login.tsx` (one silent `prompt=none` attempt; then Email/Password + Microsoft button) |
 | Login buttons | `frontend/src/pages/app-login.tsx`, `login.tsx` |
 | Token handoff page | `frontend/src/pages/sso-callback.tsx` → `/sso/callback` |
 

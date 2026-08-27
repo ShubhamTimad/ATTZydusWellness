@@ -52,7 +52,7 @@ export function AppLoginPage() {
   const [searchParams] = useSearchParams()
   const legacyReset = (searchParams.get("reset_token") ?? "").trim()
   const ssoErrorParam = (searchParams.get("sso_error") ?? "").trim()
-  // After SSO failure (or ?sso_skip=1), stay on the form; do not auto-restart OIDC.
+  // After silent miss (?sso_skip=1) or real SSO error, show Email/Password + Microsoft button.
   const skipAutoSso =
     Boolean(ssoErrorParam) || (searchParams.get("sso_skip") ?? "").trim() === "1"
 
@@ -62,6 +62,7 @@ export function AppLoginPage() {
   const [otp, setOtp] = React.useState("")
   const [challengeToken, setChallengeToken] = React.useState<string | null>(null)
   const [step, setStep] = React.useState<"password" | "otp">("password")
+  // Only surface real SSO failures; silent miss (sso_skip) is non-blocking.
   const [error, setError] = React.useState<string | null>(ssoErrorParam || null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [policy, setPolicy] = React.useState<PublicAuthPolicy | null>(null)
@@ -82,7 +83,7 @@ export function AppLoginPage() {
     }
   }, [])
 
-  // Auto-start Microsoft OIDC (prompt=none). Backend falls back to interactive if needed.
+  // Initial /login only: silent OIDC (prompt=none). No interactive auto-retry on miss.
   React.useEffect(() => {
     if (legacyReset || !policy?.sso_enabled || skipAutoSso || step !== "password") return
     setSsoRedirecting(true)
