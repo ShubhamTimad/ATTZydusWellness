@@ -30,6 +30,8 @@ const FEATURES = [
 ] as const
 
 const LOGIN_BG_URL = `${API_BASE_URL}/auth/login-background`
+/** After this wait, reveal the photo top→bottom instead of a hard fade. */
+const SLOW_BG_MS = 350
 
 export function AppAuthMarketingLayout({
   children,
@@ -39,6 +41,17 @@ export function AppAuthMarketingLayout({
   const [version, setVersion] = React.useState<string | null>(null)
   // Pending uses the photo shell so the default marketing layout never flashes first.
   const [bgStatus, setBgStatus] = React.useState<"pending" | "ready" | "failed">("pending")
+  const [bgReveal, setBgReveal] = React.useState<"none" | "fade" | "wipe">("none")
+  const loadStartedAt = React.useRef(typeof performance !== "undefined" ? performance.now() : 0)
+  const bgSettled = React.useRef(false)
+
+  const markBgReady = React.useCallback(() => {
+    if (bgSettled.current) return
+    bgSettled.current = true
+    const elapsed = performance.now() - loadStartedAt.current
+    setBgReveal(elapsed >= SLOW_BG_MS ? "wipe" : "fade")
+    setBgStatus("ready")
+  }, [])
 
   React.useEffect(() => {
     let cancelled = false
@@ -57,20 +70,25 @@ export function AppAuthMarketingLayout({
   if (bgStatus !== "failed") {
     return (
       <AuthShellModeContext.Provider value="rail">
-        <div className="relative h-svh max-h-svh w-full overflow-hidden bg-[#111827]">
+        {/* Neutral charcoal while the photo loads — avoids a long blue flash on slow networks. */}
+        <div className="relative h-svh max-h-svh w-full overflow-hidden bg-[#171717]">
           <img
             src={LOGIN_BG_URL}
             alt=""
+            fetchPriority="high"
+            decoding="async"
             className={cn(
-              "absolute inset-0 size-full object-cover object-center transition-opacity duration-300",
-              bgStatus === "ready" ? "opacity-100" : "opacity-0",
+              "absolute inset-0 size-full object-cover object-center will-change-[clip-path,opacity]",
+              bgReveal === "none" && "opacity-0",
+              bgReveal === "fade" && "animate-[login-bg-fade_280ms_ease-out_forwards]",
+              bgReveal === "wipe" && "animate-[login-bg-wipe_1.15s_cubic-bezier(0.22,1,0.36,1)_forwards]",
             )}
             aria-hidden
-            onLoad={() => setBgStatus("ready")}
+            onLoad={markBgReady}
             onError={() => setBgStatus("failed")}
             ref={(el) => {
               // Cached images can be complete before onLoad attaches.
-              if (el?.complete && el.naturalWidth > 0) setBgStatus("ready")
+              if (el?.complete && el.naturalWidth > 0) markBgReady()
             }}
           />
 

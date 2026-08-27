@@ -179,7 +179,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
   return (
     <AppAuthMarketingLayout variant="admin">
       <AuthFormShell
-        title={mfaChallenge ? "Authenticator code" : "Admin sign in"}
+        title={mfaChallenge ? "Authenticator code" : "Admin Sign In"}
         description={
           mfaChallenge
             ? "Enter the code from your authenticator app."
@@ -263,7 +263,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
                   className="text-[12px] font-medium text-primary underline-offset-2 hover:underline sm:text-[13px]"
                   tabIndex={-1}
                 >
-                  Forgot password?
+                  Forgot Password?
                 </Link>
               </div>
               <PasswordInput
@@ -296,7 +296,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
             ) : null}
 
             <Button type="submit" className={AUTH_BUTTON_CLASS} disabled={isSubmitting}>
-              {isSubmitting ? "Signing in…" : "Sign in"}
+              {isSubmitting ? "Signing in…" : "Sign In"}
             </Button>
 
             {policy?.sso_enabled ? (
@@ -310,7 +310,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
 
             <p className="text-center text-sm text-muted-foreground">
               <Link to="/login" className="font-medium text-primary underline-offset-2 hover:underline">
-                Workspace sign in
+                Workspace Sign In
               </Link>
             </p>
           </form>

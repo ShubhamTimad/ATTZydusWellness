@@ -90,11 +90,11 @@ export function ResetPasswordPage() {
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             <Link to="/login" className="font-medium text-primary underline-offset-2 hover:underline">
-              Workspace sign in
+              Workspace Sign In
             </Link>
             {" · "}
             <Link to="/admin/login" className="font-medium text-primary underline-offset-2 hover:underline">
-              Admin sign in
+              Admin Sign In
             </Link>
           </p>
         </AuthFormShell>
@@ -115,7 +115,7 @@ export function ResetPasswordPage() {
           {backLogin !== "/login" ? (
             <p className="text-center text-sm text-muted-foreground">
               <Link to="/login" className="font-medium text-primary underline-offset-2 hover:underline">
-                Workspace sign in
+                Workspace Sign In
               </Link>
               {" instead"}
             </p>

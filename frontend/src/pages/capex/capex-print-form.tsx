@@ -112,16 +112,16 @@ function buildSignBlocks(detail: CapexFormDetail): SignBlock[] {
 
 function formRows(detail: CapexFormDetail) {
   return [
-    { no: 1, particular: "Name of the Asset", detail: dash(detail.asset_name) },
+    { no: 1, particular: "Asset Name", detail: dash(detail.asset_name) },
     { no: 2, particular: "User Equipment Tag No.", detail: dash(detail.equipment_tag_no) },
     { no: 3, particular: "Asset Specifications", detail: dash(detail.asset_specifications) },
-    { no: 4, particular: "Name of the party", detail: dash(detail.party_name) },
+    { no: 4, particular: "Party Name", detail: dash(detail.party_name) },
     { no: 5, particular: "Department", detail: dash(detail.department) },
     { no: 6, particular: "Location of Installation", detail: dash(detail.installation_location) },
-    { no: 7, particular: "Name of the Department Head", detail: dash(detail.department_head) },
+    { no: 7, particular: "Department Head Name", detail: dash(detail.department_head) },
     {
       no: 8,
-      particular: "Comment on the functioning of the Asset",
+      particular: "Comment on the Functioning of Asset",
       detail: dash(detail.functioning_comment),
     },
     {
@@ -129,8 +129,8 @@ function formRows(detail: CapexFormDetail) {
       particular: "Date of Installation",
       detail: detail.installation_date ? formatPrintDate(detail.installation_date) : "—",
     },
-    { no: 10, particular: "AUC code", detail: dash(detail.auc_code) },
-    { no: 11, particular: "Useful life of assets", detail: dash(detail.useful_life) },
+    { no: 10, particular: "AUC Code", detail: dash(detail.auc_code) },
+    { no: 11, particular: "Useful Life of Asset", detail: dash(detail.useful_life) },
   ]
 }
 

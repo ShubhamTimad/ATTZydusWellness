@@ -159,7 +159,7 @@ export function CapexListPage() {
     <AdminPage fullWidth dense viewportFill className="w-full gap-[var(--app-grid-gap)]">
       <ListPageHeader
         className="shrink-0"
-        title="Capitalization forms"
+        title="Capitalization Form"
         // description="Request and track asset capitalization approvals."
         actions={
           canCreate ? (

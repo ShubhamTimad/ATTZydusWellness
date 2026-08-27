@@ -64,7 +64,7 @@ function DashboardSummaryStrip({
     cells.push(
       <DashboardStripCard
         key="orders"
-        title="Physical Verification Order"
+        title="Phy. Verification Order"
         value={parts.open}
         accent={DASHBOARD_COLOR.blue}
       />,

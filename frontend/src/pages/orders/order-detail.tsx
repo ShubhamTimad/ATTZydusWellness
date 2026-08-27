@@ -397,18 +397,18 @@ export function OrderDetailPage() {
         path === "/approval/approve-order" &&
         (res.status === "approved" || res.status === "assigned")
       ) {
-        toast.success("Order approved.")
+        toast.success("Order approved successfully.")
       } else if (
         (path === "/approval/approve-all" ||
           path === "/closure/approve-order" ||
           path === "/approval/approve-items") &&
         res.status === "approved"
       ) {
-        toast.success("Order approved.")
+        toast.success("Order approved successfully.")
       } else if (path === "/approval/approve-items" && res.status === "completed") {
-        toast.success("Order approved.")
+        toast.success("Order approved successfully.")
       } else if (path === "/approval/approve-items" && res.status === "pending_closure_approval") {
-        toast.success("Lines approved.")
+        toast.success("Selected Assets approved successfully.")
       } else if (path === "/approval/reject-items") {
         toast.success(
           res.status === "in_progress"
@@ -430,8 +430,8 @@ export function OrderDetailPage() {
       } else if (path === "/approval/approve-all" && res.status === "rejected") {
         toast.success(
           res.assigned_to_name
-            ? `Review finished. Order Rejected so ${res.assigned_to_name} can rework rejected assets.`
-            : "Review finished. Order Rejected for rework on rejected assets.",
+            ? `Order rejected and returned to ${res.assigned_to_name} for rework.`
+            : `Order rejected and returned for rework.`,
         )
       } else if (path === "/approval/approve-all" && res.status === "completed") {
         toast.success(
@@ -440,17 +440,17 @@ export function OrderDetailPage() {
             : "Approved.",
         )
       } else if (path === "/start" && res.status === "in_progress") {
-        toast.success("Verification started.")
+        toast.success("Verification started successfully.")
       } else if (path === "/submit-closure") {
-        toast.success("Order completed.")
+        toast.success("Order completed successfully.")
       } else if (path === "/submit") {
         toast.success(
           res.assigned_to_name
-            ? `Order assigned to ${res.assigned_to_name}.`
-            : "Order assigned.",
+            ? `Order assigned to ${res.assigned_to_name} successfully.`
+            : "Order assigned successfully.",
         )
       } else {
-        toast.success("Updated.")
+        toast.success("Changes saved successfully.")
       }
       return true
     } catch (e) {
@@ -645,7 +645,7 @@ export function OrderDetailPage() {
     if (!order || !id) return false
     const reason = rejectionReason.trim()
     if (!reason) {
-      toast.error("Enter a rejection reason.")
+      toast.error("Enter a reason for rejection.")
       return false
     }
     const pending = order.items.filter((item) => itemStatus(item) === "pending")
@@ -668,15 +668,15 @@ export function OrderDetailPage() {
       )
       setOrder(latest)
       if (latest.status === "approved") {
-        toast.success("Order approved.")
+        toast.success("Order approved successfully.")
       } else if (latest.status === "rejected") {
         toast.success(
           latest.assigned_to_name
-            ? `Review finished. Order Rejected so ${latest.assigned_to_name} can rework rejected assets.`
-            : "Review finished. Order Rejected for rework on rejected assets.",
+            ? `Review completed. Rejected assets have been returned for rework.`
+            : "Review completed. Rejected assets have been returned for rework.",
         )
       } else {
-        toast.success("Review updated.")
+        toast.success("Review updated successfully.")
       }
       return true
     } catch (e) {
@@ -691,11 +691,11 @@ export function OrderDetailPage() {
   async function beginClosureApproveAll() {
     if (!order) return
     if (!closureAllLinesChosen) {
-      toast.error("Select Approve or Reject for every asset before continuing.")
+      toast.error("Please select Approve or Reject for all assets.")
       return
     }
     if (closureHasRejectChoice) {
-      toast.error("One or more assets are marked Reject. Use Reject to finish review.")
+      toast.error("Rejected assets found. Please use Reject to complete the review.")
       return
     }
     if (order.needs_next_closure_assignee) {
@@ -740,8 +740,8 @@ export function OrderDetailPage() {
               disabled={busy}
               onClick={async () => {
                 const ok = await confirmAsk({
-                  title: "Delete draft order?",
-                  description: "Permanently delete this draft physical order? This cannot be undone.",
+                  title: "Delete Draft Order?",
+                  description: "Delete this draft order? This action cannot be undone.",
                   confirmLabel: "Delete",
                   destructive: true,
                 })
@@ -760,7 +760,7 @@ export function OrderDetailPage() {
                 }
               }}
             >
-              Delete draft
+              Delete Draft
             </Button>
           ) : null}
           {order.can_archive ? (
@@ -772,9 +772,9 @@ export function OrderDetailPage() {
               disabled={busy}
               onClick={async () => {
                 const ok = await confirmAsk({
-                  title: "Archive physical order?",
+                  title: "Archive Physical Order?",
                   description:
-                    "Archive this physical order? It will be cancelled and kept in the audit trail.",
+                    "Archive this physical order",
                   confirmLabel: "Archive",
                 })
                 if (!ok) return
@@ -806,7 +806,7 @@ export function OrderDetailPage() {
               disabled={busy}
               onClick={async () => {
                 const ok = await confirmAsk({
-                  title: "Unarchive physical order?",
+                  title: "Unarchive Physical Order?",
                   description:
                     "Restore this physical order so you can edit and resubmit it.",
                   confirmLabel: "Unarchive",
@@ -1533,7 +1533,10 @@ export function OrderDetailPage() {
           <div className="dialog-body space-y-4">
             <div className="space-y-2">
               <Label htmlFor="assign-to">
-                {executorRoleName ? `${executorRoleName} *` : "Executor *"}
+                {executorRoleName ? `Select ${executorRoleName}` : "Select executor"}{" "}
+                <span className="text-destructive" aria-hidden>
+                  *
+                </span>
               </Label>
               <select
                 id="assign-to"
@@ -1542,7 +1545,7 @@ export function OrderDetailPage() {
                 onChange={(e) => setAssignTo(e.target.value)}
               >
                 <option value="">
-                  {executorRoleName ? `Select ${executorRoleName}…` : "Select executor…"}
+                  {executorRoleName ? `Select ${executorRoleName}` : "Select executor"}
                 </option>
                 {executors.map((e) => (
                   <option key={e.id} value={String(e.id)}>
@@ -1596,7 +1599,7 @@ export function OrderDetailPage() {
           <div className="dialog-body space-y-4">
             <div className="space-y-2">
               <Label htmlFor="reassign-to">
-                {executorRoleName ? executorRoleName : "Executor"}
+                {executorRoleName ? `Select ${executorRoleName}` : "Select executor"}
               </Label>
               <select
                 id="reassign-to"
@@ -1604,7 +1607,9 @@ export function OrderDetailPage() {
                 value={reassignTo}
                 onChange={(e) => setReassignTo(e.target.value)}
               >
-                <option value="">Select executor…</option>
+                <option value="">
+                  {executorRoleName ? `Select ${executorRoleName}` : "Select executor"}
+                </option>
                 {executors
                   .filter((e) => e.id !== order.assigned_to)
                   .map((e) => (

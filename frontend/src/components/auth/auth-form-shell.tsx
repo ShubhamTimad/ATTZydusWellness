@@ -66,8 +66,8 @@ export function AuthFormShell({
             </p>
           ) : null}
           <p className="text-xs text-neutral-500">
-            © {new Date().getFullYear()} Takeda
-            {version ? <span className="ml-1 tabular-nums">· v{version}</span> : null}
+            {/* © {new Date().getFullYear()} Takeda */}
+            {/* {version ? <span className="ml-1 tabular-nums">· v{version}</span> : null} */}
           </p>
         </div>
       </div>

@@ -171,9 +171,9 @@ export function CapexCreatePage() {
     <AdminPage
       fullWidth
       dense
-      description="Fill asset details and submit for approval."
+      // description="Fill asset details and submit for approval."
       className="w-full pb-6"
-      actions={<AdminBackLink to="/dashboard/capitalization">Capitalization forms</AdminBackLink>}
+      actions={<AdminBackLink to="/dashboard/capitalization">Capitalization</AdminBackLink>}
     >
       <form
         className="space-y-[var(--app-grid-gap)]"
@@ -183,13 +183,13 @@ export function CapexCreatePage() {
         }}
       >
         <AdminPanel
-          title="Asset capitalization details"
-          description="Request creation and capitalization of a new asset."
+          title="Asset Capitalization Detail"
+          // description="Request creation and capitalization of a new asset."
           headerActions={<FileText className="size-4 text-muted-foreground" aria-hidden />}
           contentClassName="px-5 py-5"
         >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField id="asset_name" labelText="Name of the Asset" required>
+            <FormField id="asset_name" labelText="Asset Name" required>
               <AutoGrowTextarea
                 id="asset_name"
                 value={form.asset_name}
@@ -217,7 +217,7 @@ export function CapexCreatePage() {
                 onChange={(next) => patch({ asset_specifications: next })}
               />
             </FormField>
-            <FormField id="party_name" labelText="Name of the party">
+            <FormField id="party_name" labelText="Party Name">
               <AutoGrowTextarea
                 id="party_name"
                 value={form.party_name ?? ""}
@@ -235,7 +235,7 @@ export function CapexCreatePage() {
                 onChange={(next) => patch({ department: next })}
               />
             </FormField>
-            <FormField id="cost_center_id" labelText="Cost center">
+            <FormField id="cost_center_id" labelText="Cost Center">
               <CapexCostCenterSelect
                 value={form.cost_center_id}
                 onChange={(next) => patch({ cost_center_id: next })}
@@ -250,7 +250,7 @@ export function CapexCreatePage() {
                 onChange={(next) => patch({ installation_location: next })}
               />
             </FormField>
-            <FormField id="department_head" labelText="Name of the Department Head">
+            <FormField id="department_head" labelText="Department Head Name">
               <AutoGrowTextarea
                 id="department_head"
                 value={form.department_head ?? ""}
@@ -267,7 +267,7 @@ export function CapexCreatePage() {
                 onChange={(e) => patch({ installation_date: e.target.value })}
               />
             </FormField>
-            <FormField id="auc_code" labelText="AUC code">
+            <FormField id="auc_code" labelText="AUC Code">
               <AutoGrowTextarea
                 id="auc_code"
                 value={form.auc_code ?? ""}
@@ -276,7 +276,7 @@ export function CapexCreatePage() {
                 onChange={(next) => patch({ auc_code: next })}
               />
             </FormField>
-            <FormField id="useful_life" labelText="Useful life of assets">
+            <FormField id="useful_life" labelText="Useful Life of Asset">
               <AutoGrowTextarea
                 id="useful_life"
                 value={form.useful_life ?? ""}
@@ -287,7 +287,7 @@ export function CapexCreatePage() {
               />
             </FormField>
             {canSubmitWithEngineering ? (
-              <FormField id="requires_engineering" labelText="Submit with engineering">
+              <FormField id="requires_engineering" labelText="Submit with Engineering">
                 <select
                   id="requires_engineering"
                   className={cn(adminSelectClass, "h-9")}
@@ -301,7 +301,7 @@ export function CapexCreatePage() {
             ) : null}
             <FormField
               id="functioning_comment"
-              labelText="Comment on the functioning of the Asset"
+              labelText="Comment on the Functioning of the Asset"
               className="sm:col-span-2"
             >
               <AutoGrowTextarea
@@ -332,7 +332,7 @@ export function CapexCreatePage() {
             disabled={saving}
             onClick={() => void saveDraft()}
           >
-            {saving ? "Saving…" : "Save draft"}
+            {saving ? "Saving…" : "Save Draft"}
           </Button>
           {canSubmit ? (
             <AdminPrimaryButton type="submit" disabled={saving}>

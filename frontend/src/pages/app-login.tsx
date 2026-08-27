@@ -259,7 +259,7 @@ export function AppLoginPage() {
                   className="text-[12px] font-semibold text-primary underline-offset-2 hover:underline sm:text-[13px]"
                   tabIndex={-1}
                 >
-                  Forgot password?
+                  Forgot Password?
                 </Link>
               </div>
               <PasswordInput
@@ -292,7 +292,7 @@ export function AppLoginPage() {
             ) : null}
 
             <Button type="submit" disabled={isSubmitting} className={AUTH_BUTTON_CLASS}>
-              {isSubmitting ? "Signing in…" : "Sign in"}
+              {isSubmitting ? "Signing in…" : "Sign In"}
             </Button>
 
             {policy?.sso_enabled ? (

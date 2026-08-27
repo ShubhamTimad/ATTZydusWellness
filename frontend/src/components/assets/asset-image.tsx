@@ -59,7 +59,7 @@ export function AssetImage({
         ) : (
           <div className="flex flex-col items-center gap-1 text-muted-foreground">
             <ImageIcon className="size-6" aria-hidden />
-            <span className="text-[11px]">No image</span>
+            <span className="text-[11px]">No Image</span>
           </div>
         )}
       </button>

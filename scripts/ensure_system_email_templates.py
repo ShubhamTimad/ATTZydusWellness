@@ -41,7 +41,7 @@ CORE_TEMPLATES: list[dict[str, str]] = [
 """.strip(),
     },
     {
-        "name": "Forgot password (reset link)",
+        "name": "Forgot Password (reset link)",
         "event_code": "FORGOT_PASSWORD",
         "subject": "Reset your password",
         "body_html": """

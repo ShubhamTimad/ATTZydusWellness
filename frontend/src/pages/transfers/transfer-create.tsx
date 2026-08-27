@@ -510,7 +510,7 @@ export function TransferOrderCreatePage() {
       dense
       description=""
       className="w-full pb-6"
-      actions={<AdminBackLink to="/dashboard/transfer-orders">Transfer orders</AdminBackLink>}
+      actions={<AdminBackLink to="/dashboard/transfer-orders">Transfer Orders</AdminBackLink>}
     >
       <form
         className="space-y-[var(--app-grid-gap)]"
@@ -521,7 +521,7 @@ export function TransferOrderCreatePage() {
       >
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
-            title={`1. Select assets (${assets.length})`}
+            title={`1. Select Asset `}
             // description={
             //   fromAssets
             //     ? "Assets where you are the asset custodian (from Asset Master)."
@@ -636,8 +636,8 @@ export function TransferOrderCreatePage() {
                       </AdminTableHeadCell>
                     ) : null}
                     <AdminTableHeadCell>Asset</AdminTableHeadCell>
-                    <AdminTableHeadCell>From CC</AdminTableHeadCell>
-                    <AdminTableHeadCell>From Loc 1</AdminTableHeadCell>
+                    <AdminTableHeadCell>From Cost Center</AdminTableHeadCell>
+                    <AdminTableHeadCell>From Actual Location 1</AdminTableHeadCell>
                   </AdminTableHeaderRow>
                 </TableHeader>
                 <TableBody>
@@ -723,7 +723,7 @@ export function TransferOrderCreatePage() {
           </AdminPanel>
 
           <AdminPanel
-            title="2. Transfer destination"
+            title="2. Transfer Destination"
             // description={
             //   assets.length === 0
             //     ? "Select assets first, then choose destination cost center and asset custodian."
@@ -743,7 +743,7 @@ export function TransferOrderCreatePage() {
               </p>
             ) : (
               <div className="grid grid-cols-1 gap-4">
-                <FormField id="to_cc" labelText="Destination cost center" required>
+                <FormField id="to_cc" labelText="Destination Cost Center" required>
                   <div className="relative">
                     <Search
                       className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
@@ -828,7 +828,7 @@ export function TransferOrderCreatePage() {
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <Label className="app-form-label !mb-0">
-                      Asset custodian
+                      Asset Custodian
                       <RequiredFieldMark />
                     </Label>
                     {toCostCenterId && custodianOptions.length > 3 ? (
@@ -849,14 +849,13 @@ export function TransferOrderCreatePage() {
 
                   {!toCostCenterId ? (
                     <p className="text-sm text-muted-foreground">
-                      Select a destination cost center to choose the asset custodian.
+                      Select a Destination Cost Center.
                     </p>
                   ) : custodiansLoading ? (
                     <p className="text-sm text-muted-foreground">Loading custodians…</p>
                   ) : custodianOptions.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No asset custodians are assigned to this cost center. Add them under Asset
-                      masters → CC custodians.
+                      No asset custodians are assigned to this cost center.
                     </p>
                   ) : visibleCustodians.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No custodians match your search.</p>
@@ -927,7 +926,7 @@ export function TransferOrderCreatePage() {
             disabled={busy}
             onClick={() => void create(false)}
           >
-            {busy ? "Saving…" : "Save draft"}
+            {busy ? "Saving…" : "Save Draft"}
           </Button>
           <AdminPrimaryButton type="submit" disabled={busy}>
             Submit for Approval

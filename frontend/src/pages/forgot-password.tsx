@@ -49,10 +49,10 @@ export function ForgotPasswordPage() {
       const res = await postJson<ForgotPasswordResponse>("/forgot-password", { email: eNorm })
       storePasswordResetReturnTo(returnTo)
       setSuccessMessage(
-        res.message ?? "A password reset link has been sent to your email.",
+        res.message ?? "A password reset link has been sent to your registered email address.",
       )
       setSubmitted(true)
-      toast.success("Reset link sent. Check your inbox.")
+      toast.success("Password reset link sent successfully. Please check your registered email address.")
     } catch (err) {
       let message = "Request failed. Try again later."
       if (err instanceof ApiError) {
@@ -78,8 +78,8 @@ export function ForgotPasswordPage() {
   return (
     <AppAuthMarketingLayout>
       <AuthFormShell
-        title="Forgot password"
-        description="Enter your account email. If we find a match, we will send a reset link."
+        title="Forgot Password"
+        description="Enter your registered email address."
       >
         {submitted ? (
           <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">
@@ -128,11 +128,11 @@ export function ForgotPasswordPage() {
               />
             </div>
             <Button type="submit" className={AUTH_BUTTON_CLASS} disabled={isSubmitting}>
-              {isSubmitting ? "Sending…" : "Send reset link"}
+              {isSubmitting ? "Sending…" : "Send Reset Link"}
             </Button>
             <p className="text-center text-sm">
               <Link to={returnTo} className="font-medium text-primary underline-offset-2 hover:underline">
-                Back to sign in
+                Back to Sign In
               </Link>
             </p>
           </form>

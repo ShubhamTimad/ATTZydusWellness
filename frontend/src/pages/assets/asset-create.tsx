@@ -320,7 +320,7 @@ export function AssetCreatePage() {
           toast.error("Asset created, but the image could not be uploaded. Add it from Edit.")
         }
       }
-      toast.success("Asset created as draft. Submit it for approval from the asset page.")
+      toast.success("Asset saved as Draft successfully. You can submit it for approval from the Asset Details page.")
       navigate(`/dashboard/assets/${created.id}`, { replace: true })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Create failed.")
@@ -1027,7 +1027,7 @@ export function AssetCreatePage() {
             Cancel
           </Button>
           <AdminPrimaryButton type="submit" disabled={creating}>
-            {creating ? "Creating…" : "Create asset"}
+            {creating ? "Creating…" : "Create Asset"}
           </AdminPrimaryButton>
         </div>
       </form>

@@ -76,7 +76,7 @@ EMAIL_TEMPLATES: list[dict[str, str]] = [
 """.strip(),
     },
     {
-        "name": "Forgot password",
+        "name": "Forgot Password",
         "event_code": "FORGOT_PASSWORD",
         "subject": "Reset your {{company_name}} password",
         "body_html": """

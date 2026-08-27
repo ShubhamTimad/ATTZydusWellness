@@ -215,7 +215,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
                 label="Cost center"
                 value={<MultiLineValue value={me.cost_center} />}
               />
-              <ProfileRow icon={Shield} label="Roles" value={<MultiLineValue value={me.role} />} />
+              <ProfileRow icon={Shield} label="Role" value={<MultiLineValue value={me.role} />} />
             </div>
           )}
         </div>

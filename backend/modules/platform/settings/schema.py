@@ -55,7 +55,7 @@ class SsoSettingsPublic(BaseModel):
 
     enabled: bool = False
     button_label: str = Field(
-        default="Sign in with SSO",
+        default="Sign In with SSO",
         max_length=80,
         description="Label shown on the login button.",
     )

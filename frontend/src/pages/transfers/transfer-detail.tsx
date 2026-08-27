@@ -696,31 +696,16 @@ export function TransferOrderDetailPage() {
             </AdminPrimaryButton>
           ) : null}
           {engineConfirm ? (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9"
-                disabled={busy}
-                onClick={() => {
-                  setDecisionMode("reject")
-                  setDecisionOpen(true)
-                }}
-              >
-                Reject
-              </Button>
-              <AdminPrimaryButton
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setDecisionMode("approve")
-                  setDecisionOpen(true)
-                }}
-              >
-                Confirm
-              </AdminPrimaryButton>
-            </>
+            <AdminPrimaryButton
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setDecisionMode("approve")
+                setDecisionOpen(true)
+              }}
+            >
+              Confirm
+            </AdminPrimaryButton>
           ) : null}
           {engineClose ? (
             <AdminPrimaryButton
@@ -894,7 +879,7 @@ export function TransferOrderDetailPage() {
             ) : (
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
                 <DetailFact
-                  label="Destination cost center"
+                  label="Destination Cost Center"
                   value={
                     selectedCc
                       ? `${costCenterLabel(selectedCc)}${selectedCc.code ? ` (${selectedCc.code})` : ""}`
@@ -908,7 +893,7 @@ export function TransferOrderDetailPage() {
                   }
                 />
                 <DetailFact
-                  label="Asset custodian"
+                  label="Asset Custodian"
                   value={selectedCustodian?.full_name ?? order.to_asset_custodian_name ?? "—"}
                 />
                 {showLocations ? (

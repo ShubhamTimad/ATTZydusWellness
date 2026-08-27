@@ -2478,10 +2478,9 @@ export function AssetsListPage() {
       <Dialog open={activeConflictOpen} onOpenChange={setActiveConflictOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Already on an active order</DialogTitle>
+            <DialogTitle>Already on an Active Order</DialogTitle>
             <DialogDescription>
-              These assets already belong to an active physical verification order. You can still create
-              a new order.
+            These Assets Already Belong to an Active Physical Verification Order. You Can Still Create a New Order.
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body max-h-64 overflow-auto">

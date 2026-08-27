@@ -56,8 +56,8 @@ const STEP_KINDS: { value: string; label: string }[] = [
 
 const ORG_SCOPES: { value: string; label: string }[] = [
   { value: "", label: "All" },
-  { value: "source", label: "Source cost center" },
-  { value: "destination", label: "Destination cost center" },
+  { value: "source", label: "Source Cost Center" },
+  { value: "destination", label: "Destination Cost Center" },
 ]
 
 function stepKindLabel(kind: string | undefined): string {

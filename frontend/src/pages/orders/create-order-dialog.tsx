@@ -97,10 +97,15 @@ export function CreatePhysicalOrderDialog({
         submit: true,
         reset_verification_asset_ids: resetVerificationAssetIds,
       })
+      // toast.success(
+      //   order.assigned_to_name
+      //     ? `Physical verification order ${order.order_number} created with ${assetIds.length} ${assetIds.length === 1 ? "asset" : "assets"} and assigned to ${order.assigned_to_name}.`
+      //     : `Physical verification order ${order.order_number} created with ${assetIds.length} ${assetIds.length === 1 ? "asset" : "assets"}.`,
+      // )
       toast.success(
         order.assigned_to_name
-          ? `Physical verification order ${order.order_number} created with ${assetIds.length} ${assetIds.length === 1 ? "asset" : "assets"} and assigned to ${order.assigned_to_name}.`
-          : `Physical verification order ${order.order_number} created with ${assetIds.length} ${assetIds.length === 1 ? "asset" : "assets"}.`,
+          ? `Physical Verification Order created and assigned successfully.`
+          : `Physical Verification Order created`,
       )
       onCreated(order)
       onOpenChange(false)
@@ -134,7 +139,7 @@ export function CreatePhysicalOrderDialog({
         <div className="space-y-5 px-6 py-5">
           <div className="space-y-2">
             <Label htmlFor="executor" className="text-sm font-medium">
-              {roleName ? `${roleName}` : "Assignee"}{" "}
+              {roleName ? `Select ${roleName}` : "Select assignee"}{" "}
               <span className="text-destructive" aria-hidden>
                 *
               </span>
@@ -150,8 +155,8 @@ export function CreatePhysicalOrderDialog({
                 {loadingExecutors
                   ? "Loading…"
                   : roleName
-                    ? `Select ${roleName}…`
-                    : "Select assignee…"}
+                    ? `Select ${roleName}`
+                    : "Select assignee"}
               </option>
               {executors.map((u) => (
                 <option key={u.id} value={String(u.id)}>
@@ -180,7 +185,7 @@ export function CreatePhysicalOrderDialog({
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               rows={3}
-              placeholder="Remark (Optional)"
+              placeholder="Add a remark (Optional)"
               disabled={busy}
             />
           </div>
@@ -202,7 +207,7 @@ export function CreatePhysicalOrderDialog({
               onClick={() => void createAndAssign()}
               disabled={busy || loadingExecutors || !assignedTo}
             >
-              {busy ? "Creating…" : "Create & assign"}
+              {busy ? "Creating…" : "Create & Assign"}
             </AdminPrimaryButton>
           </div>
         </DialogFooter>

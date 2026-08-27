@@ -507,13 +507,13 @@ export function CapexDetailPage() {
         </AdminPanel>
 
         <AdminPanel
-          title="Asset capitalization details"
-          description="Request creation and capitalization of a new asset."
+          title="Asset Capitalization Detail"
+          // description="Request creation and capitalization of a new asset."
           headerActions={<FileText className="size-4 text-muted-foreground" aria-hidden />}
           contentClassName="px-5 py-5"
         >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField id="asset_name" labelText="Name of the Asset" required={!readOnly}>
+            <FormField id="asset_name" labelText="Asset Name" required={!readOnly}>
               <AutoGrowTextarea
                 id="asset_name"
                 value={form.asset_name}
@@ -543,7 +543,7 @@ export function CapexDetailPage() {
                 onChange={(next) => patch({ asset_specifications: next })}
               />
             </FormField>
-            <FormField id="party_name" labelText="Name of the Party">
+            <FormField id="party_name" labelText="Party Name">
               <AutoGrowTextarea
                 id="party_name"
                 value={form.party_name ?? ""}
@@ -585,7 +585,7 @@ export function CapexDetailPage() {
                 onChange={(next) => patch({ installation_location: next })}
               />
             </FormField>
-            <FormField id="department_head" labelText="Name of the Department Head">
+            <FormField id="department_head" labelText="Department Head Name">
               <AutoGrowTextarea
                 id="department_head"
                 value={form.department_head ?? ""}
@@ -604,7 +604,7 @@ export function CapexDetailPage() {
                 onChange={(e) => patch({ installation_date: e.target.value })}
               />
             </FormField>
-            <FormField id="auc_code" labelText="AUC code">
+            <FormField id="auc_code" labelText="AUC Code">
               <AutoGrowTextarea
                 id="auc_code"
                 value={form.auc_code ?? ""}
@@ -614,7 +614,7 @@ export function CapexDetailPage() {
                 onChange={(next) => patch({ auc_code: next })}
               />
             </FormField>
-            <FormField id="useful_life" labelText="Useful life of Assets">
+            <FormField id="useful_life" labelText="Useful Life of Asset">
               <AutoGrowTextarea
                 id="useful_life"
                 value={form.useful_life ?? ""}

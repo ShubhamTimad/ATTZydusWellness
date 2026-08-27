@@ -83,18 +83,21 @@ export function CapexAssigneePickerDialog({
   }, [open, fetchUrl, roleLabel, excludeUserId])
 
   async function confirm() {
+    const role = (resolvedRole || roleLabel || "user").trim()
     if (!selectedId) {
-      toast.error("Select a user.")
+      toast.error(`Select a ${role}.`)
       return
     }
     await onConfirm(Number(selectedId))
   }
 
+  const selectLabel = (resolvedRole || roleLabel || "User").trim()
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 p-0 sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{resolvedRole || roleLabel}</DialogTitle>
+          <DialogTitle>{`Select ${selectLabel}`}</DialogTitle>
         </DialogHeader>
         <div className="dialog-body">
           <select
@@ -104,8 +107,9 @@ export function CapexAssigneePickerDialog({
             disabled={loading || busy}
             onChange={(e) => setSelectedId(e.target.value)}
             autoFocus
+            aria-label={`Select ${selectLabel}`}
           >
-            <option value="">{loading ? "Loading…" : "Select user"}</option>
+            <option value="">{loading ? "Loading…" : `Select ${selectLabel}`}</option>
             {items.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.full_name}

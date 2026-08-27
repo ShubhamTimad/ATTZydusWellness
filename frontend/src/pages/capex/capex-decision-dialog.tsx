@@ -136,7 +136,7 @@ export function CapexDecisionDialog({
                 onChange={(e) => setSelectedId(e.target.value)}
                 autoFocus
               >
-                <option value="">{loadingUsers ? "Loading…" : "Select user"}</option>
+                <option value="">{loadingUsers ? "Loading…" : "Select User"}</option>
                 {items.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.full_name}
