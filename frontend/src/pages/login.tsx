@@ -4,7 +4,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
-import { ShieldCheck } from "lucide-react"
 
 import {
   AUTH_BUTTON_CLASS,
