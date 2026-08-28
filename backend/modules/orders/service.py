@@ -29,6 +29,7 @@ from modules.orders.constants import (
     ITEM_STATUS_APPROVED,
     ITEM_STATUS_PENDING,
     ITEM_STATUS_REJECTED,
+    ORDER_CONFLICT_WARN_STATUSES,
     ORDER_STATUS_APPROVED,
     ORDER_STATUS_ASSIGNED,
     ORDER_STATUS_CANCELLED,
@@ -842,7 +843,7 @@ class PhysicalOrderService:
             .join(AssetMaster, AssetMaster.id == PhysicalOrderItem.asset_id)
             .where(
                 PhysicalOrderItem.asset_id.in_(asset_ids),
-                PhysicalOrder.status.in_(tuple(ACTIVE_ORDER_STATUSES)),
+                PhysicalOrder.status.in_(tuple(ORDER_CONFLICT_WARN_STATUSES)),
             )
         ).all()
         # Warn only — assets on an active order remain eligible for a new order.
@@ -1700,7 +1701,6 @@ class PhysicalOrderService:
             selectinload(PhysicalOrder.cost_center),
             selectinload(PhysicalOrder.creator),
             selectinload(PhysicalOrder.assignee),
-            selectinload(PhysicalOrder.items),
         )
         tab = tab.strip().lower()
         active_statuses = (
@@ -1903,28 +1903,28 @@ class PhysicalOrderService:
                 )
             )
 
-        total = int(self._db.scalar(select(func.count()).select_from(base.subquery())) or 0)
+        total = int(
+            self._db.scalar(
+                base.options()
+                .with_only_columns(func.count(func.distinct(PhysicalOrder.id)))
+                .order_by(None)
+            )
+            or 0
+        )
         sorted_base = apply_sort_dir(
             base,
             _physical_list_sort_expr(sort_by),
             sort_dir=sort_dir,
             tiebreaker=PhysicalOrder.id,
         )
-        rows = self._db.scalars(
-            sorted_base.offset((page - 1) * page_size).limit(page_size)
-        ).all()
-        promoted = False
-        handoff_fixed = False
-        for order in rows:
-            if self._promote_pending_closure_to_completed(order, commit=False):
-                promoted = True
-            if self._sync_pending_closure_handoff(order):
-                handoff_fixed = True
-        if promoted or handoff_fixed:
-            self._db.commit()
-            rows = self._db.scalars(
+        rows = list(
+            self._db.scalars(
                 sorted_base.offset((page - 1) * page_size).limit(page_size)
-            ).all()
+            )
+            .unique()
+            .all()
+        )
+        # List GET stays read-only — promote/handoff heal runs on detail fetch.
         has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
         from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
 
@@ -1935,25 +1935,17 @@ class PhysicalOrderService:
             ).all()
             if x is not None
         }
+        asset_counts = self._asset_counts_for_orders([int(o.id) for o in rows])
         items = [
             self._to_list_item(
                 o,
                 has_closure_workflow=has_closure_workflow,
                 action_label=self._row_action_label(o, int(viewer_id), pending_ids),
+                asset_count=asset_counts.get(int(o.id), 0),
             )
             for o in rows
         ]
-        tab_counts = {
-            key: int(
-                self._db.scalar(
-                    select(func.count()).select_from(
-                        self._list_orders_base_for_tab(key, viewer_id=viewer_id).subquery()
-                    )
-                )
-                or 0
-            )
-            for key in ("all", "needs_action", "done")
-        }
+        tab_counts = self._order_tab_counts(viewer_id=viewer_id, pending_req_ids=pending_ids)
         return PhysicalOrderListResponse(
             items=items,
             total=total,
@@ -1962,14 +1954,56 @@ class PhysicalOrderService:
             tab_counts=tab_counts,
         )
 
-    def _list_orders_base_for_tab(self, tab: str, *, viewer_id: int):
+    def _asset_counts_for_orders(self, order_ids: list[int]) -> dict[int, int]:
+        if not order_ids:
+            return {}
+        rows = self._db.execute(
+            select(PhysicalOrderItem.order_id, func.count())
+            .where(PhysicalOrderItem.order_id.in_(order_ids))
+            .group_by(PhysicalOrderItem.order_id)
+        ).all()
+        return {int(oid): int(cnt) for oid, cnt in rows}
+
+    def _order_tab_counts(
+        self, *, viewer_id: int, pending_req_ids: set[int] | None = None
+    ) -> dict[str, int]:
+        """Tab badge counts without wrapping full entity selects."""
+        out: dict[str, int] = {}
+        for key in ("all", "needs_action", "done"):
+            stmt = self._list_orders_base_for_tab(
+                key, viewer_id=viewer_id, pending_req_ids=pending_req_ids
+            )
+            out[key] = int(
+                self._db.scalar(
+                    stmt.with_only_columns(func.count(func.distinct(PhysicalOrder.id))).order_by(
+                        None
+                    )
+                )
+                or 0
+            )
+        return out
+
+    def _list_orders_base_for_tab(
+        self,
+        tab: str,
+        *,
+        viewer_id: int,
+        pending_req_ids: set[int] | frozenset[int] | None = None,
+    ):
         """Minimal count query for inbox tabs (org-scoped)."""
         base = select(PhysicalOrder.id)
         tab = tab.strip().lower()
         if tab == "needs_action":
             from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
 
-            pending_req_ids = pending_approval_request_ids_for_viewer(self._db, int(viewer_id))
+            if pending_req_ids is None:
+                pending_req_ids = {
+                    int(x)
+                    for x in self._db.scalars(
+                        pending_approval_request_ids_for_viewer(self._db, int(viewer_id))
+                    ).all()
+                    if x is not None
+                }
             closure_order_ids = self._pending_closure_order_ids_for_viewer(pending_req_ids)
             base = base.where(
                 or_(
@@ -2086,6 +2120,7 @@ class PhysicalOrderService:
         *,
         has_closure_workflow: bool = False,
         action_label: str | None = None,
+        asset_count: int | None = None,
     ) -> PhysicalOrderListItem:
         cc = order.cost_center
         return PhysicalOrderListItem(
@@ -2096,7 +2131,7 @@ class PhysicalOrderService:
             cost_center_id=int(order.cost_center_id),
             cost_center_code=cc.code if cc else "",
             cost_center_description=cc.name if cc else "",
-            asset_count=len(order.items),
+            asset_count=int(asset_count) if asset_count is not None else len(order.items),
             status=order.status,
             closed_at=order.closed_at,
             has_closure_workflow=has_closure_workflow,

@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import {
   ListFilter,
   Loader2,
@@ -44,6 +44,7 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { invalidateAssetLists, invalidateOrderLists } from "@/lib/query-client"
 import {
   orderStatusLabel,
   orderStatusPillTone,
@@ -452,6 +453,8 @@ export function OrderDetailPage() {
       } else {
         toast.success("Changes saved successfully.")
       }
+      void invalidateOrderLists()
+      void invalidateAssetLists()
       return true
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
@@ -479,6 +482,8 @@ export function OrderDetailPage() {
       setScanValue("")
       setSelectedScanItemId(null)
       await load()
+      void invalidateOrderLists()
+      void invalidateAssetLists()
       toast.success(`Asset verified (${res.verified_count}/${res.total_count}).`)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Scan failed.")
@@ -678,6 +683,8 @@ export function OrderDetailPage() {
       } else {
         toast.success("Review updated successfully.")
       }
+      void invalidateOrderLists()
+      void invalidateAssetLists()
       return true
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
@@ -750,6 +757,8 @@ export function OrderDetailPage() {
                 try {
                   await deleteJson(`/admin/physical-orders/${order.id}`)
                   toast.success("Draft physical order deleted.")
+                  void invalidateOrderLists()
+                  void invalidateAssetLists()
                   navigate("/dashboard/orders")
                 } catch (e) {
                   toast.error(
@@ -784,6 +793,8 @@ export function OrderDetailPage() {
                     await postJson(`/admin/physical-orders/${order.id}/archive`, {}),
                   )
                   toast.success("Physical order archived.")
+                  void invalidateOrderLists()
+                  void invalidateAssetLists()
                   navigate("/dashboard/orders")
                 } catch (e) {
                   toast.error(
@@ -818,6 +829,8 @@ export function OrderDetailPage() {
                     await postJson(`/admin/physical-orders/${order.id}/unarchive`, {}),
                   )
                   toast.success("Physical order unarchived.")
+                  void invalidateOrderLists()
+                  void invalidateAssetLists()
                 } catch (e) {
                   toast.error(
                     e instanceof ApiError ? e.message : "Could not unarchive physical order",
@@ -1405,13 +1418,7 @@ export function OrderDetailPage() {
                         <p className="mt-0.5 text-sm text-foreground">{item.asset_name}</p>
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
-                        <Link
-                          to={`/dashboard/assets/${item.asset_id}`}
-                          className="font-mono text-xs text-primary hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {item.asset_code}
-                        </Link>
+                        {item.asset_code}
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
                         {item.rfid_code ?? "—"}

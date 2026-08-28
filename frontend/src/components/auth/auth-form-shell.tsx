@@ -4,6 +4,7 @@ import { AuthBrandMark } from "@/components/auth/auth-brand-mark"
 import { AuthShellModeContext } from "@/components/auth/auth-shell-mode"
 import { getJson } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { ShieldCheck } from "lucide-react"
 
 type AuthFormShellProps = {
   title: string
@@ -68,6 +69,10 @@ export function AuthFormShell({
           <p className="text-xs text-neutral-500">
             {/* © {new Date().getFullYear()} Takeda */}
             {/* {version ? <span className="ml-1 tabular-nums">· v{version}</span> : null} */}
+            <span className="inline-flex items-center justify-center gap-1.5">
+              <ShieldCheck className="size-3.5 shrink-0 text-primary/80" aria-hidden />
+              Powered by TiMAD
+            </span>
           </p>
         </div>
       </div>

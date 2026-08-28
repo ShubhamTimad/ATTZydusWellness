@@ -185,14 +185,14 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
             ? "Enter the code from your authenticator app."
             : " "
         }
-        footer={
-          !mfaChallenge ? (
-            <span className="inline-flex items-center justify-center gap-1.5">
-              <ShieldCheck className="size-3.5 shrink-0 text-primary/80" aria-hidden />
-              Restricted to platform administrators
-            </span>
-          ) : undefined
-        }
+        // footer={
+        //   !mfaChallenge ? (
+        //     <span className="inline-flex items-center justify-center gap-1.5">
+        //       <ShieldCheck className="size-3.5 shrink-0 text-primary/80" aria-hidden />
+        //       Restricted to platform administrators
+        //     </span>
+        //   ) : undefined
+        // }
       >
         {serverError ? (
           <Alert variant="destructive">
@@ -237,7 +237,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
           <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
             <div className="app-form-field">
               <Label htmlFor="identifier" className={AUTH_LABEL_CLASS}>
-                Email Address
+                Login ID
               </Label>
               <Input
                 id="identifier"

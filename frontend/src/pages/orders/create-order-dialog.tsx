@@ -14,6 +14,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { ApiError, getJson, postJson } from "@/lib/api"
+import { invalidateAssetLists, invalidateOrderLists } from "@/lib/query-client"
 import type { ExecutorListResponse, PhysicalOrderDetail } from "@/lib/orders-types"
 
 type Props = {
@@ -107,6 +108,8 @@ export function CreatePhysicalOrderDialog({
           ? `Physical Verification Order created and assigned successfully.`
           : `Physical Verification Order created`,
       )
+      void invalidateAssetLists()
+      void invalidateOrderLists()
       onCreated(order)
       onOpenChange(false)
     } catch (e) {

@@ -280,10 +280,6 @@ ASSET_LIST_COLUMN_KEYS = frozenset(
         "cost_center_name",
         "actual_location",
         "last_verification_date",
-        "approval_status",
-        "source_type",
-        "created_at",
-        "active_physical_order",
     )
 )
 
@@ -1633,37 +1629,53 @@ class AssetMasterService:
         dict[tuple[int, str], str],
         dict[tuple[int, str, str], str],
     ]:
-        """Resolve cost center, functional, and actual location descriptions from reference masters."""
+        """Resolve cost center / location labels for codes present on the current page only."""
         plant_ids: set[int] = set()
+        cc_codes: set[str] = set()
+        fl_codes: set[str] = set()
+        al_codes: set[str] = set()
         for a in rows:
             loc = a.location
+            fin = a.financial
             if loc and loc.plant_id:
                 plant_ids.add(int(loc.plant_id))
+            if fin and (fin.cost_center or "").strip():
+                cc_codes.add(str(fin.cost_center).strip())
+            if loc and (loc.functional_location or "").strip():
+                fl_codes.add(str(loc.functional_location).strip())
+            if loc and (loc.actual_location or "").strip():
+                al_codes.add(str(loc.actual_location).strip())
         if not plant_ids:
             return {}, {}, {}
 
-        cc_rows = self._db.scalars(
-            select(CostCenterMaster).where(CostCenterMaster.plant_id.in_(plant_ids))
-        ).all()
-        cc_desc: dict[tuple[int, str], str] = {
-            (int(r.plant_id), str(r.code)): str(r.name) for r in cc_rows
-        }
+        cc_desc: dict[tuple[int, str], str] = {}
+        if cc_codes:
+            cc_rows = self._db.scalars(
+                select(CostCenterMaster).where(
+                    CostCenterMaster.plant_id.in_(plant_ids),
+                    CostCenterMaster.code.in_(cc_codes),
+                )
+            ).all()
+            cc_desc = {(int(r.plant_id), str(r.code)): str(r.name) for r in cc_rows}
 
-        fl_rows = self._db.scalars(
-            select(FunctionalLocationMaster).where(FunctionalLocationMaster.plant_id.in_(plant_ids))
-        ).all()
-        fl_desc: dict[tuple[int, str], str] = {
-            (int(r.plant_id), str(r.code)): str(r.name) for r in fl_rows
-        }
-        fl_id_to_key: dict[int, tuple[int, str]] = {
-            int(r.id): (int(r.plant_id), str(r.code)) for r in fl_rows
-        }
+        fl_desc: dict[tuple[int, str], str] = {}
+        fl_id_to_key: dict[int, tuple[int, str]] = {}
+        if fl_codes:
+            fl_rows = self._db.scalars(
+                select(FunctionalLocationMaster).where(
+                    FunctionalLocationMaster.plant_id.in_(plant_ids),
+                    FunctionalLocationMaster.code.in_(fl_codes),
+                )
+            ).all()
+            fl_desc = {(int(r.plant_id), str(r.code)): str(r.name) for r in fl_rows}
+            fl_id_to_key = {int(r.id): (int(r.plant_id), str(r.code)) for r in fl_rows}
 
         al_desc: dict[tuple[int, str, str], str] = {}
-        if fl_id_to_key:
+        if fl_id_to_key and al_codes:
             al_rows = self._db.scalars(
                 select(ActualLocationMaster).where(
-                    ActualLocationMaster.functional_location_id.in_(fl_id_to_key.keys())
+                    ActualLocationMaster.functional_location_id.in_(fl_id_to_key.keys()),
+                    ActualLocationMaster.code.in_(al_codes),
                 )
             ).all()
             for al in al_rows:
@@ -1896,7 +1908,16 @@ class AssetMasterService:
         column_filters: dict[str, str] | None = None,
         viewer_scope: ViewerOrgScope | None = None,
         search_columns: list[str] | None = None,
-    ) -> tuple[Any, str, VerificationWindow | None, dict[str, int] | None, set[int] | None, int | None, int | None]:
+    ) -> tuple[
+        Any,
+        str,
+        VerificationWindow | None,
+        dict[str, int] | None,
+        set[int] | None,
+        int | None,
+        int | None,
+        int | None,
+    ]:
         scope = viewer_scope or ViewerOrgScope(None, None, None)
         if plant_id is not None and scope.plant_ids is not None and int(plant_id) not in scope.plant_ids:
             plant_id = -1  # force empty via impossible plant
@@ -1924,6 +1945,7 @@ class AssetMasterService:
                 scan_window,
                 fy_summary,
                 verified_ids,
+                None,
                 None,
                 None,
             )
@@ -2006,16 +2028,30 @@ class AssetMasterService:
 
         rfid_summary_tagged: int | None = None
         rfid_summary_not_tagged: int | None = None
+        rfid_list_total: int | None = None
         if scan_window is None:
             has_rfid = and_(AssetMaster.rfid_code.isnot(None), AssetMaster.rfid_code != "")
             no_rfid = or_(AssetMaster.rfid_code.is_(None), AssetMaster.rfid_code == "")
-            rfid_summary_tagged = self._count_asset_rows(base.where(has_rfid))
-            rfid_summary_not_tagged = self._count_asset_rows(base.where(no_rfid))
+            # One pass: unfiltered total + tagged (not-tagged = total - tagged).
+            total_all, tagged = self._db.execute(
+                base.with_only_columns(
+                    func.count(func.distinct(AssetMaster.id)),
+                    func.count(func.distinct(AssetMaster.id)).filter(has_rfid),
+                ).order_by(None)
+            ).one()
+            total_all = int(total_all or 0)
+            tagged = int(tagged or 0)
+            rfid_summary_tagged = tagged
+            rfid_summary_not_tagged = max(total_all - tagged, 0)
             rfid_mode = (rfid_status or "").strip().lower()
             if rfid_mode == "tagged":
                 base = base.where(has_rfid)
+                rfid_list_total = tagged
             elif rfid_mode == "not_tagged":
                 base = base.where(no_rfid)
+                rfid_list_total = rfid_summary_not_tagged
+            else:
+                rfid_list_total = total_all
 
         if scan_window is not None and verified_ids is not None:
             base = base.join(AssetInventoryInformation).where(
@@ -2040,6 +2076,7 @@ class AssetMasterService:
             verified_ids,
             rfid_summary_tagged,
             rfid_summary_not_tagged,
+            rfid_list_total,
         )
 
     def list_assets(
@@ -2065,9 +2102,6 @@ class AssetMasterService:
     ) -> AssetListResponse:
         page = max(1, page)
         page_size = min(max(1, page_size), 100)
-        from modules.transfers.service import sync_open_transfer_asset_lifecycles
-
-        sync_open_transfer_asset_lifecycles(self._db)
         scope = load_viewer_org_scope(self._db, viewer_user_id)
         search_columns = (
             self.get_asset_list_columns(viewer_user_id) if viewer_user_id is not None else None
@@ -2080,6 +2114,7 @@ class AssetMasterService:
             verified_ids,
             rfid_summary_tagged,
             rfid_summary_not_tagged,
+            rfid_list_total,
         ) = self._asset_list_base_query(
             search=search,
             plant_id=plant_id,
@@ -2105,7 +2140,7 @@ class AssetMasterService:
             if fy_mode in {"verified", "pending", "all"}
             else None
         )
-        total = self._count_asset_rows(base)
+        total = rfid_list_total if rfid_list_total is not None else self._count_asset_rows(base)
         base = base.options(
             selectinload(AssetMaster.category),
             selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),

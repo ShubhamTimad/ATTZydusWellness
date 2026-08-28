@@ -800,7 +800,7 @@ export function SettingsPage() {
                     disabled={loginBgBusy || !canWriteSettings}
                     onClick={() => loginBgInputRef.current?.click()}
                   >
-                    {loginBgBusy ? "Working…" : loginBgMeta.configured ? "Replace image" : "Upload image"}
+                    {loginBgBusy ? "Working…" : loginBgMeta.configured ? "Replace image" : "Upload Image"}
                   </AdminPrimaryButton>
                 </div>
               </>

@@ -32,6 +32,7 @@ import {
   postJson,
   putFormData,
 } from "@/lib/api"
+import { invalidateAssetLists } from "@/lib/query-client"
 import type {
   AssetAuditEvent,
   AssetDetail,
@@ -307,6 +308,7 @@ export function AssetDetailPage() {
       setEditing(false)
       void loadAudit(refreshed.id)
       toast.success("Asset saved.")
+      void invalidateAssetLists()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Save failed.")
     } finally {
@@ -332,6 +334,7 @@ export function AssetDetailPage() {
       setAsset(updated)
 
       toast.success(formatRfidAttachSuccess(res))
+      void invalidateAssetLists()
 
       setRfidDialogOpen(false)
 
@@ -589,6 +592,7 @@ export function AssetDetailPage() {
             : `Asset ${asset.asset_code} submitted for approval.`),
       )
       await load()
+      void invalidateAssetLists()
       if (asset.id) void loadAudit(asset.id)
     } catch (e) {
       toast.error(
@@ -611,6 +615,7 @@ export function AssetDetailPage() {
       setAsset(updated)
       setReassignOpen(false)
       toast.success("Approver reassigned.")
+      void invalidateAssetLists()
       void loadAudit(asset.id)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Reassign failed.")
@@ -637,6 +642,7 @@ export function AssetDetailPage() {
       setDecisionOpen(false)
       toast.success(decisionMode === "approve" ? "Approved." : "Rejected.")
       await load()
+      void invalidateAssetLists()
       if (asset?.id) void loadAudit(asset.id)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
@@ -694,6 +700,7 @@ export function AssetDetailPage() {
       const updated = await postJson<AssetDetail>(`/admin/assets/${asset.id}/${action}`, {})
       setAsset(updated)
       toast.success(action === "deactivate" ? "Asset deactivated." : "Asset reactivated.")
+      void invalidateAssetLists()
       void loadAudit(asset.id)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")

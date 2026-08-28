@@ -217,11 +217,11 @@ export function canSubmitForApproval(lifecycleStatus: string, approvalStatus: st
 }
 
 export const ASSET_APPROVAL_STATUS_TABS = [
-  { key: "all", label: "All", approval_status: "" },
+  { key: "approved", label: "Approved", approval_status: "approved" },
   { key: "draft", label: "Draft", approval_status: "draft" },
   { key: "pending", label: "Pending Approval", approval_status: "pending" },
   { key: "rejected", label: "Rejected", approval_status: "rejected" },
-  { key: "approved", label: "Approved", approval_status: "approved" },
+  { key: "all", label: "All", approval_status: "" },
 ] as const
 
 export type AssetApprovalStatusTabKey = (typeof ASSET_APPROVAL_STATUS_TABS)[number]["key"]

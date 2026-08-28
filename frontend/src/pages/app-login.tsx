@@ -234,13 +234,13 @@ export function AppLoginPage() {
           <form onSubmit={onSubmitPassword} className="space-y-5">
             <div className="app-form-field">
               <Label htmlFor="identifier" className={AUTH_LABEL_CLASS}>
-                Email Address
+                Login ID
               </Label>
               <Input
                 id="identifier"
                 type="email"
                 autoComplete="email"
-                placeholder="Enter Email Address"
+                placeholder="user@example.com"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 disabled={isSubmitting}

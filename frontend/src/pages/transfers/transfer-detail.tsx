@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
 
@@ -994,12 +994,7 @@ export function TransferOrderDetailPage() {
                   order.items.map((item) => (
                     <AdminTableBodyRow key={item.id} interactive={false}>
                       <AdminTableCell className="min-h-0 whitespace-normal px-4 py-2">
-                        <Link
-                          to={`/dashboard/assets/${item.asset_id}`}
-                          className="font-mono text-xs text-primary hover:underline"
-                        >
-                          {item.asset_code}
-                        </Link>
+                        <span className="font-mono text-xs text-foreground">{item.asset_code}</span>
                         <p className="mt-0.5 text-sm text-foreground">{item.asset_name || "—"}</p>
                       </AdminTableCell>
                       <AdminTableCell className="px-4 py-2">

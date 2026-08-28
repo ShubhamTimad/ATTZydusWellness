@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useQuery } from "@tanstack/react-query"
 import { ListFilter, Search, X } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
@@ -32,6 +33,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { getJson } from "@/lib/api"
+import { orderListRootKey, LIST_STALE_MS } from "@/lib/query-client"
 import {
   ORDER_STATUS_TABS,
   orderStatusLabel,
@@ -91,8 +93,6 @@ export function OrdersListPage() {
   const navigate = useNavigate()
   const [tab, setTab] = useUrlTab(ORDER_TAB_KEYS, DEFAULT_TAB)
   const [page, setPage] = useUrlPage()
-  const [data, setData] = React.useState<PhysicalOrderListResponse | null>(null)
-  const [loading, setLoading] = React.useState(false)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
   const [columnFiltersOpen, setColumnFiltersOpen] = React.useState(false)
@@ -142,9 +142,18 @@ export function OrdersListPage() {
       })
   }, [columnFilterInputs.plant_id])
 
-  const load = React.useCallback(async () => {
-    setLoading(true)
-    try {
+  const ordersQueryKey = React.useMemo(
+    () =>
+      [
+        ...orderListRootKey,
+        { tab, page, search, columnFilters, sortBy, sortDir },
+      ] as const,
+    [tab, page, search, columnFilters, sortBy, sortDir],
+  )
+
+  const ordersQuery = useQuery({
+    queryKey: ordersQueryKey,
+    queryFn: async () => {
       const q = new URLSearchParams({ tab, page: String(page), page_size: "25" })
       if (search.trim()) q.set("search", search.trim())
       if (columnFilters.order_number.trim()) q.set("order_number", columnFilters.order_number.trim())
@@ -159,14 +168,21 @@ export function OrdersListPage() {
       if (columnFilters.created_on.trim()) q.set("created_on", columnFilters.created_on.trim())
       q.set("sort_by", sortBy)
       q.set("sort_dir", sortDir)
-      const res = await getJson<PhysicalOrderListResponse>(`/admin/physical-orders?${q}`)
-      setData(res)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load orders")
-    } finally {
-      setLoading(false)
+      return getJson<PhysicalOrderListResponse>(`/admin/physical-orders?${q}`)
+    },
+    staleTime: LIST_STALE_MS,
+  })
+
+  const data = ordersQuery.data ?? null
+  const loading = ordersQuery.isPending && !ordersQuery.data
+
+  React.useEffect(() => {
+    if (ordersQuery.error) {
+      toast.error(
+        ordersQuery.error instanceof Error ? ordersQuery.error.message : "Failed to load orders",
+      )
     }
-  }, [tab, page, search, columnFilters, sortBy, sortDir])
+  }, [ordersQuery.error])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -189,10 +205,6 @@ export function OrdersListPage() {
     }, 300)
     return () => window.clearTimeout(t)
   }, [columnFilterInputs])
-
-  React.useEffect(() => {
-    void load()
-  }, [load])
 
   function clearFilters() {
     setSearchInput("")

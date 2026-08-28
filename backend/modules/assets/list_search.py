@@ -18,8 +18,6 @@ from modules.assets.model import (
     AssetLocationInformation,
     AssetMaster,
 )
-from modules.orders.constants import ACTIVE_ORDER_STATUSES
-from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 from modules.platform.org_units.model import OrgUnit
 
 # Keep in sync with frontend ASSET_LIST_COLUMNS / backend ASSET_LIST_COLUMN_KEYS.
@@ -179,28 +177,6 @@ def asset_global_search_clause(term: str, columns: Iterable[str] | None = None):
         # Status pill uses lifecycle + approval (Draft / Pending / Approved / …).
         clauses.append(AssetMaster.lifecycle_status.ilike(q))
         clauses.append(AssetMaster.approval_status.ilike(q))
-    if "approval_status" in keys:
-        clauses.append(AssetMaster.approval_status.ilike(q))
-    if "source_type" in keys:
-        clauses.append(AssetMaster.source_type.ilike(q))
-    if "created_at" in keys:
-        clauses.append(cast(AssetMaster.created_at, String).ilike(q))
-    if "active_physical_order" in keys:
-        clauses.append(
-            select(1)
-            .select_from(PhysicalOrderItem)
-            .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
-            .where(
-                PhysicalOrderItem.asset_id == AssetMaster.id,
-                PhysicalOrder.status.in_(tuple(ACTIVE_ORDER_STATUSES)),
-                or_(
-                    PhysicalOrder.order_number.ilike(q),
-                    PhysicalOrder.status.ilike(q),
-                ),
-            )
-            .correlate(AssetMaster)
-            .exists()
-        )
 
     if not clauses:
         return None

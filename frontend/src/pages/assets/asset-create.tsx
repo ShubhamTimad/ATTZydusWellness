@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, getJson, postJson, putFormData } from "@/lib/api"
+import { invalidateAssetLists } from "@/lib/query-client"
 import type { CapexFormDetail } from "@/lib/capex-types"
 import type { AssetDetail } from "@/lib/assets-types"
 import { useAssetFieldConfig } from "@/lib/use-asset-field-config"
@@ -321,6 +322,7 @@ export function AssetCreatePage() {
         }
       }
       toast.success("Asset saved as Draft successfully. You can submit it for approval from the Asset Details page.")
+      void invalidateAssetLists()
       navigate(`/dashboard/assets/${created.id}`, { replace: true })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Create failed.")

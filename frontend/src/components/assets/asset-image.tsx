@@ -85,7 +85,7 @@ export function AssetImage({
             onClick={() => inputRef.current?.click()}
           >
             <Upload className="size-4" aria-hidden />
-            {src ? "Replace image" : "Upload image"}
+            {src ? "Replace image" : "Upload Image"}
           </Button>
           {src && onRemove ? (
             <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onRemove}>

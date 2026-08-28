@@ -639,7 +639,7 @@ export function RolesPage() {
                         className="h-8"
                         onClick={() => togglePermissionIds(allCatalogPermissionIds, true)}
                       >
-                        Select all
+                        Select All
                       </Button>
                       <Button
                         type="button"
@@ -648,7 +648,7 @@ export function RolesPage() {
                         className="h-8"
                         onClick={() => togglePermissionIds(allCatalogPermissionIds, false)}
                       >
-                        Clear all
+                        Clear All
                       </Button>
                     </div>
                   </div>
@@ -679,7 +679,7 @@ export function RolesPage() {
                                   togglePermissionIds(moduleIds, v === true)
                                 }
                               />
-                              Select all
+                              Select All
                             </label>
                           </div>
                         ) : null}

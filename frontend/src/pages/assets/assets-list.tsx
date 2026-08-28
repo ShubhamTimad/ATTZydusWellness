@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import {
   Columns3,
@@ -56,6 +57,7 @@ import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { AssetExportDialog } from "@/components/assets/asset-export-dialog"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
 import { ApiError, deleteJson, downloadFile, getJson, postJson, putJson } from "@/lib/api"
+import { assetListRootKey, invalidateAssetLists, LIST_STALE_MS } from "@/lib/query-client"
 import {
   buildAssetListActionItems,
   canActOnAsset,
@@ -98,7 +100,7 @@ import {
 } from "@/lib/asset-lifecycle"
 import { currentUserId, hasPermission, isSuperuser } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
-import { ASSET_PHYSICAL_ORDER_STATUS_FILTERS, orderStatusLabel } from "@/lib/orders-types"
+import { orderStatusLabel } from "@/lib/orders-types"
 import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
 import { formatAppDate } from "@/lib/dates"
 import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
@@ -108,11 +110,11 @@ export type AssetListTab = "all" | "draft" | "pending" | "rejected" | "approved"
 export type AssetFySubTab = "verified" | "pending"
 
 const ASSET_LIST_TAB_KEYS = [
-  "all",
+  "approved",
   "draft",
   "pending",
   "rejected",
-  "approved",
+  "all",
   "fy",
 ] as const satisfies readonly AssetListTab[]
 const FY_SUB_TAB_KEYS = ["verified", "pending"] as const satisfies readonly AssetFySubTab[]
@@ -132,10 +134,6 @@ export type AssetListColumnKey =
   | "physical_count"
   | "last_verification_date"
   | "lifecycle_status"
-  | "approval_status"
-  | "source_type"
-  | "created_at"
-  | "active_physical_order"
 
 type AssetListColumnDefinition = {
   key: AssetListColumnKey
@@ -158,10 +156,6 @@ const ASSET_LIST_COLUMNS: AssetListColumnDefinition[] = [
   { key: "physical_count", label: "Physical Count", group: "Inventory & status" },
   { key: "last_verification_date", label: "Last Verification", group: "Inventory & status" },
   { key: "lifecycle_status", label: "Status", group: "Inventory & status" },
-  { key: "approval_status", label: "Approval", group: "Inventory & status" },
-  { key: "source_type", label: "Source", group: "Inventory & status" },
-  { key: "created_at", label: "Created", group: "Inventory & status" },
-  { key: "active_physical_order", label: "Physical Order", group: "Inventory & status" },
 ]
 
 const DEFAULT_ASSET_LIST_COLUMN_KEYS: AssetListColumnKey[] = [
@@ -177,7 +171,7 @@ const DEFAULT_ASSET_LIST_COLUMN_KEYS: AssetListColumnKey[] = [
   "lifecycle_status",
 ]
 
-const DATE_SORT_KEYS = new Set<AssetListColumnKey>(["created_at", "last_verification_date"])
+const DATE_SORT_KEYS = new Set<AssetListColumnKey>(["last_verification_date"])
 
 function defaultSortDirForColumn(key: AssetListColumnKey): "asc" | "desc" {
   return DATE_SORT_KEYS.has(key) ? "desc" : "asc"
@@ -322,16 +316,6 @@ function assetListCell(row: AssetListItem, key: AssetListColumnKey): React.React
           {assetStatusLabel(row.lifecycle_status, row.approval_status)}
         </AdminPillBadge>
       )
-    case "approval_status":
-      return row.approval_status.replaceAll("_", " ")
-    case "source_type":
-      return row.source_type.replaceAll("_", " ")
-    case "created_at":
-      return formatListDate(row.created_at)
-    case "active_physical_order":
-      return row.active_physical_order
-        ? `${row.active_physical_order.order_number} · ${orderStatusLabel(row.active_physical_order.order_status)}`
-        : "—"
   }
 }
 
@@ -404,7 +388,7 @@ function buildQueryParams(
 export function AssetsListPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const [listTab, setListTab] = useUrlTab(ASSET_LIST_TAB_KEYS, "all")
+  const [listTab, setListTab] = useUrlTab(ASSET_LIST_TAB_KEYS, "approved")
   const [fySubTab, setFySubTab] = useUrlTab(FY_SUB_TAB_KEYS, "verified", "fy_sub")
   const approvalTab = ASSET_APPROVAL_STATUS_TABS.find((t) => t.key === listTab)
   const initialRfidStatus = searchParams.get("rfid_status")
@@ -415,7 +399,6 @@ export function AssetsListPage() {
     rfid_status: listTab !== "fy" ? validInitialRfid : "",
     approval_status: approvalTab?.approval_status ?? "",
   }
-  const [data, setData] = React.useState<AssetListResponse | null>(null)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
   const [page, setPage] = useUrlPage()
@@ -528,7 +511,6 @@ export function AssetsListPage() {
   }, [draftFilters.plant_id, canViewAllAssets])
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
   const [selectedHasRfid, setSelectedHasRfid] = React.useState<Map<number, boolean>>(new Map())
-  const [loading, setLoading] = React.useState(false)
   const [bulkActionBusy, setBulkActionBusy] = React.useState(false)
   const [orderValidateBusy, setOrderValidateBusy] = React.useState(false)
   const [activeConflictOpen, setActiveConflictOpen] = React.useState(false)
@@ -644,9 +626,27 @@ export function AssetsListPage() {
       .catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load financial years"))
   }, [isFyTab])
 
-  const load = React.useCallback(async () => {
-    setLoading(true)
-    try {
+  const assetListQueryKey = React.useMemo(
+    () =>
+      [
+        ...assetListRootKey,
+        {
+          page,
+          search,
+          filters,
+          listTab,
+          fySubTab,
+          effectiveScanFrom,
+          effectiveScanTo,
+          columnFilters,
+        },
+      ] as const,
+    [page, search, filters, listTab, fySubTab, effectiveScanFrom, effectiveScanTo, columnFilters],
+  )
+
+  const assetsQuery = useQuery({
+    queryKey: assetListQueryKey,
+    queryFn: async () => {
       const q = buildQueryParams(
         page,
         search,
@@ -657,12 +657,21 @@ export function AssetsListPage() {
         effectiveScanTo,
         columnFilters,
       )
-      const res = await getJson<AssetListResponse>(`/admin/assets?${q}`)
-      setData(res)
-    } finally {
-      setLoading(false)
+      return getJson<AssetListResponse>(`/admin/assets?${q}`)
+    },
+    staleTime: LIST_STALE_MS,
+  })
+
+  const data = assetsQuery.data ?? null
+  const loading = assetsQuery.isPending && !assetsQuery.data
+
+  React.useEffect(() => {
+    if (assetsQuery.error) {
+      toast.error(
+        assetsQuery.error instanceof Error ? assetsQuery.error.message : "Failed to load assets",
+      )
     }
-  }, [page, search, filters, listTab, fySubTab, effectiveScanFrom, effectiveScanTo, columnFilters])
+  }, [assetsQuery.error])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -685,10 +694,6 @@ export function AssetsListPage() {
     }, 300)
     return () => window.clearTimeout(t)
   }, [columnFilterInputs])
-
-  React.useEffect(() => {
-    void load().catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load assets"))
-  }, [load])
 
   function applyFilters() {
     if (!isFyTab) {
@@ -890,68 +895,17 @@ export function AssetsListPage() {
         />
       )
     }
-    if (key === "last_verification_date" || key === "created_at") {
-      const label = key === "created_at" ? "Created" : "Last Verification"
+    if (key === "last_verification_date") {
       return (
         <Input
           type="date"
-          value={columnFilterInputs[key]}
-          onChange={(e) => setColumnFilterInputs((f) => ({ ...f, [key]: e.target.value }))}
-          aria-label={`Filter ${label}`}
+          value={columnFilterInputs.last_verification_date}
+          onChange={(e) =>
+            setColumnFilterInputs((f) => ({ ...f, last_verification_date: e.target.value }))
+          }
+          aria-label="Filter Last Verification"
           className={columnFilterControlClass}
         />
-      )
-    }
-    if (key === "approval_status") {
-      return (
-        <select
-          className={cn(adminSelectClass, columnFilterControlClass)}
-          value={filters.approval_status}
-          aria-label="Filter approval"
-          onChange={(e) => setColumnPanelFilter("approval_status", e.target.value)}
-        >
-          <option value="">Approval</option>
-          <option value="draft">draft</option>
-          <option value="pending">pending</option>
-          <option value="rejected">rejected</option>
-          <option value="approved">approved</option>
-          <option value="not_required">not required</option>
-        </select>
-      )
-    }
-    if (key === "source_type") {
-      return (
-        <select
-          className={cn(adminSelectClass, columnFilterControlClass)}
-          value={columnFilterInputs.source_type}
-          aria-label="Filter source"
-          onChange={(e) =>
-            setColumnFilterInputs((f) => ({ ...f, source_type: e.target.value }))
-          }
-        >
-          <option value="">Source</option>
-          <option value="manual">manual</option>
-          <option value="import">import</option>
-        </select>
-      )
-    }
-    if (key === "active_physical_order") {
-      return (
-        <select
-          className={cn(adminSelectClass, columnFilterControlClass)}
-          value={columnFilterInputs.physical_order_status}
-          aria-label="Filter physical order"
-          onChange={(e) =>
-            setColumnFilterInputs((f) => ({ ...f, physical_order_status: e.target.value }))
-          }
-        >
-          <option value="">Physical Order</option>
-          {ASSET_PHYSICAL_ORDER_STATUS_FILTERS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
       )
     }
     return null
@@ -1248,7 +1202,7 @@ export function AssetsListPage() {
         })
         toast.success(formatRfidAttachSuccess(res))
         setRfidDialogOpen(false)
-        await load()
+        await invalidateAssetLists()
       } catch (e) {
         toast.error(formatRfidAttachError(e, "Failed to attach RFID."))
       } finally {
@@ -1266,7 +1220,7 @@ export function AssetsListPage() {
       )
       toast.success(formatRfidAttachSuccess(res))
       setRfidDialogOpen(false)
-      await load()
+      await invalidateAssetLists()
     } catch (e) {
       toast.error(formatRfidAttachError(e, "Failed to attach RFID."))
     } finally {
@@ -1308,7 +1262,7 @@ export function AssetsListPage() {
         toast.success(success)
         setSubmitAssignOpen(false)
         clearSelection()
-        await load()
+        await invalidateAssetLists()
       } else if (!res.errors?.length) {
         toast.error("No Asset were submitted for approval.")
       }
@@ -1365,7 +1319,7 @@ export function AssetsListPage() {
         )
         setBulkDecisionOpen(false)
         clearSelection()
-        await load()
+        await invalidateAssetLists()
       }
       if (res.errors?.length) {
         toast.error(res.errors[0] ?? "Some assets could not be processed.")
@@ -1414,7 +1368,7 @@ export function AssetsListPage() {
         toast.error(errors[0] ?? "Delete failed.")
       }
       clearSelection()
-      await load()
+      await invalidateAssetLists()
     } finally {
       setBulkActionBusy(false)
     }
@@ -1454,7 +1408,7 @@ export function AssetsListPage() {
             : `${res.processed_count} reactivated.`,
         )
         clearSelection()
-        await load()
+        await invalidateAssetLists()
       }
       if (res.errors?.length) {
         toast.error(res.errors[0] ?? "Some assets could not be processed.")
@@ -1763,7 +1717,7 @@ export function AssetsListPage() {
         <div className="shrink-0 space-y-[var(--app-grid-gap)]">
           <ListPageHeader
             className="shrink-0"
-            title={isFyTab ? "Financial year physical verification" : "Asset Master"}
+            title="Asset Master"
             description={
               isFyTab
                 ? ""
@@ -1816,7 +1770,7 @@ export function AssetsListPage() {
                   {t.key === "all" ? "All" : t.label}
                 </WorkspaceTabsTrigger>
               ))}
-              <WorkspaceTabsTrigger value="fy">Financial Year Physical Verification</WorkspaceTabsTrigger>
+              <WorkspaceTabsTrigger value="fy">Physical Verification</WorkspaceTabsTrigger>
             </WorkspaceTabsList>
           </WorkspaceTabs>
 
@@ -1829,9 +1783,6 @@ export function AssetsListPage() {
                 <p className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
                   {data.verified_assets_total ?? 0}
                 </p>
-                <p className="text-[11px] text-muted-foreground">
-                  of {data.total_rfid_assets ?? 0} RFID-tagged
-                </p>
               </div>
 
               <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-2.5">
@@ -1840,9 +1791,6 @@ export function AssetsListPage() {
                 </p>
                 <p className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
                   {data.total_fy_verification_events ?? 0}
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  In selected date range
                 </p>
               </div>
 
@@ -1853,9 +1801,6 @@ export function AssetsListPage() {
                 <p className="mt-0.5 text-xl font-semibold tabular-nums text-foreground">
                   {data.pending_assets_total ?? 0}
                 </p>
-                <p className="text-[11px] text-muted-foreground">
-                  No scan in range
-                </p>
               </div>
 
               <div className="rounded-[var(--app-radius-surface)] border border-border/70 bg-card px-3 py-2.5">
@@ -1865,12 +1810,6 @@ export function AssetsListPage() {
                 <p className="mt-0.5 text-xl font-semibold leading-tight text-foreground">
                   {data.financial_year_label}
                 </p>
-                {data.scan_window_start && data.scan_window_end ? (
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {formatAppDate(data.scan_window_start)} –{" "}
-                    {formatAppDate(data.scan_window_end)}
-                  </p>
-                ) : null}
               </div>
             </div>
           ) : null}
@@ -2194,7 +2133,7 @@ export function AssetsListPage() {
             </div>
             <div className="mt-[var(--app-grid-gap)] flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-[var(--app-grid-gap)]">
               <Button type="button" variant="outline" size="sm" className="h-9" onClick={clearFilters}>
-                Clear all
+                Clear All
               </Button>
               <Button
                 type="button"
@@ -2217,7 +2156,7 @@ export function AssetsListPage() {
 
         {activeFilterCount > 0 && !filtersOpen ? (
           <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-            <span className="text-xs text-muted-foreground">Active:</span>
+            {/* <span className="text-xs text-muted-foreground">Active:</span> */}
             {isFyTab &&
             filters.fy_start_year &&
             currentFyStartYear &&
@@ -2274,7 +2213,7 @@ export function AssetsListPage() {
               />
             ) : null}
             <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-xs" onClick={clearFilters}>
-              Clear all
+              Clear All
             </Button>
           </div>
         ) : null}
@@ -2417,7 +2356,7 @@ export function AssetsListPage() {
                 className="bg-muted/40"
                 onClick={() => setDraftColumnKeys(new Set(DEFAULT_ASSET_LIST_COLUMN_KEYS))}
               >
-                Default fields
+                Default Fields
               </Button>
               <Button
                 type="button"
@@ -2428,7 +2367,7 @@ export function AssetsListPage() {
                   setDraftColumnKeys(new Set(ASSET_LIST_COLUMNS.map((column) => column.key)))
                 }
               >
-                Select all
+                Select All
               </Button>
             </div>
             {(["Asset", "Location & financial", "Inventory & status"] as const).map((group) => (
@@ -2480,7 +2419,7 @@ export function AssetsListPage() {
           <DialogHeader>
             <DialogTitle>Already on an Active Order</DialogTitle>
             <DialogDescription>
-            These Assets Already Belong to an Active Physical Verification Order. You Can Still Create a New Order.
+              These assets are on an assigned or in-progress order. You can still continue.
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body max-h-64 overflow-auto">
