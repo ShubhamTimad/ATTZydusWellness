@@ -961,7 +961,7 @@ export function AssetDetailPage() {
                         <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
                           CapEx form number
                         </p>
-                        <p className="mt-1 text-sm font-normal leading-snug break-words text-foreground">
+                        <p className="mt-1 text-base font-normal leading-snug break-words text-foreground">
                           {a.capitalization_form_id && a.capitalization_form_number ? (
                             <>
                               <Link
@@ -1152,7 +1152,9 @@ export function AssetDetailPage() {
         <section aria-label="Asset details" className="flex shrink-0 flex-col gap-3">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
             <div className="min-w-0">
-              <h1 className="app-page-heading truncate">{a.asset_name}</h1>
+              <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl truncate">
+                {a.asset_name}
+              </h1>
               {a.information?.asset_description ? (
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   {a.information.asset_description}

@@ -214,7 +214,7 @@ export function AssetDetailSectionPanel({
       >
         <div className="flex items-center gap-2">
           <Icon className="size-4 text-primary" aria-hidden />
-          <h3 className="text-sm font-bold text-foreground">{title}</h3>
+          <h3 className="app-section-heading uppercase">{title}</h3>
         </div>
       </div>
       {editing ? (
@@ -302,7 +302,7 @@ export function AssetDetailSectionPanel({
               <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
                 Plant Code
               </p>
-              <p className="mt-1 font-mono text-xs font-normal leading-snug break-words text-foreground">
+              <p className="mt-1 text-base font-normal leading-snug break-words text-foreground">
                 {plantCode}
               </p>
             </div>
@@ -321,7 +321,7 @@ export function AssetDetailSectionPanel({
                   </p>
                   <div
                     className={cn(
-                      "mt-1 text-sm font-normal leading-snug break-words text-foreground",
+                      "mt-1 text-base font-normal leading-snug break-words text-foreground",
                       mono && "font-mono text-xs",
                       isCount && "tabular-nums",
                       multiline && "whitespace-pre-wrap",
@@ -338,7 +338,7 @@ export function AssetDetailSectionPanel({
                     <p className="text-[11px] font-bold uppercase tracking-wide text-foreground">
                       Plant Name
                     </p>
-                    <p className="mt-1 text-sm font-normal leading-snug break-words text-foreground">
+                    <p className="mt-1 text-base font-normal leading-snug break-words text-foreground">
                       {plantName}
                     </p>
                   </div>

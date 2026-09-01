@@ -343,6 +343,13 @@ export function AssetCreatePage() {
       className="w-full pb-6"
       actions={<AdminBackLink to="/dashboard/assets">Asset Master</AdminBackLink>}
     >
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl truncate">
+            Create Asset
+          </h1>
+        </div>
+      </header>
       <form
         className="space-y-[var(--app-grid-gap)]"
         onSubmit={(e) => {
@@ -351,9 +358,9 @@ export function AssetCreatePage() {
         }}
       >
         <AdminPanel
-          title="Asset Information"
+          title="ASSET INFORMATION"
           // description="Core identification fields"
-          headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
+          headerActions={<Package className="size-4 text-primary" aria-hidden />}
           contentClassName="px-5 py-5"
         >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -603,9 +610,9 @@ export function AssetCreatePage() {
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
             className="flex h-full flex-col"
-            title="Financial Information"
+            title="FINANCIAL INFORMATION"
             // description="Cost, capitalization, and life span"
-            headerActions={<DollarSign className="size-4 text-muted-foreground" aria-hidden />}
+            headerActions={<DollarSign className="size-4 text-primary" aria-hidden />}
             contentClassName="flex flex-1 flex-col px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -834,9 +841,9 @@ export function AssetCreatePage() {
 
           <AdminPanel
             className="flex h-full flex-col"
-            title="Location"
+            title="LOCATION"
             // description="Select plant first to load cost centers and locations"
-            headerActions={<MapPin className="size-4 text-muted-foreground" aria-hidden />}
+            headerActions={<MapPin className="size-4 text-primary" aria-hidden />}
             contentClassName="flex flex-1 flex-col px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -950,9 +957,9 @@ export function AssetCreatePage() {
         </div>
 
         <AdminPanel
-          title="Inventory & procurement"
+          title="INVENTORY & VERIFICATION"
           // description="Document references; inventory counts are set automatically on create"
-          headerActions={<ClipboardList className="size-4 text-muted-foreground" aria-hidden />}
+          headerActions={<ClipboardList className="size-4 text-primary" aria-hidden />}
           contentClassName="px-5 py-5"
         >
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

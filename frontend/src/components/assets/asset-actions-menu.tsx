@@ -7,7 +7,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -24,7 +23,6 @@ type AssetActionsMenuProps = {
 
 export function AssetActionsMenu({
   actions,
-  selectedCount,
   onAction,
   busy = false,
   triggerLabel = "Actions",
@@ -34,10 +32,7 @@ export function AssetActionsMenu({
 
   if (actions.length === 0) return null
 
-  const label =
-    selectedCount != null && selectedCount > 0
-      ? `${triggerLabel} (${selectedCount})`
-      : triggerLabel
+  const label = triggerLabel
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -55,10 +50,6 @@ export function AssetActionsMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 overflow-visible p-1.5">
-        <DropdownMenuLabel className="px-2.5 py-2 text-xs font-normal text-muted-foreground">
-          Choose an Action
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator className="my-1" />
         {actions.map((action, index) => {
           const Icon = action.icon
           const isDisabled = Boolean(action.disabled) || busy

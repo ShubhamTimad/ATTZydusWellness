@@ -449,6 +449,13 @@ export function TransferOrdersListPage() {
                     onSort={toggleColumnSort}
                   />
                   <SortableColumnHeader
+                    label="Creation Date"
+                    columnKey="created_at"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={toggleColumnSort}
+                  />
+                  <SortableColumnHeader
                     label="Assignee"
                     columnKey="assigned_to_name"
                     sortBy={sortBy}
@@ -458,13 +465,6 @@ export function TransferOrdersListPage() {
                   <SortableColumnHeader
                     label="Status"
                     columnKey="status"
-                    sortBy={sortBy}
-                    sortDir={sortDir}
-                    onSort={toggleColumnSort}
-                  />
-                  <SortableColumnHeader
-                    label="Creation Date"
-                    columnKey="created_at"
                     sortBy={sortBy}
                     sortDir={sortDir}
                     onSort={toggleColumnSort}
@@ -564,6 +564,17 @@ export function TransferOrdersListPage() {
                     </AdminTableHeadCell>
                     <AdminTableHeadCell className="px-2 py-1.5">
                       <Input
+                        type="date"
+                        value={columnFilterInputs.created_on}
+                        onChange={(e) =>
+                          setColumnFilterInputs((f) => ({ ...f, created_on: e.target.value }))
+                        }
+                        aria-label="Filter created date"
+                        className={columnFilterControlClass}
+                      />
+                    </AdminTableHeadCell>
+                    <AdminTableHeadCell className="px-2 py-1.5">
+                      <Input
                         value={columnFilterInputs.assigned_to}
                         onChange={(e) =>
                           setColumnFilterInputs((f) => ({ ...f, assigned_to: e.target.value }))
@@ -589,17 +600,6 @@ export function TransferOrdersListPage() {
                           </option>
                         ))}
                       </select>
-                    </AdminTableHeadCell>
-                    <AdminTableHeadCell className="px-2 py-1.5">
-                      <Input
-                        type="date"
-                        value={columnFilterInputs.created_on}
-                        onChange={(e) =>
-                          setColumnFilterInputs((f) => ({ ...f, created_on: e.target.value }))
-                        }
-                        aria-label="Filter created date"
-                        className={columnFilterControlClass}
-                      />
                     </AdminTableHeadCell>
                     {showDiscard ? <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell> : null}
                   </AdminTableHeaderRow>
@@ -631,14 +631,14 @@ export function TransferOrdersListPage() {
                       </AdminTableCell>
                       <AdminTableCell>{row.to_cost_center_code}</AdminTableCell>
                       <AdminTableCell className="tabular-nums">{row.asset_count}</AdminTableCell>
+                      <AdminTableCell className="text-muted-foreground">
+                        {formatAppDate(row.created_at)}
+                      </AdminTableCell>
                       <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>
                       <AdminTableCell>
                         <AdminPillBadge tone={transferStatusPillTone(row.status)}>
                           {transferStatusLabel(row.status)}
                         </AdminPillBadge>
-                      </AdminTableCell>
-                      <AdminTableCell className="text-muted-foreground">
-                        {formatAppDate(row.created_at)}
                       </AdminTableCell>
                       {showDiscard ? (
                         <AdminTableCell className="text-right">

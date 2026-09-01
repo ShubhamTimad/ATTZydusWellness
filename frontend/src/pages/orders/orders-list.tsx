@@ -367,15 +367,8 @@ export function OrdersListPage() {
                       onSort={toggleColumnSort}
                     />
                     <SortableColumnHeader
-                      label="Status"
-                      columnKey="status"
-                      sortBy={sortBy}
-                      sortDir={sortDir}
-                      onSort={toggleColumnSort}
-                    />
-                    <SortableColumnHeader
-                      label="Assigned to"
-                      columnKey="assigned_to_name"
+                      label="Creation Date"
+                      columnKey="created_at"
                       sortBy={sortBy}
                       sortDir={sortDir}
                       onSort={toggleColumnSort}
@@ -388,8 +381,15 @@ export function OrdersListPage() {
                       onSort={toggleColumnSort}
                     />
                     <SortableColumnHeader
-                      label="Creation Date"
-                      columnKey="created_at"
+                      label="Assigned to"
+                      columnKey="assigned_to_name"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Status"
+                      columnKey="status"
                       sortBy={sortBy}
                       sortDir={sortDir}
                       onSort={toggleColumnSort}
@@ -464,30 +464,13 @@ export function OrdersListPage() {
                         />
                       </AdminTableHeadCell>
                       <AdminTableHeadCell className="px-2 py-1.5">
-                        <select
-                          className={cn(adminSelectClass, columnFilterControlClass)}
-                          value={columnFilterInputs.status}
-                          aria-label="Filter status"
-                          onChange={(e) =>
-                            setColumnFilterInputs((f) => ({ ...f, status: e.target.value }))
-                          }
-                        >
-                          <option value="">All</option>
-                          {filterStatuses.map((status) => (
-                            <option key={status} value={status}>
-                              {orderStatusLabel(status)}
-                            </option>
-                          ))}
-                        </select>
-                      </AdminTableHeadCell>
-                      <AdminTableHeadCell className="px-2 py-1.5">
                         <Input
-                          value={columnFilterInputs.assigned_to}
+                          type="date"
+                          value={columnFilterInputs.created_on}
                           onChange={(e) =>
-                            setColumnFilterInputs((f) => ({ ...f, assigned_to: e.target.value }))
+                            setColumnFilterInputs((f) => ({ ...f, created_on: e.target.value }))
                           }
-                          aria-label="Filter assignee"
-                          placeholder="Assigned to"
+                          aria-label="Filter created date"
                           className={columnFilterControlClass}
                         />
                       </AdminTableHeadCell>
@@ -504,14 +487,31 @@ export function OrdersListPage() {
                       </AdminTableHeadCell>
                       <AdminTableHeadCell className="px-2 py-1.5">
                         <Input
-                          type="date"
-                          value={columnFilterInputs.created_on}
+                          value={columnFilterInputs.assigned_to}
                           onChange={(e) =>
-                            setColumnFilterInputs((f) => ({ ...f, created_on: e.target.value }))
+                            setColumnFilterInputs((f) => ({ ...f, assigned_to: e.target.value }))
                           }
-                          aria-label="Filter created date"
+                          aria-label="Filter assignee"
+                          placeholder="Assigned to"
                           className={columnFilterControlClass}
                         />
+                      </AdminTableHeadCell>
+                      <AdminTableHeadCell className="px-2 py-1.5">
+                        <select
+                          className={cn(adminSelectClass, columnFilterControlClass)}
+                          value={columnFilterInputs.status}
+                          aria-label="Filter status"
+                          onChange={(e) =>
+                            setColumnFilterInputs((f) => ({ ...f, status: e.target.value }))
+                          }
+                        >
+                          <option value="">All</option>
+                          {filterStatuses.map((status) => (
+                            <option key={status} value={status}>
+                              {orderStatusLabel(status)}
+                            </option>
+                          ))}
+                        </select>
                       </AdminTableHeadCell>
                     </AdminTableHeaderRow>
                   ) : null}
@@ -542,14 +542,14 @@ export function OrdersListPage() {
                         </AdminTableCell>
                         <AdminTableCell className="tabular-nums">{row.asset_count}</AdminTableCell>
                         <AdminTableCell>
+                          {formatAppDate(row.created_at)}
+                        </AdminTableCell>
+                        <AdminTableCell>{row.created_by_name ?? "—"}</AdminTableCell>
+                        <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>
+                        <AdminTableCell>
                           <AdminPillBadge tone={orderStatusPillTone(row.status)} className="font-normal">
                             {orderStatusLabel(row.status)}
                           </AdminPillBadge>
-                        </AdminTableCell>
-                        <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>
-                        <AdminTableCell>{row.created_by_name ?? "—"}</AdminTableCell>
-                        <AdminTableCell>
-                          {formatAppDate(row.created_at)}
                         </AdminTableCell>
                       </AdminTableBodyRow>
                     ))

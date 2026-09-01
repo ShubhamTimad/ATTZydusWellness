@@ -285,15 +285,8 @@ export function CapexListPage() {
                       onSort={toggleColumnSort}
                     />
                     <SortableColumnHeader
-                      label="Department"
+                      label="Dept"
                       columnKey="department"
-                      sortBy={sortBy}
-                      sortDir={sortDir}
-                      onSort={toggleColumnSort}
-                    />
-                    <SortableColumnHeader
-                      label="Status"
-                      columnKey="status"
                       sortBy={sortBy}
                       sortDir={sortDir}
                       onSort={toggleColumnSort}
@@ -301,6 +294,13 @@ export function CapexListPage() {
                     <SortableColumnHeader
                       label="Created by"
                       columnKey="created_by_name"
+                      sortBy={sortBy}
+                      sortDir={sortDir}
+                      onSort={toggleColumnSort}
+                    />
+                    <SortableColumnHeader
+                      label="Status"
+                      columnKey="status"
                       sortBy={sortBy}
                       sortDir={sortDir}
                       onSort={toggleColumnSort}
@@ -342,6 +342,17 @@ export function CapexListPage() {
                         />
                       </AdminTableHeadCell>
                       <AdminTableHeadCell className="px-2 py-1.5">
+                        <Input
+                          value={columnFilterInputs.created_by}
+                          onChange={(e) =>
+                            setColumnFilterInputs((f) => ({ ...f, created_by: e.target.value }))
+                          }
+                          aria-label="Filter created by"
+                          placeholder="Created by"
+                          className={columnFilterControlClass}
+                        />
+                      </AdminTableHeadCell>
+                      <AdminTableHeadCell className="px-2 py-1.5">
                         <select
                           className={cn(adminSelectClass, columnFilterControlClass)}
                           value={columnFilterInputs.status}
@@ -357,17 +368,6 @@ export function CapexListPage() {
                             </option>
                           ))}
                         </select>
-                      </AdminTableHeadCell>
-                      <AdminTableHeadCell className="px-2 py-1.5">
-                        <Input
-                          value={columnFilterInputs.created_by}
-                          onChange={(e) =>
-                            setColumnFilterInputs((f) => ({ ...f, created_by: e.target.value }))
-                          }
-                          aria-label="Filter created by"
-                          placeholder="Created by"
-                          className={columnFilterControlClass}
-                        />
                       </AdminTableHeadCell>
                     </AdminTableHeaderRow>
                   ) : null}
@@ -411,17 +411,17 @@ export function CapexListPage() {
                           </span>
                         </AdminTableCell>
                         <AdminTableCell>
-                          <AdminPillBadge tone={capexStatusPillTone(row.status)}>
-                            {capexStatusLabel(row.status)}
-                          </AdminPillBadge>
-                        </AdminTableCell>
-                        <AdminTableCell>
                           <span
                             className="block max-w-[12rem] truncate"
                             title={row.created_by_name ?? undefined}
                           >
                             {row.created_by_name ?? "—"}
                           </span>
+                        </AdminTableCell>
+                        <AdminTableCell>
+                          <AdminPillBadge tone={capexStatusPillTone(row.status)}>
+                            {capexStatusLabel(row.status)}
+                          </AdminPillBadge>
                         </AdminTableCell>
                       </AdminTableBodyRow>
                     ))

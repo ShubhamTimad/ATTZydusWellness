@@ -11,7 +11,6 @@ import {
 import {
   ArrowRightLeft,
   ClipboardList,
-  ExternalLink,
   Pencil,
   Power,
   PowerOff,
@@ -254,14 +253,6 @@ export function buildAssetListActionItems(opts: {
       icon: Power,
     })
   }
-
-  actions.push({
-    id: "open",
-    label: "Open Asset",
-    hint: selectedCount === 1 ? undefined : "Select exactly one asset",
-    disabled: selectedCount !== 1,
-    icon: ExternalLink,
-  })
 
   if (canDelete) {
     actions.push({
