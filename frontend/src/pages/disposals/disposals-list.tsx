@@ -276,9 +276,10 @@ export function DisposalOrdersListPage() {
   const colSpan = 7 + (showDiscard ? 1 : 0)
 
   return (
-    <AdminPage fullWidth dense className="w-full">
+    <AdminPage fullWidth dense viewportFill className="w-full gap-[var(--app-grid-gap)]">
       {confirmDialog}
       <ListPageHeader
+        className="shrink-0"
         title="Asset Disposal Order"
         // description="Pending action is work waiting on you. Done is closed or archived. All shows every disposal."
       />
@@ -289,8 +290,9 @@ export function DisposalOrdersListPage() {
           setTab(v)
           setPage(1)
         }}
+        className="min-h-0 flex-1"
       >
-        <WorkspaceTabsList>
+        <WorkspaceTabsList className="shrink-0">
           {DISPOSAL_STATUS_TABS.map((t) => {
             const count = counts[t.key]
             return (
@@ -305,9 +307,9 @@ export function DisposalOrdersListPage() {
         </WorkspaceTabsList>
         <WorkspaceTabsContent
           value={tab}
-          className="mt-4 flex min-h-0 flex-1 flex-col gap-[var(--app-grid-gap)]"
+          className="flex min-h-0 flex-1 flex-col gap-[var(--app-grid-gap)]"
         >
-          <div className="app-list-toolbar">
+          <div className="app-list-toolbar shrink-0">
             <div className="relative min-w-[16rem] flex-1">
               <Search
                 className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
@@ -367,6 +369,7 @@ export function DisposalOrdersListPage() {
           </div>
 
           <AdminDataTable
+            className="min-h-0 flex-1"
             footer={
               <AdminTablePagination
                 page={page}

@@ -95,7 +95,7 @@ export function TagColorSelect({
 }: TagColorSelectProps) {
   return (
     <div className="space-y-2">
-      <Label htmlFor={id} className="text-sm font-medium">
+      <Label htmlFor={id} className="app-form-label uppercase">
         {label}
       </Label>
       <TagColorPicker id={id} value={value} onChange={onChange} tagColors={tagColors} disabled={disabled} />

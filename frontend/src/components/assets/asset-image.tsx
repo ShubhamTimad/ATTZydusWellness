@@ -47,56 +47,56 @@ export function AssetImage({
   return (
     <>
       <div className="flex flex-wrap items-center gap-3">
-      <button
-        type="button"
-        className="flex h-20 w-28 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/20 transition hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        disabled={!src}
-        aria-label={src ? "Open asset image" : "No asset image"}
-        onClick={() => src && setPreviewOpen(true)}
-      >
-        {src ? (
-          <img src={src} alt="Asset" className="h-full w-full object-contain" />
-        ) : (
-          <div className="flex flex-col items-center gap-1 text-muted-foreground">
-            <ImageIcon className="size-6" aria-hidden />
-            <span className="text-[11px]">No Image</span>
+        <button
+          type="button"
+          className="flex h-20 w-28 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/20 transition hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          disabled={!src}
+          aria-label={src ? "Open asset image" : "No asset image"}
+          onClick={() => src && setPreviewOpen(true)}
+        >
+          {src ? (
+            <img src={src} alt="Asset" className="h-full w-full object-contain" />
+          ) : (
+            <div className="flex flex-col items-center gap-1 text-muted-foreground">
+              <ImageIcon className="size-6" aria-hidden />
+              <span className="text-[11px]">No Image</span>
+            </div>
+          )}
+        </button>
+        {editable ? (
+          <div className="flex flex-col items-start gap-1.5">
+            <div className="flex flex-wrap gap-2">
+              <input
+                ref={inputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="sr-only"
+                onChange={(event) => {
+                  const selected = event.target.files?.[0]
+                  if (selected) onFileChange?.(selected)
+                  event.target.value = ""
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => inputRef.current?.click()}
+              >
+                <Upload className="size-4" aria-hidden />
+                {src ? "Replace Image" : "Upload Image"}
+              </Button>
+              {src && onRemove ? (
+                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onRemove}>
+                  <Trash2 className="size-4" aria-hidden />
+                  Remove
+                </Button>
+              ) : null}
+            </div>
+            <p className="text-xs text-muted-foreground">PNG, JPEG, or WebP · max 5 MB</p>
           </div>
-        )}
-      </button>
-      {editable ? (
-        <div className="flex flex-col items-start gap-1.5">
-          <div className="flex flex-wrap gap-2">
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            className="sr-only"
-            onChange={(event) => {
-              const selected = event.target.files?.[0]
-              if (selected) onFileChange?.(selected)
-              event.target.value = ""
-            }}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy}
-            onClick={() => inputRef.current?.click()}
-          >
-            <Upload className="size-4" aria-hidden />
-            {src ? "Replace image" : "Upload Image"}
-          </Button>
-          {src && onRemove ? (
-            <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onRemove}>
-              <Trash2 className="size-4" aria-hidden />
-              Remove
-            </Button>
-          ) : null}
-          </div>
-          <p className="text-xs text-muted-foreground">PNG, JPEG, or WebP · max 5 MB</p>
-        </div>
-      ) : null}
+        ) : null}
       </div>
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>

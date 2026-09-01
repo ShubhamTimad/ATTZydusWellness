@@ -2417,9 +2417,9 @@ export function AssetsListPage() {
       <Dialog open={activeConflictOpen} onOpenChange={setActiveConflictOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Already on an Active Order</DialogTitle>
+            <DialogTitle>Active Order Warning</DialogTitle>
             <DialogDescription>
-              These assets are on an assigned or in-progress order. You can still continue.
+              The selected asset(s) are already associated with an active order. Do you want to continue?
             </DialogDescription>
           </DialogHeader>
           <div className="dialog-body max-h-64 overflow-auto">

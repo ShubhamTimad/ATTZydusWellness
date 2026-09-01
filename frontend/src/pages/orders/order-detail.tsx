@@ -579,13 +579,12 @@ export function OrderDetailPage() {
   async function completeOrder() {
     if (!order) return
     const pending = order.pending_physical_count
-    const total = order.items.length
     if (pending > 0) {
       const ok = await confirmAsk({
-        title: "Physical Verification Pending",
-        description: `${pending} of ${total} asset${total === 1 ? "" : "s"} not scanned yet. Complete this order anyway?`,
-        confirmLabel: "Complete anyway",
-        cancelLabel: "Keep scanning",
+        title: "Warning",
+        description: "Few assets are not scanned. Do you want to complete the order?",
+        confirmLabel: "Complete",
+        cancelLabel: "Cancel",
         destructive: true,
       })
       if (!ok) return

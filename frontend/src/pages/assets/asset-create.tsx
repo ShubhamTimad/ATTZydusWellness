@@ -235,7 +235,7 @@ function FormField({
 }) {
   return (
     <div className={cn("app-form-field", className)}>
-      <Label htmlFor={id} className="app-form-label">
+      <Label htmlFor={id} className="app-form-label uppercase">
         {labelText}
         {required ? <RequiredFieldMark /> : null}
       </Label>
@@ -363,249 +363,249 @@ export function AssetCreatePage() {
           headerActions={<Package className="size-4 text-primary" aria-hidden />}
           contentClassName="px-5 py-5"
         >
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="sm:col-span-2 lg:col-span-3">
-                <Label className="app-form-label mb-2 block">Asset Image</Label>
-                <AssetImage
-                  file={imageFile}
-                  editable
-                  busy={creating}
-                  onFileChange={(file) => {
-                    const error = validateAssetImageFile(file)
-                    if (error) {
-                      toast.error(error)
-                      return
-                    }
-                    setImageFile(file)
-                  }}
-                  onRemove={() => setImageFile(null)}
-                />
-              </div>
-              {field(
-                "asset_name",
-                <FormField
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="sm:col-span-2 lg:col-span-3">
+              <Label className="app-form-label mb-2 block uppercase">Asset Image</Label>
+              <AssetImage
+                file={imageFile}
+                editable
+                busy={creating}
+                onFileChange={(file) => {
+                  const error = validateAssetImageFile(file)
+                  if (error) {
+                    toast.error(error)
+                    return
+                  }
+                  setImageFile(file)
+                }}
+                onRemove={() => setImageFile(null)}
+              />
+            </div>
+            {field(
+              "asset_name",
+              <FormField
+                id="asset_name"
+                labelText={fc.getLabel("asset_name", "Asset Name")}
+                required={fc.isRequired("asset_name")}
+                className="sm:col-span-2 lg:col-span-3"
+              >
+                <Input
                   id="asset_name"
-                  labelText={fc.getLabel("asset_name", "Asset Name")}
-                  required={fc.isRequired("asset_name")}
-                  className="sm:col-span-2 lg:col-span-3"
-                >
-                  <Input
-                    id="asset_name"
-                    value={form.asset_name}
-                    onChange={(e) => patch({ asset_name: e.target.value })}
-                    autoFocus
-                  />
-                </FormField>,
-              )}
-              {field(
-                "asset_code",
-                <FormField
+                  value={form.asset_name}
+                  onChange={(e) => patch({ asset_name: e.target.value })}
+                  autoFocus
+                />
+              </FormField>,
+            )}
+            {field(
+              "asset_code",
+              <FormField
+                id="asset_code"
+                labelText={fc.getLabel("asset_code", "Asset Number")}
+                required={fc.isRequired("asset_code")}
+              >
+                <Input
                   id="asset_code"
-                  labelText={fc.getLabel("asset_code", "Asset Number")}
-                  required={fc.isRequired("asset_code")}
-                >
-                  <Input
-                    id="asset_code"
-                    value={form.asset_code}
-                    onChange={(e) => patch({ asset_code: sanitizeAssetNumberInput(e.target.value) })}
-                    className="font-mono uppercase"
-                  />
-                </FormField>,
-              )}
-              {field(
-                "rfid_code",
-                <FormField id="rfid_code" labelText={fc.getLabel("rfid_code", "RFID Code")}>
-                  <Input
-                    id="rfid_code"
-                    value={form.rfid_code}
-                    onChange={(e) => {
-                      const rfid = e.target.value
-                      patch({
-                        rfid_code: rfid,
-                        ...(rfid.trim() ? {} : { tag_color_id: "" }),
-                      })
-                    }}
-                    className="font-mono"
-                  />
-                </FormField>,
-              )}
-              {field(
-                "combined_asset_number",
-                <FormField
+                  value={form.asset_code}
+                  onChange={(e) => patch({ asset_code: sanitizeAssetNumberInput(e.target.value) })}
+                  className="font-mono uppercase"
+                />
+              </FormField>,
+            )}
+            {field(
+              "rfid_code",
+              <FormField id="rfid_code" labelText={fc.getLabel("rfid_code", "RFID Code")}>
+                <Input
+                  id="rfid_code"
+                  value={form.rfid_code}
+                  onChange={(e) => {
+                    const rfid = e.target.value
+                    patch({
+                      rfid_code: rfid,
+                      ...(rfid.trim() ? {} : { tag_color_id: "" }),
+                    })
+                  }}
+                  className="font-mono"
+                />
+              </FormField>,
+            )}
+            {field(
+              "combined_asset_number",
+              <FormField
+                id="combined_asset_number"
+                labelText={fc.getLabel("combined_asset_number", "Combined Asset No")}
+                required={fc.isRequired("combined_asset_number")}
+              >
+                <Input
                   id="combined_asset_number"
-                  labelText={fc.getLabel("combined_asset_number", "Combined Asset No")}
-                  required={fc.isRequired("combined_asset_number")}
-                >
-                  <Input
-                    id="combined_asset_number"
-                    value={form.combined_asset_number}
-                    onChange={(e) =>
-                      patch({ combined_asset_number: sanitizeAssetNumberInput(e.target.value) })
-                    }
-                    className="font-mono uppercase"
-                  />
-                </FormField>,
-              )}
-              {field(
-                "sub_no",
-                <FormField id="sub_no" labelText={fc.getLabel("sub_no", "Sub-No")}>
-                  <Input
-                    id="sub_no"
-                    value={form.sub_no}
-                    onChange={(e) => patch({ sub_no: e.target.value })}
-                  />
-                </FormField>,
-              )}
-              {field(
-                "asset_category_id",
-                <FormField
+                  value={form.combined_asset_number}
+                  onChange={(e) =>
+                    patch({ combined_asset_number: sanitizeAssetNumberInput(e.target.value) })
+                  }
+                  className="font-mono uppercase"
+                />
+              </FormField>,
+            )}
+            {field(
+              "sub_no",
+              <FormField id="sub_no" labelText={fc.getLabel("sub_no", "Sub-No")}>
+                <Input
+                  id="sub_no"
+                  value={form.sub_no}
+                  onChange={(e) => patch({ sub_no: e.target.value })}
+                />
+              </FormField>,
+            )}
+            {field(
+              "asset_category_id",
+              <FormField
+                id="asset_category_id"
+                labelText={fc.getLabel("asset_category_id", "Asset Category")}
+                required={fc.isRequired("asset_category_id")}
+              >
+                <select
                   id="asset_category_id"
-                  labelText={fc.getLabel("asset_category_id", "Asset Category")}
-                  required={fc.isRequired("asset_category_id")}
+                  className={adminSelectClass}
+                  value={form.asset_category_id}
+                  onChange={(e) => patch({ asset_category_id: e.target.value })}
                 >
-                  <select
-                    id="asset_category_id"
-                    className={adminSelectClass}
-                    value={form.asset_category_id}
-                    onChange={(e) => patch({ asset_category_id: e.target.value })}
-                  >
-                    <option value="">—</option>
-                    {masters.categories.map((c) => (
-                      <option key={c.id} value={String(c.id)}>
-                        {categoryLabel(c)}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>,
-              )}
-              {field(
-                "asset_class_id",
-                <FormField
+                  <option value="">—</option>
+                  {masters.categories.map((c) => (
+                    <option key={c.id} value={String(c.id)}>
+                      {categoryLabel(c)}
+                    </option>
+                  ))}
+                </select>
+              </FormField>,
+            )}
+            {field(
+              "asset_class_id",
+              <FormField
+                id="asset_class_id"
+                labelText={fc.getLabel("asset_class_id", "Asset Class")}
+                required={fc.isRequired("asset_class_id") || fc.isRequired("asset_class")}
+              >
+                <select
                   id="asset_class_id"
-                  labelText={fc.getLabel("asset_class_id", "Asset Class")}
-                  required={fc.isRequired("asset_class_id") || fc.isRequired("asset_class")}
+                  className={adminSelectClass}
+                  value={form.asset_class_id}
+                  onChange={(e) => patch({ asset_class_id: e.target.value })}
                 >
-                  <select
-                    id="asset_class_id"
-                    className={adminSelectClass}
-                    value={form.asset_class_id}
-                    onChange={(e) => patch({ asset_class_id: e.target.value })}
-                  >
-                    <option value="">—</option>
-                    {masters.assetClasses
-                      .filter((c) => c.is_active)
-                      .map((c) => (
+                  <option value="">—</option>
+                  {masters.assetClasses
+                    .filter((c) => c.is_active)
+                    .map((c) => (
                       <option key={c.id} value={String(c.id)}>
                         {assetClassLabel(c)}
                       </option>
                     ))}
-                  </select>
-                </FormField>,
-              )}
-              {field(
-                "asset_type",
-                <FormField id="asset_type" labelText={fc.getLabel("asset_type", "Asset Type")}>
-                  <Input
-                    id="asset_type"
-                    value={form.asset_type}
-                    onChange={(e) => patch({ asset_type: e.target.value })}
-                  />
-                </FormField>,
-              )}
-              {field(
-                "asset_condition_id",
-                <FormField
+                </select>
+              </FormField>,
+            )}
+            {field(
+              "asset_type",
+              <FormField id="asset_type" labelText={fc.getLabel("asset_type", "Asset Type")}>
+                <Input
+                  id="asset_type"
+                  value={form.asset_type}
+                  onChange={(e) => patch({ asset_type: e.target.value })}
+                />
+              </FormField>,
+            )}
+            {field(
+              "asset_condition_id",
+              <FormField
+                id="asset_condition_id"
+                labelText={fc.getLabel("asset_condition_id", "Asset Physical Condition")}
+              >
+                <select
                   id="asset_condition_id"
-                  labelText={fc.getLabel("asset_condition_id", "Asset Physical Condition")}
+                  className={adminSelectClass}
+                  value={form.asset_condition_id}
+                  onChange={(e) => patch({ asset_condition_id: e.target.value })}
                 >
-                  <select
-                    id="asset_condition_id"
-                    className={adminSelectClass}
-                    value={form.asset_condition_id}
-                    onChange={(e) => patch({ asset_condition_id: e.target.value })}
-                  >
-                    <option value="">—</option>
-                    {masters.assetConditions
-                      .filter((c) => c.is_active)
-                      .map((c) => (
+                  <option value="">—</option>
+                  {masters.assetConditions
+                    .filter((c) => c.is_active)
+                    .map((c) => (
                       <option key={c.id} value={String(c.id)}>
                         {assetConditionLabel(c)}
                       </option>
                     ))}
-                  </select>
-                </FormField>,
-              )}
-              {field(
-                "asset_custodian_id",
-                <FormField
+                </select>
+              </FormField>,
+            )}
+            {field(
+              "asset_custodian_id",
+              <FormField
+                id="asset_custodian_id"
+                labelText={fc.getLabel("asset_custodian_id", "Asset Custodian")}
+              >
+                <select
                   id="asset_custodian_id"
-                  labelText={fc.getLabel("asset_custodian_id", "Asset Custodian")}
+                  className={adminSelectClass}
+                  value={form.asset_custodian_id}
+                  disabled={!form.cost_center}
+                  onChange={(e) => patch({ asset_custodian_id: e.target.value })}
                 >
-                  <select
-                    id="asset_custodian_id"
-                    className={adminSelectClass}
-                    value={form.asset_custodian_id}
-                    disabled={!form.cost_center}
-                    onChange={(e) => patch({ asset_custodian_id: e.target.value })}
-                  >
-                    <option value="">
-                      {form.cost_center ? "—" : "Select cost center first"}
+                  <option value="">
+                    {form.cost_center ? "—" : "Select cost center first"}
+                  </option>
+                  {masters.custodianUsers.map((c) => (
+                    <option key={c.id} value={String(c.id)}>
+                      {assetCustodianLabel(c)}
                     </option>
-                    {masters.custodianUsers.map((c) => (
-                      <option key={c.id} value={String(c.id)}>
-                        {assetCustodianLabel(c)}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>,
-              )}
-              {canViewCapex ? (
-                <FormField id="capitalization_form_id" labelText="CapEx Form Number">
-                  <CapexFormSearchSelect
-                    id="capitalization_form_id"
-                    value={form.capitalization_form_id}
-                    onChange={(formId) => void onCapexSelect(formId)}
-                  />
-                  {selectedCapex?.auc_code ? (
-                    <p className="mt-1 text-xs text-muted-foreground">AUC {selectedCapex.auc_code}</p>
-                  ) : null}
-                </FormField>
-              ) : null}
-              {field(
-                "remark",
-                <FormField id="remark" labelText={fc.getLabel("remark", "Asset Remark")}>
-                  <AutoGrowTextarea
-                    id="remark"
-                    value={form.remark}
-                    onChange={(next) => patch({ remark: next })}
-                    placeholder="Detailed remarks about this asset…"
-                  />
-                </FormField>,
-              )}
-              {field(
-                "asset_description",
-                <FormField
-                  id="asset_description"
-                  labelText={fc.getLabel("asset_description", "Asset Description")}
-                >
-                  <AutoGrowTextarea
-                    id="asset_description"
-                    value={form.asset_description}
-                    onChange={(next) => patch({ asset_description: next })}
-                    placeholder="Detailed description of this asset…"
-                  />
-                </FormField>,
-              )}
-              {form.rfid_code.trim() && fc.isVisible("tag_color_id") ? (
-                <TagColorSelect
-                  id="tag_color_id"
-                  value={form.tag_color_id}
-                  onChange={(v) => patch({ tag_color_id: v })}
-                  tagColors={masters.tagColors}
+                  ))}
+                </select>
+              </FormField>,
+            )}
+            {canViewCapex ? (
+              <FormField id="capitalization_form_id" labelText="CapEx Form Number">
+                <CapexFormSearchSelect
+                  id="capitalization_form_id"
+                  value={form.capitalization_form_id}
+                  onChange={(formId) => void onCapexSelect(formId)}
                 />
-              ) : null}
-            </div>
-          </AdminPanel>
+                {selectedCapex?.auc_code ? (
+                  <p className="mt-1 text-xs text-muted-foreground">AUC {selectedCapex.auc_code}</p>
+                ) : null}
+              </FormField>
+            ) : null}
+            {field(
+              "remark",
+              <FormField id="remark" labelText={fc.getLabel("remark", "Asset Remark")}>
+                <AutoGrowTextarea
+                  id="remark"
+                  value={form.remark}
+                  onChange={(next) => patch({ remark: next })}
+                  placeholder="Detailed remarks about this asset…"
+                />
+              </FormField>,
+            )}
+            {field(
+              "asset_description",
+              <FormField
+                id="asset_description"
+                labelText={fc.getLabel("asset_description", "Asset Description")}
+              >
+                <AutoGrowTextarea
+                  id="asset_description"
+                  value={form.asset_description}
+                  onChange={(next) => patch({ asset_description: next })}
+                  placeholder="Detailed description of this asset…"
+                />
+              </FormField>,
+            )}
+            {form.rfid_code.trim() && fc.isVisible("tag_color_id") ? (
+              <TagColorSelect
+                id="tag_color_id"
+                value={form.tag_color_id}
+                onChange={(v) => patch({ tag_color_id: v })}
+                tagColors={masters.tagColors}
+              />
+            ) : null}
+          </div>
+        </AdminPanel>
 
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
@@ -957,7 +957,7 @@ export function AssetCreatePage() {
         </div>
 
         <AdminPanel
-          title="INVENTORY & VERIFICATION"
+          title=" INVENTORY INFORMATION "
           // description="Document references; inventory counts are set automatically on create"
           headerActions={<ClipboardList className="size-4 text-primary" aria-hidden />}
           contentClassName="px-5 py-5"
