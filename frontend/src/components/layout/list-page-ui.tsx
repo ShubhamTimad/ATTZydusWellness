@@ -141,7 +141,6 @@ export function AdminTablePagination({
   page,
   totalPages,
   total,
-  pageSize,
   onPageChange,
   itemLabel = "items",
   loading = false,
