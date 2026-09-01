@@ -20,6 +20,7 @@ import {
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
+  adminTextareaClass,
 } from "@/components/layout/admin-ui"
 import {
   AdminTableBodyRow,
@@ -28,7 +29,6 @@ import {
 } from "@/components/layout/list-page-ui"
 import { OrderAuditLog } from "@/components/orders/order-audit-log"
 import { OrderLifecycleStepper } from "@/components/orders/order-lifecycle-stepper"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -109,7 +109,7 @@ const ORDER_ACTION_BUSY_LABELS: Record<string, string> = {
   "/close": "Closing order…",
   "/start": "Starting…",
   "/restart": "Restarting…",
-  "/submit": "Submitting…",
+  "/submit": "Assigning…",
   "/reassign": "Reassigning…",
 }
 
@@ -208,6 +208,7 @@ function OrderSummaryField({
 }
 
 const orderPanelPad = "px-[var(--app-card-padding)]"
+const ORDER_DESCRIPTION_INLINE_MAX = 48
 
 export function OrderDetailPage() {
   const { id } = useParams()
@@ -245,6 +246,7 @@ export function OrderDetailPage() {
   const [executorRoleName, setExecutorRoleName] = React.useState<string | null>(null)
   const [reassignTo, setReassignTo] = React.useState("")
   const [assignTo, setAssignTo] = React.useState("")
+  const [assignRemarks, setAssignRemarks] = React.useState("")
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const canApprove = hasPermission("order.approve")
   const canExecute = hasPermission("order.execute")
@@ -549,6 +551,8 @@ export function OrderDetailPage() {
   const canReviewClosure = Boolean(order.can_review_closure) && canApprove
   const canAssignSubmit =
     (isDraft || (isRejected && !executionSideReject)) && canCreate && isCreator
+  const orderDescription = (order.remarks ?? "").trim()
+  const showDescriptionExpanded = orderDescription.length > ORDER_DESCRIPTION_INLINE_MAX
   const canScan =
     isInProgress && canExecute && isAssignee
   const filteredItems = order.items.filter(
@@ -713,14 +717,16 @@ export function OrderDetailPage() {
 
   const showClosureDecisionCols = canReviewClosure
   const tableColSpan = 10 + (showClosureDecisionCols ? 2 : 0)
-  const activeProgressStep =
-    order.progress.steps.find((step) => step.key === order.progress.current_step_key) ??
-    order.progress.steps.find((step) => step.status === "active")
 
   const canStart =
     ((isAssigned && order.completed_at == null) || executionSideReject) &&
     canExecute &&
     isAssignee
+
+  const activeProgressDetail =
+    order.progress.steps
+      .find((step) => step.key === order.progress.current_step_key)
+      ?.detail?.trim() || null
 
   return (
     <AdminPage
@@ -931,10 +937,11 @@ export function OrderDetailPage() {
               disabled={busy}
               onClick={() => {
                 setAssignTo(order.assigned_to ? String(order.assigned_to) : "")
+                setAssignRemarks(order.remarks ?? "")
                 setAssignOpen(true)
               }}
             >
-              {isRejected ? "Reassign & submit" : "Assign & submit"}
+              {isRejected ? "Reassign" : "Assign"}
             </AdminPrimaryButton>
           ) : null}
           {canStart ? (
@@ -1009,8 +1016,8 @@ export function OrderDetailPage() {
             currentStepKey={order.progress.current_step_key}
             orderStatus={order.status}
           />
-          {activeProgressStep?.detail ? (
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{activeProgressStep.detail}</p>
+          {activeProgressDetail ? (
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{activeProgressDetail}</p>
           ) : null}
         </div>
       </AdminPanel>
@@ -1018,7 +1025,7 @@ export function OrderDetailPage() {
       <AdminPanel className="shrink-0 overflow-hidden p-0">
         <div className={cn("space-y-2 py-3", orderPanelPad)}>
           <h3 className="text-sm font-semibold text-foreground">Order Summary</h3>
-          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
             <OrderSummaryField
               label="Pending"
               value={order.pending_physical_count}
@@ -1038,7 +1045,31 @@ export function OrderDetailPage() {
               label="Executor"
               value={executorName || "—"}
             />
+            <div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-black">
+                Order Description
+              </p>
+              <p
+                className={cn(
+                  "mt-0.5 text-sm font-normal leading-snug text-black",
+                  showDescriptionExpanded ? "line-clamp-2" : "truncate",
+                )}
+                title={orderDescription || undefined}
+              >
+                {orderDescription || "—"}
+              </p>
+            </div>
           </div>
+          {showDescriptionExpanded ? (
+            <div className="rounded-md bg-muted/35 px-2.5 py-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-black">
+                Order Description
+              </p>
+              <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-black">
+                {orderDescription}
+              </p>
+            </div>
+          ) : null}
           {isRejected && (order.rejection_reason || "").trim() ? (
             <div className="rounded-lg border border-red-200 bg-red-50/70 px-3 py-2.5">
               <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-red-700">
@@ -1200,12 +1231,14 @@ export function OrderDetailPage() {
               onClick={() => setAssetColumnFiltersOpen((open) => !open)}
             >
               <ListFilter className="size-4" aria-hidden />
-              Filter
-              {activeAssetColumnFilterCount > 0 ? (
-                <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
-                  {activeAssetColumnFilterCount}
-                </Badge>
-              ) : null}
+              <span className="inline-flex items-center gap-0.5">
+                Filter
+                {activeAssetColumnFilterCount > 0 ? (
+                  <span className="text-xs font-medium text-red-600">
+                    ({activeAssetColumnFilterCount})
+                  </span>
+                ) : null}
+              </span>
             </Button>
             {activeAssetColumnFilterCount > 0 || assetSearch.trim() ? (
               <Button
@@ -1529,12 +1562,12 @@ export function OrderDetailPage() {
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{isRejected ? "Reassign & submit" : "Assign & submit"}</DialogTitle>
-            <DialogDescription>
+            <DialogTitle>{isRejected ? "Reassign" : "Assign"}</DialogTitle>
+            {/* <DialogDescription>
               {executorRoleName
                 ? `Select a user from the "${executorRoleName}" role (Assign step of the Physical order workflow). The order moves to Assigned so they can start work.`
-                : "Select an executor from the Physical order workflow Assign step. The order moves to Assigned so they can start work."}
-            </DialogDescription>
+                : "Select an operator from the Physical order workflow Assign step. The order moves to Assigned so they can start work."}
+            </DialogDescription> */}
           </DialogHeader>
           <div className="dialog-body space-y-4">
             <div className="space-y-2">
@@ -1568,6 +1601,20 @@ export function OrderDetailPage() {
                 </p>
               ) : null}
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="assign-order-description" className="text-sm font-medium">
+                Order Description
+              </Label>
+              <textarea
+                id="assign-order-description"
+                className={cn(adminTextareaClass, "min-h-[72px] resize-y")}
+                value={assignRemarks}
+                onChange={(e) => setAssignRemarks(e.target.value)}
+                rows={2}
+                placeholder="Optional"
+                disabled={busy}
+              />
+            </div>
           </div>
           <div className="dialog-footer-actions">
             <Button type="button" variant="outline" onClick={() => setAssignOpen(false)} disabled={busy}>
@@ -1581,12 +1628,15 @@ export function OrderDetailPage() {
                   toast.error("Select an executor.")
                   return
                 }
-                void runAction("/submit", { assigned_to: Number(assignTo) }).then((ok) => {
+                void runAction("/submit", {
+                  assigned_to: Number(assignTo),
+                  remarks: assignRemarks.trim() || null,
+                }).then((ok) => {
                   if (ok) setAssignOpen(false)
                 })
               }}
             >
-              {busyAction === "/submit" ? "Submitting…" : "Submit"}
+              {busyAction === "/submit" ? "Assigning…" : isRejected ? "Reassign" : "Assign"}
             </AdminPrimaryButton>
           </div>
         </DialogContent>

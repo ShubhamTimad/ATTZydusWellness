@@ -2,6 +2,7 @@ import * as React from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import {
+  AlertTriangle,
   Columns3,
   Download,
   ListFilter,
@@ -57,7 +58,12 @@ import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { AssetExportDialog } from "@/components/assets/asset-export-dialog"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
 import { ApiError, deleteJson, downloadFile, getJson, postJson, putJson } from "@/lib/api"
-import { assetListRootKey, invalidateAssetLists, LIST_STALE_MS } from "@/lib/query-client"
+import {
+  assetListRootKey,
+  invalidateAssetLists,
+  invalidateOrderLists,
+  LIST_STALE_MS,
+} from "@/lib/query-client"
 import {
   buildAssetListActionItems,
   canActOnAsset,
@@ -99,9 +105,8 @@ import {
   assetStatusPillTone,
 } from "@/lib/asset-lifecycle"
 import { currentUserId, hasPermission, isSuperuser } from "@/lib/permissions"
-import type { ValidateAssetsResponse } from "@/lib/orders-types"
+import type { PhysicalOrderDetail, ValidateAssetsResponse } from "@/lib/orders-types"
 import { orderStatusLabel } from "@/lib/orders-types"
-import { CreatePhysicalOrderDialog } from "@/pages/orders/create-order-dialog"
 import { formatAppDate } from "@/lib/dates"
 import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
@@ -385,6 +390,33 @@ function buildQueryParams(
   return q
 }
 
+function fyVerifiedEligibleIdsFrom(res: ValidateAssetsResponse): number[] {
+  const eligibleSet = new Set(res.eligible_asset_ids)
+  return res.already_verified_in_fy
+    .filter((a) => eligibleSet.has(a.asset_id))
+    .map((a) => a.asset_id)
+}
+
+function hasOrderCreateWarnings(res: ValidateAssetsResponse): boolean {
+  return (
+    res.active_order_conflicts.length > 0 ||
+    (res.not_approved?.length ?? 0) > 0 ||
+    res.missing_rfid.length > 0 ||
+    res.plant_mismatch.length > 0 ||
+    res.cost_center_mismatch.length > 0 ||
+    fyVerifiedEligibleIdsFrom(res).length > 0
+  )
+}
+
+function hasBlockingOrderMismatch(res: ValidateAssetsResponse): boolean {
+  return res.plant_mismatch.length > 0 || res.cost_center_mismatch.length > 0
+}
+
+function warningAssetName(code: string, name: string): string {
+  const label = (name || "").trim()
+  return label || code
+}
+
 export function AssetsListPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -513,16 +545,9 @@ export function AssetsListPage() {
   const [selectedHasRfid, setSelectedHasRfid] = React.useState<Map<number, boolean>>(new Map())
   const [bulkActionBusy, setBulkActionBusy] = React.useState(false)
   const [orderValidateBusy, setOrderValidateBusy] = React.useState(false)
-  const [activeConflictOpen, setActiveConflictOpen] = React.useState(false)
-  const [plantMismatchOpen, setPlantMismatchOpen] = React.useState(false)
-  const [ccMismatchOpen, setCcMismatchOpen] = React.useState(false)
-  const [missingRfidOpen, setMissingRfidOpen] = React.useState(false)
-  const [notApprovedOpen, setNotApprovedOpen] = React.useState(false)
+  const [orderWarningsOpen, setOrderWarningsOpen] = React.useState(false)
+  const [orderCreateBusy, setOrderCreateBusy] = React.useState(false)
   const [validationResult, setValidationResult] = React.useState<ValidateAssetsResponse | null>(null)
-  const [createOrderOpen, setCreateOrderOpen] = React.useState(false)
-  const [eligibleForOrder, setEligibleForOrder] = React.useState<number[]>([])
-  const [resetVerificationAssetIds, setResetVerificationAssetIds] = React.useState<number[]>([])
-  const [fyVerifiedOpen, setFyVerifiedOpen] = React.useState(false)
   const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
   const [rfidDialogIsUpdate, setRfidDialogIsUpdate] = React.useState(false)
   const [rfidDialogMode, setRfidDialogMode] = React.useState<"by-code" | "selected">("by-code")
@@ -727,7 +752,7 @@ export function AssetsListPage() {
     setPage(1)
   }
 
-  /** Status column filter — matches badge labels (Draft / Active / …). */
+  /** Status column filter — matches badge labels (Draft / Approved / …). */
   function setStatusColumnFilter(value: string) {
     const opt = value ? assetStatusFilterOption(value) : null
     const lifecycle_status = opt?.lifecycle_status ?? ""
@@ -1422,6 +1447,34 @@ export function AssetsListPage() {
     }
   }
 
+  async function createPhysicalOrderDraft(
+    assetIds: number[],
+    resetVerificationAssetIds: number[] = [],
+  ) {
+    if (assetIds.length === 0) {
+      toast.error("No eligible assets selected.")
+      return
+    }
+    setOrderCreateBusy(true)
+    try {
+      const order = await postJson<PhysicalOrderDetail>("/admin/physical-orders", {
+        asset_ids: assetIds,
+        submit: false,
+        reset_verification_asset_ids: resetVerificationAssetIds,
+      })
+      toast.success("Physical Verification Order created as draft.")
+      void invalidateAssetLists()
+      void invalidateOrderLists()
+      setOrderWarningsOpen(false)
+      clearSelection()
+      navigate(`/dashboard/orders/${order.id}`)
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Failed to create order.")
+    } finally {
+      setOrderCreateBusy(false)
+    }
+  }
+
   async function beginCreatePhysicalOrder() {
     const ids = [...selected]
     if (ids.length === 0) return
@@ -1431,76 +1484,20 @@ export function AssetsListPage() {
         asset_ids: ids,
       })
       setValidationResult(res)
-      if (res.active_order_conflicts.length > 0) {
-        setActiveConflictOpen(true)
+      if (hasOrderCreateWarnings(res)) {
+        setOrderWarningsOpen(true)
         return
       }
-      continueCreateOrderAfterWarnings(res)
+      if (res.eligible_asset_ids.length === 0) {
+        toast.error("No eligible assets selected.")
+        return
+      }
+      await createPhysicalOrderDraft(res.eligible_asset_ids)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Validation failed.")
     } finally {
       setOrderValidateBusy(false)
     }
-  }
-
-  function continueCreateOrderAfterWarnings(res: ValidateAssetsResponse) {
-    if ((res.not_approved?.length ?? 0) > 0) {
-      setNotApprovedOpen(true)
-      return
-    }
-    if (res.missing_rfid.length > 0) {
-      setMissingRfidOpen(true)
-      return
-    }
-    if (res.plant_mismatch.length > 0) {
-      setPlantMismatchOpen(true)
-      return
-    }
-    if (res.cost_center_mismatch.length > 0) {
-      setCcMismatchOpen(true)
-      return
-    }
-    if (res.eligible_asset_ids.length === 0) {
-      toast.error("No eligible assets selected.")
-      return
-    }
-    const fyVerified = res.already_verified_in_fy.filter((a) =>
-      res.eligible_asset_ids.includes(a.asset_id),
-    )
-    if (fyVerified.length > 0) {
-      setFyVerifiedOpen(true)
-      return
-    }
-    setResetVerificationAssetIds([])
-    setEligibleForOrder(res.eligible_asset_ids)
-    setCreateOrderOpen(true)
-  }
-
-  function proceedWithEligibleOnly(resetIds: number[] = []) {
-    const eligible = validationResult?.eligible_asset_ids ?? []
-    if (eligible.length === 0) {
-      toast.error("No eligible assets.")
-      return
-    }
-    setResetVerificationAssetIds(resetIds)
-    setEligibleForOrder(eligible)
-    setSelected(new Set(eligible))
-    setSelectedHasRfid(new Map(eligible.map((id) => [id, true])))
-    setActiveConflictOpen(false)
-    setMissingRfidOpen(false)
-    setNotApprovedOpen(false)
-    setPlantMismatchOpen(false)
-    setCcMismatchOpen(false)
-    setFyVerifiedOpen(false)
-    setCreateOrderOpen(true)
-  }
-
-  function fyVerifiedEligibleIds(): number[] {
-    const eligible = validationResult?.eligible_asset_ids ?? []
-    const eligibleSet = new Set(eligible)
-    return (validationResult?.already_verified_in_fy ?? [])
-      .filter((a) => eligibleSet.has(a.asset_id))
-      .map((a) => a.asset_id)
   }
 
   function handleListAction(actionId: string) {
@@ -1871,12 +1868,12 @@ export function AssetsListPage() {
               }}
             >
               <SlidersHorizontal className="size-4" aria-hidden />
-              Filters
-              {activeFilterCount > 0 ? (
-                <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
-                  {activeFilterCount}
-                </Badge>
-              ) : null}
+              <span className="inline-flex items-center gap-0.5">
+                Filters
+                {activeFilterCount > 0 ? (
+                  <span className="text-xs font-medium text-red-600">({activeFilterCount})</span>
+                ) : null}
+              </span>
             </Button>
           ) : (
             <Button
@@ -1891,12 +1888,14 @@ export function AssetsListPage() {
               onClick={() => setColumnFiltersOpen((open) => !open)}
             >
               <ListFilter className="size-4" aria-hidden />
-              Filter
-              {activeColumnFilterCount > 0 ? (
-                <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
-                  {activeColumnFilterCount}
-                </Badge>
-              ) : null}
+              <span className="inline-flex items-center gap-0.5">
+                Filter
+                {activeColumnFilterCount > 0 ? (
+                  <span className="text-xs font-medium text-red-600">
+                    ({activeColumnFilterCount})
+                  </span>
+                ) : null}
+              </span>
             </Button>
           )}
 
@@ -2414,228 +2413,114 @@ export function AssetsListPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={activeConflictOpen} onOpenChange={setActiveConflictOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Active Order Warning</DialogTitle>
-            <DialogDescription>
-              The selected asset(s) are already associated with an active order. Do you want to continue?
-            </DialogDescription>
-          </DialogHeader>
-          <div className="dialog-body max-h-64 overflow-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="py-1 pr-2">Asset</th>
-                  <th className="py-1 pr-2">Order</th>
-                  <th className="py-1">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {validationResult?.active_order_conflicts.map((c) => (
-                  <tr key={c.asset_id} className="border-b border-border/40">
-                    <td className="py-1.5 pr-2">
-                      <span className="font-mono text-xs">{c.asset_code}</span>
-                      <span className="block text-muted-foreground">{c.asset_name}</span>
-                    </td>
-                    <td className="py-1.5 pr-2 font-mono text-xs">{c.order_number}</td>
-                    <td className="py-1.5">{orderStatusLabel(c.order_status)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setActiveConflictOpen(false)}>
-              Cancel
-            </Button>
-            <AdminPrimaryButton
-              type="button"
-              onClick={() => {
-                setActiveConflictOpen(false)
-                if (validationResult) continueCreateOrderAfterWarnings(validationResult)
-              }}
-            >
-              Continue
-            </AdminPrimaryButton>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <Dialog
+        open={orderWarningsOpen}
+        onOpenChange={(open) => {
+          if (orderCreateBusy) return
+          setOrderWarningsOpen(open)
+        }}
+      >
+        <DialogContent className="max-w-md overflow-hidden p-0 sm:max-w-md">
+          {validationResult ? (
+            <>
+              <div className="border-b px-6 py-4 pr-12">
+                <DialogHeader className="space-y-1">
+                  <DialogTitle className="text-base font-semibold">Review Warning</DialogTitle>
+                  {/* <DialogDescription className="text-xs text-muted-foreground">
+                    Read these carefully before creating the order.
+                  </DialogDescription> */}
+                </DialogHeader>
+              </div>
+              <div className="dialog-body">
+                <div className="rounded-lg border border-amber-300/80 bg-amber-50 px-3.5 py-3.5 dark:border-amber-500/40 dark:bg-amber-950/40">
+                  <div className="flex gap-3">
+                    <AlertTriangle
+                      className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400"
+                      aria-hidden
+                    />
+                    <ul className="max-h-[min(18rem,50vh)] list-disc space-y-2.5 overflow-auto pl-5 text-sm font-semibold leading-snug text-amber-950 dark:text-amber-50">
+                      {validationResult.active_order_conflicts.map((c) => (
+                        <li key={`active-${c.asset_id}`}>
+                          {warningAssetName(c.asset_code, c.asset_name)} is already on order{" "}
+                          {c.order_number} ({orderStatusLabel(c.order_status)}).
+                        </li>
+                      ))}
 
-      <Dialog open={missingRfidOpen} onOpenChange={setMissingRfidOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>RFID required</DialogTitle>
-            <DialogDescription>
-              Attach RFID before creating a physical verification order.
-            </DialogDescription>
-          </DialogHeader>
-          <ul className="dialog-body max-h-48 list-disc space-y-1 overflow-auto pl-5 text-sm">
-            {validationResult?.missing_rfid.map((a) => (
-              <li key={a.asset_id}>
-                <span className="font-mono text-xs">{a.asset_code}</span>
-                {" — "}
-                {a.asset_name}
-              </li>
-            ))}
-          </ul>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setMissingRfidOpen(false)}>
-              Cancel
-            </Button>
-            {(validationResult?.eligible_asset_ids.length ?? 0) > 0 ? (
-              <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly()}>
-                Continue
-              </AdminPrimaryButton>
-            ) : null}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                      {(validationResult.not_approved ?? []).map((a) => (
+                        <li key={`na-${a.asset_id}`}>
+                          {warningAssetName(a.asset_code, a.asset_name)} is not approved.
+                        </li>
+                      ))}
 
-      <Dialog open={notApprovedOpen} onOpenChange={setNotApprovedOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Not approved</DialogTitle>
-            <DialogDescription>
-              Only approved assets with RFID can be included.
-            </DialogDescription>
-          </DialogHeader>
-          <ul className="dialog-body max-h-48 list-disc space-y-1 overflow-auto pl-5 text-sm">
-            {(validationResult?.not_approved ?? []).map((a) => (
-              <li key={a.asset_id}>
-                <span className="font-mono text-xs">{a.asset_code}</span>
-                {" — "}
-                {a.asset_name}
-              </li>
-            ))}
-          </ul>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setNotApprovedOpen(false)}>
-              Cancel
-            </Button>
-            {(validationResult?.eligible_asset_ids.length ?? 0) > 0 ? (
-              <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly()}>
-                Continue
-              </AdminPrimaryButton>
-            ) : null}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                      {validationResult.missing_rfid.map((a) => (
+                        <li key={`rfid-${a.asset_id}`}>
+                          {warningAssetName(a.asset_code, a.asset_name)} has no RFID tag.
+                        </li>
+                      ))}
 
-      <Dialog open={plantMismatchOpen} onOpenChange={setPlantMismatchOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Plant mismatch</DialogTitle>
-            <DialogDescription>
-              Physical orders can only be created for assets belonging to the same plant.
-            </DialogDescription>
-          </DialogHeader>
-          <ul className="dialog-body list-disc space-y-1 pl-5 text-sm">
-            {validationResult?.plant_mismatch.map((a) => (
-              <li key={a.asset_id}>
-                {a.asset_code} — {a.asset_name}
-                {a.plant_name ? ` (${a.plant_name})` : ""}
-              </li>
-            ))}
-          </ul>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setPlantMismatchOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                      {validationResult.plant_mismatch.map((a) => (
+                        <li key={`plant-${a.asset_id}`}>
+                          {warningAssetName(a.asset_code, a.asset_name)} belongs to a different
+                          plant.
+                        </li>
+                      ))}
 
-      <Dialog open={ccMismatchOpen} onOpenChange={setCcMismatchOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Outside your cost centers</DialogTitle>
-            <DialogDescription>
-              Physical orders can only include assets in cost centers assigned to you.
-            </DialogDescription>
-          </DialogHeader>
-          <ul className="dialog-body list-disc space-y-1 pl-5 text-sm">
-            {validationResult?.cost_center_mismatch.map((a) => (
-              <li key={a.asset_id}>
-                {a.asset_code} — {a.asset_name}
-                {a.cost_center_code ? ` (${a.cost_center_code})` : ""}
-              </li>
-            ))}
-          </ul>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setCcMismatchOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                      {validationResult.cost_center_mismatch.map((a) => (
+                        <li key={`cc-${a.asset_id}`}>
+                          {warningAssetName(a.asset_code, a.asset_name)} is outside your cost
+                          centers.
+                        </li>
+                      ))}
 
-      <Dialog open={fyVerifiedOpen} onOpenChange={setFyVerifiedOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Already verified this financial year</DialogTitle>
-            <DialogDescription>
-              {validationResult?.financial_year_label ? (
-                <>
-                  The following assets were already physically verified in{" "}
-                  <span className="font-medium text-foreground">{validationResult.financial_year_label}</span>
-                  {validationResult.financial_year_start && validationResult.financial_year_end ? (
-                    <>
-                      {" "}
-                      ({formatAppDate(validationResult.financial_year_start)} –{" "}
-                      {formatAppDate(validationResult.financial_year_end)})
-                    </>
-                  ) : null}
-                  . Do you want to run physical verification again? Choosing yes clears physical count and
-                  verification date when the order is approved.
-                </>
-              ) : (
-                "Some selected assets were already verified in the current financial year."
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="dialog-body max-h-64 overflow-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="py-1 pr-2">Asset</th>
-                  <th className="py-1">Last verified</th>
-                </tr>
-              </thead>
-              <tbody>
-                {validationResult?.already_verified_in_fy
-                  .filter((a) => validationResult.eligible_asset_ids.includes(a.asset_id))
-                  .map((a) => (
-                    <tr key={a.asset_id} className="border-b border-border/40">
-                      <td className="py-1.5 pr-2">
-                        <span className="font-mono text-xs">{a.asset_code}</span>
-                        <span className="block text-muted-foreground">{a.asset_name}</span>
-                      </td>
-                      <td className="py-1.5 text-xs tabular-nums text-muted-foreground">
-                        {a.last_verification_date
-                          ? formatAppDate(a.last_verification_date)
-                          : "—"}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setFyVerifiedOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => proceedWithEligibleOnly([])}
-            >
-              No, keep verification
-            </Button>
-            <AdminPrimaryButton type="button" onClick={() => proceedWithEligibleOnly(fyVerifiedEligibleIds())}>
-              Yes, verify again
-            </AdminPrimaryButton>
-          </DialogFooter>
+                      {validationResult.already_verified_in_fy
+                        .filter((a) => validationResult.eligible_asset_ids.includes(a.asset_id))
+                        .map((a) => (
+                          <li key={`fy-${a.asset_id}`}>
+                            {warningAssetName(a.asset_code, a.asset_name)}
+                            {a.last_verification_date
+                              ? ` was verified on ${formatAppDate(a.last_verification_date)}`
+                              : " was verified"}
+                            {validationResult.financial_year_label
+                              ? ` in ${validationResult.financial_year_label}`
+                              : " this financial year"}
+                            .
+                          </li>
+                        ))}
+
+                      {fyVerifiedEligibleIdsFrom(validationResult).length > 0 ? (
+                        <li>Re-verify resets count and date on assign.</li>
+                      ) : null}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter className="border-t bg-muted/20 px-6 py-4 sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={orderCreateBusy}
+                  onClick={() => setOrderWarningsOpen(false)}
+                >
+                  {hasBlockingOrderMismatch(validationResult) ? "Close" : "Cancel"}
+                </Button>
+                {!hasBlockingOrderMismatch(validationResult) &&
+                validationResult.eligible_asset_ids.length > 0 ? (
+                  <AdminPrimaryButton
+                    type="button"
+                    disabled={orderCreateBusy}
+                    onClick={() =>
+                      void createPhysicalOrderDraft(
+                        validationResult.eligible_asset_ids,
+                        fyVerifiedEligibleIdsFrom(validationResult),
+                      )
+                    }
+                  >
+                    {orderCreateBusy ? "Creating…" : "Create Order"}
+                  </AdminPrimaryButton>
+                ) : null}
+              </DialogFooter>
+            </>
+          ) : null}
         </DialogContent>
       </Dialog>
 
@@ -2655,23 +2540,6 @@ export function AssetsListPage() {
         tagColorId={rfidTagColorId}
         onTagColorChange={setRfidTagColorId}
         tagColors={masters.tagColors}
-      />
-
-      <CreatePhysicalOrderDialog
-        open={createOrderOpen}
-        onOpenChange={setCreateOrderOpen}
-        assetIds={eligibleForOrder}
-        plantId={
-          validationResult?.plant_id ??
-          selectedRows[0]?.plant_id ??
-          (filters.plant_id ? Number(filters.plant_id) : null)
-        }
-        costCenterIds={validationResult?.cost_center_ids ?? []}
-        resetVerificationAssetIds={resetVerificationAssetIds}
-        onCreated={(order) => {
-          clearSelection()
-          navigate(`/dashboard/orders/${order.id}`)
-        }}
       />
 
       <AssetExportDialog

@@ -759,7 +759,7 @@ def build_order_progress(
             status=phase("order_created"),
             actor_name=user_name_fn(order.created_by),
             occurred_at=order.created_at,
-            detail=f"Order {order.order_number}",
+            detail=None,
         ),
     ]
 

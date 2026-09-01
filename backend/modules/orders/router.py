@@ -203,7 +203,7 @@ def update_order(
     body: UpdatePhysicalOrderRequest,
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
-    _: Annotated[object, Depends(require_permission("order.update"))],
+    _: Annotated[object, Depends(require_any_permission("order.update", "order.create"))],
 ) -> PhysicalOrderDetail:
     try:
         return svc.update_order(
@@ -273,6 +273,7 @@ def submit_order(
             order_id,
             actor_user_id=int(current.subject),
             assigned_to=int(body.assigned_to),
+            remarks=body.remarks,
         )
     except (ConflictError, NotFoundError) as e:
         code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND

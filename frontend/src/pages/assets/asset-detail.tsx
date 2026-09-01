@@ -838,10 +838,10 @@ export function AssetDetailPage() {
       <>
         <AdminPage fullWidth actions={toolbar}>
           <Alert>
-            <AlertTitle>Asset not found</AlertTitle>
+            <AlertTitle>Asset Not Found</AlertTitle>
             <AlertDescription>
               <Link to="/dashboard/assets" className="text-primary underline-offset-2 hover:underline">
-                Return to assets
+                Return to Assets
               </Link>
             </AlertDescription>
           </Alert>

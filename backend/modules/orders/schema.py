@@ -66,6 +66,7 @@ class SubmitPhysicalOrderRequest(BaseModel):
     """Assign an executor from the workflow role and move Draft → Assigned."""
 
     assigned_to: int = Field(..., ge=1)
+    remarks: str | None = None
 
 
 class SubmitClosureRequest(BaseModel):

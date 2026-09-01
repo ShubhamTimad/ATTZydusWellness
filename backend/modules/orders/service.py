@@ -2515,6 +2515,7 @@ class PhysicalOrderService:
         *,
         actor_user_id: int,
         assigned_to: int,
+        remarks: str | None = None,
     ) -> PhysicalOrderDetail:
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.created_by != actor_user_id:
@@ -2526,6 +2527,8 @@ class PhysicalOrderService:
             plant_id=int(order.plant_id),
             cost_center_ids=self._cost_center_ids_for_order(order),
         )
+        if remarks is not None:
+            order.remarks = remarks.strip() or None
         old_assignee = order.assigned_to
         order.assigned_to = int(assigned_to)
         if old_assignee != int(assigned_to):

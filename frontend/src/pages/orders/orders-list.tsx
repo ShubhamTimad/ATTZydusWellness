@@ -28,7 +28,6 @@ import {
   SortableColumnHeader,
   type SortDir,
 } from "@/components/layout/sortable-column-header"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
@@ -302,12 +301,14 @@ export function OrdersListPage() {
                 onClick={() => setColumnFiltersOpen((open) => !open)}
               >
                 <ListFilter className="size-4" aria-hidden />
-                Filter
-                {activeColumnFilterCount > 0 ? (
-                  <Badge variant="secondary" className="h-5 min-w-5 rounded-full px-1.5 text-[10px]">
-                    {activeColumnFilterCount}
-                  </Badge>
-                ) : null}
+                <span className="inline-flex items-center gap-0.5">
+                  Filter
+                  {activeColumnFilterCount > 0 ? (
+                    <span className="text-xs font-medium text-red-600">
+                      ({activeColumnFilterCount})
+                    </span>
+                  ) : null}
+                </span>
               </Button>
 
               {activeColumnFilterCount > 0 || search.trim() ? (

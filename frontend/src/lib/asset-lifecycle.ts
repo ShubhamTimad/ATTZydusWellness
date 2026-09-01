@@ -60,22 +60,19 @@ export function canReactivateAsset(lifecycleStatus: string): boolean {
   return isAssetDeactivated(lifecycleStatus)
 }
 
-/** List/detail badge from approval + lifecycle. */
+/** List/detail badge from approval + lifecycle (no Active/Inactive labels). */
 export function assetStatusLabel(lifecycleStatus: string, approvalStatus: string): string {
   const lifecycle = (lifecycleStatus || "").toLowerCase()
   if (lifecycle === "disposed") return "Disposed"
   if (lifecycle === "pending_disposal") return "Pending Disposal"
   if (lifecycle === "pending_transfer") return "Pending Transfer"
-  if (lifecycle === "deactivated") return "Inactive"
+  if (lifecycle === "deactivated") return "Deactivated"
   const approval = (approvalStatus || "").toLowerCase()
   if (approval === "draft") return "Draft"
   if (approval === "pending") return "Pending Approval"
   if (approval === "rejected") return "Rejected"
-  if (approval === "approved") return "Approved"
-  if (isAssetActive(lifecycleStatus, approvalStatus) || approval === "not_required") {
-    return "Active"
-  }
-  return "Inactive"
+  if (approval === "approved" || approval === "not_required") return "Approved"
+  return "Draft"
 }
 
 /** Column / filter options — same labels as {@link assetStatusLabel}. */
@@ -105,14 +102,8 @@ export const ASSET_STATUS_FILTER_OPTIONS = [
     lifecycle_status: "",
   },
   {
-    value: "active",
-    label: "Active",
-    approval_status: "",
-    lifecycle_status: "active",
-  },
-  {
     value: "deactivated",
-    label: "Inactive",
+    label: "Deactivated",
     approval_status: "",
     lifecycle_status: "deactivated",
   },
@@ -152,8 +143,8 @@ export function assetStatusFilterValue(
   if (approval === "draft") return "draft"
   if (approval === "pending") return "pending"
   if (approval === "rejected") return "rejected"
-  if (approval === "approved") return "approved"
-  if (lifecycle === "active") return "active"
+  if (approval === "approved" || approval === "not_required") return "approved"
+  if (lifecycle === "active") return "approved"
   return ""
 }
 

@@ -323,7 +323,7 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
   },
   {
     id: "inventory",
-    title: "Inventory & Verification",
+    title: "Inventory Information",
     keys: [
       "inventory_count",
       "physical_count",

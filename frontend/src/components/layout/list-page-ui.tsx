@@ -154,19 +154,11 @@ export function AdminTablePagination({
   itemLabel?: string
   loading?: boolean
 }) {
-  const from = total === 0 ? 0 : (page - 1) * pageSize + 1
-  const to = Math.min(page * pageSize, total)
   const pages = Math.max(1, totalPages)
 
   return (
     <div className="app-list-pagination shrink-0">
-      <span>
-        {loading
-          ? "Loading…"
-          : total === 0
-            ? `No ${itemLabel}`
-            : `Showing ${from}–${to} of ${total} ${itemLabel}`}
-      </span>
+      <span>{loading ? "Loading…" : total === 0 ? `0 ${itemLabel}` : `${total} ${itemLabel}`}</span>
       <div className="flex items-center gap-1">
         <Button
           type="button"
@@ -180,7 +172,7 @@ export function AdminTablePagination({
           Previous
         </Button>
         <span className="min-w-[5.5rem] px-2 text-center tabular-nums">
-          Page {page} / {pages}
+          Page {page} of {pages}
         </span>
         <Button
           type="button"
