@@ -232,3 +232,131 @@ def test_enrich_audit_synthesizes_completed_before_closure_submit() -> None:
     completed_idx = labels.index("Completed")
     submitted_idx = labels.index("Submitted for Approval")
     assert completed_idx < submitted_idx
+
+
+def test_remark_only_audit_uses_asset_name() -> None:
+    from datetime import datetime, timezone
+
+    from modules.orders.progress import enrich_audit_rows
+
+    rows = [
+        SimpleNamespace(
+            id=1,
+            action="item_remark_updated",
+            actor_user_id=7,
+            old_value={"asset_id": 20, "asset_code": "DEMO-AST-020", "remarks": None},
+            new_value={
+                "asset_id": 20,
+                "asset_code": "DEMO-AST-020",
+                "asset_name": "pH Meter - QC Lab",
+                "remarks": "Handle with care",
+            },
+            created_at=datetime(2026, 9, 4, 9, 54, tzinfo=timezone.utc),
+        ),
+    ]
+    audit = enrich_audit_rows(rows, user_name_fn=lambda _uid: "Operator Demo")
+    assert len(audit) == 1
+    assert audit[0].label == "Remark added for pH Meter - QC Lab"
+    assert audit[0].detail == "Handle with care"
+
+
+def test_simultaneous_remark_and_scan_folds_into_started() -> None:
+    from datetime import datetime, timezone
+
+    from modules.orders.progress import enrich_audit_rows
+
+    scanned_at = datetime(2026, 9, 4, 9, 54, tzinfo=timezone.utc)
+    rows = [
+        SimpleNamespace(
+            id=1,
+            action="started",
+            actor_user_id=7,
+            old_value=None,
+            new_value=None,
+            created_at=scanned_at,
+        ),
+        SimpleNamespace(
+            id=2,
+            action="item_remark_updated",
+            actor_user_id=7,
+            old_value={"asset_id": 20, "remarks": None},
+            new_value={
+                "asset_id": 20,
+                "asset_code": "DEMO-AST-020",
+                "asset_name": "pH Meter - QC Lab",
+                "remarks": "Checked on bench",
+            },
+            created_at=scanned_at,
+        ),
+    ]
+    item = SimpleNamespace(
+        asset_id=20,
+        scan_time=scanned_at,
+        verified_by=7,
+        asset=SimpleNamespace(
+            asset_code="DEMO-AST-020",
+            asset_name="pH Meter - QC Lab",
+            rfid_code="RFID-DEMO-0202",
+        ),
+    )
+    audit = enrich_audit_rows(
+        rows,
+        user_name_fn=lambda _uid: "Operator Demo",
+        order_items=[item],
+    )
+    labels = [e.label for e in audit]
+    assert labels == ["Physical Verification"]
+    started = audit[0]
+    assert started.verified_assets[0].remark == "Checked on bench"
+    assert started.verified_assets[0].asset_name == "pH Meter - QC Lab"
+
+
+def test_later_remark_stays_as_own_audit_row() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from modules.orders.progress import enrich_audit_rows
+
+    scanned_at = datetime(2026, 9, 4, 9, 54, tzinfo=timezone.utc)
+    remark_at = scanned_at + timedelta(minutes=10)
+    rows = [
+        SimpleNamespace(
+            id=1,
+            action="started",
+            actor_user_id=7,
+            old_value=None,
+            new_value=None,
+            created_at=scanned_at,
+        ),
+        SimpleNamespace(
+            id=2,
+            action="item_remark_updated",
+            actor_user_id=7,
+            old_value={"asset_id": 20, "remarks": None},
+            new_value={
+                "asset_id": 20,
+                "asset_code": "DEMO-AST-020",
+                "asset_name": "pH Meter - QC Lab",
+                "remarks": "Added later",
+            },
+            created_at=remark_at,
+        ),
+    ]
+    item = SimpleNamespace(
+        asset_id=20,
+        scan_time=scanned_at,
+        verified_by=7,
+        asset=SimpleNamespace(
+            asset_code="DEMO-AST-020",
+            asset_name="pH Meter - QC Lab",
+            rfid_code="RFID-DEMO-0202",
+        ),
+    )
+    audit = enrich_audit_rows(
+        rows,
+        user_name_fn=lambda _uid: "Operator Demo",
+        order_items=[item],
+    )
+    labels = [e.label for e in audit]
+    assert labels == ["Physical Verification", "Remark added for pH Meter - QC Lab"]
+    assert audit[0].verified_assets[0].remark is None
+    assert audit[1].detail == "Added later"

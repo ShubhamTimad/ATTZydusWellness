@@ -152,6 +152,7 @@ class PhysicalOrderAuditVerifiedAsset(BaseModel):
     rfid_code: str | None = None
     verified_at: datetime | None = None
     verified_by_name: str | None = None
+    remark: str | None = None
 
 
 class PhysicalOrderAuditPublic(BaseModel):

@@ -21,8 +21,8 @@ from modules.platform.settings.login_background import (
     clear_login_background_cache,
     encode_login_background,
     get_login_background_bytes,
-    login_background_configured,
-    validate_login_background,
+    get_login_background_served,
+    prepare_login_background,
 )
 from modules.platform.settings.lookup import clear_setting_cache
 from modules.platform.settings.model import Setting
@@ -287,23 +287,24 @@ class SettingsService:
         return self.get_app_version()
 
     def get_login_background_meta(self) -> LoginBackgroundMetaPublic:
-        blob = get_login_background_bytes()
-        if blob is None:
-            return LoginBackgroundMetaPublic(configured=False, content_type=None)
-        return LoginBackgroundMetaPublic(configured=True, content_type=blob[1])
+        served = get_login_background_served()
+        if served is None:
+            return LoginBackgroundMetaPublic(configured=False, content_type=None, version=None)
+        _data, content_type, version = served
+        return LoginBackgroundMetaPublic(configured=True, content_type=content_type, version=version)
 
     def get_login_background(self) -> tuple[bytes, str] | None:
         return get_login_background_bytes()
 
     def put_login_background(self, data: bytes) -> LoginBackgroundMetaPublic:
         try:
-            content_type = validate_login_background(data)
+            data, content_type = prepare_login_background(data)
         except InvalidLoginBackgroundError:
             raise
         self._upsert(LOGIN_BACKGROUND_SETTING_KEY, encode_login_background(data, content_type))
         self._db.commit()
         clear_login_background_cache()
-        return LoginBackgroundMetaPublic(configured=True, content_type=content_type)
+        return self.get_login_background_meta()
 
     def delete_login_background(self) -> None:
         row = self._db.scalar(select(Setting).where(Setting.key == LOGIN_BACKGROUND_SETTING_KEY))

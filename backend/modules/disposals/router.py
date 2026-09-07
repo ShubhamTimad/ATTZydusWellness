@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
-from core.permissions import require_permission
+from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.disposals.schema import (
     CloseDisposalRequest,
@@ -113,18 +113,62 @@ def list_assignees(
         ge=1,
         description="When set, apply the picker step's org_scope against this order's cost centers",
     ),
+    from_cost_center_id: int | None = Query(
+        None,
+        ge=1,
+        description="Asset From cost center (create picker — before an order exists)",
+    ),
+    to_cost_center_id: int | None = Query(
+        None,
+        ge=1,
+        description="Scrapyard cost center (create picker — before an order exists)",
+    ),
+    asset_id: list[int] | None = Query(
+        None,
+        description="Selected asset ids so the create picker can resolve the From cost center",
+    ),
 ) -> DisposalAssigneeListResponse:
     try:
         if role_id is not None:
-            return svc.list_assignees_by_role_id(role_id=role_id, order_id=order_id)
+            return svc.list_assignees_by_role_id(
+                role_id=role_id,
+                order_id=order_id,
+                source_cost_center_id=from_cost_center_id,
+                destination_cost_center_id=to_cost_center_id,
+            )
         if requires_engineering is not None:
             action_code, _entity = action_and_entity_for_order(
                 requires_engineering=bool(requires_engineering)
             )
             return svc.list_assignees_for_action(
-                action_code=action_code, order_id=order_id
+                action_code=action_code,
+                order_id=order_id,
+                source_cost_center_id=from_cost_center_id,
+                destination_cost_center_id=to_cost_center_id,
+                asset_ids=asset_id,
             )
         return svc.list_assignees(level=level or "hod")
+    except Exception as e:
+        raise _http(e) from e
+
+
+@router.get("/cost-center-users", response_model=DisposalAssigneeListResponse)
+def list_cost_center_users(
+    svc: Annotated[DisposalOrderService, Depends(get_disposal_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "disposal.create",
+                "disposal.view",
+                "disposal.manage",
+            )
+        ),
+    ],
+    cost_center_id: int = Query(..., ge=1),
+) -> DisposalAssigneeListResponse:
+    try:
+        return svc.list_cost_center_custodians(cost_center_id=cost_center_id)
     except Exception as e:
         raise _http(e) from e
 

@@ -122,7 +122,7 @@ export function AdminTableHeadCell({
   return (
     <TableHead
       className={cn(
-        "h-auto px-5 py-3 text-[11px] font-semibold tracking-[0.08em] uppercase",
+        "h-auto px-3 py-3 text-[11px] font-semibold tracking-[0.08em] uppercase xl:px-5",
         "text-muted-foreground/85 whitespace-nowrap",
         className,
       )}
@@ -142,7 +142,7 @@ export function AdminTableCell({
   return (
     <TableCell
       className={cn(
-        "h-auto min-h-[var(--app-table-row-height)] px-5 py-3.5 align-middle text-sm leading-snug",
+        "h-auto min-h-[var(--app-table-row-height)] px-3 py-3.5 align-middle text-sm leading-snug xl:px-5",
         className,
       )}
     >
@@ -160,7 +160,7 @@ export type AdminPillTone =
   | "info"
   | "disposed"
 
-const pillToneClass: Record<AdminPillTone, string> = {
+export const adminPillToneClass: Record<AdminPillTone, string> = {
   primary: "border-primary/30 bg-primary/10 text-primary",
   success: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-300",
   warning: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200",
@@ -185,7 +185,7 @@ export function AdminPillBadge({
     <span
       className={cn(
         "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium leading-none",
-        pillToneClass[tone],
+        adminPillToneClass[tone],
         className,
       )}
     >

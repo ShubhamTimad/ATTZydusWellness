@@ -165,7 +165,7 @@ export function CapexDecisionDialog({
                   ? mode === "reject"
                     ? "Reason for Rejection"
                     : "Reason for Approval"
-                  : "Optional Comment…"
+                  : "Optional Comment"
               }
               rows={3}
               autoFocus={!showNextPicker}

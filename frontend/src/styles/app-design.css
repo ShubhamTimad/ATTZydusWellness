@@ -15,6 +15,13 @@
   --app-detail-chrome-offset: 10.5rem;
 }
 
+@media (max-width: 1439px) {
+  :root {
+    --app-page-padding: 0.75rem; /* 12px — reclaim sidebar gutter on compact screens */
+    --app-card-padding: 0.75rem; /* 12px */
+  }
+}
+
 @layer utilities {
   .app-canvas {
     background-color: var(--app-canvas);

@@ -34,6 +34,8 @@ import {
   buildDisposalProgress,
   disposalStatusLabel,
   disposalStatusPillTone,
+  type DisposalAssigneeListResponse,
+  type DisposalAssigneeOption,
   type DisposalOrderDetail,
   type DisposalOrderItem,
 } from "@/lib/disposal-types"
@@ -114,10 +116,10 @@ function DetailFact({
 }) {
   return (
     <div className={cn("min-w-0", className)}>
-      <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+      <dt className="text-sm font-bold text-foreground">
         {label}
       </dt>
-      <dd className="mt-0.5 break-words text-sm leading-snug font-medium text-foreground">
+      <dd className="mt-0.5 break-words text-sm font-normal leading-snug text-foreground">
         {value}
       </dd>
     </div>
@@ -142,6 +144,9 @@ export function DisposalOrderDetailPage() {
   const [requiresEngineering, setRequiresEngineering] = React.useState(false)
   const [remarks, setRemarks] = React.useState("")
   const [toCostCenterId, setToCostCenterId] = React.useState("")
+  const [receiverUserId, setReceiverUserId] = React.useState<number | null>(null)
+  const [custodianOptions, setCustodianOptions] = React.useState<DisposalAssigneeOption[]>([])
+  const [custodiansLoading, setCustodiansLoading] = React.useState(false)
   const [functionalLocation, setFunctionalLocation] = React.useState("")
   const [actualLocation, setActualLocation] = React.useState("")
   const [editAssets, setEditAssets] = React.useState<DisposalOrderItem[]>([])
@@ -168,6 +173,7 @@ export function DisposalOrderDetailPage() {
     setRequiresEngineering(res.requires_engineering)
     setRemarks(res.remarks ?? "")
     setToCostCenterId(res.to_cost_center_id != null ? String(res.to_cost_center_id) : "")
+    setReceiverUserId(res.receiver_user_id ?? null)
     setFunctionalLocation(res.to_functional_location?.trim() || "")
     setActualLocation(res.to_actual_location?.trim() || "")
     setEditAssets(itemsToEditAssets(res.items))
@@ -217,6 +223,36 @@ export function DisposalOrderDetailPage() {
     if (!order?.can_edit || toCostCenterId || scrapyardCostCenters.length !== 1) return
     setToCostCenterId(String(scrapyardCostCenters[0]!.id))
   }, [order?.can_edit, scrapyardCostCenters, toCostCenterId])
+
+  React.useEffect(() => {
+    if (!toCostCenterId || !order?.can_edit) {
+      setCustodianOptions([])
+      return
+    }
+    let cancelled = false
+    setCustodiansLoading(true)
+    void getJson<DisposalAssigneeListResponse>(
+      `/admin/disposal-orders/cost-center-users?cost_center_id=${toCostCenterId}`,
+    )
+      .then((res) => {
+        if (cancelled) return
+        setCustodianOptions(res.items)
+        setReceiverUserId((prev) => {
+          if (prev != null && res.items.some((u) => u.id === prev)) return prev
+          if (res.items.length === 1) return res.items[0]!.id
+          return prev
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setCustodianOptions([])
+      })
+      .finally(() => {
+        if (!cancelled) setCustodiansLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [toCostCenterId, order?.can_edit])
 
   const selectedIds = React.useMemo(() => new Set(editAssets.map((a) => a.asset_id)), [editAssets])
 
@@ -332,6 +368,14 @@ export function DisposalOrderDetailPage() {
       toast.error("Select a scrapyard cost center.")
       return
     }
+    if (receiverUserId == null) {
+      toast.error("Select a custodian for the scrapyard cost center.")
+      return
+    }
+    if (!remarks.trim()) {
+      toast.error("Enter the disposal reason.")
+      return
+    }
     await run(
       () =>
         patchJson(`/admin/disposal-orders/${order.id}`, {
@@ -339,6 +383,7 @@ export function DisposalOrderDetailPage() {
           requires_engineering: requiresEngineering,
           asset_ids: editAssets.map((a) => a.asset_id),
           to_cost_center_id: Number(toCostCenterId),
+          receiver_user_id: receiverUserId,
         }),
       "Disposal order saved.",
     )
@@ -430,6 +475,7 @@ export function DisposalOrderDetailPage() {
       (remarks.trim() || "") !== (order.remarks ?? "").trim() ||
       (toCostCenterId || "") !==
         (order.to_cost_center_id != null ? String(order.to_cost_center_id) : "") ||
+      (receiverUserId ?? null) !== (order.receiver_user_id ?? null) ||
       JSON.stringify(editAssetIds) !== JSON.stringify(savedAssetIds))
 
   return (
@@ -445,7 +491,7 @@ export function DisposalOrderDetailPage() {
             tone={disposalStatusPillTone(order.status)}
             className="h-9 px-3.5 text-sm font-semibold"
           >
-            {disposalStatusLabel(order.status)}
+            {disposalStatusLabel(order.status, order.approval_panel?.current_step_role_name)}
           </AdminPillBadge>
           {order.can_edit ? (
             <Button
@@ -466,6 +512,7 @@ export function DisposalOrderDetailPage() {
               size="sm"
               className="h-9"
               disabled={busy}
+              title="Delete Draft"
               onClick={async () => {
                 const ok = await confirmAsk({
                   title: "Delete draft disposal?",
@@ -489,7 +536,7 @@ export function DisposalOrderDetailPage() {
                 }
               }}
             >
-              Delete draft
+              Delete Draft
             </Button>
           ) : null}
           {order.can_archive ? (
@@ -593,6 +640,18 @@ export function DisposalOrderDetailPage() {
                 }
                 if (order.to_cost_center_id !== Number(toCostCenterId)) {
                   toast.error("Save the scrapyard cost center before submitting.")
+                  return
+                }
+                if (receiverUserId == null) {
+                  toast.error("Select a custodian for the scrapyard cost center.")
+                  return
+                }
+                if (order.receiver_user_id !== receiverUserId) {
+                  toast.error("Save the custodian before submitting.")
+                  return
+                }
+                if (!remarks.trim()) {
+                  toast.error("Enter the disposal reason.")
                   return
                 }
                 setPickerMode("submit")
@@ -731,7 +790,10 @@ export function DisposalOrderDetailPage() {
                     id="to_scrapyard_cc"
                     className={adminSelectClass}
                     value={toCostCenterId}
-                    onChange={(e) => setToCostCenterId(e.target.value)}
+                    onChange={(e) => {
+                      setToCostCenterId(e.target.value)
+                      setReceiverUserId(null)
+                    }}
                   >
                     <option value="">
                       {scrapyardCostCenters.length === 0
@@ -742,6 +804,33 @@ export function DisposalOrderDetailPage() {
                       <option key={cc.id} value={String(cc.id)}>
                         {costCenterLabel(cc)}
                         {cc.code ? ` (${cc.code})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+
+                <FormField id="receiver" labelText="Custodian" required>
+                  <select
+                    id="receiver"
+                    className={adminSelectClass}
+                    value={receiverUserId != null ? String(receiverUserId) : ""}
+                    disabled={!toCostCenterId || custodiansLoading || custodianOptions.length === 0}
+                    onChange={(e) =>
+                      setReceiverUserId(e.target.value ? Number(e.target.value) : null)
+                    }
+                  >
+                    <option value="">
+                      {!toCostCenterId
+                        ? "Select cost center first"
+                        : custodiansLoading
+                          ? "Loading…"
+                          : custodianOptions.length === 0
+                            ? "No custodians assigned"
+                            : "Select custodian"}
+                    </option>
+                    {custodianOptions.map((u) => (
+                      <option key={u.id} value={String(u.id)}>
+                        {u.full_name}
                       </option>
                     ))}
                   </select>
@@ -774,11 +863,11 @@ export function DisposalOrderDetailPage() {
                   />
                 </label>
 
-                <FormField id="remarks" labelText="Remark">
+                <FormField id="remarks" labelText="Disposal Reason" required>
                   <textarea
                     id="remarks"
                     className={cn(adminTextareaClass, "min-h-[72px]")}
-                    placeholder="Reason for Disposal"
+                    placeholder="Enter the disposal reason"
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
                     rows={2}
@@ -811,6 +900,7 @@ export function DisposalOrderDetailPage() {
                       : "—"
                   }
                 />
+                <DetailFact label="Custodian" value={order.receiver_name || "—"} />
                 {order.to_functional_location || order.to_actual_location ? (
                   <>
                     <DetailFact
@@ -828,16 +918,20 @@ export function DisposalOrderDetailPage() {
                   </>
                 ) : null}
                 <DetailFact
-                  label="Engineering"
-                  value={requiresEngineering ? "Required" : "Not required"}
+                  label="Engineering Approval Required"
+                  value={requiresEngineering ? "Yes" : "No"}
                 />
-                <DetailFact label="Remarks" value={order.remarks || "—"} />
                 {order.assigned_at ? (
                   <DetailFact label="Assigned at" value={formatWhen(order.assigned_at)} />
                 ) : null}
                 {order.closed_at ? (
                   <DetailFact label="Closed at" value={formatWhen(order.closed_at)} />
                 ) : null}
+                <DetailFact
+                  label="Disposal Reason"
+                  value={order.remarks || "—"}
+                  className="col-span-2"
+                />
                 {order.can_close ? (
                   <FormField id="remarks" labelText="Remarks" className="col-span-2 !gap-1">
                     <textarea
@@ -1140,11 +1234,7 @@ export function DisposalOrderDetailPage() {
           </AdminPanel>
         ) : null}
 
-        <DisposalAuditLog
-          events={order.audit}
-          fillHeight
-          className="min-h-[14rem]"
-        />
+        <DisposalAuditLog events={order.audit} fillHeight />
           </div>
 
       <CapexAssigneePickerDialog

@@ -21,6 +21,7 @@ from modules.assets.model import (
 from modules.errors import ConflictError, NotFoundError
 from modules.list_sort import apply_sort_dir
 from modules.platform.approvals.assignment_service import get_workflow_for_action
+from modules.platform.approvals.list_inbox import pending_role_names_for_requests
 from modules.platform.approvals.model import (
     ApprovalRequest,
     ApprovalStep,
@@ -57,6 +58,7 @@ from modules.transfers.constants import (
     STATUS_IN_REWORK,
     STATUS_LABELS,
     STATUS_PENDING_APPROVAL,
+    TRANSFER_IN_PROGRESS_MESSAGE,
     STATUS_RECEIVED_BY_CC2,
     STATUS_REJECTED,
     SUBMITTABLE_STATUSES,
@@ -745,6 +747,7 @@ class TransferOrderService:
         Draft/resubmit: assets already on this order may stay pending_transfer.
         """
         reserved = reserved_asset_ids or set()
+        locked: list[str] = []
         bad: list[str] = []
         for asset in assets:
             lifecycle = (asset.lifecycle_status or "").strip().lower()
@@ -756,8 +759,13 @@ class TransferOrderService:
                 if lifecycle not in {LIFECYCLE_ACTIVE, LIFECYCLE_PENDING_TRANSFER}:
                     bad.append(asset.asset_code or str(asset.id))
                 continue
+            if lifecycle == LIFECYCLE_PENDING_TRANSFER:
+                locked.append(asset.asset_code or str(asset.id))
+                continue
             if lifecycle != LIFECYCLE_ACTIVE:
                 bad.append(asset.asset_code or str(asset.id))
+        if locked:
+            raise ConflictError(TRANSFER_IN_PROGRESS_MESSAGE)
         if bad:
             sample = ", ".join(bad[:5])
             more = "…" if len(bad) > 5 else ""
@@ -1644,6 +1652,15 @@ class TransferOrderService:
             ).all()
         )
         pending_kinds = self._pending_step_kinds_for_viewer(viewer_user_id)
+        pending_roles = pending_role_names_for_requests(
+            self._db,
+            [
+                int(r.approval_request_id)
+                for r in rows
+                if r.approval_request_id is not None
+                and r.status in PENDING_APPROVAL_STATUSES | {STATUS_APPROVED_BY_CF}
+            ],
+        )
         items = []
         for r in rows:
             may_discard = (
@@ -1664,6 +1681,12 @@ class TransferOrderService:
                     asset_count=len(r.items),
                     status=r.status,
                     assigned_to_name=r.assignee.full_name if r.assignee else None,
+                    pending_role_name=(
+                        pending_roles.get(int(r.approval_request_id))
+                        if r.status in PENDING_APPROVAL_STATUSES | {STATUS_APPROVED_BY_CF}
+                        and r.approval_request_id is not None
+                        else None
+                    ),
                     created_by_name=r.creator.full_name if r.creator else None,
                     created_at=r.created_at,
                     can_delete=bool(may_discard and plain),
@@ -2361,6 +2384,7 @@ def apply_transfer_enter_receive(
     actor_user_id: int | None,
     next_assignee_user_id: int,
     step_role_name: str | None = None,
+    next_role_name: str | None = None,
     comment: str | None = None,
 ) -> None:
     """After last approve step: order awaits destination receive."""
@@ -2383,6 +2407,7 @@ def apply_transfer_enter_receive(
             "status": order.status,
             "step_role_name": step_role_name,
             "assigned_to": int(next_assignee_user_id),
+            "next_role_name": next_role_name,
             "comment": (comment or "").strip() or None,
         },
     )

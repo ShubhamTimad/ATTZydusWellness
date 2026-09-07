@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from modules.errors import ConflictError
+from modules.orders.constants import ORDER_STATUS_DRAFT
 from modules.orders.service import PhysicalOrderService
 
 VIEWER = 7
@@ -84,3 +89,11 @@ def test_assignee_walks_start_verify_close() -> None:
 def test_finished_orders_are_nobodys_turn() -> None:
     assert _label("closed", assigned_to=VIEWER, request_id=99) is None
     assert _label("cancelled", created_by=VIEWER) is None
+
+
+def test_submit_requires_order_description() -> None:
+    order = SimpleNamespace(created_by=VIEWER, status=ORDER_STATUS_DRAFT)
+    svc = PhysicalOrderService(MagicMock())
+    with patch.object(svc, "_load_order", return_value=order):
+        with pytest.raises(ConflictError, match="Order description is required"):
+            svc.submit_order(1, actor_user_id=VIEWER, assigned_to=8, remarks="   ")

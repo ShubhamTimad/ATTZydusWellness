@@ -378,7 +378,7 @@ export function CapexListPage() {
                     <AdminTableEmptyRow colSpan={5}>Loading forms…</AdminTableEmptyRow>
                   ) : items.length === 0 ? (
                     <AdminTableEmptyRow colSpan={5}>
-                      No forms match your search or filters.
+                      No forms are currently pending for approval.
                     </AdminTableEmptyRow>
                   ) : (
                     items.map((row) => (

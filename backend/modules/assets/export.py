@@ -9,6 +9,7 @@ from typing import Any
 
 from openpyxl import Workbook
 
+from modules.asset_masters.location_lookup import location_display_name
 from modules.assets.field_definitions import ASSET_EXPORT_FIELD_LABELS, ASSET_REGISTER_PDF_LABELS
 from modules.assets.model import AssetMaster
 from modules.reports.pdf_chrome import (
@@ -33,7 +34,13 @@ def _format_cell(value: Any) -> str | int | float | None:
     return value
 
 
-def asset_export_value(asset: AssetMaster, field: str) -> Any:
+def asset_export_value(
+    asset: AssetMaster,
+    field: str,
+    *,
+    fl_desc: dict[tuple[int, str], str] | None = None,
+    al_desc: dict[tuple[int, str, str], str] | None = None,
+) -> Any:
     loc = asset.location
     fin = asset.financial
     inv = asset.inventory
@@ -43,6 +50,11 @@ def asset_export_value(asset: AssetMaster, field: str) -> Any:
     custodian = asset.asset_custodian
     condition = asset.asset_condition
     asset_class = asset.asset_class_master
+    pid = int(loc.plant_id) if loc and loc.plant_id else None
+    fl_code = (loc.functional_location or "").strip() if loc else ""
+    al_code = (loc.actual_location or "").strip() if loc else ""
+    fl_name = fl_desc.get((pid, fl_code)) if fl_desc and pid and fl_code else None
+    al_name = al_desc.get((pid, fl_code, al_code)) if al_desc and pid and fl_code and al_code else None
 
     values: dict[str, Any] = {
         "asset_name": asset.asset_name,
@@ -61,8 +73,8 @@ def asset_export_value(asset: AssetMaster, field: str) -> Any:
         "asset_custodian_code": custodian.username if custodian else None,
         "asset_condition_code": condition.code if condition else None,
         "sub_location": loc.sub_location if loc else None,
-        "functional_location": loc.functional_location if loc else None,
-        "actual_location": loc.actual_location if loc else None,
+        "functional_location": location_display_name(fl_name, fl_code or None),
+        "actual_location": location_display_name(al_name, al_code or None),
         "plant_code": plant.code if plant else None,
         "plant_name": plant.name if plant else None,
         "cost_center": fin.cost_center if fin else None,
@@ -98,7 +110,12 @@ def asset_export_value(asset: AssetMaster, field: str) -> Any:
 
 
 def build_asset_export_xlsx(
-    assets: list[AssetMaster], fields: list[str], *, generated_by: str = ""
+    assets: list[AssetMaster],
+    fields: list[str],
+    *,
+    generated_by: str = "",
+    fl_desc: dict[tuple[int, str], str] | None = None,
+    al_desc: dict[tuple[int, str, str], str] | None = None,
 ) -> bytes:
     wb = Workbook()
     ws = wb.active
@@ -121,7 +138,9 @@ def build_asset_export_xlsx(
     header_row = ws.max_row
 
     for idx, asset in enumerate(assets, start=1):
-        row = [idx] + [_format_cell(asset_export_value(asset, key)) for key in fields]
+        row = [idx] + [
+            _format_cell(asset_export_value(asset, key, fl_desc=fl_desc, al_desc=al_desc)) for key in fields
+        ]
         ws.append(xlsx_pad_row(row, ncols=ncols))
 
     apply_xlsx_data_layout(ws, ncols=ncols, header_row=header_row)
@@ -132,7 +151,12 @@ def build_asset_export_xlsx(
 
 
 def build_asset_export_pdf(
-    assets: list[AssetMaster], fields: list[str], *, generated_by: str = ""
+    assets: list[AssetMaster],
+    fields: list[str],
+    *,
+    generated_by: str = "",
+    fl_desc: dict[tuple[int, str], str] | None = None,
+    al_desc: dict[tuple[int, str, str], str] | None = None,
 ) -> bytes:
     from modules.reports.export import ReportDocument, build_pdf
 
@@ -144,7 +168,7 @@ def build_asset_export_pdf(
     for asset in assets:
         row: list[str] = []
         for key in fields:
-            cell = _format_cell(asset_export_value(asset, key))
+            cell = _format_cell(asset_export_value(asset, key, fl_desc=fl_desc, al_desc=al_desc))
             row.append("" if cell is None else str(cell))
         rows.append(row)
     return build_pdf(

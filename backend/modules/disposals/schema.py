@@ -14,6 +14,8 @@ class CreateDisposalOrderRequest(BaseModel):
     # Scrapyard destination (must be is_scrapyard); required when submit=true.
     to_cost_center_id: int | None = Field(default=None, ge=1)
     assignee_user_id: int | None = Field(default=None, ge=1)
+    # Scrapyard cost-center custodian (receiver). Required on submit.
+    receiver_user_id: int | None = Field(default=None, ge=1)
     submit: bool = False
 
 
@@ -22,6 +24,7 @@ class UpdateDisposalOrderRequest(BaseModel):
     requires_engineering: bool | None = None
     asset_ids: list[int] | None = None
     to_cost_center_id: int | None = Field(default=None, ge=1)
+    receiver_user_id: int | None = Field(default=None, ge=1)
 
 
 class SubmitDisposalOrderRequest(BaseModel):
@@ -98,6 +101,7 @@ class DisposalOrderListItem(BaseModel):
     status: str
     requires_engineering: bool
     assigned_to_name: str | None = None
+    pending_role_name: str | None = None
     created_by_name: str | None = None
     created_at: datetime
     needs_my_action: bool = False
@@ -195,6 +199,8 @@ class DisposalOrderDetail(BaseModel):
     created_by_name: str | None = None
     assigned_to: int | None = None
     assigned_to_name: str | None = None
+    receiver_user_id: int | None = None
+    receiver_name: str | None = None
     assigned_at: datetime | None = None
     closed_at: datetime | None = None
     created_at: datetime

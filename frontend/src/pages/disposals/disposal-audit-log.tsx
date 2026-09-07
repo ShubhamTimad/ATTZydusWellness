@@ -35,9 +35,8 @@ function nextAssigneeLine(ev: DisposalOrderAudit): string | null {
     fromNew(ev, "assigned_to_name") ||
     fromNew(ev, "assignee_name")
   const role = fromNew(ev, "next_role_name")
-  if (name && role) return `Next: ${name} (${role})`
+  if (role) return `Next: ${role}`
   if (name) return `Next: ${name}`
-  if (role) return `Next role: ${role}`
   return null
 }
 
@@ -58,7 +57,7 @@ export function disposalAuditHeadline(ev: DisposalOrderAudit): string {
     case "step_approved":
       return step ? `Approved — ${step}` : "Approved"
     case "approved":
-      return step ? `Final Approval — ${step}` : "Final Approval — sent to receive"
+      return step ? `Approved — ${step}` : "Approved"
     case "rejected":
       return step ? `Rejected — ${step}` : "Rejected"
     case "received":
@@ -157,7 +156,7 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
     disposed_assets: "Disposed Asset",
     reactivated_assets: "Reactivated Asset",
     requires_engineering: "Engineering Approval",
-    remarks: "Remark",
+    remarks: "Disposal Reason",
     comment: "Comment",
     assignee_name: "Assignee",
     assigned_to_name: "Assigned to",

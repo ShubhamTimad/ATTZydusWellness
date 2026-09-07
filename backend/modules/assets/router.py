@@ -189,6 +189,17 @@ def list_assets(
     last_verification_date: str | None = Query(None, description="Column filter: last verification date"),
     created_at: str | None = Query(None, description="Column filter: created date"),
     source_type: str | None = Query(None, description="Column filter: source type"),
+    sub_no: str | None = Query(None, description="Column filter: sub-no contains"),
+    asset_class: str | None = Query(None, description="Column filter: asset class id or name"),
+    asset_type: str | None = Query(None, description="Column filter: asset type contains"),
+    asset_condition: str | None = Query(None, description="Column filter: asset condition id or name"),
+    asset_custodian: str | None = Query(None, description="Column filter: custodian name contains"),
+    cap_date: str | None = Query(None, description="Column filter: capitalization date"),
+    gross_block: str | None = Query(None, description="Column filter: APC-IGAAP contains"),
+    party_details: str | None = Query(None, description="Column filter: party details contains"),
+    life_span: str | None = Query(None, description="Column filter: life span contains"),
+    pm_equipment_id: str | None = Query(None, description="Column filter: PM equipment id contains"),
+    physical_order_id: str | None = Query(None, description="Column filter: physical order number contains"),
 ) -> AssetListResponse:
     return svc.list_assets(
         page=page,
@@ -220,6 +231,17 @@ def list_assets(
             "last_verification_date": last_verification_date or "",
             "created_at": created_at or "",
             "source_type": source_type or "",
+            "sub_no": sub_no or "",
+            "asset_class": asset_class or "",
+            "asset_type": asset_type or "",
+            "asset_condition": asset_condition or "",
+            "asset_custodian": asset_custodian or "",
+            "cap_date": cap_date or "",
+            "gross_block": gross_block or "",
+            "party_details": party_details or "",
+            "life_span": life_span or "",
+            "pm_equipment_id": pm_equipment_id or "",
+            "physical_order_id": physical_order_id or "",
         },
         viewer_user_id=int(current.subject),
     )
@@ -506,6 +528,8 @@ def get_asset(
         return svc.get_asset(asset_id, viewer_user_id=int(current.subject))
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except PermissionDeniedError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 @router.get("/{asset_id}/image")

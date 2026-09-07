@@ -1,5 +1,5 @@
 import * as React from "react"
-import { ArrowRightLeft, Package, Search, X } from "lucide-react"
+import { ArrowRightLeft, Package, Search } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -16,7 +16,6 @@ import {
   adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -24,11 +23,13 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
-import type {
-  TransferAssigneeListResponse,
-  TransferAssigneeOption,
-  TransferDestinationCostCenter,
-  TransferOrderDetail,
+import { isAssetPendingTransfer } from "@/lib/asset-lifecycle"
+import {
+  TRANSFER_IN_PROGRESS_MESSAGE,
+  type TransferAssigneeListResponse,
+  type TransferAssigneeOption,
+  type TransferDestinationCostCenter,
+  type TransferOrderDetail,
 } from "@/lib/transfer-types"
 import {
   formatCostCenterWithCode,
@@ -116,12 +117,6 @@ function toDraftAsset(a: AssetListItem): DraftAsset {
   }
 }
 
-function userInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase()
-  return (name.trim().slice(0, 2) || "?").toUpperCase()
-}
-
 export function TransferOrderCreatePage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -144,11 +139,8 @@ export function TransferOrderCreatePage() {
     return Number.isFinite(n) && n > 0 ? n : null
   })
   const [toCostCenterId, setToCostCenterId] = React.useState("")
-  const [ccQuery, setCcQuery] = React.useState("")
-  const [ccOpen, setCcOpen] = React.useState(false)
   const [custodianOptions, setCustodianOptions] = React.useState<TransferAssigneeOption[]>([])
   const [custodiansLoading, setCustodiansLoading] = React.useState(false)
-  const [custodianFilter, setCustodianFilter] = React.useState("")
   const [toAssetCustodianId, setToAssetCustodianId] = React.useState<number | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [pickerOpen, setPickerOpen] = React.useState(false)
@@ -218,50 +210,24 @@ export function TransferOrderCreatePage() {
     [plantCostCenters, sourceCostCenterCodes],
   )
 
-  const filteredCostCenters = React.useMemo(() => {
-    const q = ccQuery.trim().toLowerCase()
-    if (!q) return destinationCostCenters
-    return destinationCostCenters.filter((cc) => {
-      const label = `${cc.code} ${cc.name ?? ""} ${cc.description ?? ""}`.toLowerCase()
-      return label.includes(q)
-    })
-  }, [destinationCostCenters, ccQuery])
-
-  const selectedCostCenter = React.useMemo(
-    () => destinationCostCenters.find((cc) => String(cc.id) === toCostCenterId) ?? null,
-    [destinationCostCenters, toCostCenterId],
-  )
-
   // Clear destination if it matches a selected asset's current cost center.
   React.useEffect(() => {
     if (!toCostCenterId) return
     const selected = plantCostCenters.find((cc) => String(cc.id) === toCostCenterId)
     if (selected && sourceCostCenterCodes.has(selected.code)) {
       setToCostCenterId("")
-      setCcQuery("")
       setToAssetCustodianId(null)
     }
   }, [toCostCenterId, sourceCostCenterCodes, plantCostCenters])
 
-  const visibleCustodians = React.useMemo(() => {
-    const q = custodianFilter.trim().toLowerCase()
-    if (!q) return custodianOptions
-    return custodianOptions.filter((u) => {
-      const hay = `${u.full_name} ${u.email ?? ""}`.toLowerCase()
-      return hay.includes(q)
-    })
-  }, [custodianOptions, custodianFilter])
-
   React.useEffect(() => {
     if (!toCostCenterId) {
       setCustodianOptions([])
-      setCustodianFilter("")
       setToAssetCustodianId(null)
       return
     }
     let cancelled = false
     setCustodiansLoading(true)
-    setCustodianFilter("")
     setToAssetCustodianId(null)
     void getJson<TransferAssigneeListResponse>(
       `/admin/transfer-orders/cost-center-users?cost_center_id=${toCostCenterId}`,
@@ -305,8 +271,15 @@ export function TransferOrderCreatePage() {
       const raw = sessionStorage.getItem("transfer-order-draft-assets")
       if (raw) {
         const parsed = JSON.parse(raw) as DraftAsset[]
-        const custodied = parsed.filter(
-          (a) => idSet.has(a.id) && isCustodianOf(a, viewerId) && isApprovedForTransfer(a),
+        const selectedParsed = parsed.filter((a) => idSet.has(a.id))
+        const hasInProgress = selectedParsed.some((a) =>
+          isAssetPendingTransfer(a.lifecycle_status ?? ""),
+        )
+        if (hasInProgress && (viewerId != null || isSuperuser())) {
+          toast.error(TRANSFER_IN_PROGRESS_MESSAGE)
+        }
+        const custodied = selectedParsed.filter(
+          (a) => isCustodianOf(a, viewerId) && isApprovedForTransfer(a),
         )
         if (custodied.length > 0) {
           const primaryCc = custodied.find((a) => a.cost_center?.trim())?.cost_center?.trim()
@@ -318,7 +291,7 @@ export function TransferOrderCreatePage() {
             ...new Set(rows.map((a) => a.plant_id).filter((id): id is number => id != null)),
           ]
           if (plants.length === 1) setPlantId(plants[0] ?? null)
-          if (rows.length < parsed.filter((a) => idSet.has(a.id)).length) {
+          if (!hasInProgress && rows.length < selectedParsed.length) {
             toast.error(
               "Some selected assets were removed — only approved assets you custodiate from the same cost center can be transferred together.",
             )
@@ -387,6 +360,10 @@ export function TransferOrderCreatePage() {
       toast.error("Only the asset custodian can add this asset to a transfer.")
       return
     }
+    if (isAssetPendingTransfer(row.lifecycle_status)) {
+      toast.error(TRANSFER_IN_PROGRESS_MESSAGE)
+      return
+    }
     if (!isApprovedForTransfer(row)) {
       toast.error("Only approved assets can be added to a transfer order.")
       return
@@ -420,8 +397,6 @@ export function TransferOrderCreatePage() {
       const next = prev.filter((a) => a.id !== id)
       if (next.length === 0) {
         setToCostCenterId("")
-        setCcQuery("")
-        setCcOpen(false)
         setToAssetCustodianId(null)
         setCustodianOptions([])
       }
@@ -437,6 +412,10 @@ export function TransferOrderCreatePage() {
     }
     if (!isSuperuser() && assets.some((a) => !isCustodianOf(a, viewerId))) {
       toast.error("Only the asset custodian can create a transfer for these assets.")
+      return
+    }
+    if (assets.some((a) => isAssetPendingTransfer(a.lifecycle_status))) {
+      toast.error(TRANSFER_IN_PROGRESS_MESSAGE)
       return
     }
     if (assets.some((a) => !isApprovedForTransfer(a))) {
@@ -521,7 +500,7 @@ export function TransferOrderCreatePage() {
       >
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
-            title={`1. Select Asset `}
+            title={`Select Asset `}
             // description={
             //   fromAssets
             //     ? "Assets where you are the asset custodian (from Asset Master)."
@@ -544,8 +523,6 @@ export function TransferOrderCreatePage() {
                         setFromCostCenterCode("")
                         setFromFunctionalLocation("")
                         setToCostCenterId("")
-                        setCcQuery("")
-                        setCcOpen(false)
                         setToAssetCustodianId(null)
                         setCustodianOptions([])
                         setAssets([])
@@ -723,187 +700,60 @@ export function TransferOrderCreatePage() {
           </AdminPanel>
 
           <AdminPanel
-            title="2. Transfer Destination"
-            // description={
-            //   assets.length === 0
-            //     ? "Select assets first, then choose destination cost center and asset custodian."
-            //     : "Choose a different destination cost center and the asset custodian who will own the assets after receive. Locations are set when that custodian receives the assets."
-            // }
+            title="Transfer Destination"
             headerActions={<ArrowRightLeft className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
           >
             {assets.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                Add at least one asset on the left to continue with destination details.
-              </p>
+              <p className="text-sm text-muted-foreground">Select assets first.</p>
             ) : destinationCostCenters.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No other cost centers are available on this plant. Destination must differ from the
-                assets&apos; current cost center.
+                No other cost centers on this plant. Destination must differ from From CC.
               </p>
             ) : (
               <div className="grid grid-cols-1 gap-4">
-                <FormField id="to_cc" labelText="Destination Cost Center" required>
-                  <div className="relative">
-                    <Search
-                      className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                      aria-hidden
-                    />
-                    <Input
-                      id="to_cc"
-                      value={
-                        ccOpen
-                          ? ccQuery
-                          : selectedCostCenter
-                            ? `${masterDisplayName(selectedCostCenter.name, selectedCostCenter.code)}${selectedCostCenter.code ? ` (${selectedCostCenter.code})` : ""}`
-                            : ccQuery
-                      }
-                      placeholder="Search cost center code or name…"
-                      className={cn("pl-9", toCostCenterId && !ccOpen ? "pr-9" : undefined)}
-                      onFocus={() => {
-                        setCcOpen(true)
-                        setCcQuery("")
-                      }}
-                      onChange={(e) => {
-                        setCcOpen(true)
-                        setCcQuery(e.target.value)
-                        if (toCostCenterId) setToCostCenterId("")
-                      }}
-                      onBlur={() => {
-                        window.setTimeout(() => setCcOpen(false), 150)
-                      }}
-                    />
-                    {toCostCenterId && !ccOpen ? (
-                      <button
-                        type="button"
-                        className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                        aria-label="Clear cost center"
-                        onClick={() => {
-                          setToCostCenterId("")
-                          setCcQuery("")
-                        }}
-                      >
-                        <X className="size-4" />
-                      </button>
-                    ) : null}
-                    {ccOpen ? (
-                      <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-border/70 bg-background shadow-md">
-                        {filteredCostCenters.length === 0 ? (
-                          <li className="px-3 py-2 text-sm text-muted-foreground">
-                            No other cost centers match. Destination cannot be the same as From CC.
-                          </li>
-                        ) : (
-                          filteredCostCenters.map((cc) => (
-                            <li key={cc.id}>
-                              <button
-                                type="button"
-                                className={cn(
-                                  "flex w-full items-start justify-between gap-2 px-3 py-2.5 text-left text-sm hover:bg-muted/50",
-                                  String(cc.id) === toCostCenterId && "bg-primary/5",
-                                )}
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  setToCostCenterId(String(cc.id))
-                                  setCcQuery("")
-                                  setCcOpen(false)
-                                }}
-                              >
-                                <span>
-                                  <span className="font-medium">{masterDisplayName(cc.name, cc.code)}</span>
-                                  {cc.code ? (
-                                    <span className="mt-0.5 block font-mono text-xs text-muted-foreground">
-                                      {cc.code}
-                                    </span>
-                                  ) : null}
-                                </span>
-                              </button>
-                            </li>
-                          ))
-                        )}
-                      </ul>
-                    ) : null}
-                  </div>
+                <FormField id="to_cc" labelText="Cost Center" required>
+                  <select
+                    id="to_cc"
+                    className={adminSelectClass}
+                    value={toCostCenterId}
+                    onChange={(e) => setToCostCenterId(e.target.value)}
+                  >
+                    <option value="">Select cost center</option>
+                    {destinationCostCenters.map((cc) => (
+                      <option key={cc.id} value={String(cc.id)}>
+                        {formatCostCenterWithCode(cc.code, [cc], cc.name)}
+                      </option>
+                    ))}
+                  </select>
                 </FormField>
 
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Label className="app-form-label !mb-0">
-                      Asset Custodian
-                      <RequiredFieldMark />
-                    </Label>
-                    {toCostCenterId && custodianOptions.length > 3 ? (
-                      <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
-                        <Search
-                          className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
-                          aria-hidden
-                        />
-                        <Input
-                          value={custodianFilter}
-                          onChange={(e) => setCustodianFilter(e.target.value)}
-                          placeholder="Search custodian…"
-                          className="h-8 pl-8 text-xs"
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-
-                  {!toCostCenterId ? (
-                    <p className="text-sm text-muted-foreground">
-                      Select a Destination Cost Center.
-                    </p>
-                  ) : custodiansLoading ? (
-                    <p className="text-sm text-muted-foreground">Loading custodians…</p>
-                  ) : custodianOptions.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No asset custodians are assigned to this cost center.
-                    </p>
-                  ) : visibleCustodians.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No custodians match your search.</p>
-                  ) : (
-                    <ul className="max-h-56 overflow-auto rounded-lg border border-border/70 bg-background">
-                      {visibleCustodians.map((u) => {
-                        const selected = toAssetCustodianId === u.id
-                        return (
-                          <li key={u.id}>
-                            <button
-                              type="button"
-                              className={cn(
-                                "flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/50",
-                                selected && "bg-primary/5",
-                              )}
-                              onClick={() => setToAssetCustodianId(u.id)}
-                            >
-                              <span
-                                className={cn(
-                                  "flex size-4 shrink-0 items-center justify-center rounded-full border",
-                                  selected
-                                    ? "border-primary bg-primary text-primary-foreground"
-                                    : "border-muted-foreground/40",
-                                )}
-                                aria-hidden
-                              >
-                                {selected ? (
-                                  <span className="size-1.5 rounded-full bg-current" />
-                                ) : null}
-                              </span>
-                              <Avatar className="size-8 shrink-0">
-                                <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-                                  {userInitials(u.full_name)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm font-medium">{u.full_name}</div>
-                                <div className="truncate text-xs text-muted-foreground">
-                                  {u.email ?? "No email"}
-                                </div>
-                              </div>
-                            </button>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                </div>
+                <FormField id="to_custodian" labelText="Asset Custodian" required>
+                  <select
+                    id="to_custodian"
+                    className={adminSelectClass}
+                    value={toAssetCustodianId != null ? String(toAssetCustodianId) : ""}
+                    disabled={!toCostCenterId || custodiansLoading || custodianOptions.length === 0}
+                    onChange={(e) =>
+                      setToAssetCustodianId(e.target.value ? Number(e.target.value) : null)
+                    }
+                  >
+                    <option value="">
+                      {!toCostCenterId
+                        ? "Select cost center first"
+                        : custodiansLoading
+                          ? "Loading…"
+                          : custodianOptions.length === 0
+                            ? "No custodians assigned"
+                            : "Select custodian"}
+                    </option>
+                    {custodianOptions.map((u) => (
+                      <option key={u.id} value={String(u.id)}>
+                        {u.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
               </div>
             )}
           </AdminPanel>

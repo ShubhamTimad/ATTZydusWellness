@@ -579,7 +579,7 @@ export function DisposalOrdersListPage() {
                       <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>
                       <AdminTableCell>
                         <AdminPillBadge tone={disposalStatusPillTone(row.status)}>
-                          {disposalStatusLabel(row.status)}
+                          {disposalStatusLabel(row.status, row.pending_role_name)}
                         </AdminPillBadge>
                       </AdminTableCell>
                       {showDiscard ? (
@@ -591,6 +591,7 @@ export function DisposalOrdersListPage() {
                               size="sm"
                               className="h-8"
                               disabled={busyId === row.id}
+                              title={row.can_delete ? "Delete" : row.can_archive ? "Archive" : "Unarchive"}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 void discardRow(row)

@@ -28,10 +28,11 @@ def test_blank_filters_add_nothing() -> None:
 
 
 def test_text_columns_use_ilike() -> None:
-    sql = _sql({"asset_code": "AST", "asset_name": "pump", "rfid_code": "E2"})
+    sql = _sql({"asset_code": "AST", "asset_name": "pump", "rfid_code": "E2", "sub_no": "01"})
     assert "lower(asset_master.asset_code) LIKE" in sql
     assert "lower(asset_master.asset_name) LIKE" in sql
     assert "lower(asset_master.rfid_code) LIKE" in sql
+    assert "lower(asset_master.sub_no) LIKE" in sql
 
 
 def test_related_columns_use_subqueries() -> None:

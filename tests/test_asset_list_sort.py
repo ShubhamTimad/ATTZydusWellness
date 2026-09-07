@@ -25,6 +25,16 @@ def test_asset_list_sort_keys_are_distinct() -> None:
         "approval_status",
         "source_type",
         "active_physical_order",
+        "sub_no",
+        "asset_class",
+        "asset_type",
+        "asset_condition",
+        "asset_custodian",
+        "cap_date",
+        "gross_block",
+        "party_details",
+        "life_span",
+        "pm_equipment_id",
     ]
     exprs = [_asset_list_sort_expression(k) for k in keys]
     # Unknown key falls back to created_at (same object identity not required).

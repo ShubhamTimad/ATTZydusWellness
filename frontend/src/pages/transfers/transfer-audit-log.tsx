@@ -46,9 +46,8 @@ function nextAssigneeLine(ev: TransferOrderAudit): string | null {
     fromNew(ev, "assigned_to_name") ||
     fromNew(ev, "assignee_name")
   const role = fromNew(ev, "next_role_name") || fromNew(ev, "role_name")
-  if (name && role) return `Next: ${name} (${role})`
+  if (role) return `Next: ${role}`
   if (name) return `Next: ${name}`
-  if (role) return `Next role: ${role}`
   return null
 }
 
@@ -89,7 +88,7 @@ export function transferAuditHeadline(ev: TransferOrderAudit): string {
       return step ? `Approved — ${step}` : "Approved"
     case "approved":
     case "cf_approved":
-      return step ? `Final Approval — ${step}` : "Final Approval — sent to receive"
+      return step ? `Approved — ${step}` : "Approved"
     case "rejected":
     case "cf_rejected":
       return step ? `Rejected — ${step}` : "Rejected"

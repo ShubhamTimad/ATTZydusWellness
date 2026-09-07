@@ -217,6 +217,11 @@ class AssetListItem(BaseModel):
     combined_asset_number: str | None = None
     rfid_code: str | None = None
     category_name: str | None = None
+    sub_no: str | None = None
+    asset_class: str | None = None
+    asset_class_name: str | None = None
+    asset_type: str | None = None
+    asset_condition_name: str | None = None
     plant_id: int | None = None
     plant_code: str | None = None
     plant_name: str | None = None
@@ -226,7 +231,13 @@ class AssetListItem(BaseModel):
     actual_location_description: str | None = None
     cost_center: str | None = None
     cost_center_description: str | None = None
+    cap_date: date | None = None
+    gross_block: Decimal | None = None
+    party_details: str | None = None
+    life_span: str | None = None
+    pm_equipment_id: str | None = None
     asset_custodian_id: int | None = None
+    asset_custodian_name: str | None = None
     inventory_count: int | None = None
     physical_count: int | None = None
     last_verification_date: date | None = None
@@ -343,6 +354,7 @@ class AssetDetailPublic(BaseModel):
     financial_year_label: str | None = None
     fy_verification_count: int | None = None
     active_physical_order: AssetActivePhysicalOrderPublic | None = None
+    physical_orders: list[AssetActivePhysicalOrderPublic] = Field(default_factory=list)
     capitalization_form_id: int | None = None
     capitalization_form_number: str | None = None
     capitalization_form_asset_name: str | None = None

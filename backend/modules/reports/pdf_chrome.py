@@ -35,7 +35,22 @@ HEADER_BAND = 58
 FOOTER_BAND = 36
 SIG_BAND = 72
 
+# Bundled with the backend image (Docker does not copy frontend/public).
+_STATIC = Path(__file__).resolve().parent / "static"
 _PUBLIC = Path(__file__).resolve().parents[3] / "frontend" / "public"
+
+
+def _logo_dirs() -> tuple[Path, ...]:
+    return (_STATIC, _PUBLIC)
+
+
+def logo_file_path() -> Path | None:
+    for folder in _logo_dirs():
+        for name in ("logo.png", "logo.jpg"):
+            path = folder / name
+            if path.is_file():
+                return path
+    return None
 
 
 def format_generated_at(when: datetime | None = None) -> str:
@@ -45,12 +60,10 @@ def format_generated_at(when: datetime | None = None) -> str:
 
 def logo_png_bytes() -> bytes | None:
     """Raster logo for Excel/PDF. PNG/JPG as-is; SVG drawn with Pillow."""
-    for name in ("logo.png", "logo.jpg"):
-        path = _PUBLIC / name
-        if path.is_file():
-            return path.read_bytes()
-    svg = _PUBLIC / "logo.svg"
-    if svg.is_file():
+    path = logo_file_path()
+    if path is not None:
+        return path.read_bytes()
+    if any((folder / "logo.svg").is_file() for folder in _logo_dirs()):
         return _rasterize_takeda_mark()
     return None
 
@@ -154,9 +167,15 @@ def write_xlsx_header(
         ws.merge_cells(f"{get_column_letter(text_col)}{title_row}:{text_last}{title_row}")
         ws.merge_cells(f"{get_column_letter(text_col)}{subtitle_row}:{text_last}{subtitle_row}")
 
-    png = logo_png_bytes()
+    path = logo_file_path()
+    png = None if path is not None else logo_png_bytes()
     logo_anchor = f"{logo_start}{title_row}"
-    if png is not None:
+    if path is not None:
+        img = XLImage(str(path))
+        img.width = 118
+        img.height = 36
+        ws.add_image(img, logo_anchor)
+    elif png is not None:
         img = XLImage(io.BytesIO(png))
         img.width = 118
         img.height = 36

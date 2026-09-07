@@ -56,7 +56,7 @@ def test_assert_blocks_pending_transfer_on_new_order():
     asset = _asset()
     asset.lifecycle_status = LIFECYCLE_PENDING_TRANSFER
     svc = TransferOrderService(MagicMock())
-    with pytest.raises(ConflictError, match="approved assets"):
+    with pytest.raises(ConflictError, match="already in progress for this asset"):
         svc._assert_assets_approved_for_transfer([asset])
 
 

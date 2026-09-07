@@ -50,6 +50,20 @@ def test_columns_are_deduplicated_validated_and_saved() -> None:
     assert user.asset_list_columns == saved
     assert db.committed
     assert set(saved) <= ASSET_LIST_COLUMN_KEYS
+    assert "remark" not in ASSET_LIST_COLUMN_KEYS
+    assert "asset_description" not in ASSET_LIST_COLUMN_KEYS
+    assert {
+        "sub_no",
+        "asset_class",
+        "asset_type",
+        "asset_condition",
+        "asset_custodian",
+        "cap_date",
+        "gross_block",
+        "party_details",
+        "life_span",
+        "pm_equipment_id",
+    } <= ASSET_LIST_COLUMN_KEYS
 
     try:
         svc.update_asset_list_columns(1, ["unknown"])

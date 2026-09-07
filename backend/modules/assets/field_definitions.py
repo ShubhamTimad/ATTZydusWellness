@@ -373,7 +373,6 @@ ASSET_REGISTER_DEFAULT_FIELDS: list[str] = [
     "cap_date",
     "life_span",
     "gross_block",
-    "current_apc_igaap",
 ]
 
 # Default export columns (matches import grid / Assets → Export dialog).
@@ -481,7 +480,7 @@ ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
     "rfid_code": "RFID Tag",
     "asset_condition_code": "Physical Condition Of Assets",
     "life_span": "Useful life",
-    "gross_block": "APC-IGAAP / Gross Block",
+    "gross_block": "APC-IGAAP",
 }
 
 

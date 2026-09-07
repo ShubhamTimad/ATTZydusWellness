@@ -1399,22 +1399,25 @@ class ApprovalEngineService:
             )
         else:
             # Completing an approve (or unknown) step.
-            log_transfer_step_approved(
-                self._db,
-                order_id=int(req.entity_id),
-                actor_user_id=actor_user_id,
-                step_role_name=step_role_name,
-                next_assignee_user_id=int(next_assigned_user_id),
-                next_role_name=next_role_name,
-                comment=comment,
-            )
             if next_kind == "receive":
+                # enter_receive writes the single "approved" trail (status → pending receive).
                 apply_transfer_enter_receive(
                     self._db,
                     order_id=int(req.entity_id),
                     actor_user_id=actor_user_id,
                     next_assignee_user_id=int(next_assigned_user_id),
                     step_role_name=step_role_name,
+                    next_role_name=next_role_name,
+                    comment=comment,
+                )
+            else:
+                log_transfer_step_approved(
+                    self._db,
+                    order_id=int(req.entity_id),
+                    actor_user_id=actor_user_id,
+                    step_role_name=step_role_name,
+                    next_assignee_user_id=int(next_assigned_user_id),
+                    next_role_name=next_role_name,
                     comment=comment,
                 )
 
@@ -1496,15 +1499,6 @@ class ApprovalEngineService:
                 comment=comment,
             )
         else:
-            log_disposal_step_approved(
-                self._db,
-                order_id=int(req.entity_id),
-                actor_user_id=actor_user_id,
-                step_role_name=step_role_name,
-                next_assignee_user_id=int(next_assigned_user_id),
-                next_role_name=next_role_name,
-                comment=comment,
-            )
             if next_kind == "receive":
                 apply_disposal_enter_receive(
                     self._db,
@@ -1512,6 +1506,17 @@ class ApprovalEngineService:
                     actor_user_id=actor_user_id,
                     next_assignee_user_id=int(next_assigned_user_id),
                     step_role_name=step_role_name,
+                    next_role_name=next_role_name,
+                    comment=comment,
+                )
+            else:
+                log_disposal_step_approved(
+                    self._db,
+                    order_id=int(req.entity_id),
+                    actor_user_id=actor_user_id,
+                    step_role_name=step_role_name,
+                    next_assignee_user_id=int(next_assigned_user_id),
+                    next_role_name=next_role_name,
                     comment=comment,
                 )
 

@@ -33,13 +33,14 @@ import {
   AdminTableCell,
   AdminTableHeadCell,
   AdminTableHeaderRow,
+  adminPillToneClass,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
+import type { AdminPillTone } from "@/components/layout/admin-ui"
 import {
   nextColumnSort,
   SortableColumnHeader,
 } from "@/components/layout/sortable-column-header"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -91,6 +92,8 @@ import {
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 import { CapexDecisionDialog } from "@/pages/capex/capex-decision-dialog"
 import {
+  assetClassLabel,
+  assetConditionLabel,
   categoryLabel,
   plantLabel,
   useAssetMasterLookups,
@@ -102,10 +105,12 @@ import {
   assetStatusFilterValue,
   assetStatusLabel,
   assetStatusPillTone,
+  isAssetPendingTransfer,
 } from "@/lib/asset-lifecycle"
 import { currentUserId, hasPermission, isSuperuser } from "@/lib/permissions"
 import type { PhysicalOrderDetail, ValidateAssetsResponse } from "@/lib/orders-types"
 import { orderStatusLabel } from "@/lib/orders-types"
+import { TRANSFER_IN_PROGRESS_MESSAGE } from "@/lib/transfer-types"
 import { formatAppDate } from "@/lib/dates"
 import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
@@ -129,11 +134,21 @@ export type AssetListColumnKey =
   | "asset_name"
   | "rfid_code"
   | "category_name"
+  | "sub_no"
+  | "asset_class"
+  | "asset_type"
+  | "asset_condition"
+  | "asset_custodian"
   | "plant"
   | "cost_center"
   | "cost_center_name"
   | "functional_location"
   | "actual_location"
+  | "cap_date"
+  | "gross_block"
+  | "party_details"
+  | "life_span"
+  | "pm_equipment_id"
   | "inventory_count"
   | "physical_count"
   | "last_verification_date"
@@ -142,7 +157,7 @@ export type AssetListColumnKey =
 type AssetListColumnDefinition = {
   key: AssetListColumnKey
   label: string
-  group: "Asset" | "Location & financial" | "Inventory & status"
+  group: "Asset" | "Location & financial" | "Inventory"
 }
 
 const ASSET_LIST_COLUMNS: AssetListColumnDefinition[] = [
@@ -151,15 +166,25 @@ const ASSET_LIST_COLUMNS: AssetListColumnDefinition[] = [
   { key: "asset_name", label: "Asset Name", group: "Asset" },
   { key: "rfid_code", label: "RFID", group: "Asset" },
   { key: "category_name", label: "Category", group: "Asset" },
+  { key: "sub_no", label: "Sub-No", group: "Asset" },
+  { key: "asset_class", label: "Asset Class", group: "Asset" },
+  { key: "asset_type", label: "Asset Type", group: "Asset" },
+  { key: "asset_condition", label: "Asset Physical Condition", group: "Asset" },
+  { key: "asset_custodian", label: "Asset Custodian", group: "Asset" },
   { key: "plant", label: "Plant", group: "Location & financial" },
   { key: "cost_center", label: "Cost Center Code", group: "Location & financial" },
   { key: "cost_center_name", label: "Cost Center Name", group: "Location & financial" },
   { key: "functional_location", label: "Actual Location 1", group: "Location & financial" },
   { key: "actual_location", label: "Actual Location 2", group: "Location & financial" },
-  { key: "inventory_count", label: "Inventory Count", group: "Inventory & status" },
-  { key: "physical_count", label: "Physical Count", group: "Inventory & status" },
-  { key: "last_verification_date", label: "Last Verification", group: "Inventory & status" },
-  { key: "lifecycle_status", label: "Status", group: "Inventory & status" },
+  { key: "cap_date", label: "Capitalization Date", group: "Location & financial" },
+  { key: "gross_block", label: "APC-IGAAP", group: "Location & financial" },
+  { key: "party_details", label: "Party Details", group: "Location & financial" },
+  { key: "life_span", label: "Life-Span (Years)", group: "Location & financial" },
+  { key: "pm_equipment_id", label: "PM Equipment ID", group: "Location & financial" },
+  { key: "inventory_count", label: "Inventory Count", group: "Inventory" },
+  { key: "physical_count", label: "Physical Count", group: "Inventory" },
+  { key: "last_verification_date", label: "Last Verification", group: "Inventory" },
+  { key: "lifecycle_status", label: "Status", group: "Asset" },
 ]
 
 const DEFAULT_ASSET_LIST_COLUMN_KEYS: AssetListColumnKey[] = [
@@ -175,7 +200,12 @@ const DEFAULT_ASSET_LIST_COLUMN_KEYS: AssetListColumnKey[] = [
   "lifecycle_status",
 ]
 
-const DATE_SORT_KEYS = new Set<AssetListColumnKey>(["last_verification_date"])
+const DATE_SORT_KEYS = new Set<AssetListColumnKey>(["last_verification_date", "cap_date"])
+const NUMERIC_COLUMN_KEYS = new Set<AssetListColumnKey>([
+  "inventory_count",
+  "physical_count",
+  "gross_block",
+])
 
 function defaultSortDirForColumn(key: AssetListColumnKey): "asc" | "desc" {
   return DATE_SORT_KEYS.has(key) ? "desc" : "asc"
@@ -222,15 +252,24 @@ export type AssetColumnFilters = {
   combined_asset_number: string
   asset_name: string
   rfid_code: string
+  sub_no: string
+  asset_class: string
+  asset_type: string
+  asset_condition: string
+  asset_custodian: string
   cost_center: string
   functional_location: string
   actual_location: string
+  cap_date: string
+  gross_block: string
+  party_details: string
+  life_span: string
+  pm_equipment_id: string
   inventory_count: string
   physical_count: string
   last_verification_date: string
   created_at: string
   source_type: string
-  physical_order_status: string
 }
 
 const DEFAULT_COLUMN_FILTERS: AssetColumnFilters = {
@@ -238,15 +277,24 @@ const DEFAULT_COLUMN_FILTERS: AssetColumnFilters = {
   combined_asset_number: "",
   asset_name: "",
   rfid_code: "",
+  sub_no: "",
+  asset_class: "",
+  asset_type: "",
+  asset_condition: "",
+  asset_custodian: "",
   cost_center: "",
   functional_location: "",
   actual_location: "",
+  cap_date: "",
+  gross_block: "",
+  party_details: "",
+  life_span: "",
+  pm_equipment_id: "",
   inventory_count: "",
   physical_count: "",
   last_verification_date: "",
   created_at: "",
   source_type: "",
-  physical_order_status: "",
 }
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -289,6 +337,16 @@ function assetListCell(row: AssetListItem, key: AssetListColumnKey): React.React
       )
     case "category_name":
       return row.category_name ?? "—"
+    case "sub_no":
+      return row.sub_no?.trim() || "—"
+    case "asset_class":
+      return row.asset_class_name?.trim() || row.asset_class?.trim() || "—"
+    case "asset_type":
+      return row.asset_type?.trim() || "—"
+    case "asset_condition":
+      return row.asset_condition_name?.trim() || "—"
+    case "asset_custodian":
+      return row.asset_custodian_name?.trim() || "—"
     case "plant":
       return formatMasterLabel(row.plant_code, row.plant_name)
     case "cost_center":
@@ -308,6 +366,20 @@ function assetListCell(row: AssetListItem, key: AssetListColumnKey): React.React
       return formatMasterLabel(row.functional_location, row.functional_location_description)
     case "actual_location":
       return formatMasterLabel(row.actual_location, row.actual_location_description)
+    case "cap_date":
+      return formatListDate(row.cap_date)
+    case "gross_block":
+      return row.gross_block == null || row.gross_block === "" ? "—" : String(row.gross_block)
+    case "party_details":
+      return (
+        <span className="block max-w-[14rem] truncate" title={row.party_details ?? undefined}>
+          {row.party_details?.trim() || "—"}
+        </span>
+      )
+    case "life_span":
+      return row.life_span?.trim() || "—"
+    case "pm_equipment_id":
+      return row.pm_equipment_id?.trim() || "—"
     case "inventory_count":
       return row.inventory_count ?? "—"
     case "physical_count":
@@ -779,7 +851,14 @@ export function AssetsListPage() {
       key === "asset_code" ||
       key === "combined_asset_number" ||
       key === "asset_name" ||
-      key === "rfid_code"
+      key === "rfid_code" ||
+      key === "sub_no" ||
+      key === "asset_type" ||
+      key === "asset_custodian" ||
+      key === "party_details" ||
+      key === "life_span" ||
+      key === "pm_equipment_id" ||
+      key === "gross_block"
     ) {
       const columnLabel =
         ASSET_LIST_COLUMNS.find((column) => column.key === key)?.label ?? key.replaceAll("_", " ")
@@ -919,15 +998,52 @@ export function AssetsListPage() {
         />
       )
     }
-    if (key === "last_verification_date") {
+    if (key === "asset_class") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={columnFilterInputs.asset_class}
+          aria-label="Filter asset class"
+          onChange={(e) =>
+            setColumnFilterInputs((f) => ({ ...f, asset_class: e.target.value }))
+          }
+        >
+          <option value="">Asset Class</option>
+          {masters.assetClasses.map((assetClass) => (
+            <option key={assetClass.id} value={String(assetClass.id)}>
+              {assetClassLabel(assetClass)}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (key === "asset_condition") {
+      return (
+        <select
+          className={cn(adminSelectClass, columnFilterControlClass)}
+          value={columnFilterInputs.asset_condition}
+          aria-label="Filter asset physical condition"
+          onChange={(e) =>
+            setColumnFilterInputs((f) => ({ ...f, asset_condition: e.target.value }))
+          }
+        >
+          <option value="">Asset Physical Condition</option>
+          {masters.assetConditions.map((condition) => (
+            <option key={condition.id} value={String(condition.id)}>
+              {assetConditionLabel(condition)}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (key === "last_verification_date" || key === "cap_date") {
+      const label = key === "cap_date" ? "Capitalization Date" : "Last Verification"
       return (
         <Input
           type="date"
-          value={columnFilterInputs.last_verification_date}
-          onChange={(e) =>
-            setColumnFilterInputs((f) => ({ ...f, last_verification_date: e.target.value }))
-          }
-          aria-label="Filter Last Verification"
+          value={columnFilterInputs[key]}
+          onChange={(e) => setColumnFilterInputs((f) => ({ ...f, [key]: e.target.value }))}
+          aria-label={`Filter ${label}`}
           className={columnFilterControlClass}
         />
       )
@@ -1513,6 +1629,10 @@ export function AssetsListPage() {
       return
     }
     if (actionId === "create-transfer-order") {
+      if (selectedRows.some((r) => isAssetPendingTransfer(r.lifecycle_status))) {
+        toast.error(TRANSFER_IN_PROGRESS_MESSAGE)
+        return
+      }
       if (transferEligibleRows.length === 0) {
         toast.error("Only approved assets you custodiate can be transferred.")
         return
@@ -1821,7 +1941,7 @@ export function AssetsListPage() {
             >
               <WorkspaceTabsList>
                 <WorkspaceTabsTrigger value="verified">Physically Verified</WorkspaceTabsTrigger>
-                <WorkspaceTabsTrigger value="pending">Pending Verification</WorkspaceTabsTrigger>
+                <WorkspaceTabsTrigger value="pending">Pending for Verification</WorkspaceTabsTrigger>
               </WorkspaceTabsList>
             </WorkspaceTabs>
           ) : null}
@@ -2153,20 +2273,24 @@ export function AssetsListPage() {
         ) : null}
 
         {activeFilterCount > 0 && !filtersOpen ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-            {/* <span className="text-xs text-muted-foreground">Active:</span> */}
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {isFyTab &&
             filters.fy_start_year &&
             currentFyStartYear &&
             Number(filters.fy_start_year) !== currentFyStartYear ? (
               <FilterChip
-                label={`FY: ${fyYearOptions.find((o) => String(o.start_year) === filters.fy_start_year)?.label ?? filters.fy_start_year}`}
+                prefix="FY"
+                label={
+                  fyYearOptions.find((o) => String(o.start_year) === filters.fy_start_year)?.label ??
+                  filters.fy_start_year
+                }
                 onRemove={() => applyFyYear(String(currentFyStartYear))}
               />
             ) : null}
             {filters.plant_id ? (
               <FilterChip
-                label={`Plant: ${masters.plants.find((p) => String(p.id) === filters.plant_id)?.code ?? filters.plant_id}`}
+                prefix="Plant"
+                label={masters.plants.find((p) => String(p.id) === filters.plant_id)?.code ?? filters.plant_id}
                 onRemove={() => {
                   setFilters((f) => ({ ...f, plant_id: "" }))
                   setDraftFilters((f) => ({ ...f, plant_id: "" }))
@@ -2176,7 +2300,11 @@ export function AssetsListPage() {
             ) : null}
             {filters.category_id ? (
               <FilterChip
-                label={`Category: ${masters.categories.find((c) => String(c.id) === filters.category_id)?.code ?? filters.category_id}`}
+                prefix="Category"
+                label={
+                  masters.categories.find((c) => String(c.id) === filters.category_id)?.code ??
+                  filters.category_id
+                }
                 onRemove={() => {
                   setFilters((f) => ({ ...f, category_id: "" }))
                   setDraftFilters((f) => ({ ...f, category_id: "" }))
@@ -2187,11 +2315,16 @@ export function AssetsListPage() {
             {!isFyTab &&
             assetStatusFilterValue(filters.lifecycle_status, filters.approval_status) ? (
               <FilterChip
-                label={`Status: ${
+                prefix="Status"
+                label={
                   assetStatusFilterOption(
                     assetStatusFilterValue(filters.lifecycle_status, filters.approval_status),
                   )?.label ?? ""
-                }`}
+                }
+                tone={assetStatusPillTone(
+                  filters.lifecycle_status,
+                  filters.approval_status,
+                )}
                 onRemove={() => {
                   setListTab("all")
                   setFilters((f) => ({ ...f, lifecycle_status: "", approval_status: "" }))
@@ -2202,7 +2335,9 @@ export function AssetsListPage() {
             ) : null}
             {!isFyTab && filters.rfid_status ? (
               <FilterChip
-                label={`RFID: ${filters.rfid_status === "tagged" ? "tagged" : "not tagged"}`}
+                prefix="RFID"
+                label={filters.rfid_status === "tagged" ? "tagged" : "not tagged"}
+                tone={filters.rfid_status === "tagged" ? "info" : "warning"}
                 onRemove={() => {
                   setFilters((f) => ({ ...f, rfid_status: "" }))
                   setDraftFilters((f) => ({ ...f, rfid_status: "" }))
@@ -2248,16 +2383,8 @@ export function AssetsListPage() {
                     sortBy={filters.sort_by}
                     sortDir={filters.sort_dir}
                     onSort={(k) => toggleColumnSort(k as AssetListColumnKey)}
-                    align={
-                      column.key === "inventory_count" || column.key === "physical_count"
-                        ? "right"
-                        : "left"
-                    }
-                    className={
-                      column.key === "inventory_count" || column.key === "physical_count"
-                        ? "text-right"
-                        : undefined
-                    }
+                    align={NUMERIC_COLUMN_KEYS.has(column.key) ? "right" : "left"}
+                    className={NUMERIC_COLUMN_KEYS.has(column.key) ? "text-right" : undefined}
                   />
                 ))}
               </AdminTableHeaderRow>
@@ -2290,7 +2417,14 @@ export function AssetsListPage() {
                   return (
                   <AdminTableBodyRow
                     key={row.id}
-                    onClick={() => navigate(String(row.id))}
+                    onClick={() => {
+                      if (selected.size > 0) {
+                        if (!canActOnAsset(row)) return
+                        toggleRow(row.id, !selected.has(row.id))
+                        return
+                      }
+                      navigate(String(row.id))
+                    }}
                   >
                     <AdminTableCell className="w-10 px-3">
                       <div
@@ -2317,9 +2451,7 @@ export function AssetsListPage() {
                         key={column.key}
                         className={cn(
                           "max-w-[16rem]",
-                          (column.key === "inventory_count" ||
-                            column.key === "physical_count") &&
-                            "text-right tabular-nums",
+                          NUMERIC_COLUMN_KEYS.has(column.key) && "text-right tabular-nums",
                         )}
                       >
                         <span className="block truncate">
@@ -2368,7 +2500,7 @@ export function AssetsListPage() {
                 Select All
               </Button>
             </div>
-            {(["Asset", "Location & financial", "Inventory & status"] as const).map((group) => (
+            {(["Asset", "Location & financial", "Inventory"] as const).map((group) => (
               <div key={group} className="rounded-md border border-border/60 bg-muted/15 p-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {group}
@@ -2590,18 +2722,38 @@ export function AssetsListPage() {
   )
 }
 
-function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+function FilterChip({
+  label,
+  onRemove,
+  tone,
+  prefix,
+}: {
+  label: string
+  onRemove: () => void
+  tone?: AdminPillTone
+  prefix?: string
+}) {
+  const name = prefix ? `${prefix} ${label}` : label
   return (
-    <Badge variant="outline" className="gap-1 rounded-md py-0.5 pr-1 pl-2 text-xs font-normal">
-      {label}
+    <span
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-full border pl-2.5 pr-1 text-xs font-medium leading-none",
+        tone ? adminPillToneClass[tone] : "border-border/70 bg-muted/40 text-muted-foreground",
+      )}
+    >
+      {tone ? (
+        <span className="size-1.5 shrink-0 rounded-full bg-current opacity-80" aria-hidden />
+      ) : null}
+      {prefix ? <span className="font-normal tracking-wide opacity-70">{prefix}</span> : null}
+      <span>{label}</span>
       <button
         type="button"
-        className="rounded p-0.5 hover:bg-muted"
-        aria-label={`Remove ${label}`}
+        className="rounded-full p-0.5 opacity-70 transition-opacity hover:bg-current/10 hover:opacity-100"
+        aria-label={`Remove ${name}`}
         onClick={onRemove}
       >
         <X className="size-3" />
       </button>
-    </Badge>
+    </span>
   )
 }

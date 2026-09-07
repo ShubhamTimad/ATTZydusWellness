@@ -18,6 +18,8 @@ RUN pip install --upgrade pip && pip install -r requirements.txt
 COPY backend ./backend
 COPY create_superuser.py ./create_superuser.py
 COPY scripts ./scripts
+# Excel/PDF chrome looks here when frontend/ is not in the image.
+COPY frontend/public/logo.png frontend/public/logo.svg ./frontend/public/
 
 RUN mkdir -p /app/backend/uploads && chmod +x /app/backend/docker-entrypoint.sh
 

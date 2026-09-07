@@ -70,7 +70,7 @@ export function FinancialYearDashboard({ data }: { data: FinancialYearDashboardM
       iconWrap={theme.iconWrap}
       metrics={[
         { value: verified, label: "Verified Assets" },
-        { value: pending, label: "Pending Verification" },
+        { value: pending, label: "Pending for Verification" },
       ]}
       slices={slices}
       centerLabel={`${coverage}%`}

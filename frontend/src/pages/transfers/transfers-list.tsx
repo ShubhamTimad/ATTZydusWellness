@@ -641,7 +641,7 @@ export function TransferOrdersListPage() {
                       <AdminTableCell>{row.assigned_to_name ?? "—"}</AdminTableCell>
                       <AdminTableCell>
                         <AdminPillBadge tone={transferStatusPillTone(row.status)}>
-                          {transferStatusLabel(row.status)}
+                          {transferStatusLabel(row.status, row.pending_role_name)}
                         </AdminPillBadge>
                       </AdminTableCell>
                       {showDiscard ? (

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -47,7 +47,7 @@ _AUDIT_LABELS: dict[str, str] = {
     "submitted_for_approval": "Submitted for Creation Approval",
     "approved": "Creation Approved",
     "rejected": "Order Rejected",
-    "started": "Physical Verification Started",
+    "started": "Physical Verification",
     "asset_verified": "Asset Physically Verified (RFID Scan)",
     "closure_submitted": "Submitted for Approval",
     "closure_approved": "Closure Approved",
@@ -59,7 +59,11 @@ _AUDIT_LABELS: dict[str, str] = {
     "closure_items_approved": "Assets Approved",
     "archived": "Order Archived",
     "unarchived": "Order Unarchived",
+    "item_remark_updated": "Remark added",
 }
+
+# ponytail: blur-save then Verify is two API calls; treat as one audit row if within this window.
+_SIMULTANEOUS_REMARK_SCAN_SECONDS = 120
 
 
 def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -> str | None:
@@ -154,6 +158,9 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         if codes:
             return ", ".join(str(c) for c in codes)
         return None
+    if action == "item_remark_updated":
+        remark = str(new_value.get("remarks") or "").strip()
+        return remark or None
     return None
 
 
@@ -240,16 +247,110 @@ def _first_request_assignee_line(
     return None
 
 
+def _aware_dt(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _within_seconds(left: datetime | None, right: datetime | None, seconds: int) -> bool:
+    a = _aware_dt(left)
+    b = _aware_dt(right)
+    if a is None or b is None:
+        return False
+    return abs((a - b).total_seconds()) <= seconds
+
+
+def _asset_display_name(
+    new_value: dict | None,
+    order_items: list[PhysicalOrderItem] | None,
+) -> str:
+    payload = new_value or {}
+    name = str(payload.get("asset_name") or "").strip()
+    if name:
+        return name
+    aid = payload.get("asset_id")
+    if aid is not None and order_items:
+        for item in order_items:
+            if int(item.asset_id) != int(aid):
+                continue
+            asset = getattr(item, "asset", None)
+            item_name = str(getattr(asset, "asset_name", None) or "").strip() if asset is not None else ""
+            if item_name:
+                return item_name
+            break
+    return str(payload.get("asset_code") or "").strip() or "asset"
+
+
+def _item_remark_audit_label(
+    old_value: dict | None,
+    new_value: dict | None,
+    order_items: list[PhysicalOrderItem] | None,
+) -> str:
+    name = _asset_display_name(new_value, order_items)
+    old_remark = str((old_value or {}).get("remarks") or "").strip()
+    new_remark = str((new_value or {}).get("remarks") or "").strip()
+    if new_remark and not old_remark:
+        verb = "added"
+    elif new_remark:
+        verb = "updated"
+    else:
+        verb = "removed"
+    return f"Remark {verb} for {name}"
+
+
+def _fold_simultaneous_item_remarks(
+    rows: list[PhysicalOrderAudit],
+    order_items: list[PhysicalOrderItem] | None,
+) -> tuple[set[int], dict[int, str]]:
+    """Hide remark-only rows that were saved in the same Verify click as an RFID scan."""
+    fold_ids: set[int] = set()
+    remarks_by_asset_id: dict[int, str] = {}
+    if not order_items:
+        return fold_ids, remarks_by_asset_id
+    scan_time_by_asset_id = {
+        int(item.asset_id): item.scan_time
+        for item in order_items
+        if item.scan_time is not None
+    }
+    if not scan_time_by_asset_id:
+        return fold_ids, remarks_by_asset_id
+    for row in rows:
+        if str(row.action) != "item_remark_updated":
+            continue
+        payload = row.new_value or {}
+        aid = payload.get("asset_id")
+        if aid is None:
+            continue
+        asset_id = int(aid)
+        if not _within_seconds(
+            getattr(row, "created_at", None),
+            scan_time_by_asset_id.get(asset_id),
+            _SIMULTANEOUS_REMARK_SCAN_SECONDS,
+        ):
+            continue
+        fold_ids.add(int(row.id))
+        text = str(payload.get("remarks") or "").strip()
+        if text:
+            remarks_by_asset_id[asset_id] = text
+    return fold_ids, remarks_by_asset_id
+
+
 def _verified_assets_from_items(
     items: list[PhysicalOrderItem],
     *,
     user_name_fn,
+    remarks_by_asset_id: dict[int, str] | None = None,
 ) -> list[PhysicalOrderAuditVerifiedAsset]:
     out: list[PhysicalOrderAuditVerifiedAsset] = []
     for item in items:
         if item.scan_time is None:
             continue
         asset = item.asset
+        asset_id = int(item.asset_id)
+        remark = (remarks_by_asset_id or {}).get(asset_id)
         out.append(
             PhysicalOrderAuditVerifiedAsset(
                 asset_code=str(asset.asset_code) if asset is not None else str(item.asset_id),
@@ -257,6 +358,7 @@ def _verified_assets_from_items(
                 rfid_code=str(asset.rfid_code) if asset is not None and asset.rfid_code else None,
                 verified_at=item.scan_time,
                 verified_by_name=user_name_fn(item.verified_by) if item.verified_by else None,
+                remark=remark,
             )
         )
     out.sort(key=lambda row: (row.verified_at is None, row.verified_at))
@@ -279,9 +381,16 @@ def enrich_audit_rows(
     has_closure_submitted = any(str(r.action) == "closure_submitted" for r in rows)
     has_completed = any(str(r.action) == "completed" for r in rows)
     has_order_rejected = any(str(r.action) == "rejected" for r in rows)
+    fold_remark_ids, folded_remarks = _fold_simultaneous_item_remarks(rows, order_items)
 
     verified_assets = (
-        _verified_assets_from_items(order_items, user_name_fn=user_name_fn) if order_items else []
+        _verified_assets_from_items(
+            order_items,
+            user_name_fn=user_name_fn,
+            remarks_by_asset_id=folded_remarks,
+        )
+        if order_items
+        else []
     )
 
     workflow_rows: list[PhysicalOrderAuditPublic] = []
@@ -379,6 +488,8 @@ def enrich_audit_rows(
         action = str(r.action)
         if action == "asset_verified":
             continue
+        if action == "item_remark_updated" and int(r.id) in fold_remark_ids:
+            continue
         # Line rejects are applied right before order-level reject; keep one "Order rejected".
         if action == "closure_items_rejected" and has_order_rejected:
             continue
@@ -453,7 +564,11 @@ def enrich_audit_rows(
             PhysicalOrderAuditPublic(
                 id=int(r.id),
                 action=action,
-                label=_AUDIT_LABELS.get(action, action.replace("_", " ").title()),
+                label=(
+                    _item_remark_audit_label(r.old_value, new_value, order_items)
+                    if action == "item_remark_updated"
+                    else _AUDIT_LABELS.get(action, action.replace("_", " ").title())
+                ),
                 detail=_audit_detail(action, r.old_value, new_value),
                 actor_name=user_name_fn(r.actor_user_id),
                 old_value=r.old_value,

@@ -107,6 +107,7 @@ class TransferOrderListItem(BaseModel):
     asset_count: int
     status: str
     assigned_to_name: str | None = None
+    pending_role_name: str | None = None
     created_by_name: str | None = None
     created_at: datetime
     can_delete: bool = False

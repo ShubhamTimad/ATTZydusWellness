@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
   AdminBackLink,
@@ -645,6 +646,7 @@ export function OrderDetailPage() {
       const choice = closureDecisions[item.id]?.choice ?? null
       return choice === "approve" || choice === "reject"
     })
+  const closureAllApproved = closureAllLinesChosen && !closureHasRejectChoice
 
   async function submitClosureLineDecisions(
     rejectionReason: string,
@@ -889,28 +891,30 @@ export function OrderDetailPage() {
           ) : null}
           {canReviewClosure ? (
             <>
-              <span
-                className="inline-flex"
-                title={
-                  !closureAllLinesChosen
-                    ? "Select Approve or Reject for every asset before you can reject this order."
-                    : undefined
-                }
-              >
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9"
-                  disabled={busy || !closureAllLinesChosen}
-                  onClick={() => {
-                    setRejectReason("")
-                    setRejectOpen(true)
-                  }}
+              {!closureAllApproved ? (
+                <span
+                  className="inline-flex"
+                  title={
+                    !closureAllLinesChosen
+                      ? "Select Approve or Reject for every asset before you can reject this order."
+                      : undefined
+                  }
                 >
-                  Reject
-                </Button>
-              </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    disabled={busy || !closureAllLinesChosen}
+                    onClick={() => {
+                      setRejectReason("")
+                      setRejectOpen(true)
+                    }}
+                  >
+                    Reject
+                  </Button>
+                </span>
+              ) : null}
               {!closureHasRejectChoice ? (
                 <span
                   className="inline-flex"
@@ -1071,11 +1075,11 @@ export function OrderDetailPage() {
             </div>
           ) : null}
           {isRejected && (order.rejection_reason || "").trim() ? (
-            <div className="rounded-lg border border-red-200 bg-red-50/70 px-3 py-2.5">
+            <div className="min-w-0 overflow-hidden rounded-lg border border-red-200 bg-red-50/70 px-3 py-2.5">
               <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-red-700">
                 Rejected Reason
               </p>
-              <p className="mt-1 text-sm leading-relaxed text-red-700">
+              <p className="mt-1 whitespace-pre-wrap break-all text-sm leading-relaxed text-red-700">
                 {order.rejection_reason}
               </p>
             </div>
@@ -1556,7 +1560,7 @@ export function OrderDetailPage() {
         />
       </AdminPanel>
 
-      <OrderAuditLog rows={order.audit} fillHeight className="min-h-[14rem]" />
+      <OrderAuditLog rows={order.audit} fillHeight />
       </div>
 
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
@@ -1604,6 +1608,7 @@ export function OrderDetailPage() {
             <div className="space-y-2">
               <Label htmlFor="assign-order-description" className="text-sm font-medium">
                 Order Description
+                <RequiredFieldMark />
               </Label>
               <textarea
                 id="assign-order-description"
@@ -1611,7 +1616,7 @@ export function OrderDetailPage() {
                 value={assignRemarks}
                 onChange={(e) => setAssignRemarks(e.target.value)}
                 rows={2}
-                placeholder="Optional"
+                placeholder="Enter the order description"
                 disabled={busy}
               />
             </div>
@@ -1622,15 +1627,19 @@ export function OrderDetailPage() {
             </Button>
             <AdminPrimaryButton
               type="button"
-              disabled={busy || !assignTo}
+              disabled={busy || !assignTo || !assignRemarks.trim()}
               onClick={() => {
                 if (!assignTo) {
                   toast.error("Select an executor.")
                   return
                 }
+                if (!assignRemarks.trim()) {
+                  toast.error("Enter the order description.")
+                  return
+                }
                 void runAction("/submit", {
                   assigned_to: Number(assignTo),
-                  remarks: assignRemarks.trim() || null,
+                  remarks: assignRemarks.trim(),
                 }).then((ok) => {
                   if (ok) setAssignOpen(false)
                 })

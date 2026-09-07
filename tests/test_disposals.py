@@ -65,7 +65,7 @@ def _order(status: str, *, assets, order_id: int = 1, assigned_to: int | None = 
         receiver_user_id=8,
         approval_request_id=None,
         to_cost_center_id=7,
-        remarks=None,
+        remarks="End of life",
         rejection_comment=None,
         closed_at=None,
         requires_engineering=False,
@@ -104,6 +104,33 @@ def test_scrapyard_locations_shown_after_cf_bounce():
         new_value={"functional_location": "FL-YARD", "actual_location": "AL-YARD-01"}
     )
     assert _scrapyard_locations_after_receive(db, order) == ("FL-YARD", "AL-YARD-01")
+
+
+def test_submit_requires_disposal_reason():
+    order = _order(STATUS_DRAFT, assets=[_asset()])
+    order.remarks = None
+    svc = DisposalOrderService(MagicMock())
+    with pytest.raises(ConflictError, match="Disposal reason is required"):
+        svc._submit(order, actor_user_id=1, assignee_user_id=2)
+
+
+def test_submit_requires_custodian():
+    order = _order(STATUS_DRAFT, assets=[_asset()])
+    order.receiver_user_id = None
+    svc = DisposalOrderService(MagicMock())
+    with pytest.raises(ConflictError, match="Select a custodian"):
+        svc._submit(order, actor_user_id=1, assignee_user_id=2)
+
+
+def test_list_cost_center_custodians_maps_users():
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(id=7, code="CC-4300")
+    db.scalars.return_value.all.return_value = [
+        SimpleNamespace(id=11, full_name="Yard Custodian", email="yard@x"),
+    ]
+    res = DisposalOrderService(db).list_cost_center_custodians(cost_center_id=7)
+    assert res.role_name == "Cost center CC-4300 custodians"
+    assert [(u.id, u.full_name) for u in res.items] == [(11, "Yard Custodian")]
 
 
 def test_submit_requires_configured_workflow():

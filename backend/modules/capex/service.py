@@ -161,7 +161,7 @@ _AUDIT_LABELS: dict[str, str] = {
     "resubmitted": "Resubmitted for approval",
     "reassigned": "Approver Reassigned",
     "step_approved": "Step Approved",
-    "approved": "Fully Approved",
+    "approved": "Approved",
     "rejected": "Rejected",
     "linked_to_asset": "Linked to Asset",
     "unlinked_from_asset": "Unlinked from Asset",
@@ -1348,9 +1348,10 @@ class CapexFormService:
                         )
                     )
             elif ev.action in ("submitted", "resubmitted"):
-                who = nv.get("assignee_name") or "—"
-                role = nv.get("role_name") or "Approver"
-                detail = f"Assigned to {who} · {role}"
+                role = (nv.get("role_name") or "").strip() or None
+                who = (nv.get("assignee_name") or "").strip() or None
+                nxt = role or (who if who and who != "—" else None)
+                detail = f"Next: {nxt}" if nxt else None
             elif ev.action == "reassigned":
                 old_who = ov.get("assignee_name") or "—"
                 new_who = nv.get("assignee_name") or "—"
@@ -1360,13 +1361,11 @@ class CapexFormService:
                 role = nv.get("step_role_name")
                 if role:
                     label = f"Approved · {role}"
-                nxt = nv.get("next_assignee_name")
-                nxt_role = nv.get("next_role_name")
+                nxt_role = (nv.get("next_role_name") or "").strip() or None
+                nxt = (nv.get("next_assignee_name") or "").strip() or None
                 parts = []
-                if nxt:
-                    parts.append(f"Next: {nxt}")
-                if nxt_role:
-                    parts.append(str(nxt_role))
+                if nxt_role or nxt:
+                    parts.append(f"Next: {nxt_role or nxt}")
                 if nv.get("comment"):
                     parts.append(f"Note: {nv['comment']}")
                 detail = " · ".join(parts) if parts else None
@@ -1379,9 +1378,9 @@ class CapexFormService:
             elif ev.action == "approved":
                 role = nv.get("step_role_name")
                 if role:
-                    detail = f"Final step · {role}"
+                    label = f"Approved · {role}"
                 if nv.get("comment"):
-                    detail = (detail + " · " if detail else "") + f"Note: {nv['comment']}"
+                    detail = f"Note: {nv['comment']}"
             elif ev.action == "linked_to_asset":
                 code = nv.get("asset_code") or (f"#{nv['asset_id']}" if nv.get("asset_id") else None)
                 if code:

@@ -59,6 +59,7 @@ type AppVersionSettings = {
 type LoginBackgroundMeta = {
   configured: boolean
   content_type: string | null
+  version: string | null
 }
 
 type EmailDelivery = {
@@ -201,6 +202,7 @@ export function SettingsPage() {
         getJson<LoginBackgroundMeta>("/admin/settings/login-background/meta").catch(() => ({
           configured: false,
           content_type: null,
+          version: null,
         })),
       ])
       setPolicy(data)
@@ -721,7 +723,7 @@ export function SettingsPage() {
 
           <AdminPanel
             title="Login background"
-            description="Optional full-page background image on the login screen. PNG, JPEG, or WebP. When unset, the default marketing layout is used."
+            description="Optional full-page background image on the login screen. PNG, JPEG, or WebP. Large photos are resized automatically. When unset, the default marketing layout is used."
             contentClassName="space-y-4 px-5 py-5"
           >
             {loginBgMeta ? (
@@ -780,7 +782,7 @@ export function SettingsPage() {
                         toast.loading("Removing…", { id: "login-bg-remove" })
                         try {
                           await deleteJson("/admin/settings/login-background")
-                          setLoginBgMeta({ configured: false, content_type: null })
+                          setLoginBgMeta({ configured: false, content_type: null, version: null })
                           await loadLoginBackgroundPreview(false)
                           toast.success("Background removed", { id: "login-bg-remove" })
                         } catch (err) {

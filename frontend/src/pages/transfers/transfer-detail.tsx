@@ -35,7 +35,6 @@ import {
 } from "@/lib/transfer-types"
 import {
   actualLocationLabel,
-  costCenterLabel,
   formatCostCenterWithCode,
   functionalLocationLabel,
   useAssetMasterLookups,
@@ -68,27 +67,6 @@ function FormField({
         {required ? <RequiredFieldMark /> : null}
       </Label>
       {children}
-    </div>
-  )
-}
-
-function DetailFact({
-  label,
-  value,
-  className,
-}: {
-  label: string
-  value: React.ReactNode
-  className?: string
-}) {
-  return (
-    <div className={cn("min-w-0", className)}>
-      <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-        {label}
-      </dt>
-      <dd className="mt-0.5 break-words text-sm leading-snug font-medium text-foreground">
-        {value}
-      </dd>
     </div>
   )
 }
@@ -551,7 +529,7 @@ export function TransferOrderDetailPage() {
             tone={transferStatusPillTone(order.status)}
             className="h-9 px-3.5 text-sm font-semibold"
           >
-            {transferStatusLabel(order.status)}
+            {transferStatusLabel(order.status, order.approval_panel?.current_step_role_name)}
           </AdminPillBadge>
           {order.can_delete ? (
             <Button
@@ -562,7 +540,7 @@ export function TransferOrderDetailPage() {
               disabled={busy}
               onClick={() => void deleteDraftOrder()}
             >
-              Delete draft
+              Delete Draft
             </Button>
           ) : null}
           {order.can_archive ? (
@@ -795,17 +773,17 @@ export function TransferOrderDetailPage() {
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
           <div className={cn("space-y-2 py-3", transferTextPad)}>
-            <h3 className="text-sm font-semibold text-foreground">Transfer summary</h3>
+            <h3 className="text-sm font-semibold text-foreground">Transfer Summary</h3>
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
               <SummaryField label="Assets" value={order.items.length} />
               <SummaryField
-                label="From"
+                label="Source"
                 value={order.from_cost_center_code ?? "—"}
               />
-              <SummaryField label="To" value={order.to_cost_center_code ?? "—"} />
+              <SummaryField label="Destination" value={order.to_cost_center_code ?? "—"} />
               <SummaryField label="Created" value={formatDt(order.created_at)} />
               <SummaryField
-                label="Assignee"
+                label="Assigned To"
                 value={order.assigned_to_name || order.to_asset_custodian_name || "—"}
               />
             </div>
@@ -813,22 +791,11 @@ export function TransferOrderDetailPage() {
         </AdminPanel>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
-          <div className={cn("space-y-3 py-3", transferTextPad)}>
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Transfer destination</h3>
-              {order.can_restart_transfer || receiveEditable || draftEditable ? (
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {order.can_restart_transfer
-                    ? "Receive again with updated locations, or click Transfer to change destination and restart the full approval flow on this same order."
-                    : receiveEditable
-                      ? "Set Actual Location 1 / 2, then receive. Destination cost center stays as approved — same order id continues."
-                      : "Update destination cost center and asset custodian. Locations are set when the destination custodian receives."}
-                </p>
-              ) : null}
-            </div>
+          <div className={cn("space-y-2 py-3", transferTextPad)}>
+            <h3 className="text-sm font-semibold text-foreground">Transfer destination</h3>
             {draftEditable ? (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <FormField id="to_cc" labelText="Destination cost center" required>
+                <FormField id="to_cc" labelText="Cost Center" required>
                   <select
                     id="to_cc"
                     className={adminSelectClass}
@@ -841,106 +808,66 @@ export function TransferOrderDetailPage() {
                     <option value="">Select cost center</option>
                     {destinationCostCenters.map((cc) => (
                       <option key={cc.id} value={String(cc.id)}>
-                        {costCenterLabel(cc)}
-                        {cc.code ? ` (${cc.code})` : ""}
+                        {formatCostCenterWithCode(cc.code, [cc], cc.name)}
                       </option>
                     ))}
                   </select>
                 </FormField>
 
-                <FormField id="to_custodian" labelText="Asset custodian" required>
-                  {custodiansLoading ? (
-                    <p className="text-sm text-muted-foreground">Loading custodians…</p>
-                  ) : custodianOptions.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No asset custodians are assigned to this cost center. Add them under Asset
-                      masters → CC custodians.
-                    </p>
-                  ) : (
-                    <select
-                      id="to_custodian"
-                      className={adminSelectClass}
-                      value={toAssetCustodianId != null ? String(toAssetCustodianId) : ""}
-                      onChange={(e) =>
-                        setToAssetCustodianId(e.target.value ? Number(e.target.value) : null)
-                      }
-                    >
-                      <option value="">Select asset custodian</option>
-                      {custodianOptions.map((u) => (
-                        <option key={u.id} value={String(u.id)}>
-                          {u.full_name}
-                          {u.email ? ` — ${u.email}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                <FormField id="to_custodian" labelText="Asset Custodian" required>
+                  <select
+                    id="to_custodian"
+                    className={adminSelectClass}
+                    value={toAssetCustodianId != null ? String(toAssetCustodianId) : ""}
+                    disabled={!toCostCenterId || custodiansLoading || custodianOptions.length === 0}
+                    onChange={(e) =>
+                      setToAssetCustodianId(e.target.value ? Number(e.target.value) : null)
+                    }
+                  >
+                    <option value="">
+                      {!toCostCenterId
+                        ? "Select cost center first"
+                        : custodiansLoading
+                          ? "Loading…"
+                          : custodianOptions.length === 0
+                            ? "No custodians assigned"
+                            : "Select custodian"}
+                    </option>
+                    {custodianOptions.map((u) => (
+                      <option key={u.id} value={String(u.id)}>
+                        {u.full_name}
+                      </option>
+                    ))}
+                  </select>
                 </FormField>
               </div>
             ) : (
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-                <DetailFact
-                  label="Destination Cost Center"
-                  value={
-                    selectedCc
-                      ? `${costCenterLabel(selectedCc)}${selectedCc.code ? ` (${selectedCc.code})` : ""}`
-                      : order.to_cost_center_code
-                        ? `${order.to_cost_center_code}${
-                            order.to_cost_center_description
-                              ? ` — ${order.to_cost_center_description}`
-                              : ""
-                          }`
-                        : "—"
-                  }
-                />
-                <DetailFact
-                  label="Asset Custodian"
-                  value={selectedCustodian?.full_name ?? order.to_asset_custodian_name ?? "—"}
-                />
-                {showLocations ? (
-                  receiveEditable ? (
-                    <div className="col-span-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <FormField id="loc1" labelText="Actual Location 1" required>
-                        <select
-                          id="loc1"
-                          className={adminSelectClass}
-                          value={toFunctionalLocation}
-                          onChange={(e) => {
-                            setToFunctionalLocation(e.target.value)
-                            setToActualLocation("")
-                          }}
-                        >
-                          <option value="">Select location</option>
-                          {masters.functionalLocations.map((l) => (
-                            <option key={l.id} value={l.code}>
-                              {functionalLocationLabel(l)}
-                            </option>
-                          ))}
-                        </select>
-                      </FormField>
-                      <FormField id="loc2" labelText="Actual Location 2" required>
-                        <select
-                          id="loc2"
-                          className={adminSelectClass}
-                          value={toActualLocation}
-                          onChange={(e) => setToActualLocation(e.target.value)}
-                          disabled={!toFunctionalLocation}
-                        >
-                          <option value="">
-                            {toFunctionalLocation
-                              ? "Select location"
-                              : "Select Actual Location 1 first"}
-                          </option>
-                          {masters.actualLocations.map((l) => (
-                            <option key={l.id} value={l.code}>
-                              {actualLocationLabel(l)}
-                            </option>
-                          ))}
-                        </select>
-                      </FormField>
-                    </div>
-                  ) : (
+              <div className="space-y-3">
+                <div
+                  className={cn(
+                    "grid grid-cols-2 gap-1.5",
+                    showLocations && !receiveEditable ? "lg:grid-cols-4" : "lg:grid-cols-2",
+                  )}
+                >
+                  <SummaryField
+                    label="Cost Center"
+                    value={
+                      selectedCc
+                        ? formatCostCenterWithCode(selectedCc.code, [selectedCc], selectedCc.name)
+                        : formatCostCenterWithCode(
+                            order.to_cost_center_code,
+                            masters.costCenters,
+                            order.to_cost_center_description,
+                          )
+                    }
+                  />
+                  <SummaryField
+                    label="Custodian"
+                    value={selectedCustodian?.full_name ?? order.to_asset_custodian_name ?? "—"}
+                  />
+                  {showLocations && !receiveEditable ? (
                     <>
-                      <DetailFact
+                      <SummaryField
                         label="Actual Location 1"
                         value={
                           order.to_functional_location_name ??
@@ -948,16 +875,56 @@ export function TransferOrderDetailPage() {
                           "—"
                         }
                       />
-                      <DetailFact
+                      <SummaryField
                         label="Actual Location 2"
                         value={
                           order.to_actual_location_name ?? order.to_actual_location ?? "—"
                         }
                       />
                     </>
-                  )
+                  ) : null}
+                </div>
+                {receiveEditable ? (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <FormField id="loc1" labelText="Actual Location 1" required>
+                      <select
+                        id="loc1"
+                        className={adminSelectClass}
+                        value={toFunctionalLocation}
+                        onChange={(e) => {
+                          setToFunctionalLocation(e.target.value)
+                          setToActualLocation("")
+                        }}
+                      >
+                        <option value="">Select location</option>
+                        {masters.functionalLocations.map((l) => (
+                          <option key={l.id} value={l.code}>
+                            {functionalLocationLabel(l)}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                    <FormField id="loc2" labelText="Actual Location 2" required>
+                      <select
+                        id="loc2"
+                        className={adminSelectClass}
+                        value={toActualLocation}
+                        onChange={(e) => setToActualLocation(e.target.value)}
+                        disabled={!toFunctionalLocation}
+                      >
+                        <option value="">
+                          {toFunctionalLocation ? "Select location" : "Select Actual Location 1 first"}
+                        </option>
+                        {masters.actualLocations.map((l) => (
+                          <option key={l.id} value={l.code}>
+                            {actualLocationLabel(l)}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  </div>
                 ) : null}
-              </dl>
+              </div>
             )}
           </div>
         </AdminPanel>
@@ -1017,12 +984,7 @@ export function TransferOrderDetailPage() {
           </div>
         </AdminPanel>
 
-        <TransferAuditLog
-          events={order.audit}
-          assetCodeById={assetCodeById}
-          fillHeight
-          className="min-h-[14rem]"
-        />
+        <TransferAuditLog events={order.audit} assetCodeById={assetCodeById} fillHeight />
       </div>
 
       <CapexAssigneePickerDialog

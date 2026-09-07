@@ -287,7 +287,7 @@ export function CapexCreatePage() {
               />
             </FormField>
             {canSubmitWithEngineering ? (
-              <FormField id="requires_engineering" labelText="Submit with Engineering">
+              <FormField id="requires_engineering" labelText="Engineering Approval Required">
                 <select
                   id="requires_engineering"
                   className={cn(adminSelectClass, "h-9")}

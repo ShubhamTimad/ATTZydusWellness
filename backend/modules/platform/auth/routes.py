@@ -36,7 +36,12 @@ from modules.platform.auth.schema import (
 )
 from modules.errors import NotFoundError
 from modules.platform.settings.service import SettingsService
-from modules.platform.settings.schema import AuthPolicyPublic, AppVersionPublic, SessionIdleSettingsPublic
+from modules.platform.settings.schema import (
+    AuthPolicyPublic,
+    AppVersionPublic,
+    LoginBackgroundMetaPublic,
+    SessionIdleSettingsPublic,
+)
 from modules.platform.settings.session_idle import (
     get_session_idle_timeout_minutes,
     idle_policy_for_auth_method,
@@ -120,19 +125,41 @@ def public_app_version() -> AppVersionPublic:
     return AppVersionPublic(version=get_app_version())
 
 
-@router.get("/auth/login-background")
-def public_login_background() -> Response:
-    """Custom login background image when configured in Settings; 404 when unset."""
-    from modules.platform.settings.login_background import get_login_background_bytes
+@router.get("/auth/login-background/meta", response_model=LoginBackgroundMetaPublic)
+def public_login_background_meta() -> JSONResponse:
+    """Tiny cache-busting token for the login background. Do not HTTP-cache this."""
+    from modules.platform.settings.login_background import get_login_background_served
 
-    blob = get_login_background_bytes()
-    if blob is None:
+    served = get_login_background_served()
+    if served is None:
+        body = LoginBackgroundMetaPublic(configured=False, content_type=None, version=None)
+    else:
+        _data, content_type, version = served
+        body = LoginBackgroundMetaPublic(configured=True, content_type=content_type, version=version)
+    return JSONResponse(
+        content=body.model_dump(),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/auth/login-background")
+def public_login_background(request: Request, v: str | None = None) -> Response:
+    """Custom login background image when configured in Settings; 404 when unset."""
+    from modules.platform.settings.login_background import get_login_background_served
+
+    served = get_login_background_served()
+    if served is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No login background configured.")
-    data, content_type = blob
+    data, content_type, version = served
+    etag = f'"{version}"'
+    # Versioned URLs are immutable so the browser can keep the file for a year.
+    cache = "public, max-age=31536000, immutable" if v else "public, max-age=60"
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag, "Cache-Control": cache})
     return Response(
         content=data,
         media_type=content_type,
-        headers={"Cache-Control": "public, max-age=300"},
+        headers={"Cache-Control": cache, "ETag": etag},
     )
 
 

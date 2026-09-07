@@ -130,7 +130,11 @@ export function CapexAssigneePickerDialog({
           >
             Cancel
           </Button>
-          <AdminPrimaryButton type="button" disabled={busy || loading} onClick={() => void confirm()}>
+          <AdminPrimaryButton
+            type="button"
+            disabled={busy || loading || !selectedId}
+            onClick={() => void confirm()}
+          >
             {busy ? "Working…" : confirmLabel}
           </AdminPrimaryButton>
         </div>

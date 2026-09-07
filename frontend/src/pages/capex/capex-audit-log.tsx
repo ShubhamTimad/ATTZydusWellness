@@ -36,9 +36,11 @@ function activityForEvent(ev: CapexAuditEvent): React.ReactNode {
 export function CapexAuditLog({
   events,
   loading,
+  fillHeight,
 }: {
   events: CapexAuditEvent[] | null
   loading?: boolean
+  fillHeight?: boolean
 }) {
   const rows = React.useMemo((): AuditTrailRow[] => {
     if (!events) return []
@@ -54,6 +56,7 @@ export function CapexAuditLog({
     <AuditTrailTable
       rows={rows}
       loading={loading}
+      fillHeight={fillHeight}
       emptyDescription="No audit events recorded yet."
       descriptionFallback="Creation, edits, and approval actions for this form."
     />

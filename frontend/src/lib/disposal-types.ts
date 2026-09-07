@@ -18,6 +18,8 @@ export type DisposalOrderListItem = {
   status: string
   requires_engineering: boolean
   assigned_to_name: string | null
+  /** Live workflow role the order is waiting on (pending approval / receive). */
+  pending_role_name?: string | null
   created_by_name: string | null
   created_at: string
   needs_my_action?: boolean
@@ -82,6 +84,8 @@ export type DisposalOrderDetail = {
   created_by_name: string | null
   assigned_to: number | null
   assigned_to_name: string | null
+  receiver_user_id?: number | null
+  receiver_name?: string | null
   assigned_at: string | null
   closed_at: string | null
   created_at: string
@@ -121,7 +125,22 @@ export function disposalTabEmptyMessage(tab: string): string {
   return "No Disposal Orders."
 }
 
-export function disposalStatusLabel(status: string): string {
+/** Compact badge token: Central Finance → CF, Department HOD → HOD. */
+export function compactPendingRoleLabel(roleName: string | null | undefined): string | null {
+  const raw = (roleName || "").trim()
+  if (!raw) return null
+  const filler = new Set(["department", "user", "person", "the", "of", "and"])
+  const tokens = raw.split(/\s+/).filter(Boolean)
+  const kept = tokens.filter((t) => !filler.has(t.toLowerCase()))
+  const parts = kept.length ? kept : tokens
+  if (parts.length === 1) return parts[0]
+  return parts.map((t) => t[0]!.toUpperCase()).join("")
+}
+
+export function disposalStatusLabel(
+  status: string,
+  pendingRoleName?: string | null,
+): string {
   const map: Record<string, string> = {
     draft: "Draft",
     pending_approval: "Pending Approval",
@@ -132,7 +151,10 @@ export function disposalStatusLabel(status: string): string {
     closed: "Closed",
     cancelled: "Archived",
   }
-  return map[status] ?? status.replaceAll("_", " ")
+  const base = map[status] ?? status.replaceAll("_", " ")
+  if (status !== "pending_approval" && status !== "pending_receipt") return base
+  const compact = compactPendingRoleLabel(pendingRoleName)
+  return compact ? `${base} – ${compact}` : base
 }
 
 export function disposalStatusPillTone(

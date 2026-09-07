@@ -364,17 +364,11 @@ const DETAIL_TO_EXPORT_KEY: Record<string, string> = {
 function exportKeysForSection(sec: AssetViewSectionConfig): string[] {
   const keys = sec.keys.map((k) => DETAIL_TO_EXPORT_KEY[k] ?? k)
   if (sec.id === "information") {
-    const rfidAt = keys.indexOf("rfid_code")
-    if (rfidAt >= 0) keys.splice(rfidAt + 1, 0, "tag_color_code")
     const custAt = keys.indexOf("asset_custodian_code")
     if (custAt >= 0) keys.splice(custAt + 1, 0, "capitalization_form_number")
   }
   if (sec.id === "location") {
     return ["plant_code", "plant_name", ...keys]
-  }
-  if (sec.id === "financial") {
-    const gbAt = keys.indexOf("gross_block")
-    if (gbAt >= 0) keys.splice(gbAt + 1, 0, "current_apc_igaap")
   }
   return keys
 }
@@ -396,7 +390,7 @@ export const ASSET_EXPORT_FIELD_LABELS: Record<string, string> = {
   plant_name: "Plant",
   cost_center: "Cost Center",
   life_span: "Useful life",
-  gross_block: "APC-IGAAP / Gross Block",
+  gross_block: "APC-IGAAP",
   current_apc_igaap: "Current APC-IGAAP",
 }
 
@@ -431,5 +425,4 @@ export const ASSET_REGISTER_DEFAULT_FIELDS = [
   "cap_date",
   "life_span",
   "gross_block",
-  "current_apc_igaap",
 ] as const

@@ -8,17 +8,23 @@ from sqlalchemy import String, cast, or_, select
 
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    AssetClassMaster,
+    AssetConditionMaster,
     CostCenterMaster,
     FunctionalLocationMaster,
 )
 from modules.assets.model import (
     AssetCategory,
     AssetFinancialInformation,
+    AssetInformation,
     AssetInventoryInformation,
     AssetLocationInformation,
     AssetMaster,
 )
+from modules.orders.constants import ACTIVE_ORDER_STATUSES
+from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 from modules.platform.org_units.model import OrgUnit
+from modules.platform.users.model import User
 
 # Keep in sync with frontend ASSET_LIST_COLUMNS / backend ASSET_LIST_COLUMN_KEYS.
 DEFAULT_SEARCH_COLUMNS = (
@@ -177,6 +183,86 @@ def asset_global_search_clause(term: str, columns: Iterable[str] | None = None):
         # Status pill uses lifecycle + approval (Draft / Pending / Approved / …).
         clauses.append(AssetMaster.lifecycle_status.ilike(q))
         clauses.append(AssetMaster.approval_status.ilike(q))
+    if "sub_no" in keys:
+        clauses.append(AssetMaster.sub_no.ilike(q))
+    if "asset_type" in keys:
+        clauses.append(AssetMaster.asset_type.ilike(q))
+    if "asset_class" in keys:
+        clauses.append(AssetMaster.asset_class.ilike(q))
+        clauses.append(
+            AssetMaster.asset_class_id.in_(
+                select(AssetClassMaster.id)
+                .where(or_(AssetClassMaster.name.ilike(q), AssetClassMaster.code.ilike(q)))
+                .correlate(None)
+            )
+        )
+    if "asset_condition" in keys:
+        clauses.append(
+            AssetMaster.asset_condition_id.in_(
+                select(AssetConditionMaster.id)
+                .where(
+                    or_(AssetConditionMaster.name.ilike(q), AssetConditionMaster.code.ilike(q))
+                )
+                .correlate(None)
+            )
+        )
+    if "asset_custodian" in keys:
+        clauses.append(
+            AssetMaster.asset_custodian_id.in_(
+                select(User.id)
+                .where(or_(User.full_name.ilike(q), User.username.ilike(q)))
+                .correlate(None)
+            )
+        )
+    fin_parts = []
+    if "party_details" in keys:
+        fin_parts.append(AssetFinancialInformation.party_details.ilike(q))
+    if "life_span" in keys:
+        fin_parts.append(AssetFinancialInformation.life_span.ilike(q))
+    if "gross_block" in keys:
+        fin_parts.append(cast(AssetFinancialInformation.gross_block, String).ilike(q))
+    if "cap_date" in keys:
+        fin_parts.append(cast(AssetFinancialInformation.cap_date, String).ilike(q))
+    if fin_parts:
+        clauses.append(
+            select(1)
+            .select_from(AssetFinancialInformation)
+            .where(
+                AssetFinancialInformation.asset_id == AssetMaster.id,
+                or_(*fin_parts),
+            )
+            .correlate(AssetMaster)
+            .exists()
+        )
+    if "pm_equipment_id" in keys:
+        clauses.append(
+            select(1)
+            .select_from(AssetInformation)
+            .where(
+                AssetInformation.asset_id == AssetMaster.id,
+                AssetInformation.pm_equipment_id.ilike(q),
+            )
+            .correlate(AssetMaster)
+            .exists()
+        )
+    if "physical_order_id" in keys or "physical_order_status" in keys:
+        order_parts = []
+        if "physical_order_id" in keys:
+            order_parts.append(PhysicalOrder.order_number.ilike(q))
+        if "physical_order_status" in keys:
+            order_parts.append(PhysicalOrder.status.ilike(q))
+        clauses.append(
+            select(1)
+            .select_from(PhysicalOrderItem)
+            .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
+            .where(
+                PhysicalOrderItem.asset_id == AssetMaster.id,
+                PhysicalOrder.status.in_(tuple(ACTIVE_ORDER_STATUSES)),
+                or_(*order_parts),
+            )
+            .correlate(AssetMaster)
+            .exists()
+        )
 
     if not clauses:
         return None

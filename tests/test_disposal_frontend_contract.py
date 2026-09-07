@@ -31,6 +31,13 @@ def test_every_backend_status_has_a_ui_label() -> None:
     assert set(STATUS_LABELS) <= labelled
 
 
+def test_pending_approval_label_includes_waiting_role() -> None:
+    src = _ts_source()
+    assert "compactPendingRoleLabel" in src
+    assert "pending_role_name" in src
+    assert "${base} – ${compact}" in src
+
+
 def test_progress_does_not_complete_by_role_name() -> None:
     """Duplicate Central Finance steps must not all light up from one audit role name."""
     src = _ts_source()

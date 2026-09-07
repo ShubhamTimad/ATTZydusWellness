@@ -40,7 +40,10 @@ ACTIVE_STATUSES = frozenset(
     }
 )
 
-# Role names must match seeded org roles. Workflow steps point at role IDs — rename in admin is OK.
+TRANSFER_IN_PROGRESS_MESSAGE = (
+    "A Transfer Order is already in progress for this asset. "
+    "Please complete the existing Transfer Order before creating a new one."
+)
 ROLE_HOD = "Department HOD"
 ROLE_COST_CENTER_USER = "Cost Center User"
 ROLE_CENTRAL_FINANCE = "Central Finance"
@@ -88,7 +91,7 @@ STATUS_LABELS: dict[str, str] = {
     STATUS_ASSIGNED_TO_CF: "Pending Approval",
     STATUS_REJECTED: "Rejected",
     STATUS_IN_REWORK: "Rejected",  # legacy; normalized to rejected
-    STATUS_APPROVED_BY_CF: "Approved — Pending Receive",
+    STATUS_APPROVED_BY_CF: "Pending Receive",
     STATUS_RECEIVED_BY_CC2: "Received",
     STATUS_CONFIRMED_BY_CF: "Confirmed by CF",
     STATUS_CLOSED: "Closed",

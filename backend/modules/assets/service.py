@@ -78,6 +78,7 @@ from modules.assets.import_validation import (
     build_preview_response,
     rows_from_raw_dicts,
 )
+from modules.asset_masters.location_lookup import location_display_name
 from modules.asset_masters.model import (
     ActualLocationMaster,
     AssetClassMaster,
@@ -98,7 +99,12 @@ from modules.assets.model import (
     AssetLocationInformation,
     AssetMaster,
 )
-from modules.orders.constants import ACTION_COMPLETE, ACTIVE_ORDER_STATUSES, ORDER_STATUS_CLOSED
+from modules.orders.constants import (
+    ACTION_COMPLETE,
+    ACTIVE_ORDER_STATUSES,
+    ORDER_STATUS_CANCELLED,
+    ORDER_STATUS_CLOSED,
+)
 from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 from modules.assets.schema import (
     AssetActivePhysicalOrderPublic,
@@ -280,6 +286,16 @@ ASSET_LIST_COLUMN_KEYS = frozenset(
         "cost_center_name",
         "actual_location",
         "last_verification_date",
+        "sub_no",
+        "asset_class",
+        "asset_type",
+        "asset_condition",
+        "asset_custodian",
+        "cap_date",
+        "gross_block",
+        "party_details",
+        "life_span",
+        "pm_equipment_id",
     )
 )
 
@@ -423,6 +439,74 @@ def _asset_list_sort_expression(sort_by: str):
         return (
             select(AssetInventoryInformation.last_verification_date)
             .where(AssetInventoryInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "sub_no":
+        return AssetMaster.sub_no
+    if key == "asset_type":
+        return AssetMaster.asset_type
+
+    if key == "asset_class":
+        return (
+            select(AssetClassMaster.name)
+            .where(AssetClassMaster.id == AssetMaster.asset_class_id)
+            .correlate(AssetMaster)
+            .scalar_subquery()
+        )
+    if key == "asset_condition":
+        return (
+            select(AssetConditionMaster.name)
+            .where(AssetConditionMaster.id == AssetMaster.asset_condition_id)
+            .correlate(AssetMaster)
+            .scalar_subquery()
+        )
+    if key == "asset_custodian":
+        return (
+            select(User.full_name)
+            .where(User.id == AssetMaster.asset_custodian_id)
+            .correlate(AssetMaster)
+            .scalar_subquery()
+        )
+
+    financial_cols = {
+        "cap_date": AssetFinancialInformation.cap_date,
+        "gross_block": AssetFinancialInformation.gross_block,
+        "party_details": AssetFinancialInformation.party_details,
+        "life_span": AssetFinancialInformation.life_span,
+    }
+    if key in financial_cols:
+        return (
+            select(financial_cols[key])
+            .where(AssetFinancialInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "pm_equipment_id":
+        return (
+            select(AssetInformation.pm_equipment_id)
+            .where(AssetInformation.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .limit(1)
+            .scalar_subquery()
+        )
+
+    if key == "physical_order_id":
+        key = "active_physical_order"
+    if key == "physical_order_status":
+        return (
+            select(PhysicalOrder.status)
+            .select_from(PhysicalOrderItem)
+            .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
+            .where(
+                PhysicalOrderItem.asset_id == AssetMaster.id,
+                PhysicalOrder.status.in_(tuple(ACTIVE_ORDER_STATUSES)),
+            )
+            .order_by(PhysicalOrder.created_at.desc())
             .correlate(AssetMaster)
             .limit(1)
             .scalar_subquery()
@@ -1543,6 +1627,41 @@ class AssetMasterService:
             )
         return out
 
+    def _physical_orders_for_assets(
+        self, asset_ids: list[int]
+    ) -> dict[int, list[AssetActivePhysicalOrderPublic]]:
+        """All non-cancelled physical orders per asset, newest first."""
+        if not asset_ids:
+            return {}
+        has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
+        rows = self._db.execute(
+            select(
+                PhysicalOrderItem.asset_id,
+                PhysicalOrder.id,
+                PhysicalOrder.order_number,
+                PhysicalOrder.status,
+                PhysicalOrder.closed_at,
+            )
+            .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
+            .where(
+                PhysicalOrderItem.asset_id.in_(asset_ids),
+                PhysicalOrder.status != ORDER_STATUS_CANCELLED,
+            )
+            .order_by(PhysicalOrder.created_at.desc())
+        ).all()
+        out: dict[int, list[AssetActivePhysicalOrderPublic]] = {}
+        for asset_id, order_id, order_number, order_status, closed_at in rows:
+            out.setdefault(int(asset_id), []).append(
+                AssetActivePhysicalOrderPublic(
+                    order_id=int(order_id),
+                    order_number=str(order_number),
+                    order_status=str(order_status),
+                    closed_at=closed_at,
+                    has_closure_workflow=has_closure_workflow,
+                )
+            )
+        return out
+
     def _active_physical_orders_for_assets(
         self, asset_ids: list[int]
     ) -> dict[int, AssetActivePhysicalOrderPublic]:
@@ -1661,21 +1780,33 @@ class AssetMasterService:
         fl_desc: dict[tuple[int, str], str] = {}
         fl_id_to_key: dict[int, tuple[int, str]] = {}
         if fl_codes:
+            fl_match = [FunctionalLocationMaster.code.in_(fl_codes)]
+            fl_ids = [int(c) for c in fl_codes if c.isdigit()]
+            if fl_ids:
+                fl_match.append(FunctionalLocationMaster.id.in_(fl_ids))
             fl_rows = self._db.scalars(
                 select(FunctionalLocationMaster).where(
                     FunctionalLocationMaster.plant_id.in_(plant_ids),
-                    FunctionalLocationMaster.code.in_(fl_codes),
+                    or_(*fl_match),
                 )
             ).all()
-            fl_desc = {(int(r.plant_id), str(r.code)): str(r.name) for r in fl_rows}
-            fl_id_to_key = {int(r.id): (int(r.plant_id), str(r.code)) for r in fl_rows}
+            for r in fl_rows:
+                pid = int(r.plant_id)
+                label = location_display_name(r.name, r.code, r.description) or str(r.code)
+                fl_desc[(pid, str(r.code))] = label
+                fl_desc[(pid, str(r.id))] = label
+                fl_id_to_key[int(r.id)] = (pid, str(r.code))
 
         al_desc: dict[tuple[int, str, str], str] = {}
         if fl_id_to_key and al_codes:
+            al_match = [ActualLocationMaster.code.in_(al_codes)]
+            al_ids = [int(c) for c in al_codes if c.isdigit()]
+            if al_ids:
+                al_match.append(ActualLocationMaster.id.in_(al_ids))
             al_rows = self._db.scalars(
                 select(ActualLocationMaster).where(
                     ActualLocationMaster.functional_location_id.in_(fl_id_to_key.keys()),
-                    ActualLocationMaster.code.in_(al_codes),
+                    or_(*al_match),
                 )
             ).all()
             for al in al_rows:
@@ -1683,7 +1814,11 @@ class AssetMasterService:
                 if parent is None:
                     continue
                 plant_id, fl_code = parent
-                al_desc[(plant_id, fl_code, str(al.code))] = str(al.name)
+                label = location_display_name(al.name, al.code, al.description) or str(al.code)
+                fl_id_str = str(al.functional_location_id)
+                for fl_key in (fl_code, fl_id_str):
+                    al_desc[(plant_id, fl_key, str(al.code))] = label
+                    al_desc[(plant_id, fl_key, str(al.id))] = label
 
         return cc_desc, fl_desc, al_desc
 
@@ -1860,6 +1995,128 @@ class AssetMasterService:
                     cast(AssetInventoryInformation.last_verification_date, String).like(
                         f"{f['last_verification_date']}%"
                     ),
+                )
+                .correlate(AssetMaster)
+                .exists()
+            )
+        if f.get("sub_no"):
+            base = base.where(AssetMaster.sub_no.ilike(_like("sub_no")))
+        if f.get("asset_type"):
+            base = base.where(AssetMaster.asset_type.ilike(_like("asset_type")))
+        if f.get("asset_class"):
+            try:
+                class_id = int(f["asset_class"])
+            except ValueError:
+                q = _like("asset_class")
+                base = base.where(
+                    or_(
+                        AssetMaster.asset_class.ilike(q),
+                        AssetMaster.asset_class_id.in_(
+                            select(AssetClassMaster.id)
+                            .where(
+                                or_(
+                                    AssetClassMaster.name.ilike(q),
+                                    AssetClassMaster.code.ilike(q),
+                                )
+                            )
+                            .correlate(None)
+                        ),
+                    )
+                )
+            else:
+                base = base.where(AssetMaster.asset_class_id == class_id)
+        if f.get("asset_condition"):
+            try:
+                cond_id = int(f["asset_condition"])
+            except ValueError:
+                q = _like("asset_condition")
+                base = base.where(
+                    AssetMaster.asset_condition_id.in_(
+                        select(AssetConditionMaster.id)
+                        .where(
+                            or_(
+                                AssetConditionMaster.name.ilike(q),
+                                AssetConditionMaster.code.ilike(q),
+                            )
+                        )
+                        .correlate(None)
+                    )
+                )
+            else:
+                base = base.where(AssetMaster.asset_condition_id == cond_id)
+        if f.get("asset_custodian"):
+            q = _like("asset_custodian")
+            base = base.where(
+                AssetMaster.asset_custodian_id.in_(
+                    select(User.id)
+                    .where(or_(User.full_name.ilike(q), User.username.ilike(q)))
+                    .correlate(None)
+                )
+            )
+        if f.get("party_details"):
+            base = base.where(
+                select(1)
+                .select_from(AssetFinancialInformation)
+                .where(
+                    AssetFinancialInformation.asset_id == AssetMaster.id,
+                    AssetFinancialInformation.party_details.ilike(_like("party_details")),
+                )
+                .correlate(AssetMaster)
+                .exists()
+            )
+        if f.get("life_span"):
+            base = base.where(
+                select(1)
+                .select_from(AssetFinancialInformation)
+                .where(
+                    AssetFinancialInformation.asset_id == AssetMaster.id,
+                    AssetFinancialInformation.life_span.ilike(_like("life_span")),
+                )
+                .correlate(AssetMaster)
+                .exists()
+            )
+        if f.get("cap_date"):
+            base = base.where(
+                select(1)
+                .select_from(AssetFinancialInformation)
+                .where(
+                    AssetFinancialInformation.asset_id == AssetMaster.id,
+                    cast(AssetFinancialInformation.cap_date, String).like(f"{f['cap_date']}%"),
+                )
+                .correlate(AssetMaster)
+                .exists()
+            )
+        if f.get("gross_block"):
+            q = _like("gross_block")
+            base = base.where(
+                select(1)
+                .select_from(AssetFinancialInformation)
+                .where(
+                    AssetFinancialInformation.asset_id == AssetMaster.id,
+                    cast(AssetFinancialInformation.gross_block, String).ilike(q),
+                )
+                .correlate(AssetMaster)
+                .exists()
+            )
+        if f.get("pm_equipment_id"):
+            base = base.where(
+                select(1)
+                .select_from(AssetInformation)
+                .where(
+                    AssetInformation.asset_id == AssetMaster.id,
+                    AssetInformation.pm_equipment_id.ilike(_like("pm_equipment_id")),
+                )
+                .correlate(AssetMaster)
+                .exists()
+            )
+        if f.get("physical_order_id"):
+            base = base.where(
+                select(1)
+                .select_from(PhysicalOrderItem)
+                .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
+                .where(
+                    PhysicalOrderItem.asset_id == AssetMaster.id,
+                    PhysicalOrder.order_number.ilike(_like("physical_order_id")),
                 )
                 .correlate(AssetMaster)
                 .exists()
@@ -2143,6 +2400,10 @@ class AssetMasterService:
         total = rfid_list_total if rfid_list_total is not None else self._count_asset_rows(base)
         base = base.options(
             selectinload(AssetMaster.category),
+            selectinload(AssetMaster.asset_class_master),
+            selectinload(AssetMaster.asset_condition),
+            selectinload(AssetMaster.asset_custodian),
+            selectinload(AssetMaster.information),
             selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
             selectinload(AssetMaster.financial),
             selectinload(AssetMaster.inventory),
@@ -2188,6 +2449,7 @@ class AssetMasterService:
             fl_description = fl_desc.get((pid, fl_code)) if pid and fl_code else None
             al_description = al_desc.get((pid, fl_code, al_code)) if pid and fl_code and al_code else None
             cc_description = cc_desc.get((pid, cc_code)) if pid and cc_code else None
+            info = a.information
             items.append(
                 AssetListItem(
                     id=a.id,
@@ -2196,6 +2458,13 @@ class AssetMasterService:
                     combined_asset_number=a.combined_asset_number,
                     rfid_code=a.rfid_code,
                     category_name=a.category.name if a.category else None,
+                    sub_no=a.sub_no,
+                    asset_class=a.asset_class_master.name
+                    if a.asset_class_master
+                    else a.asset_class,
+                    asset_class_name=a.asset_class_master.name if a.asset_class_master else None,
+                    asset_type=a.asset_type,
+                    asset_condition_name=a.asset_condition.name if a.asset_condition else None,
                     plant_id=pid,
                     plant_code=loc.plant.code if loc and loc.plant else None,
                     plant_name=loc.plant.name if loc and loc.plant else None,
@@ -2205,7 +2474,13 @@ class AssetMasterService:
                     actual_location_description=al_description,
                     cost_center=cc_code or None,
                     cost_center_description=cc_description,
+                    cap_date=fin.cap_date if fin else None,
+                    gross_block=fin.gross_block if fin else None,
+                    party_details=fin.party_details if fin else None,
+                    life_span=fin.life_span if fin else None,
+                    pm_equipment_id=info.pm_equipment_id if info else None,
                     asset_custodian_id=int(a.asset_custodian_id) if a.asset_custodian_id else None,
+                    asset_custodian_name=a.asset_custodian.full_name if a.asset_custodian else None,
                     inventory_count=inv.inventory_count if inv else None,
                     physical_count=inv.physical_count if inv else None,
                     last_verification_date=last_verified,
@@ -2308,6 +2583,7 @@ class AssetMasterService:
         base = _apply_asset_list_sort(base, sort_by=sort_by, sort_dir=sort_dir)
 
         rows = list(self._db.scalars(base.limit(max_rows)).unique().all())
+        _cc_desc, fl_desc, al_desc = self._master_label_lookups(rows)
         fmt = file_format.lower()
         generated_by = actor_display_name(self._db, viewer_user_id)
         fy_token = financial_year
@@ -2315,7 +2591,9 @@ class AssetMasterService:
             fy_token = str(fy_start_year)
         title = report_title or ("Asset Register Report" if fmt == "pdf" else "Asset Register Report")
         if fmt == "pdf":
-            content = build_asset_export_pdf(rows, export_fields, generated_by=generated_by)
+            content = build_asset_export_pdf(
+                rows, export_fields, generated_by=generated_by, fl_desc=fl_desc, al_desc=al_desc
+            )
             filename = report_filename(
                 "asset_register",
                 "pdf",
@@ -2323,7 +2601,9 @@ class AssetMasterService:
                 financial_year=fy_token,
             )
             return content, filename, "application/pdf"
-        content = build_asset_export_xlsx(rows, export_fields, generated_by=generated_by)
+        content = build_asset_export_xlsx(
+            rows, export_fields, generated_by=generated_by, fl_desc=fl_desc, al_desc=al_desc
+        )
         filename = report_filename(
             "asset_register",
             "xlsx",
@@ -2472,9 +2752,6 @@ class AssetMasterService:
     def get_asset(
         self, asset_id: int, *, viewer_user_id: int | None = None
     ) -> AssetDetailPublic:
-        from modules.transfers.service import sync_open_transfer_asset_lifecycles
-
-        sync_open_transfer_asset_lifecycles(self._db)
         asset = self._load_asset(asset_id)
         self._assert_asset_in_viewer_scope(asset, viewer_user_id=viewer_user_id)
         return self._to_detail(asset, viewer_user_id=viewer_user_id)
@@ -2487,7 +2764,9 @@ class AssetMasterService:
             view_all=self._can_view_all_assets(viewer_user_id),
         )
         if not asset_in_scope(asset, scope):
-            raise NotFoundError("Asset", int(asset.id))
+            raise PermissionDeniedError(
+                "You can only view assets in your assigned plants and cost centers."
+            )
 
     def _can_view_all_assets(self, user_id: int | None) -> bool:
         if user_id is None:
@@ -2669,7 +2948,16 @@ class AssetMasterService:
             else None
         )
         master_names = self._master_names_for_asset(loc, fin)
-        active_order = self._active_physical_orders_for_assets([int(asset.id)]).get(int(asset.id))
+        physical_orders = self._physical_orders_for_assets([int(asset.id)]).get(int(asset.id), [])
+        active_order = next(
+            (o for o in physical_orders if o.order_status in ACTIVE_ORDER_STATUSES),
+            None,
+        )
+        if active_order is None:
+            active_order = next(
+                (o for o in physical_orders if o.order_status == ORDER_STATUS_CLOSED),
+                None,
+            )
         from modules.capex.model import CapitalizationForm
 
         linked_capex = self._db.scalar(
@@ -2739,6 +3027,7 @@ class AssetMasterService:
             inventory=AssetInventoryPayload.model_validate(inv) if inv else None,
             financial_year_label=period.label if rfid else None,
             active_physical_order=active_order,
+            physical_orders=physical_orders,
             fy_verification_count=fy_count,
             capitalization_form_id=int(linked_capex.id) if linked_capex is not None else None,
             capitalization_form_number=linked_capex.form_number if linked_capex is not None else None,
@@ -3190,10 +3479,29 @@ class AssetMasterService:
             ).all()
         )
         actor_ids = {e.actor_user_id for e in events if e.actor_user_id is not None}
+        custodian_ids: set[int] = set()
+        for ev in events:
+            nv = ev.new_value if isinstance(ev.new_value, dict) else {}
+            changes = nv.get("changes")
+            if not isinstance(changes, dict):
+                continue
+            delta = changes.get("asset_custodian_id")
+            if not isinstance(delta, dict):
+                continue
+            for side in ("from", "to"):
+                raw = delta.get(side)
+                if raw is None or raw == "":
+                    continue
+                try:
+                    custodian_ids.add(int(raw))
+                except (TypeError, ValueError):
+                    pass
+        lookup_ids = actor_ids | custodian_ids
         users_by_id: dict[int, User] = {}
-        if actor_ids:
-            users = list(self._db.scalars(select(User).where(User.id.in_(actor_ids))).all())
+        if lookup_ids:
+            users = list(self._db.scalars(select(User).where(User.id.in_(lookup_ids))).all())
             users_by_id = {int(u.id): u for u in users}
+        user_labels = {uid: actor_display(users_by_id.get(uid), uid) for uid in lookup_ids}
 
         plants = list(self._db.scalars(select(OrgUnit).where(OrgUnit.type == "PLANT")).all())
         plant_labels = {int(p.id): f"{p.code} — {p.name}" for p in plants}
@@ -3216,6 +3524,7 @@ class AssetMasterService:
                         nv["changes"],
                         plant_labels=plant_labels,
                         category_labels=category_labels,
+                        user_labels=user_labels,
                     )
                 ]
             elif ev.action == "reassigned":
@@ -3259,6 +3568,7 @@ class AssetMasterService:
                 source_type=asset.source_type,
                 plant_labels=plant_labels,
                 category_labels=category_labels,
+                user_labels=user_labels,
             )
             out.append(
                 AssetAuditEventPublic(

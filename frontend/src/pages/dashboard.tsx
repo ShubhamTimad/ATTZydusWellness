@@ -173,10 +173,10 @@ export function DashboardPage() {
       {!loading && !loadError && !hasAny ? (
         <Card className="shrink-0 border-dashed">
           <CardHeader className="py-3">
-            <CardTitle className="text-sm">No dashboard sections assigned</CardTitle>
-            <CardDescription className="text-xs">
+            <CardTitle className="text-sm">No dashboard sections have been assigned to your role. Please contact your administrator to request the required access.</CardTitle>
+            {/* <CardDescription className="text-xs">
               Grant section permissions (Orders, Transfers, Disposals, Assets, FY, IT) on the role.
-            </CardDescription>
+            </CardDescription> */}
           </CardHeader>
         </Card>
       ) : null}
@@ -197,7 +197,7 @@ export function DashboardPage() {
               it={it}
             />
           </div>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:[&>:last-child:nth-child(odd)]:col-span-2">
             {fy ? <FinancialYearDashboard key="fy" data={fy} /> : null}
             {orders ? <OrdersDashboard key="orders" data={orders} /> : null}
             {transfers ? (

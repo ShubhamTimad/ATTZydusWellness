@@ -32,7 +32,7 @@ import {
   profitCenterLabel,
   actualLocationLabel,
   functionalLocationLabel,
-  plantLabel,
+  masterDisplayName,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
@@ -841,7 +841,7 @@ export function AssetCreatePage() {
 
           <AdminPanel
             className="flex h-full flex-col"
-            title="LOCATION"
+            title="LOCATION INFORMATION"
             // description="Select plant first to load cost centers and locations"
             headerActions={<MapPin className="size-4 text-primary" aria-hidden />}
             contentClassName="flex flex-1 flex-col px-5 py-5"
@@ -849,7 +849,7 @@ export function AssetCreatePage() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormField
                 id="plant_id"
-                labelText="Plant"
+                labelText={fc.getLabel("plant_id", "Plant Name")}
                 required={fc.isRequired("plant_id")}
               >
                 <select
@@ -870,13 +870,13 @@ export function AssetCreatePage() {
                   <option value="">Select plant</option>
                   {masters.plants.map((p) => (
                     <option key={p.id} value={String(p.id)}>
-                      {plantLabel(p)}
+                      {masterDisplayName(p.name, p.code)}
                     </option>
                   ))}
                 </select>
               </FormField>
               {selectedPlant ? (
-                <FormField labelText="Plant Code">
+                <FormField labelText={fc.getLabel("plant_code", "Plant Code")}>
                   <Input
                     readOnly
                     disabled

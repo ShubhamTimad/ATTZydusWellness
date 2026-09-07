@@ -9,6 +9,7 @@ from core.permissions import get_flat_permission_codes_for_user
 from modules.asset_masters.location_lookup import resolve_plant_location_names
 from modules.asset_masters.model import (
     ActualLocationMaster,
+    CostCenterAssetCustodian,
     CostCenterMaster,
     FunctionalLocationMaster,
 )
@@ -75,7 +76,10 @@ from modules.disposals.schema import (
 from modules.errors import ConflictError, NotFoundError
 from modules.list_sort import apply_sort_dir
 from modules.platform.approvals.assignment_service import get_workflow_for_action
-from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
+from modules.platform.approvals.list_inbox import (
+    pending_approval_request_ids_for_viewer,
+    pending_role_names_for_requests,
+)
 from modules.platform.approvals.model import (
     ApprovalAction,
     ApprovalRequest,
@@ -430,6 +434,7 @@ class DisposalOrderService:
                 selectinload(AssetDisposalOrder.to_cost_center),
                 selectinload(AssetDisposalOrder.creator),
                 selectinload(AssetDisposalOrder.assignee),
+                selectinload(AssetDisposalOrder.receiver),
             )
         )
         if order is None:
@@ -525,6 +530,49 @@ class DisposalOrderService:
         if not bool(cc.is_active):
             raise ConflictError("Scrapyard cost center is inactive.")
         return cc
+
+    def list_cost_center_custodians(self, *, cost_center_id: int) -> DisposalAssigneeListResponse:
+        """Active users designated as asset custodians for a cost center."""
+        cc = self._db.get(CostCenterMaster, int(cost_center_id))
+        if cc is None:
+            raise NotFoundError("Cost center", cost_center_id)
+        users = list(
+            self._db.scalars(
+                select(User)
+                .join(
+                    CostCenterAssetCustodian,
+                    CostCenterAssetCustodian.user_id == User.id,
+                )
+                .where(
+                    CostCenterAssetCustodian.cost_center_id == int(cost_center_id),
+                    User.is_active.is_(True),
+                )
+                .order_by(User.full_name.asc(), User.id.asc())
+            ).all()
+        )
+        return DisposalAssigneeListResponse(
+            role_name=f"Cost center {cc.code} custodians",
+            items=[
+                DisposalAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
+                for u in users
+            ],
+        )
+
+    def _assert_cc_custodian(self, *, cost_center_id: int, user_id: int) -> User:
+        user = self._db.get(User, int(user_id))
+        if user is None or not user.is_active:
+            raise NotFoundError("User", user_id)
+        linked = self._db.scalar(
+            select(CostCenterAssetCustodian.id).where(
+                CostCenterAssetCustodian.cost_center_id == int(cost_center_id),
+                CostCenterAssetCustodian.user_id == int(user_id),
+            )
+        )
+        if linked is None and not user.is_superuser:
+            raise ConflictError(
+                "Selected custodian must be assigned to the scrapyard cost center."
+            )
+        return user
 
     def _require_scrapyard_locations(
         self, *, plant_id: int, functional_location: str, actual_location: str
@@ -626,8 +674,13 @@ class DisposalOrderService:
         role_id: int,
         order: AssetDisposalOrder | None = None,
         step: ApprovalStep | None = None,
+        source_cost_center_id: int | None = None,
+        destination_cost_center_id: int | None = None,
+        fallback_scope: str | None = None,
     ) -> tuple[Role, list[User]]:
         from modules.platform.approvals.org_scope import (
+            ORG_SCOPE_SOURCE,
+            effective_step_org_scope,
             filter_users_by_cost_center,
             resolve_scoped_cost_center_id,
         )
@@ -636,17 +689,25 @@ class DisposalOrderService:
         if role is None:
             raise NotFoundError("Role", role_id)
         users = _users_in_role(self._db, int(role.id))
-        if order is not None and step is not None:
-            cc_id = resolve_scoped_cost_center_id(
-                getattr(step, "org_scope", None),
-                source_cost_center_id=(
-                    int(order.from_cost_center_id) if order.from_cost_center_id else None
-                ),
-                destination_cost_center_id=(
-                    int(order.to_cost_center_id) if order.to_cost_center_id else None
-                ),
-            )
-            users = filter_users_by_cost_center(users, cost_center_id=cc_id)
+        src = source_cost_center_id
+        dst = destination_cost_center_id
+        if order is not None:
+            if src is None and order.from_cost_center_id:
+                src = int(order.from_cost_center_id)
+            if dst is None and order.to_cost_center_id:
+                dst = int(order.to_cost_center_id)
+        default_scope = fallback_scope
+        if default_scope is None and (order is not None or src is not None or dst is not None):
+            default_scope = ORG_SCOPE_SOURCE
+        scope = effective_step_org_scope(step, default=default_scope)
+        if scope is None:
+            return role, users
+        cc_id = resolve_scoped_cost_center_id(
+            scope,
+            source_cost_center_id=src,
+            destination_cost_center_id=dst,
+        )
+        users = filter_users_by_cost_center(users, cost_center_id=cc_id)
         return role, users
 
     def list_assignees(self, *, level: str) -> DisposalAssigneeListResponse:
@@ -667,12 +728,28 @@ class DisposalOrderService:
         )
 
     def list_assignees_by_role_id(
-        self, *, role_id: int, order_id: int | None = None
+        self,
+        *,
+        role_id: int,
+        order_id: int | None = None,
+        source_cost_center_id: int | None = None,
+        destination_cost_center_id: int | None = None,
     ) -> DisposalAssigneeListResponse:
+        from modules.platform.approvals.org_scope import ORG_SCOPE_DESTINATION
+
         order = self._load_order(int(order_id)) if order_id is not None else None
         step = self._picker_step_for_order(order) if order is not None else None
         rid = int(step.approver_role_id) if step is not None else int(role_id)
-        role, users = self._assignee_pool(role_id=rid, order=order, step=step)
+        # Last-step receiver has no next workflow step — pool is scrapyard Cost Center User.
+        fallback = ORG_SCOPE_DESTINATION if step is None and order is not None else None
+        role, users = self._assignee_pool(
+            role_id=rid,
+            order=order,
+            step=step,
+            source_cost_center_id=source_cost_center_id,
+            destination_cost_center_id=destination_cost_center_id,
+            fallback_scope=fallback,
+        )
         return DisposalAssigneeListResponse(
             role_name=str(role.name),
             items=[
@@ -682,7 +759,13 @@ class DisposalOrderService:
         )
 
     def list_assignees_for_action(
-        self, *, action_code: str, order_id: int | None = None
+        self,
+        *,
+        action_code: str,
+        order_id: int | None = None,
+        source_cost_center_id: int | None = None,
+        destination_cost_center_id: int | None = None,
+        asset_ids: list[int] | None = None,
     ) -> DisposalAssigneeListResponse:
         """Users in the first step role of the workflow mapped to this disposal action."""
         order = self._load_order(int(order_id)) if order_id is not None else None
@@ -698,8 +781,17 @@ class DisposalOrderService:
                     "No active disposal approval workflow is configured. Contact an administrator."
                 )
             step = sorted(wf.steps, key=lambda s: int(s.step_order))[0]
+        src = source_cost_center_id
+        if src is None and order is None and asset_ids:
+            assets = self._load_assets(asset_ids)
+            from_cc = self._resolve_from_cost_center(assets)
+            src = int(from_cc.id) if from_cc is not None else None
         role, users = self._assignee_pool(
-            role_id=int(step.approver_role_id), order=order, step=step
+            role_id=int(step.approver_role_id),
+            order=order,
+            step=step,
+            source_cost_center_id=src,
+            destination_cost_center_id=destination_cost_center_id,
         )
         return DisposalAssigneeListResponse(
             role_name=str(role.name),
@@ -727,6 +819,15 @@ class DisposalOrderService:
             )
         if data.submit and to_cc is None:
             raise ConflictError("Select a scrapyard cost center before submitting.")
+        receiver = None
+        if data.receiver_user_id is not None:
+            if to_cc is None:
+                raise ConflictError("Select a scrapyard cost center before choosing a custodian.")
+            receiver = self._assert_cc_custodian(
+                cost_center_id=int(to_cc.id), user_id=int(data.receiver_user_id)
+            )
+        if data.submit and receiver is None:
+            raise ConflictError("Select a custodian for the scrapyard cost center.")
         order = AssetDisposalOrder(
             order_number=self._next_order_number(),
             plant_id=int(plant_id),
@@ -736,6 +837,7 @@ class DisposalOrderService:
             created_by=actor_user_id,
             status=STATUS_DRAFT,
             remarks=_strip_or_none(data.remarks),
+            receiver_user_id=int(receiver.id) if receiver is not None else None,
         )
         self._db.add(order)
         self._db.flush()
@@ -824,6 +926,26 @@ class DisposalOrderService:
                     order.to_cost_center_id = None
             self._replace_items(order, assets)
             self._mark_assets_pending_disposal(added_assets)
+        if "receiver_user_id" in patch:
+            rid = patch["receiver_user_id"]
+            if rid is None or order.to_cost_center_id is None:
+                order.receiver_user_id = None
+            else:
+                self._assert_cc_custodian(
+                    cost_center_id=int(order.to_cost_center_id), user_id=int(rid)
+                )
+                order.receiver_user_id = int(rid)
+        elif order.receiver_user_id is not None:
+            if order.to_cost_center_id is None:
+                order.receiver_user_id = None
+            else:
+                try:
+                    self._assert_cc_custodian(
+                        cost_center_id=int(order.to_cost_center_id),
+                        user_id=int(order.receiver_user_id),
+                    )
+                except (ConflictError, NotFoundError):
+                    order.receiver_user_id = None
         log_disposal_event(
             self._db,
             order_id=int(order.id),
@@ -1037,6 +1159,10 @@ class DisposalOrderService:
         )
         if order.to_cost_center_id is None:
             raise ConflictError("Select a scrapyard cost center before submitting.")
+        if not (order.remarks or "").strip():
+            raise ConflictError("Disposal reason is required.")
+        if order.receiver_user_id is None:
+            raise ConflictError("Select a custodian for the scrapyard cost center.")
         self._require_scrapyard_cost_center(
             plant_id=int(order.plant_id), cost_center_id=int(order.to_cost_center_id)
         )
@@ -1733,6 +1859,15 @@ class DisposalOrderService:
         rows = list(
             self._db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).all()
         )
+        pending_roles = pending_role_names_for_requests(
+            self._db,
+            [
+                int(r.approval_request_id)
+                for r in rows
+                if r.approval_request_id is not None
+                and r.status in {STATUS_PENDING_APPROVAL, STATUS_PENDING_RECEIPT}
+            ],
+        )
         return DisposalOrderListResponse(
             items=[
                 DisposalOrderListItem(
@@ -1744,6 +1879,12 @@ class DisposalOrderService:
                     status=r.status,
                     requires_engineering=bool(r.requires_engineering),
                     assigned_to_name=r.assignee.full_name if r.assignee else None,
+                    pending_role_name=(
+                        pending_roles.get(int(r.approval_request_id))
+                        if r.status in {STATUS_PENDING_APPROVAL, STATUS_PENDING_RECEIPT}
+                        and r.approval_request_id is not None
+                        else None
+                    ),
                     created_by_name=r.creator.full_name if r.creator else None,
                     created_at=r.created_at,
                     needs_my_action=self._row_needs_action(r, viewer_user_id),
@@ -2078,6 +2219,8 @@ class DisposalOrderService:
             created_by_name=order.creator.full_name if order.creator else None,
             assigned_to=int(order.assigned_to) if order.assigned_to else None,
             assigned_to_name=order.assignee.full_name if order.assignee else None,
+            receiver_user_id=int(order.receiver_user_id) if order.receiver_user_id else None,
+            receiver_name=order.receiver.full_name if order.receiver else None,
             assigned_at=order.assigned_at,
             closed_at=order.closed_at,
             created_at=order.created_at,
@@ -2162,6 +2305,7 @@ def apply_disposal_enter_receive(
     actor_user_id: int | None,
     next_assignee_user_id: int,
     step_role_name: str | None = None,
+    next_role_name: str | None = None,
     comment: str | None = None,
 ) -> None:
     """After last approve before a receive step: order awaits Cost Center User receive."""
@@ -2186,6 +2330,7 @@ def apply_disposal_enter_receive(
             "step_role_name": step_role_name,
             "assigned_to": int(next_assignee_user_id),
             "receiver_user_id": int(next_assignee_user_id),
+            "next_role_name": next_role_name,
             "comment": (comment or "").strip() or None,
         },
     )

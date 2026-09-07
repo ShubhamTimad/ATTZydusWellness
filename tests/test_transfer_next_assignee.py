@@ -48,3 +48,27 @@ def test_confirm_to_close_different_role_needs_picker() -> None:
         current_role_id=5,
         next_role_id=7,
     )
+
+
+def test_enter_receive_does_not_also_log_step_approved() -> None:
+    """One approve that opens receive must write one trail row, not step_approved + approved."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "backend/modules/platform/approvals/service.py"
+    ).read_text(encoding="utf-8")
+    transfer_fn = src.split("def _advance_transfer_after_step", 1)[1].split(
+        "def _advance_disposal_after_step", 1
+    )[0]
+    disposal_fn = src.split("def _advance_disposal_after_step", 1)[1].split(
+        "def _last_approve_user_id", 1
+    )[0]
+    for body, step_log in (
+        (transfer_fn, "log_transfer_step_approved"),
+        (disposal_fn, "log_disposal_step_approved"),
+    ):
+        receive_idx = body.rfind('if next_kind == "receive":')
+        step_idx = body.rfind(step_log)
+        assert receive_idx != -1 and step_idx != -1
+        assert receive_idx < step_idx

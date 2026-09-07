@@ -31,6 +31,21 @@ def normalize_org_scope(raw: str | None) -> str | None:
     return s
 
 
+def effective_step_org_scope(step: object | None, *, default: str | None = None) -> str | None:
+    """org_scope on the step, else receive → destination, else ``default``.
+
+    ``default`` is typically ``source`` for disposal/transfer pickers so CC-mapped
+    role users are narrowed even when the workflow step was left as All.
+    """
+    explicit = normalize_org_scope(getattr(step, "org_scope", None) if step is not None else None)
+    if explicit is not None:
+        return explicit
+    kind = str(getattr(step, "step_kind", None) or "approve").strip().lower() if step is not None else ""
+    if kind == "receive":
+        return ORG_SCOPE_DESTINATION
+    return default
+
+
 def resolve_scoped_cost_center_id(
     org_scope: str | None,
     *,
@@ -184,6 +199,16 @@ def check_org_scope() -> None:
         )
         == 99
     )
+    class _Step:
+        def __init__(self, org_scope=None, step_kind="approve"):
+            self.org_scope = org_scope
+            self.step_kind = step_kind
+
+    assert effective_step_org_scope(_Step(org_scope="destination"), default="source") == "destination"
+    assert effective_step_org_scope(_Step(step_kind="receive"), default="source") == "destination"
+    assert effective_step_org_scope(_Step(), default="source") == "source"
+    assert effective_step_org_scope(None, default="source") == "source"
+    assert effective_step_org_scope(_Step(), default=None) is None
 
 
 if __name__ == "__main__":

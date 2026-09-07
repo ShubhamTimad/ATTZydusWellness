@@ -25,7 +25,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
-import type { DisposalOrderDetail } from "@/lib/disposal-types"
+import type { DisposalAssigneeListResponse, DisposalAssigneeOption, DisposalOrderDetail } from "@/lib/disposal-types"
 import type { CostCenterMaster } from "@/lib/masters-types"
 import { hasPermission } from "@/lib/permissions"
 import { plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
@@ -80,12 +80,23 @@ export function DisposalOrderCreatePage() {
   const [requiresEngineering, setRequiresEngineering] = React.useState(false)
   const [remarks, setRemarks] = React.useState("")
   const [toCostCenterId, setToCostCenterId] = React.useState("")
+  const [receiverUserId, setReceiverUserId] = React.useState<number | null>(null)
+  const [custodianOptions, setCustodianOptions] = React.useState<DisposalAssigneeOption[]>([])
+  const [custodiansLoading, setCustodiansLoading] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const [pickerOpen, setPickerOpen] = React.useState(false)
 
   const masters = useAssetMasterLookups(plantId)
   const [scrapyardCostCenters, setScrapyardCostCenters] = React.useState<CostCenterMaster[]>([])
   const selectedIds = React.useMemo(() => new Set(selected.map((a) => a.id)), [selected])
+  const assigneesUrl = React.useMemo(() => {
+    const q = new URLSearchParams({
+      requires_engineering: requiresEngineering ? "true" : "false",
+    })
+    if (toCostCenterId) q.set("to_cost_center_id", toCostCenterId)
+    for (const a of selected) q.append("asset_id", String(a.id))
+    return `/admin/disposal-orders/assignees?${q}`
+  }, [requiresEngineering, toCostCenterId, selected])
   const canSubmitWithEngineering = hasPermission("disposal.submit_with_engineering")
 
   const presetAssetIds = React.useMemo(() => {
@@ -154,6 +165,34 @@ export function DisposalOrderCreatePage() {
   }, [scrapyardCostCenters, toCostCenterId])
 
   React.useEffect(() => {
+    if (!toCostCenterId) {
+      setCustodianOptions([])
+      setReceiverUserId(null)
+      return
+    }
+    let cancelled = false
+    setCustodiansLoading(true)
+    setReceiverUserId(null)
+    void getJson<DisposalAssigneeListResponse>(
+      `/admin/disposal-orders/cost-center-users?cost_center_id=${toCostCenterId}`,
+    )
+      .then((res) => {
+        if (cancelled) return
+        setCustodianOptions(res.items)
+        if (res.items.length === 1) setReceiverUserId(res.items[0]!.id)
+      })
+      .catch(() => {
+        if (!cancelled) setCustodianOptions([])
+      })
+      .finally(() => {
+        if (!cancelled) setCustodiansLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [toCostCenterId])
+
+  React.useEffect(() => {
     if (!showCatalog || plantId == null) {
       setCatalog([])
       setCatalogLoading(false)
@@ -219,8 +258,16 @@ export function DisposalOrderCreatePage() {
       toast.error("Add at least one Asset.")
       return
     }
+    if (!remarks.trim()) {
+      toast.error("Enter the disposal reason.")
+      return
+    }
     if (submit && !toCostCenterId) {
       toast.error("Select a Scrapyard Cost Center.")
+      return
+    }
+    if (submit && receiverUserId == null) {
+      toast.error("Select a custodian for the scrapyard cost center.")
       return
     }
     if (submit && assigneeUserId == null) {
@@ -234,6 +281,7 @@ export function DisposalOrderCreatePage() {
         remarks: remarks.trim() || null,
         requires_engineering: requiresEngineering,
         to_cost_center_id: toCostCenterId ? Number(toCostCenterId) : null,
+        receiver_user_id: receiverUserId,
         assignee_user_id: assigneeUserId ?? null,
         submit,
       })
@@ -272,12 +320,12 @@ export function DisposalOrderCreatePage() {
       >
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
-            title={`1. Select Asset `}
+            title={`Select Asset `}
             // description="Active, approved assets from a single plant. Their current cost center becomes the order's From CC."
             headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
           >
-            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className={cn("mb-4 grid grid-cols-1 gap-3", showCatalog && "sm:grid-cols-2")}>
               <FormField id="plant" labelText="Plant" required>
                 <select
                   id="plant"
@@ -290,6 +338,8 @@ export function DisposalOrderCreatePage() {
                     setAssetSearch("")
                     setBrowseMore(false)
                     setToCostCenterId("")
+                    setReceiverUserId(null)
+                    setCustodianOptions([])
                   }}
                 >
                   <option value="">Select plant</option>
@@ -319,18 +369,7 @@ export function DisposalOrderCreatePage() {
                     />
                   </div>
                 </FormField>
-              ) : (
-                <div className="flex items-end">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-9 w-full shadow-sm sm:w-auto"
-                    onClick={() => setBrowseMore(true)}
-                  >
-                    Select Other Assets
-                  </Button>
-                </div>
-              )}
+              ) : null}
             </div>
 
             <div className="-mx-5 -mb-5 max-h-[28rem] overflow-auto">
@@ -436,7 +475,7 @@ export function DisposalOrderCreatePage() {
           </AdminPanel>
 
           <AdminPanel
-            title="2. Disposal Detail"
+            title="Disposal Detail"
             // description="Pick the scrapyard destination, approval route, and notes for approvers."
             headerActions={<PackageX className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
@@ -448,7 +487,10 @@ export function DisposalOrderCreatePage() {
                   className={adminSelectClass}
                   value={toCostCenterId}
                   disabled={plantId == null}
-                  onChange={(e) => setToCostCenterId(e.target.value)}
+                  onChange={(e) => {
+                    setToCostCenterId(e.target.value)
+                    setReceiverUserId(null)
+                  }}
                 >
                   <option value="">
                     {plantId == null
@@ -457,15 +499,38 @@ export function DisposalOrderCreatePage() {
                         ? "No scrapyard cost centers for this plant"
                         : "Select scrapyard"}
                   </option>
-                  {scrapyardCostCenters.map((cc) => (
-                    <option key={cc.id} value={String(cc.id)}>
-                      {cc.code} — {cc.name}
+                    {scrapyardCostCenters.map((cc) => (
+                      <option key={cc.id} value={String(cc.id)}>
+                        {cc.code} — {cc.name}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+              <FormField id="receiver" labelText="Custodian" required>
+                <select
+                  id="receiver"
+                  className={adminSelectClass}
+                  value={receiverUserId != null ? String(receiverUserId) : ""}
+                  disabled={!toCostCenterId || custodiansLoading || custodianOptions.length === 0}
+                  onChange={(e) =>
+                    setReceiverUserId(e.target.value ? Number(e.target.value) : null)
+                  }
+                >
+                  <option value="">
+                    {!toCostCenterId
+                      ? "Select cost center first"
+                      : custodiansLoading
+                        ? "Loading…"
+                        : custodianOptions.length === 0
+                          ? "No custodians assigned"
+                          : "Select custodian"}
+                  </option>
+                  {custodianOptions.map((u) => (
+                    <option key={u.id} value={String(u.id)}>
+                      {u.full_name}
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {/* Mark cost centers as scrapyard under Asset Masters → Cost centers. */}
-                </p>
               </FormField>
               {canSubmitWithEngineering ? (
                 <label
@@ -478,7 +543,7 @@ export function DisposalOrderCreatePage() {
                 >
                   <div className="min-w-0 flex-1 space-y-1">
                     <span className="block text-sm font-medium text-foreground">
-                      Submit with Engineering Approval
+                    Engineering Approval Required
                     </span>
                     {/* <span className="block text-xs text-muted-foreground">
                       Routes the order Th Engineering.
@@ -489,18 +554,18 @@ export function DisposalOrderCreatePage() {
                     checked={requiresEngineering}
                     onCheckedChange={(v) => setRequiresEngineering(v === true)}
                     className="size-5 border-foreground/35 shadow-sm"
-                    aria-label="Submit with Engineering Approval"
+                    aria-label="Engineering Approval Required"
                   />
                 </label>
               ) : null}
 
-              <FormField id="remarks" labelText="Remark">
+              <FormField id="remarks" labelText="Disposal Reason" required>
                 <textarea
                   id="remarks"
                   className={cn(adminTextareaClass, "min-h-[96px]")}
                   value={remarks}
                   onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Reason for Disposal"
+                  placeholder="Enter the disposal reason"
                   rows={4}
                 />
               </FormField>
@@ -536,7 +601,7 @@ export function DisposalOrderCreatePage() {
       <CapexAssigneePickerDialog
         open={pickerOpen}
         onOpenChange={setPickerOpen}
-        assigneesUrl={`/admin/disposal-orders/assignees?requires_engineering=${requiresEngineering ? "true" : "false"}`}
+        assigneesUrl={assigneesUrl}
         roleLabel="Approver"
         confirmLabel="Submit"
         busy={busy}

@@ -97,6 +97,11 @@ function ActivityCell({
                 {asset.rfid_code ? (
                   <p className="font-mono text-[10px] text-muted-foreground">RFID {asset.rfid_code}</p>
                 ) : null}
+                {asset.remark?.trim() ? (
+                  <p className="break-all whitespace-pre-wrap text-[10px] text-muted-foreground">
+                    Remark: {asset.remark}
+                  </p>
+                ) : null}
               </div>
               <div className="shrink-0 text-right text-muted-foreground">
                 {asset.verified_at ? <div>{formatDt(asset.verified_at)}</div> : null}

@@ -55,7 +55,7 @@ import {
   actualLocationLabel,
   functionalLocationLabel,
   profitCenterLabel,
-  plantLabel,
+  masterDisplayName,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { buildAssetDetailActionItems } from "@/lib/asset-actions"
@@ -149,7 +149,9 @@ function SummaryStrip({ items }: { items: SummaryItem[] }) {
 
 export function AssetDetailPage() {
   const { id } = useParams()
+  const loadSeq = React.useRef(0)
   const [asset, setAsset] = React.useState<AssetDetail | null>(null)
+  const [loadError, setLoadError] = React.useState<{ status: number; message: string } | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [editing, setEditing] = React.useState(false)
   const [editBaseline, setEditBaseline] = React.useState<string | null>(null)
@@ -185,6 +187,7 @@ export function AssetDetailPage() {
 
   const load = React.useCallback(async () => {
     if (!id) return
+    const seq = ++loadSeq.current
     setLoading(true)
     try {
       try {
@@ -194,14 +197,27 @@ export function AssetDetailPage() {
         // ignore
       }
       const a = await getJson<AssetDetail>(`/admin/assets/${id}`)
+      if (seq !== loadSeq.current) return
       setAsset(a)
+      setLoadError(null)
+    } catch (e) {
+      if (seq !== loadSeq.current) return
+      const status = e instanceof ApiError ? e.status : 0
+      const message = e instanceof Error ? e.message : "Failed to load asset"
+      setLoadError({ status, message })
+      throw e
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
   }, [id])
 
   React.useEffect(() => {
-    void load().catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load asset"))
+    setLoading(true)
+    setAsset(null)
+    setLoadError(null)
+    void load().catch(() => {
+      /* page shows loadError */
+    })
   }, [load])
 
   React.useEffect(() => {
@@ -833,22 +849,41 @@ export function AssetDetailPage() {
   }
 
   if (!asset) {
+    const is404 = loadError?.status === 404
+    const is403 = loadError?.status === 403
+    const title = is404
+      ? "Asset Not Found"
+      : is403
+        ? "You don't have access to this asset"
+        : loadError
+          ? "Could not load asset"
+          : "Asset Not Found"
     return (
-
       <>
         <AdminPage fullWidth actions={toolbar}>
           <Alert>
-            <AlertTitle>Asset Not Found</AlertTitle>
-            <AlertDescription>
-              <Link to="/dashboard/assets" className="text-primary underline-offset-2 hover:underline">
-                Return to Assets
-              </Link>
+            <AlertTitle>{title}</AlertTitle>
+            <AlertDescription className="space-y-3">
+              {is403 ? (
+                <p>This asset is outside your assigned plant or cost center.</p>
+              ) : loadError && !is404 ? (
+                <p>{loadError.message}</p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-3">
+                {loadError && !is404 ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => void load().catch(() => {})}>
+                    Retry
+                  </Button>
+                ) : null}
+                <Link to="/dashboard/assets" className="text-primary underline-offset-2 hover:underline">
+                  Return to Assets
+                </Link>
+              </div>
             </AlertDescription>
           </Alert>
         </AdminPage>
 
         <AssetRfidDialog {...rfidDialogProps} />
-
       </>
     )
   }
@@ -1062,7 +1097,7 @@ export function AssetDetailPage() {
                   <option value="">—</option>
                   {masters.plants.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {plantLabel(p)}
+                      {masterDisplayName(p.name, p.code)}
                     </option>
                   ))}
                 </select>

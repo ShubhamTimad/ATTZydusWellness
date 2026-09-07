@@ -19,6 +19,11 @@ export type AssetListItem = {
   tag_color_name?: string | null
   tag_color_hex?: string | null
   category_name: string | null
+  sub_no?: string | null
+  asset_class?: string | null
+  asset_class_name?: string | null
+  asset_type?: string | null
+  asset_condition_name?: string | null
   plant_id: number | null
   plant_code: string | null
   plant_name: string | null
@@ -28,8 +33,14 @@ export type AssetListItem = {
   actual_location_description: string | null
   cost_center: string | null
   cost_center_description: string | null
+  cap_date?: string | null
+  gross_block?: number | string | null
+  party_details?: string | null
+  life_span?: string | null
+  pm_equipment_id?: string | null
   /** User id of the asset custodian; only they may create a transfer for this asset. */
   asset_custodian_id?: number | null
+  asset_custodian_name?: string | null
   inventory_count: number | null
   physical_count: number | null
   last_verification_date: string | null
@@ -311,6 +322,7 @@ export type AssetDetail = {
   financial_year_label?: string | null
   fy_verification_count?: number | null
   active_physical_order?: AssetActivePhysicalOrder | null
+  physical_orders?: AssetActivePhysicalOrder[]
   capitalization_form_id?: number | null
   capitalization_form_number?: string | null
   capitalization_form_asset_name?: string | null

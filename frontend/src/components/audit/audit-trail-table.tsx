@@ -42,8 +42,8 @@ export function WhenCell({ at, muted }: { at: string; muted?: boolean }) {
   )
 }
 
-const cellClass = "px-4 py-2.5 align-top whitespace-normal"
-const headClass = "px-4 py-2.5"
+const cellClass = "px-2.5 py-2.5 align-top whitespace-normal xl:px-4"
+const headClass = "px-2.5 py-2.5 xl:px-4"
 
 export function AuditTrailTable({
   rows,
@@ -74,7 +74,7 @@ export function AuditTrailTable({
       }
       contentClassName={cn("p-0", fillHeight && "flex min-h-0 flex-1 flex-col")}
       className={cn(
-        fillHeight && "flex min-h-0 flex-1 flex-col overflow-hidden",
+        fillHeight && "flex min-h-[24rem] shrink-0 flex-1 flex-col overflow-hidden",
         className,
       )}
     >

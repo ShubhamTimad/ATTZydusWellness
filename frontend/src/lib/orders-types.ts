@@ -107,6 +107,7 @@ export type PhysicalOrderAuditVerifiedAsset = {
   rfid_code: string | null
   verified_at: string | null
   verified_by_name: string | null
+  remark?: string | null
 }
 
 export type PhysicalOrderAudit = {

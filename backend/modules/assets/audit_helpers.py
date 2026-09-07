@@ -141,6 +141,7 @@ def _display_value(
     *,
     plant_labels: dict[int, str] | None = None,
     category_labels: dict[int, str] | None = None,
+    user_labels: dict[int, str] | None = None,
 ) -> str:
     if value is None or value == "":
         return "—"
@@ -154,6 +155,11 @@ def _display_value(
             return category_labels.get(int(value), str(value))
         except (TypeError, ValueError):
             pass
+    if key == "asset_custodian_id" and user_labels is not None:
+        try:
+            return user_labels.get(int(value), str(value))
+        except (TypeError, ValueError):
+            pass
     text = str(value)
     if len(text) > 120:
         return text[:117] + "…"
@@ -165,6 +171,7 @@ def format_changes_detail(
     *,
     plant_labels: dict[int, str] | None = None,
     category_labels: dict[int, str] | None = None,
+    user_labels: dict[int, str] | None = None,
 ) -> list[dict[str, str]]:
     lines: list[dict[str, str]] = []
     for key in sorted(changes.keys(), key=lambda k: AUDIT_FIELD_LABELS.get(k, k)):
@@ -176,10 +183,18 @@ def format_changes_detail(
             {
                 "field_label": label,
                 "from_value": _display_value(
-                    key, delta.get("from"), plant_labels=plant_labels, category_labels=category_labels
+                    key,
+                    delta.get("from"),
+                    plant_labels=plant_labels,
+                    category_labels=category_labels,
+                    user_labels=user_labels,
                 ),
                 "to_value": _display_value(
-                    key, delta.get("to"), plant_labels=plant_labels, category_labels=category_labels
+                    key,
+                    delta.get("to"),
+                    plant_labels=plant_labels,
+                    category_labels=category_labels,
+                    user_labels=user_labels,
                 ),
             }
         )
@@ -393,6 +408,7 @@ def build_audit_summary(
     source_type: str | None = None,
     plant_labels: dict[int, str] | None = None,
     category_labels: dict[int, str] | None = None,
+    user_labels: dict[int, str] | None = None,
 ) -> str:
     nv = new_value or {}
     ov = old_value or {}
@@ -414,6 +430,7 @@ def build_audit_summary(
                 changes,
                 plant_labels=plant_labels,
                 category_labels=category_labels,
+                user_labels=user_labels,
             )
             if detail_lines:
                 body = "\n".join(

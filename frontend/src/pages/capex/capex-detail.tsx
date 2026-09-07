@@ -352,7 +352,7 @@ export function CapexDetailPage() {
                 }
               }}
             >
-              Delete draft
+              Delete Draft
             </Button>
           ) : null}
           {detail.can_archive ? (
@@ -625,7 +625,7 @@ export function CapexDetailPage() {
               />
             </FormField>
             {hasPermission("capitalization.submit_with_engineering") || form.requires_engineering ? (
-              <FormField id="requires_engineering" labelText="Submit with Engineering">
+              <FormField id="requires_engineering" labelText="Engineering Approval Required">
                 <select
                   id="requires_engineering"
                   className={cn(adminSelectClass, "h-9")}
@@ -676,7 +676,7 @@ export function CapexDetailPage() {
           </AdminPanel>
         ) : null}
 
-        <CapexAuditLog events={auditEvents} loading={auditLoading} />
+        <CapexAuditLog events={auditEvents} loading={auditLoading} fillHeight />
       </div>
 
       <CapexAssigneePickerDialog

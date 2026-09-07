@@ -2522,13 +2522,15 @@ class PhysicalOrderService:
             raise ConflictError("Only the order creator can submit.")
         if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
             raise ConflictError("Order cannot be submitted in its current status.")
+        description = (remarks or "").strip()
+        if not description:
+            raise ConflictError("Order description is required.")
         assignee = self._assert_valid_executor(
             int(assigned_to),
             plant_id=int(order.plant_id),
             cost_center_ids=self._cost_center_ids_for_order(order),
         )
-        if remarks is not None:
-            order.remarks = remarks.strip() or None
+        order.remarks = description
         old_assignee = order.assigned_to
         order.assigned_to = int(assigned_to)
         if old_assignee != int(assigned_to):
@@ -2632,13 +2634,24 @@ class PhysicalOrderService:
 
         item.remarks = cleaned
         asset_code = item.asset.asset_code if item.asset else None
+        asset_name = item.asset.asset_name if item.asset else None
         log_order_event(
             self._db,
             order_id=order_id,
             action="item_remark_updated",
             actor_user_id=actor_user_id,
-            old_value={"asset_id": int(asset_id), "asset_code": asset_code, "remarks": previous},
-            new_value={"asset_id": int(asset_id), "asset_code": asset_code, "remarks": cleaned},
+            old_value={
+                "asset_id": int(asset_id),
+                "asset_code": asset_code,
+                "asset_name": asset_name,
+                "remarks": previous,
+            },
+            new_value={
+                "asset_id": int(asset_id),
+                "asset_code": asset_code,
+                "asset_name": asset_name,
+                "remarks": cleaned,
+            },
         )
         self._db.commit()
         return AssetRemarkPublic(

@@ -126,6 +126,7 @@ class LoginBackgroundMetaPublic(BaseModel):
 
     configured: bool = False
     content_type: str | None = None
+    version: str | None = None
 
 
 class DocumentSignatureFlags(BaseModel):

@@ -20,8 +20,18 @@ export type DashboardMetric = {
 }
 
 export function DashboardSummaryBar({ children }: { children: React.ReactNode }) {
+  const count = React.Children.count(children)
   return (
-    <div className="grid shrink-0 grid-cols-2 divide-x divide-border overflow-hidden rounded-xl border border-border bg-card shadow-[var(--app-shadow-surface)] sm:grid-cols-3 xl:grid-cols-5">
+    <div
+      className={cn(
+        "grid shrink-0 divide-x divide-border overflow-hidden rounded-xl border border-border bg-card shadow-[var(--app-shadow-surface)]",
+        count <= 1 && "grid-cols-1",
+        count === 2 && "grid-cols-2",
+        count === 3 && "grid-cols-1 sm:grid-cols-3",
+        count === 4 && "grid-cols-2 xl:grid-cols-4",
+        count >= 5 && "grid-cols-2 sm:grid-cols-3 xl:grid-cols-5",
+      )}
+    >
       {children}
     </div>
   )
@@ -74,7 +84,7 @@ function DashboardGauge({
   const arcs = gaugeArcs(slices)
 
   return (
-    <div className="mt-6 flex flex-col items-center">
+    <div className="mt-6 flex flex-col items-center @3xl:mt-0">
       <div className="relative w-[min(70%,20rem)]">
         <svg
           viewBox={`0 0 ${GAUGE_WIDTH} ${GAUGE_HEIGHT}`}
@@ -142,37 +152,39 @@ export function DashboardInsightCard({
   centerCaption: string
 }) {
   return (
-    <section className="flex flex-col rounded-xl border border-border bg-card px-5 py-5 shadow-[var(--app-shadow-surface)]">
+    <section className="@container flex flex-col rounded-xl border border-border bg-card px-5 py-5 shadow-[var(--app-shadow-surface)]">
       <div className="flex min-w-0 items-center gap-2.5">
         <Icon className={cn("size-5 shrink-0", iconWrap)} aria-hidden />
         <h2 className="truncate text-base font-bold tracking-tight text-foreground">{title}</h2>
         {subtitle ? <span className="truncate text-sm text-foreground">{subtitle}</span> : null}
       </div>
 
-      <div className="mt-5 flex">
-        {metrics.map((metric, index) => (
-          <div
-            key={metric.label}
-            className={cn(
-              "min-w-0 flex-1 text-center",
-              index > 0 && "border-l border-border pl-4",
-              index < metrics.length - 1 && "pr-4",
-            )}
-          >
-            <p
+      <div className="mt-5 flex flex-col @3xl:flex-row @3xl:items-center @3xl:gap-10">
+        <div className="flex @3xl:min-w-0 @3xl:flex-1">
+          {metrics.map((metric, index) => (
+            <div
+              key={metric.label}
               className={cn(
-                "text-[1.65rem] leading-none font-bold tabular-nums tracking-tight",
-                metric.accent ? "text-[#EA4335]" : "text-foreground",
+                "min-w-0 flex-1 text-center",
+                index > 0 && "border-l border-border pl-4",
+                index < metrics.length - 1 && "pr-4",
               )}
             >
-              {metric.value}
-            </p>
-            <p className="mt-1.5 truncate text-xs text-foreground">{metric.label}</p>
-          </div>
-        ))}
-      </div>
+              <p
+                className={cn(
+                  "text-[1.65rem] leading-none font-bold tabular-nums tracking-tight",
+                  metric.accent ? "text-[#EA4335]" : "text-foreground",
+                )}
+              >
+                {metric.value}
+              </p>
+              <p className="mt-1.5 truncate text-xs text-foreground">{metric.label}</p>
+            </div>
+          ))}
+        </div>
 
-      <DashboardGauge slices={slices} centerLabel={centerLabel} centerCaption={centerCaption} />
+        <DashboardGauge slices={slices} centerLabel={centerLabel} centerCaption={centerCaption} />
+      </div>
     </section>
   )
 }

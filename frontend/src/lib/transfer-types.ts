@@ -3,6 +3,7 @@ import type {
   CapexAssigneeListResponse,
   CapexAssigneeOption,
 } from "@/lib/capex-types"
+import { compactPendingRoleLabel } from "@/lib/disposal-types"
 
 /** Transfer approval panel/assignee payloads match CapEx/disposal. */
 export type TransferApprovalPanel = CapexApprovalPanel
@@ -40,6 +41,8 @@ export type TransferOrderListItem = {
   asset_count: number
   status: string
   assigned_to_name: string | null
+  /** Live workflow role the order is waiting on (pending approval / receive). */
+  pending_role_name?: string | null
   created_by_name: string | null
   created_at: string
   can_delete?: boolean
@@ -133,7 +136,7 @@ export const TRANSFER_STATUS_TABS = [
 export const TRANSFER_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "draft", label: "Draft" },
   { value: "pending_approval", label: "Pending Approval" },
-  { value: "approved_by_cf", label: "Approved — Pending Receive" },
+  { value: "approved_by_cf", label: "Pending Receive" },
   { value: "received_by_cc2", label: "Received" },
   { value: "confirmed_by_cf", label: "Confirmed by CF" },
   { value: "closed", label: "Closed" },
@@ -145,20 +148,31 @@ export function transferTabEmptyMessage(tab: string): string {
   if (tab === "needs_action") return "No Pending Action Available"
   return "No Transfer Orders."
 }
-export function transferStatusLabel(status: string): string {
+
+export const TRANSFER_IN_PROGRESS_MESSAGE =
+  "A Transfer Order is already in progress for this asset."
+export function transferStatusLabel(
+  status: string,
+  pendingRoleName?: string | null,
+): string {
   const map: Record<string, string> = {
     draft: "Draft",
     pending_approval: "Pending Approval",
     assigned_to_cf: "Pending Approval",
     rejected: "Rejected",
     in_rework: "Rejected", // legacy; normalized to rejected
-    approved_by_cf: "Approved — Pending Receive",
+    approved_by_cf: "Pending Receive",
     received_by_cc2: "Received",
     confirmed_by_cf: "Confirmed by CF",
     closed: "Closed",
     cancelled: "Cancelled",
   }
-  return map[status] ?? status.replaceAll("_", " ")
+  const base = map[status] ?? status.replaceAll("_", " ")
+  if (status !== "pending_approval" && status !== "assigned_to_cf" && status !== "approved_by_cf") {
+    return base
+  }
+  const compact = compactPendingRoleLabel(pendingRoleName)
+  return compact ? `${base} – ${compact}` : base
 }
 
 export function transferStatusPillTone(
