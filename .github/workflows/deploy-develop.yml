@@ -125,13 +125,52 @@ jobs:
             df -h / || true
 
             PREVIOUS_SHA="$(git rev-parse HEAD)"
+            REPO="${{ github.repository }}"
+            EXPECTED_SHA="${{ github.sha }}"
+            ORIGIN_URL="$(git remote get-url origin)"
+            echo "origin=$ORIGIN_URL"
+            echo "expected repo=$REPO sha=$EXPECTED_SHA"
 
-            git fetch origin
-            git checkout develop
-            git reset --hard origin/develop
+            # Server clone must track THIS GitHub repo. A wrong origin (or a
+            # polluted fetch) previously reset develop onto another project
+            # whose compose file required backend/backend.env.
+            if ! printf '%s' "$ORIGIN_URL" | grep -F -q "$REPO"; then
+              echo "WARNING: origin does not point at $REPO (was $ORIGIN_URL) — fixing"
+              if printf '%s' "$ORIGIN_URL" | grep -q '^git@'; then
+                git remote set-url origin "git@github.com:${REPO}.git"
+              else
+                git remote set-url origin "https://github.com/${REPO}.git"
+              fi
+              echo "origin now $(git remote get-url origin)"
+            fi
+
+            git fetch origin develop
+            if ! git cat-file -t "$EXPECTED_SHA" >/dev/null 2>&1; then
+              git fetch origin "$EXPECTED_SHA"
+            fi
+            if ! git cat-file -t "$EXPECTED_SHA" >/dev/null 2>&1; then
+              echo "FATAL: commit $EXPECTED_SHA is not in origin after fetch"
+              git remote -v
+              git log -1 --oneline origin/develop || true
+              exit 1
+            fi
+
+            git checkout -B develop "$EXPECTED_SHA"
             NEW_SHA="$(git rev-parse HEAD)"
+            if [ "$NEW_SHA" != "$EXPECTED_SHA" ]; then
+              echo "FATAL: HEAD $NEW_SHA != workflow sha $EXPECTED_SHA"
+              exit 1
+            fi
 
             echo "Deploying $NEW_SHA (previous was $PREVIOUS_SHA)"
+            if [ ! -f .env.docker ]; then
+              echo "FATAL: .env.docker missing in $(pwd)"
+              exit 1
+            fi
+            if grep -qE 'backend/backend\.env' docker-compose.yml docker-compose*.yml 2>/dev/null; then
+              echo "FATAL: compose still references backend/backend.env — wrong checkout"
+              exit 1
+            fi
 
             # Built-in edge proxy only when ENABLE_EDGE_PROXY=true (default false —
             # host :80/:443 owned by another reverse proxy → 127.0.0.1:8083).
@@ -200,6 +239,10 @@ jobs:
                 echo "No previous distinct commit to revert to"
                 exit 1
               fi
+              if ! git cat-file -t "$PREVIOUS_SHA" >/dev/null 2>&1; then
+                echo "Previous SHA $PREVIOUS_SHA is not in this repo — not reverting onto a foreign commit"
+                exit 1
+              fi
 
               git checkout "$PREVIOUS_SHA"
               COMPOSE_HTTPS=""
@@ -219,8 +262,7 @@ jobs:
             fi
 
             echo "Deploy OK: $NEW_SHA"
-            git checkout develop
-            git reset --hard origin/develop
+            git checkout -B develop "$EXPECTED_SHA"
 
   notify-teams-success:
     name: Notify Teams on success
