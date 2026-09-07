@@ -86,6 +86,8 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
   const lines: string[] = []
   const action = ev.action.trim().toLowerCase()
 
+  if (action === "created") return lines
+
   if (
     action === "step_approved" ||
     action === "approved" ||
@@ -153,7 +155,7 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
     return lines
   }
 
-  // created / updated / archived — field-level changes, skip empties
+  // updated / archived — field-level changes, skip empties
   const oldV = ev.old_value ?? {}
   const newV = ev.new_value ?? {}
   const skip = new Set([

@@ -68,9 +68,7 @@ export function AuditTrailTable({
     <AdminPanel
       title="Audit Trail"
       description={
-        rows.length > 0
-          ? `${rows.length} ${rows.length === 1 ? "Entry" : "Entries"}`
-          : (descriptionFallback ?? emptyDescription)
+        rows.length > 0 ? undefined : (descriptionFallback ?? emptyDescription)
       }
       contentClassName={cn("p-0", fillHeight && "flex min-h-0 flex-1 flex-col")}
       className={cn(
