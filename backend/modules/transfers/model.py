@@ -78,9 +78,15 @@ class AssetTransferOrderItem(Base):
     from_asset_custodian_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    to_asset_custodian_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    to_functional_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    to_actual_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     order = relationship("AssetTransferOrder", back_populates="items")
     asset = relationship("AssetMaster")
+    to_asset_custodian = relationship("User", foreign_keys=[to_asset_custodian_id])
 
 
 class AssetTransferOrderAudit(Base):

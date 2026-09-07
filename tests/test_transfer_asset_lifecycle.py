@@ -10,8 +10,18 @@ import pytest
 from modules.assets.lifecycle import LIFECYCLE_PENDING_TRANSFER
 from modules.errors import ConflictError
 from modules.transfers.constants import STATUS_CANCELLED, STATUS_CLOSED, STATUS_CONFIRMED_BY_CF, STATUS_DRAFT
-from modules.transfers.schema import CreateTransferOrderRequest, UpdateTransferOrderRequest
-from modules.transfers.service import TransferOrderService, apply_transfer_close
+from modules.transfers.schema import (
+    CreateTransferOrderRequest,
+    SaveReceiveLocationsRequest,
+    UpdateTransferOrderRequest,
+)
+from modules.transfers.service import (
+    TransferOrderService,
+    _apply_receive_assets,
+    _changed_item_locations,
+    _item_location_snapshot,
+    apply_transfer_close,
+)
 
 
 def _asset(asset_id: int = 1):
@@ -207,3 +217,103 @@ def test_backfill_migration_covers_all_open_transfer_statuses() -> None:
     ).read_text(encoding="utf-8")
     for status in ACTIVE_STATUSES:
         assert f'"{status}"' in src
+
+
+def test_apply_receive_sets_per_item_locations_and_custodians() -> None:
+    a1 = _asset(1)
+    a2 = _asset(2)
+    items = [
+        SimpleNamespace(
+            asset_id=1,
+            asset=a1,
+            to_asset_custodian_id=8,
+            to_functional_location=None,
+            to_actual_location=None,
+        ),
+        SimpleNamespace(
+            asset_id=2,
+            asset=a2,
+            to_asset_custodian_id=9,
+            to_functional_location=None,
+            to_actual_location=None,
+        ),
+    ]
+    order = SimpleNamespace(
+        items=items,
+        to_cost_center_id=7,
+        to_asset_custodian_id=8,
+        to_functional_location=None,
+        to_actual_location=None,
+    )
+    db = MagicMock()
+    db.get.return_value = SimpleNamespace(code="CC-200")
+    _apply_receive_assets(
+        db,
+        order,
+        functional_location="",
+        actual_location="",
+        item_locations=[
+            {"asset_id": 1, "to_functional_location": "FL-A", "to_actual_location": "AL-A"},
+            {"asset_id": 2, "to_functional_location": "FL-B", "to_actual_location": "AL-B"},
+        ],
+    )
+    assert a1.location.functional_location == "FL-A"
+    assert a1.location.actual_location == "AL-A"
+    assert a1.asset_custodian_id == 8
+    assert a1.financial.cost_center == "CC-200"
+    assert a2.location.functional_location == "FL-B"
+    assert a2.location.actual_location == "AL-B"
+    assert a2.asset_custodian_id == 9
+    assert items[0].to_functional_location == "FL-A"
+    assert items[1].to_actual_location == "AL-B"
+
+
+def test_receive_audit_skips_locations_saved_earlier() -> None:
+    a1, a2 = _asset(1), _asset(2)
+    order = _order("approved_by_cf", assets=[a1, a2])
+    for item in order.items:
+        item.to_asset_custodian_id = 8
+        item.to_functional_location = "FL-A"
+        item.to_actual_location = "AL-A"
+    before = _item_location_snapshot(order)
+    # Only the second asset gets its locations during receive; the first was saved earlier.
+    order.items[1].to_actual_location = "AL-B"
+    rows = _changed_item_locations(order, before)
+    assert [r["asset_code"] for r in rows] == ["A-2"]
+    assert _changed_item_locations(order, _item_location_snapshot(order)) == []
+
+
+def test_save_receive_locations_keeps_partial_rows_and_logs_pending() -> None:
+    a1, a2 = _asset(1), _asset(2)
+    order = _order("approved_by_cf", assets=[a1, a2])
+    for item in order.items:
+        item.to_functional_location = None
+        item.to_actual_location = None
+        item.to_asset_custodian_id = 8
+    svc = TransferOrderService(MagicMock())
+    with patch.object(svc, "_load_order", return_value=order):
+        with patch.object(svc, "_assert_actor_may_receive"):
+            with patch.object(svc, "get_order", return_value="detail"):
+                with patch("modules.transfers.service._log") as log:
+                    svc.save_receive_locations(
+                        1,
+                        SaveReceiveLocationsRequest(
+                            item_locations=[
+                                {"asset_id": 1, "to_functional_location": "FL-A", "to_actual_location": "AL-A"},
+                                {"asset_id": 2, "to_functional_location": "FL-B"},
+                            ]
+                        ),
+                        actor_user_id=8,
+                    )
+    # Asset 2 keeps its half-filled row instead of being rejected for the missing location.
+    assert (order.items[0].to_functional_location, order.items[0].to_actual_location) == ("FL-A", "AL-A")
+    assert (order.items[1].to_functional_location, order.items[1].to_actual_location) == ("FL-B", None)
+    logged = log.call_args.kwargs
+    assert logged["action"] == "receive_locations_saved"
+    assert logged["new_value"]["item_locations"][1] == {
+        "asset_code": "A-2",
+        "to_functional_location": "FL-B",
+        "to_actual_location": None,
+    }
+    # Assets are only relocated on receive, not on a partial save.
+    assert a1.location.functional_location == "OLD-FL"

@@ -102,6 +102,12 @@ class ApprovalTaskPublic(BaseModel):
     acted_at: datetime | None
 
 
+class TransferReceiveItemLocation(BaseModel):
+    asset_id: int
+    to_functional_location: str = Field(min_length=1, max_length=255)
+    to_actual_location: str = Field(min_length=1, max_length=255)
+
+
 class ApprovalTaskActionRequest(BaseModel):
     action: ApprovalActionType
     comment: str | None = Field(default=None, max_length=10_000)
@@ -110,6 +116,8 @@ class ApprovalTaskActionRequest(BaseModel):
     # Transfer / disposal receive step: destination locations applied to assets on approve.
     to_functional_location: str | None = Field(default=None, max_length=255)
     to_actual_location: str | None = Field(default=None, max_length=255)
+    # Transfer receive: per-asset Location 1 / 2 (overrides order-level pair when set).
+    item_locations: list[TransferReceiveItemLocation] | None = None
     # Disposal receive step: scrapyard / destination cost center.
     to_cost_center_id: int | None = Field(default=None, ge=1)
 

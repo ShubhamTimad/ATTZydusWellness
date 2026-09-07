@@ -179,15 +179,15 @@ export function tagColorLabel(c: TagColorMaster) {
 }
 
 export function assetCustodianLabel(c: AssetCustodianUser) {
-  return `${c.full_name} (${c.username})`
+  return c.full_name?.trim() || c.username
 }
 
 export function assetConditionLabel(c: AssetConditionMaster) {
-  return `${c.code} — ${c.name}`
+  return c.name?.trim() || c.code
 }
 
 export function assetClassLabel(c: AssetClassMaster) {
-  return `${c.code} — ${c.name}`
+  return c.name?.trim() || c.code
 }
 
 export function plantLabel(p: PlantOption) {
@@ -195,7 +195,7 @@ export function plantLabel(p: PlantOption) {
 }
 
 export function categoryLabel(c: CategoryMaster) {
-  return `${c.code} — ${c.name}`
+  return c.name?.trim() || c.code
 }
 
 /** Display label for hierarchy masters — prefer name over stored code. */

@@ -882,8 +882,10 @@ class AssetMasterService:
             if row is None or not row.is_active:
                 raise InvalidTagColorError("Unknown or inactive tag color.")
             asset.tag_color_id = int(tag_color_id)
+            asset.tag_color = row
         else:
             asset.tag_color_id = None
+            asset.tag_color = None
 
     def _set_asset_custodian(self, asset: AssetMaster, asset_custodian_id: int | None) -> None:
         if asset_custodian_id is not None:
@@ -891,8 +893,10 @@ class AssetMasterService:
             if row is None or not row.is_active:
                 raise InvalidAssetMasterLookupError("Unknown or inactive asset custodian.")
             asset.asset_custodian_id = int(asset_custodian_id)
+            asset.asset_custodian = row
         else:
             asset.asset_custodian_id = None
+            asset.asset_custodian = None
 
     def _set_asset_condition(self, asset: AssetMaster, asset_condition_id: int | None) -> None:
         if asset_condition_id is not None:
@@ -900,8 +904,10 @@ class AssetMasterService:
             if row is None or not row.is_active:
                 raise InvalidAssetMasterLookupError("Unknown or inactive asset condition.")
             asset.asset_condition_id = int(asset_condition_id)
+            asset.asset_condition = row
         else:
             asset.asset_condition_id = None
+            asset.asset_condition = None
 
     def _set_asset_class(self, asset: AssetMaster, asset_class_id: int | None) -> None:
         if asset_class_id is not None:
@@ -911,9 +917,11 @@ class AssetMasterService:
             asset.asset_class_id = int(asset_class_id)
             # Keep legacy free-text column in sync for older readers/exports.
             asset.asset_class = (row.name or row.code)[:128]
+            asset.asset_class_master = row
         else:
             asset.asset_class_id = None
             asset.asset_class = None
+            asset.asset_class_master = None
 
     def _resolve_plant_id(self, plant_code: str | None, plant_id: int | None) -> int | None:
         if plant_id is not None:

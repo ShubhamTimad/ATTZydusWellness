@@ -3,7 +3,6 @@ import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
 
-import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
   AdminBackLink,
@@ -19,10 +18,10 @@ import {
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
-import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { formatAppDateTime as formatDt } from "@/lib/dates"
+import type { ActualLocationMaster } from "@/lib/masters-types"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import {
   buildTransferProgress,
@@ -46,30 +45,6 @@ import { CapexProcessFlow } from "@/pages/capex/capex-process-flow"
 import { TransferAuditLog } from "@/pages/transfers/transfer-audit-log"
 
 type PickerMode = "submit" | "cc2_assign" | null
-
-function FormField({
-  id,
-  labelText,
-  required,
-  className,
-  children,
-}: {
-  id?: string
-  labelText: string
-  required?: boolean
-  className?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className={cn("app-form-field", className)}>
-      <Label htmlFor={id} className="app-form-label">
-        {labelText}
-        {required ? <RequiredFieldMark /> : null}
-      </Label>
-      {children}
-    </div>
-  )
-}
 
 function SummaryField({
   label,
@@ -99,21 +74,26 @@ function SummaryField({
       >
         {label}
       </p>
-      <p
+      <div
         className={cn(
-          "mt-0.5 truncate text-sm font-semibold tabular-nums leading-snug",
+          "mt-0.5 min-w-0 text-sm font-semibold tabular-nums leading-snug",
           tone === "warning" && "text-amber-950 dark:text-amber-50",
           tone === "success" && "text-emerald-950 dark:text-emerald-50",
           !tone && "text-foreground",
         )}
       >
         {value}
-      </p>
+      </div>
     </div>
   )
 }
 
 const transferTextPad = "px-[var(--app-card-padding)]"
+const tableSelectClass = cn(
+  adminSelectClass,
+  "min-w-0 focus-visible:ring-inset",
+)
+const tableSelectCellClass = "min-w-0 overflow-hidden whitespace-normal px-4 py-2"
 
 export function TransferOrderDetailPage() {
   const { id } = useParams()
@@ -128,18 +108,15 @@ export function TransferOrderDetailPage() {
   const [decisionOpen, setDecisionOpen] = React.useState(false)
   const [decisionMode, setDecisionMode] = React.useState<"approve" | "reject">("approve")
   const [toCostCenterId, setToCostCenterId] = React.useState("")
-  const [toAssetCustodianId, setToAssetCustodianId] = React.useState<number | null>(null)
+  const [itemCustodians, setItemCustodians] = React.useState<Record<number, number | null>>({})
   const [custodianOptions, setCustodianOptions] = React.useState<TransferAssigneeOption[]>([])
   const [custodiansLoading, setCustodiansLoading] = React.useState(false)
-  const [toFunctionalLocation, setToFunctionalLocation] = React.useState("")
-  const [toActualLocation, setToActualLocation] = React.useState("")
+  const [itemLoc1, setItemLoc1] = React.useState<Record<number, string>>({})
+  const [itemLoc2, setItemLoc2] = React.useState<Record<number, string>>({})
+  const [plantActualLocations, setPlantActualLocations] = React.useState<ActualLocationMaster[]>([])
   const [plantCostCenters, setPlantCostCenters] = React.useState<TransferDestinationCostCenter[]>([])
 
-  const masters = useAssetMasterLookups(
-    order?.plant_id ?? null,
-    null,
-    toFunctionalLocation || null,
-  )
+  const masters = useAssetMasterLookups(order?.plant_id ?? null)
 
   const draftEditable = Boolean(order?.can_edit)
   const panel = order?.approval_panel
@@ -172,7 +149,8 @@ export function TransferOrderDetailPage() {
     receiveEditable ||
     Boolean(
       order &&
-        (order.to_functional_location ||
+        (order.items.some((i) => i.to_functional_location || i.to_actual_location) ||
+          order.to_functional_location ||
           order.to_actual_location ||
           ["received_by_cc2", "confirmed_by_cf", "closed"].includes(order.status)),
     )
@@ -180,9 +158,24 @@ export function TransferOrderDetailPage() {
   const applyOrder = React.useCallback((res: TransferOrderDetail) => {
     setOrder(res)
     setToCostCenterId(String(res.to_cost_center_id))
-    setToAssetCustodianId(res.to_asset_custodian_id)
-    setToFunctionalLocation(res.to_functional_location ?? "")
-    setToActualLocation(res.to_actual_location ?? "")
+    const custodians: Record<number, number | null> = {}
+    for (const item of res.items) {
+      custodians[item.asset_id] =
+        item.to_asset_custodian_id ?? res.to_asset_custodian_id ?? null
+    }
+    setItemCustodians(custodians)
+    // A reload must not discard locations the receiver picked but has not saved yet.
+    const mergeLocations =
+      (pick: (item: TransferOrderDetail["items"][number]) => string | null | undefined, orderLevel: string | null) =>
+      (prev: Record<number, string>) =>
+        Object.fromEntries(
+          res.items.map((item) => [
+            item.asset_id,
+            pick(item) ?? prev[item.asset_id] ?? orderLevel ?? "",
+          ]),
+        )
+    setItemLoc1(mergeLocations((i) => i.to_functional_location, res.to_functional_location))
+    setItemLoc2(mergeLocations((i) => i.to_actual_location, res.to_actual_location))
   }, [])
 
   const load = React.useCallback(async () => {
@@ -233,6 +226,27 @@ export function TransferOrderDetailPage() {
   }, [order?.plant_id])
 
   React.useEffect(() => {
+    const plantId = order?.plant_id
+    if (!receiveEditable || plantId == null) {
+      setPlantActualLocations([])
+      return
+    }
+    let cancelled = false
+    void getJson<ActualLocationMaster[]>(
+      `/admin/asset-masters/actual-locations?plant_id=${plantId}&active_only=false`,
+    )
+      .then((rows) => {
+        if (!cancelled) setPlantActualLocations(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setPlantActualLocations([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [order?.plant_id, receiveEditable])
+
+  React.useEffect(() => {
     if (!toCostCenterId || !draftEditable) {
       setCustodianOptions([])
       return
@@ -245,11 +259,17 @@ export function TransferOrderDetailPage() {
       .then((res) => {
         if (cancelled) return
         setCustodianOptions(res.items)
-        setToAssetCustodianId((prev) => {
-          if (prev != null && res.items.some((u) => u.id === prev)) return prev
-          if (res.items.length === 1) return res.items[0]!.id
-          return prev
-        })
+        if (res.items.length === 1) {
+          const only = res.items[0]!.id
+          setItemCustodians((prev) => {
+            const next = { ...prev }
+            for (const key of Object.keys(next)) {
+              const id = Number(key)
+              if (next[id] == null) next[id] = only
+            }
+            return next
+          })
+        }
       })
       .catch(() => {
         if (!cancelled) setCustodianOptions([])
@@ -275,6 +295,57 @@ export function TransferOrderDetailPage() {
     }
   }
 
+  /** Asset codes still missing Actual Location 1 or 2 — named in the error so the row is obvious. */
+  function assetsMissingLocations(): string[] {
+    return (order?.items ?? [])
+      .filter(
+        (item) =>
+          !(itemLoc1[item.asset_id] ?? "").trim() || !(itemLoc2[item.asset_id] ?? "").trim(),
+      )
+      .map((item) => item.asset_code || String(item.asset_id))
+  }
+
+  function warnMissingLocations(missing: string[]) {
+    toast.error(
+      `Select Actual Location 1 and 2 for ${missing.join(", ")} before receiving.`,
+    )
+  }
+
+  function receiveLocationPayload() {
+    const items = (order?.items ?? []).map((item) => ({
+      asset_id: item.asset_id,
+      to_functional_location: (itemLoc1[item.asset_id] ?? "").trim(),
+      to_actual_location: (itemLoc2[item.asset_id] ?? "").trim(),
+    }))
+    return {
+      item_locations: items,
+      to_functional_location: items[0]?.to_functional_location ?? "",
+      to_actual_location: items[0]?.to_actual_location ?? "",
+    }
+  }
+
+  /** Park the locations picked so far; the rest can be filled in on a later visit. */
+  async function saveReceiveLocations() {
+    if (!order) return
+    const pending = order.items.filter(
+      (item) =>
+        !(itemLoc1[item.asset_id] ?? "").trim() || !(itemLoc2[item.asset_id] ?? "").trim(),
+    ).length
+    await run(
+      () =>
+        postJson<TransferOrderDetail>(`/admin/transfer-orders/${order.id}/receive-locations`, {
+          item_locations: order.items.map((item) => ({
+            asset_id: item.asset_id,
+            to_functional_location: (itemLoc1[item.asset_id] ?? "").trim() || null,
+            to_actual_location: (itemLoc2[item.asset_id] ?? "").trim() || null,
+          })),
+        }),
+      pending === 0
+        ? "Locations saved. You can receive this transfer now."
+        : `Locations saved. ${pending} asset${pending === 1 ? "" : "s"} still need Actual Location 1 and 2.`,
+    )
+  }
+
   async function confirmDecision(payload: {
     comment: string | null
     nextAssignedUserId: number | null
@@ -290,12 +361,7 @@ export function TransferOrderDetailPage() {
         ...(decisionMode === "approve" && payload.nextAssignedUserId != null
           ? { next_assigned_user_id: payload.nextAssignedUserId }
           : {}),
-        ...(decisionMode === "approve" && kind === "receive"
-          ? {
-              to_functional_location: toFunctionalLocation.trim(),
-              to_actual_location: toActualLocation.trim(),
-            }
-          : {}),
+        ...(decisionMode === "approve" && kind === "receive" ? receiveLocationPayload() : {}),
       })
       setDecisionOpen(false)
       const ok =
@@ -322,8 +388,9 @@ export function TransferOrderDetailPage() {
   async function confirmReceiveViaEngine(nextUserId: number) {
     const taskId = myTaskId
     if (!taskId) return
-    if (!toFunctionalLocation.trim() || !toActualLocation.trim()) {
-      toast.error("Select Actual Location 1 and 2 before receiving.")
+    const missing = assetsMissingLocations()
+    if (missing.length) {
+      warnMissingLocations(missing)
       return
     }
     setBusy(true)
@@ -331,8 +398,7 @@ export function TransferOrderDetailPage() {
       await postJson(`/approvals/tasks/${taskId}/action`, {
         action: "approve",
         next_assigned_user_id: nextUserId,
-        to_functional_location: toFunctionalLocation.trim(),
-        to_actual_location: toActualLocation.trim(),
+        ...receiveLocationPayload(),
       })
       toast.success("Assets received. Assigned for confirmation.")
       setPickerMode(null)
@@ -377,7 +443,9 @@ export function TransferOrderDetailPage() {
     const selected = plantCostCenters.find((cc) => String(cc.id) === toCostCenterId)
     if (selected && sourceCostCenterCodes.has(selected.code)) {
       setToCostCenterId("")
-      setToAssetCustodianId(null)
+      setItemCustodians(
+        Object.fromEntries((order?.items ?? []).map((item) => [item.asset_id, null])),
+      )
     }
   }, [draftEditable, toCostCenterId, sourceCostCenterCodes, plantCostCenters])
 
@@ -392,15 +460,20 @@ export function TransferOrderDetailPage() {
       toast.error("Destination cost center must be different from the assets' current cost center.")
       return
     }
-    if (toAssetCustodianId == null) {
-      toast.error("Select the destination asset custodian.")
+    if (order.items.some((item) => itemCustodians[item.asset_id] == null)) {
+      toast.error("Select a destination asset custodian for every asset.")
       return
     }
+    const firstCustodian = itemCustodians[order.items[0]!.asset_id]
     await run(
       () =>
         patchJson(`/admin/transfer-orders/${order.id}`, {
           to_cost_center_id: Number(toCostCenterId),
-          to_asset_custodian_id: toAssetCustodianId,
+          to_asset_custodian_id: firstCustodian,
+          item_custodians: order.items.map((item) => ({
+            asset_id: item.asset_id,
+            to_asset_custodian_id: itemCustodians[item.asset_id] as number,
+          })),
           to_functional_location: null,
           to_actual_location: null,
         }),
@@ -502,15 +575,12 @@ export function TransferOrderDetailPage() {
   }
 
   const selectedCc = plantCostCenters.find((cc) => String(cc.id) === toCostCenterId)
-  const selectedCustodian =
-    custodianOptions.find((u) => u.id === toAssetCustodianId) ??
-    (order.to_asset_custodian_id != null && order.to_asset_custodian_name
-      ? {
-          id: order.to_asset_custodian_id,
-          full_name: order.to_asset_custodian_name,
-          email: null,
-        }
-      : null)
+
+  // The server resolves the next workflow step from the order, so the picker still fills
+  // when the panel has not worked out next_assignee_role_id.
+  const nextAssigneesUrl = `/admin/transfer-orders/assignees?for_next=true&order_id=${order.id}${
+    panel?.next_assignee_role_id ? `&role_id=${panel.next_assignee_role_id}` : ""
+  }`
 
   const progress = buildTransferProgress(order)
   const decisionConfirmLabel =
@@ -612,8 +682,8 @@ export function TransferOrderDetailPage() {
               type="button"
               disabled={busy}
               onClick={() => {
-                if (toAssetCustodianId == null) {
-                  toast.error("Select the destination asset custodian before submitting.")
+                if (order.items.some((item) => itemCustodians[item.asset_id] == null)) {
+                  toast.error("Select a destination asset custodian for every asset before submitting.")
                   return
                 }
                 setPickerMode("submit")
@@ -658,13 +728,26 @@ export function TransferOrderDetailPage() {
               </AdminPrimaryButton>
             </>
           ) : null}
+          {receiveEditable ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={() => void saveReceiveLocations()}
+            >
+              {busy ? "Saving…" : "Save"}
+            </Button>
+          ) : null}
           {engineReceive ? (
             <AdminPrimaryButton
               type="button"
               disabled={busy}
               onClick={() => {
-                if (!toFunctionalLocation.trim() || !toActualLocation.trim()) {
-                  toast.error("Select Actual Location 1 and 2 before receiving.")
+                const missing = assetsMissingLocations()
+                if (missing.length) {
+                  warnMissingLocations(missing)
                   return
                 }
                 setPickerMode("cc2_assign")
@@ -702,8 +785,9 @@ export function TransferOrderDetailPage() {
               type="button"
               disabled={busy}
               onClick={() => {
-                if (!toFunctionalLocation.trim() || !toActualLocation.trim()) {
-                  toast.error("Select Actual Location 1 and 2 before receiving.")
+                const missing = assetsMissingLocations()
+                if (missing.length) {
+                  warnMissingLocations(missing)
                   return
                 }
                 setPickerMode("cc2_assign")
@@ -778,154 +862,51 @@ export function TransferOrderDetailPage() {
               <SummaryField label="Assets" value={order.items.length} />
               <SummaryField
                 label="Source"
-                value={order.from_cost_center_code ?? "—"}
+                value={formatCostCenterWithCode(
+                  order.from_cost_center_code,
+                  masters.costCenters,
+                  order.from_cost_center_description,
+                )}
               />
-              <SummaryField label="Destination" value={order.to_cost_center_code ?? "—"} />
+              <SummaryField
+                label="Destination"
+                value={
+                  draftEditable ? (
+                    <select
+                      id="to_cc"
+                      className={adminSelectClass}
+                      value={toCostCenterId}
+                      onChange={(e) => {
+                        setToCostCenterId(e.target.value)
+                        setItemCustodians(
+                          Object.fromEntries(order.items.map((item) => [item.asset_id, null])),
+                        )
+                      }}
+                    >
+                      <option value="">Select cost center</option>
+                      {destinationCostCenters.map((cc) => (
+                        <option key={cc.id} value={String(cc.id)}>
+                          {formatCostCenterWithCode(cc.code, [cc], cc.name)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : selectedCc ? (
+                    formatCostCenterWithCode(selectedCc.code, [selectedCc], selectedCc.name)
+                  ) : (
+                    formatCostCenterWithCode(
+                      order.to_cost_center_code,
+                      masters.costCenters,
+                      order.to_cost_center_description,
+                    )
+                  )
+                }
+              />
               <SummaryField label="Created" value={formatDt(order.created_at)} />
               <SummaryField
                 label="Assigned To"
-                value={order.assigned_to_name || order.to_asset_custodian_name || "—"}
+                value={order.assigned_to_name || "—"}
               />
             </div>
-          </div>
-        </AdminPanel>
-
-        <AdminPanel className="shrink-0 overflow-hidden p-0">
-          <div className={cn("space-y-2 py-3", transferTextPad)}>
-            <h3 className="text-sm font-semibold text-foreground">Transfer destination</h3>
-            {draftEditable ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <FormField id="to_cc" labelText="Cost Center" required>
-                  <select
-                    id="to_cc"
-                    className={adminSelectClass}
-                    value={toCostCenterId}
-                    onChange={(e) => {
-                      setToCostCenterId(e.target.value)
-                      setToAssetCustodianId(null)
-                    }}
-                  >
-                    <option value="">Select cost center</option>
-                    {destinationCostCenters.map((cc) => (
-                      <option key={cc.id} value={String(cc.id)}>
-                        {formatCostCenterWithCode(cc.code, [cc], cc.name)}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-
-                <FormField id="to_custodian" labelText="Asset Custodian" required>
-                  <select
-                    id="to_custodian"
-                    className={adminSelectClass}
-                    value={toAssetCustodianId != null ? String(toAssetCustodianId) : ""}
-                    disabled={!toCostCenterId || custodiansLoading || custodianOptions.length === 0}
-                    onChange={(e) =>
-                      setToAssetCustodianId(e.target.value ? Number(e.target.value) : null)
-                    }
-                  >
-                    <option value="">
-                      {!toCostCenterId
-                        ? "Select cost center first"
-                        : custodiansLoading
-                          ? "Loading…"
-                          : custodianOptions.length === 0
-                            ? "No custodians assigned"
-                            : "Select custodian"}
-                    </option>
-                    {custodianOptions.map((u) => (
-                      <option key={u.id} value={String(u.id)}>
-                        {u.full_name}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div
-                  className={cn(
-                    "grid grid-cols-2 gap-1.5",
-                    showLocations && !receiveEditable ? "lg:grid-cols-4" : "lg:grid-cols-2",
-                  )}
-                >
-                  <SummaryField
-                    label="Cost Center"
-                    value={
-                      selectedCc
-                        ? formatCostCenterWithCode(selectedCc.code, [selectedCc], selectedCc.name)
-                        : formatCostCenterWithCode(
-                            order.to_cost_center_code,
-                            masters.costCenters,
-                            order.to_cost_center_description,
-                          )
-                    }
-                  />
-                  <SummaryField
-                    label="Custodian"
-                    value={selectedCustodian?.full_name ?? order.to_asset_custodian_name ?? "—"}
-                  />
-                  {showLocations && !receiveEditable ? (
-                    <>
-                      <SummaryField
-                        label="Actual Location 1"
-                        value={
-                          order.to_functional_location_name ??
-                          order.to_functional_location ??
-                          "—"
-                        }
-                      />
-                      <SummaryField
-                        label="Actual Location 2"
-                        value={
-                          order.to_actual_location_name ?? order.to_actual_location ?? "—"
-                        }
-                      />
-                    </>
-                  ) : null}
-                </div>
-                {receiveEditable ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <FormField id="loc1" labelText="Actual Location 1" required>
-                      <select
-                        id="loc1"
-                        className={adminSelectClass}
-                        value={toFunctionalLocation}
-                        onChange={(e) => {
-                          setToFunctionalLocation(e.target.value)
-                          setToActualLocation("")
-                        }}
-                      >
-                        <option value="">Select location</option>
-                        {masters.functionalLocations.map((l) => (
-                          <option key={l.id} value={l.code}>
-                            {functionalLocationLabel(l)}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                    <FormField id="loc2" labelText="Actual Location 2" required>
-                      <select
-                        id="loc2"
-                        className={adminSelectClass}
-                        value={toActualLocation}
-                        onChange={(e) => setToActualLocation(e.target.value)}
-                        disabled={!toFunctionalLocation}
-                      >
-                        <option value="">
-                          {toFunctionalLocation ? "Select location" : "Select Actual Location 1 first"}
-                        </option>
-                        {masters.actualLocations.map((l) => (
-                          <option key={l.id} value={l.code}>
-                            {actualLocationLabel(l)}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                  </div>
-                ) : null}
-              </div>
-            )}
           </div>
         </AdminPanel>
 
@@ -944,40 +925,188 @@ export function TransferOrderDetailPage() {
             </p>
           </div>
           <div className="overflow-x-auto">
-            <Table>
+            <Table className="table-fixed">
+              <colgroup>
+                <col className={showLocations ? "w-[14%]" : "w-[22%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[20%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[20%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[20%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[18%]"} />
+                {showLocations ? (
+                  <>
+                    <col className="w-[19%]" />
+                    <col className="w-[19%]" />
+                  </>
+                ) : null}
+              </colgroup>
               <TableHeader>
                 <AdminTableHeaderRow>
                   <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">Asset</AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">From CC</AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">Source CC</AdminTableHeadCell>
                   <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
-                    From Loc 1
+                    From Actual Location 1
                   </AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                    From Actual Location 2
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                    Custodian
+                  </AdminTableHeadCell>
+                  {showLocations ? (
+                    <>
+                      <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                        Actual Location 1
+                      </AdminTableHeadCell>
+                      <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                        Actual Location 2
+                      </AdminTableHeadCell>
+                    </>
+                  ) : null}
                 </AdminTableHeaderRow>
               </TableHeader>
               <TableBody>
                 {order.items.length === 0 ? (
-                  <AdminTableEmptyRow colSpan={3}>No Assets</AdminTableEmptyRow>
+                  <AdminTableEmptyRow
+                    colSpan={5 + (showLocations ? 2 : 0)}
+                  >
+                    No Assets
+                  </AdminTableEmptyRow>
                 ) : (
-                  order.items.map((item) => (
+                  order.items.map((item) => {
+                    const loc1 = itemLoc1[item.asset_id] ?? ""
+                    const loc2 = itemLoc2[item.asset_id] ?? ""
+                    const loc2Options = plantActualLocations.filter(
+                      (l) => l.functional_location_code === loc1,
+                    )
+                    return (
                     <AdminTableBodyRow key={item.id} interactive={false}>
-                      <AdminTableCell className="min-h-0 whitespace-normal px-4 py-2">
+                      <AdminTableCell className="min-h-0 min-w-0 whitespace-normal px-4 py-2">
                         <span className="font-mono text-xs text-foreground">{item.asset_code}</span>
-                        <p className="mt-0.5 text-sm text-foreground">{item.asset_name || "—"}</p>
+                        <p className="mt-0.5 truncate text-sm text-foreground">{item.asset_name || "—"}</p>
                       </AdminTableCell>
-                      <AdminTableCell className="px-4 py-2">
+                      <AdminTableCell className="min-w-0 truncate px-4 py-2">
                         {formatCostCenterWithCode(
                           item.from_cost_center_code,
                           masters.costCenters,
                           order.from_cost_center_description,
                         )}
                       </AdminTableCell>
-                      <AdminTableCell className="px-4 py-2">
+                      <AdminTableCell className="min-w-0 truncate px-4 py-2">
                         {item.from_functional_location_name ??
                           item.from_functional_location ??
                           "—"}
                       </AdminTableCell>
+                      <AdminTableCell className="min-w-0 truncate px-4 py-2">
+                        {item.from_actual_location_name ?? item.from_actual_location ?? "—"}
+                      </AdminTableCell>
+                      <AdminTableCell className={tableSelectCellClass}>
+                        {draftEditable ? (
+                          <select
+                            className={tableSelectClass}
+                            value={
+                              itemCustodians[item.asset_id] != null
+                                ? String(itemCustodians[item.asset_id])
+                                : ""
+                            }
+                            disabled={
+                              !toCostCenterId ||
+                              custodiansLoading ||
+                              custodianOptions.length === 0
+                            }
+                            onChange={(e) => {
+                              const id = e.target.value ? Number(e.target.value) : null
+                              setItemCustodians((prev) => ({
+                                ...prev,
+                                [item.asset_id]: id,
+                              }))
+                            }}
+                            aria-label={`Custodian for ${item.asset_code}`}
+                          >
+                            <option value="">
+                              {!toCostCenterId
+                                ? "Select cost center first"
+                                : custodiansLoading
+                                  ? "Loading…"
+                                  : custodianOptions.length === 0
+                                    ? "No custodians assigned"
+                                    : "Select Custodian"}
+                            </option>
+                            {custodianOptions.map((u) => (
+                              <option key={u.id} value={String(u.id)}>
+                                {u.full_name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          item.to_asset_custodian_name ??
+                            (itemCustodians[item.asset_id] != null
+                              ? (custodianOptions.find((u) => u.id === itemCustodians[item.asset_id])
+                                  ?.full_name ?? "—")
+                              : (order.to_asset_custodian_name ?? "—"))
+                        )}
+                      </AdminTableCell>
+                      {showLocations ? (
+                        receiveEditable ? (
+                          <>
+                            <AdminTableCell className={tableSelectCellClass}>
+                              <select
+                                className={tableSelectClass}
+                                value={loc1}
+                                onChange={(e) => {
+                                  const next = e.target.value
+                                  setItemLoc1((prev) => ({ ...prev, [item.asset_id]: next }))
+                                  setItemLoc2((prev) => ({ ...prev, [item.asset_id]: "" }))
+                                }}
+                                aria-label={`Actual Location 1 for ${item.asset_code}`}
+                              >
+                                <option value="">Select location</option>
+                                {masters.functionalLocations.map((l) => (
+                                  <option key={l.id} value={l.code}>
+                                    {functionalLocationLabel(l)}
+                                  </option>
+                                ))}
+                              </select>
+                            </AdminTableCell>
+                            <AdminTableCell className={tableSelectCellClass}>
+                              <select
+                                className={tableSelectClass}
+                                value={loc2}
+                                disabled={!loc1}
+                                onChange={(e) =>
+                                  setItemLoc2((prev) => ({
+                                    ...prev,
+                                    [item.asset_id]: e.target.value,
+                                  }))
+                                }
+                                aria-label={`Actual Location 2 for ${item.asset_code}`}
+                              >
+                                <option value="">
+                                  {loc1 ? "Select location" : "Select Actual Location 1 first"}
+                                </option>
+                                {loc2Options.map((l) => (
+                                  <option key={l.id} value={l.code}>
+                                    {actualLocationLabel(l)}
+                                  </option>
+                                ))}
+                              </select>
+                            </AdminTableCell>
+                          </>
+                        ) : (
+                          <>
+                            <AdminTableCell className="min-w-0 truncate px-4 py-2">
+                              {item.to_functional_location_name ??
+                                item.to_functional_location ??
+                                "—"}
+                            </AdminTableCell>
+                            <AdminTableCell className="min-w-0 truncate px-4 py-2">
+                              {item.to_actual_location_name ?? item.to_actual_location ?? "—"}
+                            </AdminTableCell>
+                          </>
+                        )
+                      ) : null}
                     </AdminTableBodyRow>
-                  ))
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
@@ -994,9 +1123,7 @@ export function TransferOrderDetailPage() {
         }}
         assigneesUrl={
           pickerMode === "cc2_assign"
-            ? panel?.next_assignee_role_id
-              ? `/admin/transfer-orders/assignees?role_id=${panel.next_assignee_role_id}&order_id=${order.id}`
-              : undefined
+            ? nextAssigneesUrl
             : `/admin/transfer-orders/assignees?for_submit=true&order_id=${order.id}`
         }
         roleLabel={
@@ -1017,15 +1144,19 @@ export function TransferOrderDetailPage() {
             setBusy(true)
             try {
               if (order.can_edit) {
-                if (toAssetCustodianId == null) {
-                  toast.error("Select the destination asset custodian.")
+                if (order.items.some((item) => itemCustodians[item.asset_id] == null)) {
+                  toast.error("Select a destination asset custodian for every asset.")
                   setBusy(false)
                   setPickerMode(null)
                   return
                 }
                 await patchJson(`/admin/transfer-orders/${order.id}`, {
                   to_cost_center_id: toCostCenterId ? Number(toCostCenterId) : undefined,
-                  to_asset_custodian_id: toAssetCustodianId,
+                  to_asset_custodian_id: itemCustodians[order.items[0]!.asset_id],
+                  item_custodians: order.items.map((item) => ({
+                    asset_id: item.asset_id,
+                    to_asset_custodian_id: itemCustodians[item.asset_id] as number,
+                  })),
                   to_functional_location: null,
                   to_actual_location: null,
                 })
@@ -1053,8 +1184,7 @@ export function TransferOrderDetailPage() {
               () =>
                 postJson(`/admin/transfer-orders/${order.id}/cc2/assign`, {
                   assigned_to: userId,
-                  to_functional_location: toFunctionalLocation.trim(),
-                  to_actual_location: toActualLocation.trim(),
+                  ...receiveLocationPayload(),
                 }),
               "Assets received. Cost center, locations, and custodian updated. Assigned to CF for confirmation.",
             )
@@ -1080,11 +1210,7 @@ export function TransferOrderDetailPage() {
         needsNextAssignee={Boolean(panel?.needs_next_assignee) && decisionMode === "approve"}
         nextAssigneeLevel={null}
         nextStepRoleName={panel?.next_step_role_name ?? null}
-        assigneesUrl={
-          panel?.next_assignee_role_id
-            ? `/admin/transfer-orders/assignees?role_id=${panel.next_assignee_role_id}&order_id=${order.id}`
-            : undefined
-        }
+        assigneesUrl={nextAssigneesUrl}
         onConfirm={confirmDecision}
       />
       {confirmDialog}

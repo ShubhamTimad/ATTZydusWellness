@@ -827,6 +827,7 @@ class ApprovalEngineService:
         to_functional_location: str | None = None,
         to_actual_location: str | None = None,
         to_cost_center_id: int | None = None,
+        item_locations: list | None = None,
     ) -> ApprovalRequest:
         task = self.get_task(task_id)
         role_ids = self._role_ids_for_user(actor_user_id)
@@ -1210,6 +1211,7 @@ class ApprovalEngineService:
                 to_functional_location=to_functional_location,
                 to_actual_location=to_actual_location,
                 to_cost_center_id=to_cost_center_id,
+                item_locations=item_locations,
                 kind=kind,
             )
 
@@ -1325,6 +1327,7 @@ class ApprovalEngineService:
         to_functional_location: str | None,
         to_actual_location: str | None,
         to_cost_center_id: int | None,
+        item_locations: list | None,
         kind: str,
     ) -> ApprovalRequest:
         """Transfer workflow: approve/receive/confirm/close all run through the engine."""
@@ -1383,6 +1386,7 @@ class ApprovalEngineService:
                 actor_user_id=actor_user_id,
                 functional_location=to_functional_location,
                 actual_location=to_actual_location,
+                item_locations=item_locations,
                 next_assignee_user_id=int(next_assigned_user_id),
                 step_role_name=step_role_name,
                 comment=comment,

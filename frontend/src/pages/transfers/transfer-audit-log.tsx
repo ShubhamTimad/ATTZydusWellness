@@ -60,6 +60,7 @@ const WORKFLOW_ACTIONS = new Set([
   "cf_rejected",
   "cf_approved",
   "cc2_assigned_to_cf",
+  "receive_locations_saved",
   "cf_confirmed",
   "cf_closed",
   "restart_transfer",
@@ -94,6 +95,8 @@ export function transferAuditHeadline(ev: TransferOrderAudit): string {
       return step ? `Rejected — ${step}` : "Rejected"
     case "cc2_assigned_to_cf":
       return step ? `Received — ${step}` : "Received"
+    case "receive_locations_saved":
+      return "Actual Locations Saved"
     case "cf_confirmed":
       return step ? `Confirmed — ${step}` : "Confirmed by CF"
     case "cf_closed":
@@ -138,13 +141,32 @@ export function transferAuditDetailLines(
       )
     }
 
-    if (action === "cc2_assigned_to_cf") {
+    if (action === "cc2_assigned_to_cf" || action === "receive_locations_saved") {
       const cc = fromNew(ev, "to_cost_center") || fromNew(ev, "cost_center")
       const loc1 = fromNew(ev, "to_functional_location") || fromNew(ev, "functional_location")
       const loc2 = fromNew(ev, "to_actual_location") || fromNew(ev, "actual_location")
+      const itemLocs = ev.new_value?.item_locations
       if (cc) lines.push(`Cost center: ${cc}`)
-      if (loc1) lines.push(`Location 1: ${loc1}`)
-      if (loc2) lines.push(`Location 2: ${loc2}`)
+      // Per-asset rows list only what this action changed; empty means nothing new to report.
+      if (Array.isArray(itemLocs)) {
+        for (const row of itemLocs) {
+          if (!row || typeof row !== "object") continue
+          const rec = row as Record<string, unknown>
+          const code = typeof rec.asset_code === "string" ? rec.asset_code : ""
+          const a1 = typeof rec.to_functional_location === "string" ? rec.to_functional_location : ""
+          const a2 = typeof rec.to_actual_location === "string" ? rec.to_actual_location : ""
+          const bits = [
+            a1 && `Actual Location 1: ${a1}`,
+            a2 && `Actual Location 2: ${a2}`,
+          ].filter(Boolean)
+          if (code) lines.push(code)
+          if (bits.length) lines.push(...bits.map((bit) => `   ${bit}`))
+          else if (code) lines.push("   Locations cleared")
+        }
+      } else {
+        if (loc1) lines.push(`Actual Location 1: ${loc1}`)
+        if (loc2) lines.push(`Actual Location 2: ${loc2}`)
+      }
     }
 
     const statusTo = statusLine(fromNew(ev, "status"))
@@ -176,6 +198,8 @@ export function transferAuditDetailLines(
     "approval_request_id",
     "returned_to",
     "note",
+    "item_locations",
+    "item_custodians",
   ])
   const preferName: [string, string][] = [
     ["assigned_to", "assigned_to_name"],
@@ -207,10 +231,10 @@ export function transferAuditDetailLines(
     step_role_name: "Step",
     to_cost_center: "Destination cost center",
     to_asset_custodian_name: "Asset custodian",
-    to_functional_location: "Location 1",
-    to_actual_location: "Location 2",
-    functional_location: "Location 1",
-    actual_location: "Location 2",
+    to_functional_location: "Actual Location 1",
+    to_actual_location: "Actual Location 2",
+    functional_location: "Actual Location 1",
+    actual_location: "Actual Location 2",
   }
 
   for (const key of [...new Set([...Object.keys(oldV), ...Object.keys(newV)])]) {
@@ -239,9 +263,9 @@ function activityForEvent(
       <p className="text-sm font-medium leading-snug text-foreground">
         {transferAuditHeadline(ev)}
       </p>
-      {details.map((line) => (
+      {details.map((line, i) => (
         <p
-          key={line}
+          key={`${i}-${line}`}
           className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground"
         >
           {line}

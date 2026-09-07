@@ -249,7 +249,6 @@ export function AssetCreatePage() {
   const [form, setForm] = React.useState<CreateForm>(EMPTY_FORM)
   const [creating, setCreating] = React.useState(false)
   const [imageFile, setImageFile] = React.useState<File | null>(null)
-  const [selectedCapex, setSelectedCapex] = React.useState<CapexFormDetail | null>(null)
   const fc = useAssetFieldConfig()
   const canViewCapex = hasPermission("capitalization.view")
 
@@ -274,13 +273,9 @@ export function AssetCreatePage() {
 
   async function onCapexSelect(formId: string) {
     patch({ capitalization_form_id: formId })
-    if (!formId) {
-      setSelectedCapex(null)
-      return
-    }
+    if (!formId) return
     try {
       const d = await getJson<CapexFormDetail>(`/admin/capitalization-forms/${formId}`)
-      setSelectedCapex(d)
       patch({
         capitalization_form_id: formId,
         asset_name: d.asset_name || form.asset_name,
@@ -292,7 +287,6 @@ export function AssetCreatePage() {
       })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to load capitalization form")
-      setSelectedCapex(null)
     }
   }
 
@@ -566,9 +560,6 @@ export function AssetCreatePage() {
                   value={form.capitalization_form_id}
                   onChange={(formId) => void onCapexSelect(formId)}
                 />
-                {selectedCapex?.auc_code ? (
-                  <p className="mt-1 text-xs text-muted-foreground">AUC {selectedCapex.auc_code}</p>
-                ) : null}
               </FormField>
             ) : null}
             {field(

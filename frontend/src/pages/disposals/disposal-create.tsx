@@ -523,7 +523,7 @@ export function DisposalOrderCreatePage() {
                         ? "Loading…"
                         : custodianOptions.length === 0
                           ? "No custodians assigned"
-                          : "Select custodian"}
+                          : "Select Custodian"}
                   </option>
                   {custodianOptions.map((u) => (
                     <option key={u.id} value={String(u.id)}>

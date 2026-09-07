@@ -70,6 +70,7 @@ from modules.transfers.schema import (
     CfApproveTransferRequest,
     CfRejectTransferRequest,
     CreateTransferOrderRequest,
+    SaveReceiveLocationsRequest,
     SubmitTransferOrderRequest,
     TransferApprovalPanel,
     TransferAssigneeListResponse,
@@ -153,11 +154,23 @@ def _actor_may_discard_transfer(order: AssetTransferOrder, *, actor_user_id: int
     return viewer is not None and bool(viewer.is_superuser)
 
 
+def _item_dest_custodian_ids(order: AssetTransferOrder) -> set[int]:
+    ids: set[int] = set()
+    order_cid = getattr(order, "to_asset_custodian_id", None)
+    if order_cid is not None:
+        ids.add(int(order_cid))
+    for item in getattr(order, "items", None) or []:
+        cid = getattr(item, "to_asset_custodian_id", None)
+        if cid is not None:
+            ids.add(int(cid))
+    return ids
+
+
 def _is_destination_actor(order: AssetTransferOrder, viewer_user_id: int | None) -> bool:
     if viewer_user_id is None:
         return False
     uid = int(viewer_user_id)
-    if order.to_asset_custodian_id is not None and int(order.to_asset_custodian_id) == uid:
+    if uid in _item_dest_custodian_ids(order):
         return True
     if order.assigned_to is not None and int(order.assigned_to) == uid:
         return True
@@ -217,9 +230,7 @@ def _list_action_label(
             "close": "Close",
         }.get(kind, "Approve")
     is_assignee = order.assigned_to is not None and int(order.assigned_to) == uid
-    is_custodian = (
-        order.to_asset_custodian_id is not None and int(order.to_asset_custodian_id) == uid
-    )
+    is_custodian = uid in _item_dest_custodian_ids(order)
     if (status == STATUS_APPROVED_BY_CF or bounced_to_receiver) and (
         is_assignee or is_custodian
     ):
@@ -577,12 +588,16 @@ class TransferOrderService:
         )
 
     def list_assignees_by_role_id(
-        self, *, role_id: int, order_id: int | None = None
+        self, *, role_id: int | None = None, order_id: int | None = None
     ) -> TransferAssigneeListResponse:
-        """Users in a workflow step role — keyed by role id so renames do not break the picker."""
+        """Users in a workflow step role — resolved from the order so a stale role id still works."""
         order = self._load_order(int(order_id)) if order_id is not None else None
         step = self._picker_step_for_order(order) if order is not None else None
-        rid = int(step.approver_role_id) if step is not None else int(role_id)
+        rid = int(step.approver_role_id) if step is not None else role_id
+        if rid is None:
+            raise ConflictError(
+                "No approver role is configured for the next step of this transfer workflow."
+            )
         role, users = self._assignee_pool(role_id=rid, order=order, step=step)
         return TransferAssigneeListResponse(
             role_name=str(role.name),
@@ -862,6 +877,8 @@ class TransferOrderService:
             .where(AssetTransferOrder.id == order_id)
             .options(
                 selectinload(AssetTransferOrder.items)
+                .selectinload(AssetTransferOrderItem.to_asset_custodian),
+                selectinload(AssetTransferOrder.items)
                 .selectinload(AssetTransferOrderItem.asset)
                 .selectinload(AssetMaster.location),
                 selectinload(AssetTransferOrder.items)
@@ -895,10 +912,17 @@ class TransferOrderService:
         order.assigned_by = by_user_id
         order.assigned_at = datetime.now(timezone.utc)
 
-    def _replace_items(self, order: AssetTransferOrder, assets: list[AssetMaster]) -> None:
+    def _replace_items(
+        self,
+        order: AssetTransferOrder,
+        assets: list[AssetMaster],
+        dest_custodian_ids: dict[int, int] | None = None,
+    ) -> None:
+        dest_custodian_ids = dest_custodian_ids or {}
         order.items.clear()
         self._db.flush()
         for asset in assets:
+            dest_id = dest_custodian_ids.get(int(asset.id))
             order.items.append(
                 AssetTransferOrderItem(
                     asset_id=int(asset.id),
@@ -908,8 +932,56 @@ class TransferOrderService:
                     from_asset_custodian_id=(
                         int(asset.asset_custodian_id) if asset.asset_custodian_id else None
                     ),
+                    to_asset_custodian_id=int(dest_id) if dest_id else None,
                 )
             )
+
+    def _dest_custodian_ids_for_assets(
+        self,
+        asset_ids: list[int],
+        *,
+        fallback_id: int | None,
+        item_custodians: list | None,
+        cost_center_id: int,
+    ) -> dict[int, int]:
+        mapping: dict[int, int] = {}
+        for row in item_custodians or []:
+            if isinstance(row, dict):
+                mapping[int(row["asset_id"])] = int(row["to_asset_custodian_id"])
+            else:
+                mapping[int(row.asset_id)] = int(row.to_asset_custodian_id)
+        missing = [i for i in asset_ids if i not in mapping]
+        if missing:
+            if fallback_id is None:
+                raise ConflictError("Select a destination asset custodian for every asset.")
+            for i in missing:
+                mapping[i] = int(fallback_id)
+        extra = set(mapping) - set(int(i) for i in asset_ids)
+        if extra:
+            raise ConflictError("Destination custodians include assets not on this transfer.")
+        resolved: dict[int, int] = {}
+        cache: dict[int, int] = {}
+        for aid, uid in mapping.items():
+            if uid not in cache:
+                user = self._resolve_to_asset_custodian(
+                    cost_center_id=int(cost_center_id), user_id=int(uid)
+                )
+                cache[uid] = int(user.id)
+            resolved[aid] = cache[uid]
+        return resolved
+
+    def _apply_item_dest_custodians(
+        self, order: AssetTransferOrder, dest_custodian_ids: dict[int, int]
+    ) -> None:
+        for item in order.items:
+            dest_id = dest_custodian_ids.get(int(item.asset_id))
+            if dest_id is not None:
+                item.to_asset_custodian_id = int(dest_id)
+        first = next(
+            (int(i.to_asset_custodian_id) for i in order.items if i.to_asset_custodian_id is not None),
+            None,
+        )
+        order.to_asset_custodian_id = first
 
     def create_order(
         self, data: CreateTransferOrderRequest, *, actor_user_id: int
@@ -927,16 +999,19 @@ class TransferOrderService:
         if int(to_cc.plant_id) != int(plant_id):
             raise ConflictError("Destination cost center must belong to the same plant as the assets.")
         self._assert_destination_differs(assets, to_cc)
-        to_custodian = self._resolve_to_asset_custodian(
+        to_custodian_ids = self._dest_custodian_ids_for_assets(
+            [int(a.id) for a in assets],
+            fallback_id=data.to_asset_custodian_id,
+            item_custodians=data.item_custodians,
             cost_center_id=int(to_cc.id),
-            user_id=int(data.to_asset_custodian_id),
         )
+        first_dest = next(iter(to_custodian_ids.values()))
         order = AssetTransferOrder(
             order_number=self._next_order_number(),
             plant_id=plant_id,
             from_cost_center_id=int(from_cc.id),
             to_cost_center_id=int(to_cc.id),
-            to_asset_custodian_id=int(to_custodian.id),
+            to_asset_custodian_id=int(first_dest),
             to_functional_location=_strip_or_none(data.to_functional_location),
             to_actual_location=_strip_or_none(data.to_actual_location),
             created_by=actor_user_id,
@@ -945,7 +1020,7 @@ class TransferOrderService:
         )
         self._db.add(order)
         self._db.flush()
-        self._replace_items(order, assets)
+        self._replace_items(order, assets, dest_custodian_ids=to_custodian_ids)
         self._mark_assets_pending_transfer(assets)
         _log(
             self._db,
@@ -996,14 +1071,24 @@ class TransferOrderService:
                 assets_for_check = self._load_assets([int(item.asset_id) for item in order.items])
             self._assert_destination_differs(assets_for_check, to_cc)
             order.to_cost_center_id = int(to_cc.id)
-            if "to_asset_custodian_id" not in patch:
+            if "to_asset_custodian_id" not in patch and "item_custodians" not in patch:
                 order.to_asset_custodian_id = None
-        if "to_asset_custodian_id" in patch and patch["to_asset_custodian_id"] is not None:
-            self._resolve_to_asset_custodian(
+                for item in order.items:
+                    item.to_asset_custodian_id = None
+        dest_map: dict[int, int] | None = None
+        if "item_custodians" in patch or (
+            "to_asset_custodian_id" in patch and patch["to_asset_custodian_id"] is not None
+        ):
+            dest_map = self._dest_custodian_ids_for_assets(
+                [int(item.asset_id) for item in order.items]
+                if "asset_ids" not in patch or patch.get("asset_ids") is None
+                else [int(i) for i in patch["asset_ids"]],
+                fallback_id=patch.get("to_asset_custodian_id", order.to_asset_custodian_id),
+                item_custodians=patch.get("item_custodians"),
                 cost_center_id=int(order.to_cost_center_id),
-                user_id=int(patch["to_asset_custodian_id"]),
             )
-            order.to_asset_custodian_id = int(patch["to_asset_custodian_id"])
+            if "asset_ids" not in patch or patch.get("asset_ids") is None:
+                self._apply_item_dest_custodians(order, dest_map)
         if "to_functional_location" in patch:
             order.to_functional_location = _strip_or_none(patch["to_functional_location"])
         if "to_actual_location" in patch:
@@ -1023,7 +1108,9 @@ class TransferOrderService:
             new_ids = {int(a.id) for a in assets}
             self._restore_assets_active([a for a in previous_assets if int(a.id) not in new_ids])
             order.from_cost_center_id = int(from_cc.id)
-            self._replace_items(order, assets)
+            self._replace_items(order, assets, dest_custodian_ids=dest_map)
+            if dest_map:
+                self._apply_item_dest_custodians(order, dest_map)
             self._mark_assets_pending_transfer([a for a in assets if int(a.id) not in old_ids])
         _log(
             self._db,
@@ -1392,22 +1479,68 @@ class TransferOrderService:
         self._db.commit()
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
-    def cc2_assign_to_cf(
-        self, order_id: int, data: Cc2AssignTransferRequest, *, actor_user_id: int
-    ) -> TransferOrderDetail:
-        order = self._load_order(order_id)
+    def _assert_actor_may_receive(
+        self, order: AssetTransferOrder, *, actor_user_id: int
+    ) -> None:
         if order.status != STATUS_APPROVED_BY_CF and not _is_returned_to_receiver(
             self._db, order
         ):
             raise ConflictError("Only CF-approved transfer orders can be received by the custodian.")
-        if order.to_asset_custodian_id is None:
+        if not _item_dest_custodian_ids(order):
             raise ConflictError("Destination asset custodian is missing on this transfer.")
         actor = self._db.get(User, actor_user_id)
         is_super = actor is not None and actor.is_superuser
-        if int(order.to_asset_custodian_id) != int(actor_user_id) and not is_super:
+        if (
+            not is_super
+            and int(actor_user_id) not in _item_dest_custodian_ids(order)
+            and (order.assigned_to is None or int(order.assigned_to) != int(actor_user_id))
+        ):
             raise ConflictError(
                 "Only the selected destination asset custodian can receive this transfer."
             )
+
+    def save_receive_locations(
+        self, order_id: int, data: SaveReceiveLocationsRequest, *, actor_user_id: int
+    ) -> TransferOrderDetail:
+        """Park the receiver's progress: save the locations picked so far, finish later."""
+        order = self._load_order(order_id)
+        self._assert_actor_may_receive(order, actor_user_id=actor_user_id)
+        by_asset = {int(row.asset_id): row for row in data.item_locations}
+        saved: list[dict] = []
+        for item in order.items:
+            row = by_asset.get(int(item.asset_id))
+            if row is None:
+                continue
+            fl = _strip_or_none(row.to_functional_location)
+            al = _strip_or_none(row.to_actual_location)
+            if (item.to_functional_location, item.to_actual_location) == (fl, al):
+                continue
+            item.to_functional_location = fl
+            item.to_actual_location = al
+            saved.append(
+                {
+                    "asset_code": item.asset.asset_code if item.asset else str(item.asset_id),
+                    "to_functional_location": fl,
+                    "to_actual_location": al,
+                }
+            )
+        if not saved:
+            return self.get_order(order_id, viewer_user_id=actor_user_id)
+        _log(
+            self._db,
+            order_id=int(order.id),
+            action="receive_locations_saved",
+            actor_user_id=actor_user_id,
+            new_value={"item_locations": saved},
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def cc2_assign_to_cf(
+        self, order_id: int, data: Cc2AssignTransferRequest, *, actor_user_id: int
+    ) -> TransferOrderDetail:
+        order = self._load_order(order_id)
+        self._assert_actor_may_receive(order, actor_user_id=actor_user_id)
         confirm_role_id = self._workflow_step_role_id(order, step_kind="confirm")
         if confirm_role_id is None:
             confirm_role_id = self._workflow_step_role_id(order, step_kind="close")
@@ -1420,14 +1553,18 @@ class TransferOrderService:
         if data.remarks is not None:
             order.remarks = _strip_or_none(data.remarks)
 
+        locations_before = _item_location_snapshot(order)
         fl, al = _apply_receive_assets(
             self._db,
             order,
-            functional_location=data.to_functional_location,
-            actual_location=data.to_actual_location,
+            functional_location=data.to_functional_location or "",
+            actual_location=data.to_actual_location or "",
+            item_locations=data.item_locations,
         )
         to_cc = self._db.get(CostCenterMaster, int(order.to_cost_center_id))
-        custodian_id = int(order.to_asset_custodian_id)
+        custodian_id = (
+            int(order.to_asset_custodian_id) if order.to_asset_custodian_id is not None else None
+        )
 
         old_status = order.status
         order.status = STATUS_RECEIVED_BY_CC2
@@ -1445,6 +1582,7 @@ class TransferOrderService:
                 "to_cost_center": to_cc.code if to_cc else None,
                 "to_functional_location": fl,
                 "to_actual_location": al,
+                "item_locations": _changed_item_locations(order, locations_before),
             },
         )
         self._db.commit()
@@ -2162,6 +2300,7 @@ class TransferOrderService:
         item_publics: list[TransferOrderItemPublic] = []
         for i in order.items:
             fl_n, al_n = _from_names(i.from_functional_location, i.from_actual_location)
+            to_fl_n, to_al_n = _from_names(i.to_functional_location, i.to_actual_location)
             item_publics.append(
                 TransferOrderItemPublic(
                     id=int(i.id),
@@ -2173,6 +2312,16 @@ class TransferOrderService:
                     from_actual_location=i.from_actual_location,
                     from_functional_location_name=fl_n,
                     from_actual_location_name=al_n,
+                    to_asset_custodian_id=(
+                        int(i.to_asset_custodian_id) if i.to_asset_custodian_id else None
+                    ),
+                    to_asset_custodian_name=(
+                        i.to_asset_custodian.full_name if i.to_asset_custodian else None
+                    ),
+                    to_functional_location=i.to_functional_location,
+                    to_actual_location=i.to_actual_location,
+                    to_functional_location_name=to_fl_n,
+                    to_actual_location_name=to_al_n,
                 )
             )
 
@@ -2245,8 +2394,8 @@ class TransferOrderService:
                         is_super
                         or is_assignee
                         or (
-                            order.to_asset_custodian_id is not None
-                            and int(order.to_asset_custodian_id) == int(viewer_user_id or 0)
+                            viewer_user_id is not None
+                            and int(viewer_user_id) in _item_dest_custodian_ids(order)
                         )
                     )
                 ),
@@ -2339,6 +2488,49 @@ def _revert_transfer_assets_after_receive(order: AssetTransferOrder) -> None:
         )
 
 
+def _receive_loc_map(item_locations: list | None) -> dict[int, tuple[str, str]]:
+    out: dict[int, tuple[str, str]] = {}
+    for row in item_locations or []:
+        if isinstance(row, dict):
+            aid = int(row["asset_id"])
+            fl = _strip_or_none(row.get("to_functional_location"))
+            al = _strip_or_none(row.get("to_actual_location"))
+        else:
+            aid = int(row.asset_id)
+            fl = _strip_or_none(getattr(row, "to_functional_location", None))
+            al = _strip_or_none(getattr(row, "to_actual_location", None))
+        if fl and al:
+            out[aid] = (fl, al)
+    return out
+
+
+def _item_location_snapshot(order: AssetTransferOrder) -> dict[int, tuple[str | None, str | None]]:
+    return {
+        int(i.asset_id): (i.to_functional_location, i.to_actual_location) for i in order.items
+    }
+
+
+def _changed_item_locations(
+    order: AssetTransferOrder, before: dict[int, tuple[str | None, str | None]]
+) -> list[dict]:
+    """Audit rows for assets this action actually moved — locations saved earlier are not repeated."""
+    rows: list[dict] = []
+    for item in order.items:
+        if before.get(int(item.asset_id)) == (item.to_functional_location, item.to_actual_location):
+            continue
+        rows.append(
+            {
+                "asset_code": (item.asset.asset_code if item.asset else str(item.asset_id)),
+                "to_functional_location": item.to_functional_location,
+                "to_actual_location": item.to_actual_location,
+                "to_asset_custodian_id": (
+                    int(item.to_asset_custodian_id) if item.to_asset_custodian_id else None
+                ),
+            }
+        )
+    return rows
+
+
 def _apply_receive_assets(
     db: Session,
     order: AssetTransferOrder,
@@ -2346,35 +2538,54 @@ def _apply_receive_assets(
     functional_location: str,
     actual_location: str,
     cost_center_id: int | None = None,
+    item_locations: list | None = None,
 ) -> tuple[str, str]:
-    """Update order + asset locations/CC/custodian. Does not change assignee or status."""
-    fl = _strip_or_none(functional_location)
-    al = _strip_or_none(actual_location)
-    if not fl or not al:
-        raise ConflictError(
-            "Actual Location 1 and Actual Location 2 are required when receiving assets."
-        )
+    """Update order + per-asset locations/CC/custodian. Does not change assignee or status."""
+    loc_map = _receive_loc_map(item_locations)
+    fallback_fl = _strip_or_none(functional_location)
+    fallback_al = _strip_or_none(actual_location)
     if cost_center_id is not None:
         order.to_cost_center_id = int(cost_center_id)
     to_cc = db.get(CostCenterMaster, int(order.to_cost_center_id))
     if to_cc is None:
         raise ConflictError("Destination cost center is missing.")
-    if order.to_asset_custodian_id is None:
-        raise ConflictError("Destination asset custodian is missing on this transfer.")
-    custodian_id = int(order.to_asset_custodian_id)
-    order.to_functional_location = fl
-    order.to_actual_location = al
+    if not order.items:
+        raise ConflictError("Transfer has no assets to receive.")
     for item in order.items:
+        pair = loc_map.get(int(item.asset_id))
+        if pair is None and fallback_fl and fallback_al:
+            pair = (fallback_fl, fallback_al)
+        if pair is None:
+            raise ConflictError(
+                "Actual Location 1 and Actual Location 2 are required for every asset when receiving."
+            )
+        custodian_id = (
+            int(item.to_asset_custodian_id)
+            if item.to_asset_custodian_id is not None
+            else (
+                int(order.to_asset_custodian_id) if order.to_asset_custodian_id is not None else None
+            )
+        )
+        if custodian_id is None:
+            raise ConflictError("Destination asset custodian is missing on this transfer.")
+        item.to_functional_location, item.to_actual_location = pair
+        if item.to_asset_custodian_id is None:
+            item.to_asset_custodian_id = custodian_id
         asset = item.asset
         if asset is None:
             continue
         fin = _ensure_financial(asset)
         fin.cost_center = to_cc.code
         loc = _ensure_location(asset)
-        loc.functional_location = fl
-        loc.actual_location = al
+        loc.functional_location = pair[0]
+        loc.actual_location = pair[1]
         asset.asset_custodian_id = custodian_id
-    return fl, al
+    first = order.items[0]
+    order.to_functional_location = first.to_functional_location
+    order.to_actual_location = first.to_actual_location
+    if order.to_asset_custodian_id is None and first.to_asset_custodian_id is not None:
+        order.to_asset_custodian_id = int(first.to_asset_custodian_id)
+    return order.to_functional_location or "", order.to_actual_location or ""
 
 
 def apply_transfer_enter_receive(
@@ -2424,6 +2635,7 @@ def apply_transfer_receive(
     step_role_name: str | None = None,
     comment: str | None = None,
     cost_center_id: int | None = None,
+    item_locations: list | None = None,
 ) -> None:
     _ = cost_center_id  # Ignored: destination CC is fixed at submit; receiver sets locations only.
     order = db.get(AssetTransferOrder, order_id)
@@ -2439,11 +2651,13 @@ def apply_transfer_receive(
     )
     if order is None:
         return
+    locations_before = _item_location_snapshot(order)
     fl, al = _apply_receive_assets(
         db,
         order,
         functional_location=functional_location or "",
         actual_location=actual_location or "",
+        item_locations=item_locations,
         # Receiver may only set Actual Location 1/2; destination CC is fixed at submit.
         cost_center_id=None,
     )
@@ -2468,6 +2682,7 @@ def apply_transfer_receive(
             "to_cost_center": to_cc.code if to_cc else None,
             "to_functional_location": fl,
             "to_actual_location": al,
+            "item_locations": _changed_item_locations(order, locations_before),
             "comment": (comment or "").strip() or None,
         },
     )

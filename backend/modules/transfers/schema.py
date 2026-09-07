@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from modules.platform.tasks.schema import TaskApprovalStepLinePublic
 
@@ -29,20 +29,51 @@ class TransferDestinationCostCenter(BaseModel):
     is_active: bool
 
 
+class TransferItemCustodian(BaseModel):
+    asset_id: int
+    to_asset_custodian_id: int
+
+
+class TransferItemReceiveLocation(BaseModel):
+    asset_id: int
+    to_functional_location: str = Field(min_length=1)
+    to_actual_location: str = Field(min_length=1)
+
+
+class TransferItemPartialLocation(BaseModel):
+    """One asset's receive locations, either of which may be filled in later."""
+
+    asset_id: int
+    to_functional_location: str | None = None
+    to_actual_location: str | None = None
+
+
+class SaveReceiveLocationsRequest(BaseModel):
+    item_locations: list[TransferItemPartialLocation] = Field(min_length=1)
+
+
 class CreateTransferOrderRequest(BaseModel):
     asset_ids: list[int] = Field(min_length=1)
     to_cost_center_id: int
-    to_asset_custodian_id: int
+    to_asset_custodian_id: int | None = None
+    item_custodians: list[TransferItemCustodian] | None = None
     to_functional_location: str | None = None
     to_actual_location: str | None = None
     remarks: str | None = None
     assigned_to: int | None = None
     submit: bool = False
 
+    @model_validator(mode="after")
+    def dest_custodian_present(self) -> CreateTransferOrderRequest:
+        if self.to_asset_custodian_id is not None or self.item_custodians:
+            return self
+        raise ValueError("Select the destination asset custodian.")
+
 
 class UpdateTransferOrderRequest(BaseModel):
     to_cost_center_id: int | None = None
     to_asset_custodian_id: int | None = None
+    item_custodians: list[TransferItemCustodian] | None = None
     to_functional_location: str | None = None
     to_actual_location: str | None = None
     remarks: str | None = None
@@ -72,9 +103,18 @@ class Cc2AssignTransferRequest(BaseModel):
     """Destination custodian receives assets and sets locations, then assigns CF to confirm."""
 
     assigned_to: int
-    to_functional_location: str = Field(min_length=1)
-    to_actual_location: str = Field(min_length=1)
+    to_functional_location: str | None = None
+    to_actual_location: str | None = None
+    item_locations: list[TransferItemReceiveLocation] | None = None
     remarks: str | None = None
+
+    @model_validator(mode="after")
+    def receive_locations_present(self) -> Cc2AssignTransferRequest:
+        if self.item_locations:
+            return self
+        if (self.to_functional_location or "").strip() and (self.to_actual_location or "").strip():
+            return self
+        raise ValueError("Actual Location 1 and Actual Location 2 are required when receiving assets.")
 
 
 class TransferOrderItemPublic(BaseModel):
@@ -87,6 +127,12 @@ class TransferOrderItemPublic(BaseModel):
     from_actual_location: str | None = None
     from_functional_location_name: str | None = None
     from_actual_location_name: str | None = None
+    to_asset_custodian_id: int | None = None
+    to_asset_custodian_name: str | None = None
+    to_functional_location: str | None = None
+    to_actual_location: str | None = None
+    to_functional_location_name: str | None = None
+    to_actual_location_name: str | None = None
 
 
 class TransferOrderAuditPublic(BaseModel):

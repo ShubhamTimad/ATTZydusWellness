@@ -15,6 +15,7 @@ from modules.transfers.schema import (
     CfApproveTransferRequest,
     CfRejectTransferRequest,
     CreateTransferOrderRequest,
+    SaveReceiveLocationsRequest,
     SubmitTransferOrderRequest,
     TransferAssigneeListResponse,
     TransferDestinationCostCenter,
@@ -69,6 +70,10 @@ def list_assignees(
         False,
         description="When true (or level/role_id omitted), return first-step role of transfer.submit workflow",
     ),
+    for_next: bool = Query(
+        False,
+        description="With order_id: users of the step after the order's current one (next assignee)",
+    ),
     order_id: int | None = Query(
         None,
         ge=1,
@@ -76,7 +81,7 @@ def list_assignees(
     ),
 ) -> TransferAssigneeListResponse:
     try:
-        if role_id is not None:
+        if role_id is not None or for_next:
             return svc.list_assignees_by_role_id(role_id=role_id, order_id=order_id)
         if for_submit or level is None:
             return svc.list_assignees_for_action(
@@ -364,6 +369,20 @@ def cf_reject(
 ) -> TransferOrderDetail:
     try:
         return svc.cf_reject(order_id, body, actor_user_id=int(current.subject))
+    except Exception as e:
+        raise _http(e) from e
+
+
+@router.post("/{order_id}/receive-locations", response_model=TransferOrderDetail)
+def save_receive_locations(
+    order_id: int,
+    body: SaveReceiveLocationsRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[object, Depends(require_any_permission("transfer.receive", "transfer.manage"))],
+) -> TransferOrderDetail:
+    try:
+        return svc.save_receive_locations(order_id, body, actor_user_id=int(current.subject))
     except Exception as e:
         raise _http(e) from e
 

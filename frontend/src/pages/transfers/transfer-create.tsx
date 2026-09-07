@@ -1,5 +1,5 @@
 import * as React from "react"
-import { ArrowRightLeft, Package, Search } from "lucide-react"
+import { Package, Search } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -24,6 +24,7 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import { isAssetPendingTransfer } from "@/lib/asset-lifecycle"
+import type { ActualLocationMaster } from "@/lib/masters-types"
 import {
   TRANSFER_IN_PROGRESS_MESSAGE,
   type TransferAssigneeListResponse,
@@ -32,6 +33,7 @@ import {
   type TransferOrderDetail,
 } from "@/lib/transfer-types"
 import {
+  actualLocationLabel,
   formatCostCenterWithCode,
   functionalLocationLabel,
   masterDisplayName,
@@ -54,10 +56,11 @@ type DraftAsset = Pick<
   | "functional_location"
   | "functional_location_description"
   | "actual_location"
+  | "actual_location_description"
   | "asset_custodian_id"
   | "approval_status"
   | "lifecycle_status"
->
+> & { dest_custodian_id?: number | null }
 
 function isCustodianOf(asset: { asset_custodian_id?: number | null }, userId: number | null): boolean {
   if (isSuperuser()) return true
@@ -111,9 +114,11 @@ function toDraftAsset(a: AssetListItem): DraftAsset {
     functional_location: a.functional_location,
     functional_location_description: a.functional_location_description,
     actual_location: a.actual_location,
+    actual_location_description: a.actual_location_description,
     asset_custodian_id: a.asset_custodian_id ?? null,
     approval_status: a.approval_status,
     lifecycle_status: a.lifecycle_status,
+    dest_custodian_id: null,
   }
 }
 
@@ -141,7 +146,6 @@ export function TransferOrderCreatePage() {
   const [toCostCenterId, setToCostCenterId] = React.useState("")
   const [custodianOptions, setCustodianOptions] = React.useState<TransferAssigneeOption[]>([])
   const [custodiansLoading, setCustodiansLoading] = React.useState(false)
-  const [toAssetCustodianId, setToAssetCustodianId] = React.useState<number | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [pickerOpen, setPickerOpen] = React.useState(false)
   const [assets, setAssets] = React.useState<DraftAsset[]>([])
@@ -152,6 +156,7 @@ export function TransferOrderCreatePage() {
   const [catalogLoading, setCatalogLoading] = React.useState(false)
   const [viewerId, setViewerId] = React.useState<number | null>(() => currentUserId())
   const [plantCostCenters, setPlantCostCenters] = React.useState<TransferDestinationCostCenter[]>([])
+  const [plantActualLocations, setPlantActualLocations] = React.useState<ActualLocationMaster[]>([])
 
   const masters = useAssetMasterLookups(plantId)
   const selectedIds = React.useMemo(() => new Set(assets.map((a) => a.id)), [assets])
@@ -196,6 +201,26 @@ export function TransferOrderCreatePage() {
     }
   }, [plantId])
 
+  React.useEffect(() => {
+    if (plantId == null) {
+      setPlantActualLocations([])
+      return
+    }
+    let cancelled = false
+    void getJson<ActualLocationMaster[]>(
+      `/admin/asset-masters/actual-locations?plant_id=${plantId}&active_only=false`,
+    )
+      .then((rows) => {
+        if (!cancelled) setPlantActualLocations(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setPlantActualLocations([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [plantId])
+
   const sourceCostCenterCodes = React.useMemo(() => {
     const codes = new Set<string>()
     for (const a of assets) {
@@ -216,26 +241,30 @@ export function TransferOrderCreatePage() {
     const selected = plantCostCenters.find((cc) => String(cc.id) === toCostCenterId)
     if (selected && sourceCostCenterCodes.has(selected.code)) {
       setToCostCenterId("")
-      setToAssetCustodianId(null)
     }
   }, [toCostCenterId, sourceCostCenterCodes, plantCostCenters])
 
   React.useEffect(() => {
     if (!toCostCenterId) {
       setCustodianOptions([])
-      setToAssetCustodianId(null)
       return
     }
     let cancelled = false
     setCustodiansLoading(true)
-    setToAssetCustodianId(null)
     void getJson<TransferAssigneeListResponse>(
       `/admin/transfer-orders/cost-center-users?cost_center_id=${toCostCenterId}`,
     )
       .then((res) => {
         if (cancelled) return
         setCustodianOptions(res.items)
-        if (res.items.length === 1) setToAssetCustodianId(res.items[0]!.id)
+        if (res.items.length === 1) {
+          const only = res.items[0]!.id
+          setAssets((prev) =>
+            prev.map((a) =>
+              a.dest_custodian_id == null ? { ...a, dest_custodian_id: only } : a,
+            ),
+          )
+        }
       })
       .catch(() => {
         if (!cancelled) setCustodianOptions([])
@@ -389,20 +418,86 @@ export function TransferOrderCreatePage() {
       return
     }
     setPlantId(row.plant_id)
-    setAssets((prev) => [...prev, toDraftAsset(row)])
+    setAssets((prev) => {
+      const draft = toDraftAsset(row)
+      if (custodianOptions.length === 1) {
+        draft.dest_custodian_id = custodianOptions[0]!.id
+      }
+      return [...prev, draft]
+    })
   }
 
   function removeAsset(id: number) {
-    setAssets((prev) => {
-      const next = prev.filter((a) => a.id !== id)
-      if (next.length === 0) {
-        setToCostCenterId("")
-        setToAssetCustodianId(null)
-        setCustodianOptions([])
-      }
-      return next
-    })
+    setAssets((prev) => prev.filter((a) => a.id !== id))
   }
+
+  function setDestCustodian(assetId: number, destCustodianId: number | null) {
+    setAssets((prev) =>
+      prev.map((row) => (row.id === assetId ? { ...row, dest_custodian_id: destCustodianId } : row)),
+    )
+  }
+
+  const destCustodianPlaceholder = !toCostCenterId
+    ? "Select cost center first"
+    : custodiansLoading
+      ? "Loading…"
+      : custodianOptions.length === 0
+        ? "No custodians assigned"
+        : "Select Custodian"
+
+  function destCustodianSelect(assetId: number, destCustodianId: number | null | undefined) {
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <select
+          className={adminSelectClass}
+          value={destCustodianId != null ? String(destCustodianId) : ""}
+          disabled={!toCostCenterId || custodiansLoading || custodianOptions.length === 0}
+          onChange={(e) =>
+            setDestCustodian(assetId, e.target.value ? Number(e.target.value) : null)
+          }
+          aria-label="Destination custodian"
+        >
+          <option value="">{destCustodianPlaceholder}</option>
+          {custodianOptions.map((u) => (
+            <option key={u.id} value={String(u.id)}>
+              {u.full_name}
+            </option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  const designatedCostCenterField = (
+    <FormField id="to_cc" labelText="Designated Cost Center" required>
+      <select
+        id="to_cc"
+        className={adminSelectClass}
+        value={toCostCenterId}
+        disabled={plantId == null || destinationCostCenters.length === 0}
+        onChange={(e) => {
+          setToCostCenterId(e.target.value)
+          setAssets((prev) => prev.map((a) => ({ ...a, dest_custodian_id: null })))
+        }}
+      >
+        <option value="">
+          {plantId == null
+            ? "Select a plant first"
+            : destinationCostCenters.length === 0
+              ? "No other cost centers on this plant"
+              : "Select cost center"}
+        </option>
+        {destinationCostCenters.map((cc) => (
+          <option key={cc.id} value={String(cc.id)}>
+            {formatCostCenterWithCode(cc.code, [cc], cc.name)}
+          </option>
+        ))}
+      </select>
+    </FormField>
+  )
 
   async function create(submit: boolean, assignedTo?: number) {
     const assetIds = assets.map((a) => a.id)
@@ -437,8 +532,8 @@ export function TransferOrderCreatePage() {
       toast.error("Destination cost center must be different from the assets' current cost center.")
       return
     }
-    if (toAssetCustodianId == null) {
-      toast.error("Select the destination asset custodian.")
+    if (assets.some((a) => a.dest_custodian_id == null)) {
+      toast.error("Select a destination asset custodian for every asset.")
       return
     }
     if (submit && assignedTo == null) {
@@ -450,7 +545,11 @@ export function TransferOrderCreatePage() {
       const order = await postJson<TransferOrderDetail>("/admin/transfer-orders", {
         asset_ids: assetIds,
         to_cost_center_id: Number(toCostCenterId),
-        to_asset_custodian_id: toAssetCustodianId,
+        to_asset_custodian_id: assets[0]!.dest_custodian_id,
+        item_custodians: assets.map((a) => ({
+          asset_id: a.id,
+          to_asset_custodian_id: a.dest_custodian_id as number,
+        })),
         to_functional_location: null,
         to_actual_location: null,
         remarks: null,
@@ -483,6 +582,22 @@ export function TransferOrderCreatePage() {
         })()
       : ""
 
+  function loc1Display(code: string | null | undefined, description?: string | null): string {
+    const c = (code ?? "").trim()
+    if (!c) return "—"
+    const fl = masters.functionalLocations.find((l) => (l.code ?? "").trim() === c)
+    if (fl) return functionalLocationLabel(fl)
+    return description?.trim() || c
+  }
+
+  function loc2Display(code: string | null | undefined, description?: string | null): string {
+    const c = (code ?? "").trim()
+    if (!c) return "—"
+    const al = plantActualLocations.find((l) => (l.code ?? "").trim() === c)
+    if (al) return actualLocationLabel(al)
+    return description?.trim() || c
+  }
+
   return (
     <AdminPage
       fullWidth
@@ -498,8 +613,7 @@ export function TransferOrderCreatePage() {
           void create(true)
         }}
       >
-        <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
-          <AdminPanel
+        <AdminPanel
             title={`Select Asset `}
             // description={
             //   fromAssets
@@ -523,7 +637,6 @@ export function TransferOrderCreatePage() {
                         setFromCostCenterCode("")
                         setFromFunctionalLocation("")
                         setToCostCenterId("")
-                        setToAssetCustodianId(null)
                         setCustodianOptions([])
                         setAssets([])
                         setAssetSearch("")
@@ -538,6 +651,8 @@ export function TransferOrderCreatePage() {
                       ))}
                     </select>
                   </FormField>
+
+                  {designatedCostCenterField}
 
                   <FormField id="from_cc" labelText="Cost center">
                     <select
@@ -596,10 +711,11 @@ export function TransferOrderCreatePage() {
                 </div>
               </div>
             ) : (
-              <div className="mb-4">
+              <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <FormField id="plant" labelText="Plant">
                   <Input readOnly disabled className="bg-muted/40" value={plantName || "—"} />
                 </FormField>
+                {designatedCostCenterField}
               </div>
             )}
 
@@ -615,21 +731,24 @@ export function TransferOrderCreatePage() {
                     <AdminTableHeadCell>Asset</AdminTableHeadCell>
                     <AdminTableHeadCell>From Cost Center</AdminTableHeadCell>
                     <AdminTableHeadCell>From Actual Location 1</AdminTableHeadCell>
+                    <AdminTableHeadCell>From Actual Location 2</AdminTableHeadCell>
+                    <AdminTableHeadCell>Custodian</AdminTableHeadCell>
                   </AdminTableHeaderRow>
                 </TableHeader>
                 <TableBody>
                   {showAssetFilters ? (
                     plantId == null ? (
-                      <AdminTableEmptyRow colSpan={4}>Select a plant to list assets.</AdminTableEmptyRow>
+                      <AdminTableEmptyRow colSpan={6}>Select a plant to list assets.</AdminTableEmptyRow>
                     ) : catalogLoading ? (
-                      <AdminTableEmptyRow colSpan={4}>Loading assets…</AdminTableEmptyRow>
+                      <AdminTableEmptyRow colSpan={6}>Loading assets…</AdminTableEmptyRow>
                     ) : catalogItems.length === 0 ? (
-                      <AdminTableEmptyRow colSpan={4}>
+                      <AdminTableEmptyRow colSpan={6}>
                         No approved custodiated assets match these filters.
                       </AdminTableEmptyRow>
                     ) : (
                       catalogItems.map((a) => {
                         const checked = selectedIds.has(a.id)
+                        const selected = assets.find((row) => row.id === a.id)
                         return (
                           <AdminTableBodyRow
                             key={a.id}
@@ -662,16 +781,25 @@ export function TransferOrderCreatePage() {
                               )}
                             </AdminTableCell>
                             <AdminTableCell>
-                              {a.functional_location_description?.trim() ||
-                                a.functional_location ||
-                                "—"}
+                              {loc1Display(
+                                a.functional_location,
+                                a.functional_location_description,
+                              )}
+                            </AdminTableCell>
+                            <AdminTableCell>
+                              {loc2Display(a.actual_location, a.actual_location_description)}
+                            </AdminTableCell>
+                            <AdminTableCell className="min-w-[12rem]">
+                              {checked
+                                ? destCustodianSelect(a.id, selected?.dest_custodian_id)
+                                : "—"}
                             </AdminTableCell>
                           </AdminTableBodyRow>
                         )
                       })
                     )
                   ) : assets.length === 0 ? (
-                    <AdminTableEmptyRow colSpan={3}>No Assets selected</AdminTableEmptyRow>
+                    <AdminTableEmptyRow colSpan={5}>No Assets selected</AdminTableEmptyRow>
                   ) : (
                     assets.map((a) => (
                       <AdminTableBodyRow key={a.id} interactive={false}>
@@ -687,9 +815,16 @@ export function TransferOrderCreatePage() {
                           )}
                         </AdminTableCell>
                         <AdminTableCell>
-                          {a.functional_location_description?.trim() ||
-                            a.functional_location ||
-                            "—"}
+                          {loc1Display(
+                            a.functional_location,
+                            a.functional_location_description,
+                          )}
+                        </AdminTableCell>
+                        <AdminTableCell>
+                          {loc2Display(a.actual_location, a.actual_location_description)}
+                        </AdminTableCell>
+                        <AdminTableCell className="min-w-[12rem]">
+                          {destCustodianSelect(a.id, a.dest_custodian_id)}
                         </AdminTableCell>
                       </AdminTableBodyRow>
                     ))
@@ -698,66 +833,6 @@ export function TransferOrderCreatePage() {
               </Table>
             </div>
           </AdminPanel>
-
-          <AdminPanel
-            title="Transfer Destination"
-            headerActions={<ArrowRightLeft className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
-          >
-            {assets.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Select assets first.</p>
-            ) : destinationCostCenters.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No other cost centers on this plant. Destination must differ from From CC.
-              </p>
-            ) : (
-              <div className="grid grid-cols-1 gap-4">
-                <FormField id="to_cc" labelText="Cost Center" required>
-                  <select
-                    id="to_cc"
-                    className={adminSelectClass}
-                    value={toCostCenterId}
-                    onChange={(e) => setToCostCenterId(e.target.value)}
-                  >
-                    <option value="">Select cost center</option>
-                    {destinationCostCenters.map((cc) => (
-                      <option key={cc.id} value={String(cc.id)}>
-                        {formatCostCenterWithCode(cc.code, [cc], cc.name)}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-
-                <FormField id="to_custodian" labelText="Asset Custodian" required>
-                  <select
-                    id="to_custodian"
-                    className={adminSelectClass}
-                    value={toAssetCustodianId != null ? String(toAssetCustodianId) : ""}
-                    disabled={!toCostCenterId || custodiansLoading || custodianOptions.length === 0}
-                    onChange={(e) =>
-                      setToAssetCustodianId(e.target.value ? Number(e.target.value) : null)
-                    }
-                  >
-                    <option value="">
-                      {!toCostCenterId
-                        ? "Select cost center first"
-                        : custodiansLoading
-                          ? "Loading…"
-                          : custodianOptions.length === 0
-                            ? "No custodians assigned"
-                            : "Select custodian"}
-                    </option>
-                    {custodianOptions.map((u) => (
-                      <option key={u.id} value={String(u.id)}>
-                        {u.full_name}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-              </div>
-            )}
-          </AdminPanel>
-        </div>
 
         <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
           <Button
