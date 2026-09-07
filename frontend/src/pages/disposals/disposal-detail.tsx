@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Package, PackageX, Search, Trash2 } from "lucide-react"
+import { Search, Trash2 } from "lucide-react"
 import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -16,12 +16,12 @@ import {
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
-  adminSwitchRowClass,
   adminTextareaClass,
 } from "@/components/layout/admin-ui"
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -43,6 +43,7 @@ import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import {
   actualLocationLabel,
   costCenterLabel,
+  formatCostCenterWithCode,
   functionalLocationLabel,
   plantLabel,
   useAssetMasterLookups,
@@ -105,26 +106,22 @@ function FormField({
   )
 }
 
-function DetailFact({
+function SummaryField({
   label,
   value,
-  className,
 }: {
   label: string
   value: React.ReactNode
-  className?: string
 }) {
   return (
-    <div className={cn("min-w-0", className)}>
-      <dt className="text-sm font-bold text-foreground">
-        {label}
-      </dt>
-      <dd className="mt-0.5 break-words text-sm font-normal leading-snug text-foreground">
-        {value}
-      </dd>
+    <div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
+      <p className="text-xs font-bold uppercase tracking-[0.06em] !text-black">{label}</p>
+      <div className="mt-0.5 min-w-0 text-sm font-medium leading-snug !text-black">{value}</div>
     </div>
   )
 }
+
+const disposalTextPad = "px-[var(--app-card-padding)]"
 
 const tableSelectClass = cn(adminSelectClass, "min-w-0 focus-visible:ring-inset")
 const tableSelectCellClass = "min-w-0 overflow-hidden whitespace-normal px-4 py-2"
@@ -147,7 +144,7 @@ export function DisposalOrderDetailPage() {
   const [requiresEngineering, setRequiresEngineering] = React.useState(false)
   const [remarks, setRemarks] = React.useState("")
   const [toCostCenterId, setToCostCenterId] = React.useState("")
-  const [receiverUserId, setReceiverUserId] = React.useState<number | null>(null)
+  const [itemCustodians, setItemCustodians] = React.useState<Record<number, number | null>>({})
   const [custodianOptions, setCustodianOptions] = React.useState<DisposalAssigneeOption[]>([])
   const [custodiansLoading, setCustodiansLoading] = React.useState(false)
   const [itemLoc1, setItemLoc1] = React.useState<Record<number, string>>({})
@@ -191,7 +188,11 @@ export function DisposalOrderDetailPage() {
     setRequiresEngineering(res.requires_engineering)
     setRemarks(res.remarks ?? "")
     setToCostCenterId(res.to_cost_center_id != null ? String(res.to_cost_center_id) : "")
-    setReceiverUserId(res.receiver_user_id ?? null)
+    setItemCustodians(
+      Object.fromEntries(
+        res.items.map((i) => [i.asset_id, i.to_asset_custodian_id ?? res.receiver_user_id ?? null]),
+      ),
+    )
     // A reload must not discard locations the receiver picked but has not saved yet.
     const mergeLocations =
       (
@@ -290,11 +291,17 @@ export function DisposalOrderDetailPage() {
       .then((res) => {
         if (cancelled) return
         setCustodianOptions(res.items)
-        setReceiverUserId((prev) => {
-          if (prev != null && res.items.some((u) => u.id === prev)) return prev
-          if (res.items.length === 1) return res.items[0]!.id
-          return prev
-        })
+        // Drop picks the new yard does not employ; a yard with one custodian needs no picking.
+        const valid = new Set(res.items.map((u) => u.id))
+        const sole = res.items.length === 1 ? res.items[0]!.id : null
+        setItemCustodians((prev) =>
+          Object.fromEntries(
+            Object.entries(prev).map(([assetId, current]) => [
+              Number(assetId),
+              current != null && valid.has(current) ? current : sole,
+            ]),
+          ),
+        )
       })
       .catch(() => {
         if (!cancelled) setCustodianOptions([])
@@ -401,6 +408,10 @@ export function DisposalOrderDetailPage() {
         from_actual_location_name: a.actual_location_description ?? null,
       },
     ])
+    setItemCustodians((prev) => ({
+      ...prev,
+      [a.id]: custodianOptions.length === 1 ? custodianOptions[0]!.id : null,
+    }))
   }
 
   function removeEditAsset(assetId: number) {
@@ -421,8 +432,9 @@ export function DisposalOrderDetailPage() {
       toast.error("Select a scrapyard cost center.")
       return
     }
-    if (receiverUserId == null) {
-      toast.error("Select a custodian for the scrapyard cost center.")
+    const missing = assetsMissingCustodian()
+    if (missing.length > 0) {
+      warnMissingCustodian(missing)
       return
     }
     if (!remarks.trim()) {
@@ -436,10 +448,34 @@ export function DisposalOrderDetailPage() {
           requires_engineering: requiresEngineering,
           asset_ids: editAssets.map((a) => a.asset_id),
           to_cost_center_id: Number(toCostCenterId),
-          receiver_user_id: receiverUserId,
+          ...custodianPayload(),
         }),
       "Disposal order saved.",
     )
+  }
+
+  /** Asset codes with no scrapyard custodian picked yet. */
+  function assetsMissingCustodian(): string[] {
+    return editAssets
+      .filter((a) => itemCustodians[a.asset_id] == null)
+      .map((a) => a.asset_code || String(a.asset_id))
+  }
+
+  function warnMissingCustodian(missing: string[]) {
+    toast.error(`Select a custodian for ${missing.join(", ")}.`)
+  }
+
+  /** receiver_user_id mirrors the first asset so the workflow keeps one order-level receiver. */
+  function custodianPayload() {
+    return {
+      receiver_user_id: itemCustodians[editAssets[0]?.asset_id ?? -1] ?? null,
+      item_custodians: editAssets
+        .filter((a) => itemCustodians[a.asset_id] != null)
+        .map((a) => ({
+          asset_id: a.asset_id,
+          to_asset_custodian_id: itemCustodians[a.asset_id] as number,
+        })),
+    }
   }
 
   /** Asset codes still missing Actual Location 1 or 2 — named in the error so the row is obvious. */
@@ -563,13 +599,20 @@ export function DisposalOrderDetailPage() {
 
   const savedAssetIds = (order.items ?? []).map((i) => i.asset_id).slice().sort((a, b) => a - b)
   const editAssetIds = editAssets.map((a) => a.asset_id).slice().sort((a, b) => a - b)
+  // Compared in edit-row order so reordering assets alone does not look like a custodian change.
+  const savedCustodianIds = JSON.stringify(
+    editAssets.map(
+      (a) =>
+        (order.items ?? []).find((i) => i.asset_id === a.asset_id)?.to_asset_custodian_id ?? null,
+    ),
+  )
   const isDirty =
     order.can_edit &&
     (requiresEngineering !== order.requires_engineering ||
       (remarks.trim() || "") !== (order.remarks ?? "").trim() ||
       (toCostCenterId || "") !==
         (order.to_cost_center_id != null ? String(order.to_cost_center_id) : "") ||
-      (receiverUserId ?? null) !== (order.receiver_user_id ?? null) ||
+      savedCustodianIds !== JSON.stringify(editAssets.map((a) => itemCustodians[a.asset_id] ?? null)) ||
       JSON.stringify(editAssetIds) !== JSON.stringify(savedAssetIds))
 
   return (
@@ -736,12 +779,13 @@ export function DisposalOrderDetailPage() {
                   toast.error("Save the scrapyard cost center before submitting.")
                   return
                 }
-                if (receiverUserId == null) {
-                  toast.error("Select a custodian for the scrapyard cost center.")
+                const missing = assetsMissingCustodian()
+                if (missing.length > 0) {
+                  warnMissingCustodian(missing)
                   return
                 }
-                if (order.receiver_user_id !== receiverUserId) {
-                  toast.error("Save the custodian before submitting.")
+                if (isDirty) {
+                  toast.error("Save your changes before submitting.")
                   return
                 }
                 if (!remarks.trim()) {
@@ -763,7 +807,7 @@ export function DisposalOrderDetailPage() {
               disabled={busy}
               onClick={() => void saveReceiveLocations()}
             >
-              Save Locations
+              Save
             </Button>
           ) : null}
           {canDecide ? (
@@ -848,7 +892,9 @@ export function DisposalOrderDetailPage() {
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {order.plant_name}
-            {order.from_cost_center_code ? ` · ${order.from_cost_center_code}` : null}
+            {order.from_cost_center_code || order.to_cost_center_code
+              ? ` · ${order.from_cost_center_code ?? "—"} → ${order.to_cost_center_code ?? "—"}`
+              : null}
             {order.assigned_to_name
               ? ` · ${order.assigned_to_name}`
               : order.created_by_name
@@ -858,256 +904,188 @@ export function DisposalOrderDetailPage() {
         </div>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
-          <div className="border-b border-border/60 bg-muted/15 px-4 py-2.5 sm:px-5">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          <div className={cn("border-b border-border/60 bg-muted/15 py-3", disposalTextPad)}>
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-black">
               Progress
             </p>
             <CapexProcessFlow steps={progress.steps} currentStepKey={progress.currentStepKey} />
           </div>
         </AdminPanel>
 
-        <div className="grid gap-3 lg:grid-cols-2">
-          <AdminPanel
-            title="Disposal Details"
-            // description={
-            //   order.can_edit
-            //     ? "Update the approval route and remarks before submitting."
-            //     : undefined
-            // }
-            headerActions={<PackageX className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="flex-1 px-4 py-3"
-            className="flex h-full flex-col"
-          >
-            {order.can_edit ? (
-              <div className="grid grid-cols-1 gap-3">
-                <FormField labelText="From Cost Center">
-                  <p className="text-sm">
-                    {derivedFromCc
-                      ? `${derivedFromCc.code}${
-                          derivedFromCc.description ? ` — ${derivedFromCc.description}` : ""
-                        }`
-                      : "—"}
-                  </p>
-                  {/* <p className="mt-1 text-xs text-muted-foreground">
-                    Updates from the assets you select (same plant).
-                  </p> */}
-                </FormField>
-
-                <FormField id="to_scrapyard_cc" labelText="Scrapyard Cost Center" required>
-                  <select
-                    id="to_scrapyard_cc"
-                    className={adminSelectClass}
-                    value={toCostCenterId}
-                    onChange={(e) => {
-                      setToCostCenterId(e.target.value)
-                      setReceiverUserId(null)
-                    }}
-                  >
-                    <option value="">
-                      {scrapyardCostCenters.length === 0
-                        ? "No scrapyard cost centers for this plant"
-                        : "Select scrapyard"}
-                    </option>
-                    {scrapyardCostCenters.map((cc) => (
-                      <option key={cc.id} value={String(cc.id)}>
-                        {costCenterLabel(cc)}
-                        {cc.code ? ` (${cc.code})` : ""}
+        <AdminPanel className="shrink-0 overflow-hidden p-0">
+          <div className={cn("space-y-3 py-3", disposalTextPad)}>
+            <h3 className="text-sm font-bold text-black">Disposal Summary</h3>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
+              <SummaryField label="Assets" value={editAssets.length} />
+              <SummaryField
+                label="Source"
+                value={
+                  derivedFromCc?.code === "Multiple"
+                    ? "Multiple"
+                    : formatCostCenterWithCode(
+                        derivedFromCc?.code ?? order.from_cost_center_code,
+                        masters.costCenters,
+                        order.from_cost_center_description ?? derivedFromCc?.description,
+                      )
+                }
+              />
+              <SummaryField
+                label="Scrapyard"
+                value={
+                  order.can_edit ? (
+                    <select
+                      id="to_scrapyard_cc"
+                      className={adminSelectClass}
+                      value={toCostCenterId}
+                      onChange={(e) => {
+                        setToCostCenterId(e.target.value)
+                        setItemCustodians({})
+                      }}
+                    >
+                      <option value="">
+                        {scrapyardCostCenters.length === 0
+                          ? "No scrapyard cost centers"
+                          : "Select scrapyard"}
                       </option>
-                    ))}
-                  </select>
-                </FormField>
+                      {scrapyardCostCenters.map((cc) => (
+                        <option key={cc.id} value={String(cc.id)}>
+                          {formatCostCenterWithCode(cc.code, [cc], cc.name)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    formatCostCenterWithCode(
+                      order.to_cost_center_code,
+                      masters.costCenters,
+                      order.to_cost_center_description,
+                    )
+                  )
+                }
+              />
+              <SummaryField label="Created" value={formatWhen(order.created_at)} />
+              <SummaryField label="Assigned To" value={order.assigned_to_name || "—"} />
+              <SummaryField
+                label="Engineering Approval Required"
+                value={
+                  order.can_edit ? (
+                    <Switch
+                      id="requires_engineering"
+                      checked={requiresEngineering}
+                      disabled={!canEditEngineering}
+                      onCheckedChange={(v) => setRequiresEngineering(v === true)}
+                      aria-label="Engineering Approval Required"
+                    />
+                  ) : requiresEngineering ? (
+                    "Yes"
+                  ) : (
+                    "No"
+                  )
+                }
+              />
+            </div>
 
-                <FormField id="receiver" labelText="Custodian" required>
-                  <select
-                    id="receiver"
-                    className={adminSelectClass}
-                    value={receiverUserId != null ? String(receiverUserId) : ""}
-                    disabled={!toCostCenterId || custodiansLoading || custodianOptions.length === 0}
-                    onChange={(e) =>
-                      setReceiverUserId(e.target.value ? Number(e.target.value) : null)
-                    }
-                  >
-                    <option value="">
-                      {!toCostCenterId
-                        ? "Select cost center first"
-                        : custodiansLoading
-                          ? "Loading…"
-                          : custodianOptions.length === 0
-                            ? "No custodians assigned"
-                            : "Select Custodian"}
-                    </option>
-                    {custodianOptions.map((u) => (
-                      <option key={u.id} value={String(u.id)}>
-                        {u.full_name}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
-
-                <label
-                  htmlFor="requires_engineering"
-                  className={cn(
-                    adminSwitchRowClass,
-                    canEditEngineering && "cursor-pointer transition-colors hover:bg-muted/35",
-                    !canEditEngineering && "opacity-70",
-                    requiresEngineering && "border-primary/40 bg-primary/5",
-                  )}
-                >
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <span className="block text-sm font-medium text-foreground">
-                      Engineering Approval
-                    </span>
-                    {/* <span className="block text-xs text-muted-foreground">
-                      Routes through the Engineering disposal workflow.
-                    </span> */}
-                  </div>
-                  <Checkbox
-                    id="requires_engineering"
-                    checked={requiresEngineering}
-                    disabled={!canEditEngineering}
-                    onCheckedChange={(v) => setRequiresEngineering(v === true)}
-                    className="size-5 border-foreground/35 shadow-sm"
-                    aria-label="Engineering approval"
-                  />
-                </label>
-
-                <FormField id="remarks" labelText="Disposal Reason" required>
+            {order.can_edit || order.can_close ? (
+              <SummaryField
+                label={order.can_close && !order.can_edit ? "Remarks" : "Disposal Reason"}
+                value={
                   <textarea
                     id="remarks"
-                    className={cn(adminTextareaClass, "min-h-[72px]")}
-                    placeholder="Enter the disposal reason"
+                    className={cn(adminTextareaClass, "min-h-[72px] !text-black")}
+                    placeholder={
+                      order.can_close && !order.can_edit
+                        ? "Remarks"
+                        : "Enter the disposal reason"
+                    }
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
                     rows={2}
                   />
-                </FormField>
-              </div>
+                }
+              />
             ) : (
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-                <DetailFact
-                  label="From cost center"
-                  value={
-                    order.from_cost_center_code
-                      ? `${order.from_cost_center_code}${
-                          order.from_cost_center_description
-                            ? ` — ${order.from_cost_center_description}`
-                            : ""
-                        }`
-                      : "—"
-                  }
-                />
-                <DetailFact
-                  label="Scrapyard cost center"
-                  value={
-                    order.to_cost_center_code
-                      ? `${order.to_cost_center_code}${
-                          order.to_cost_center_description
-                            ? ` — ${order.to_cost_center_description}`
-                            : ""
-                        }`
-                      : "—"
-                  }
-                />
-                <DetailFact label="Custodian" value={order.receiver_name || "—"} />
-                {order.to_functional_location || order.to_actual_location ? (
+              <SummaryField
+                label="Disposal Reason"
+                value={
+                  <span className="whitespace-pre-wrap font-medium !text-black">
+                    {order.remarks || "—"}
+                  </span>
+                }
+              />
+            )}
+          </div>
+        </AdminPanel>
+
+        <AdminPanel className="shrink-0 overflow-hidden p-0">
+          <div
+            className={cn(
+              "flex flex-nowrap items-center justify-between gap-2 border-b border-border/60 py-3",
+              disposalTextPad,
+            )}
+          >
+            <p className="shrink-0 text-sm font-medium text-foreground">
+              Assets
+              <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
+                ({editAssets.length})
+              </span>
+            </p>
+            {order.can_edit ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8"
+                  disabled={busy || editAssets.length === 0}
+                  onClick={clearEditAssets}
+                >
+                  Clear All
+                </Button>
+                <Button
+                  type="button"
+                  variant={assetPickerOpen ? "secondary" : "outline"}
+                  size="sm"
+                  className="h-8"
+                  disabled={busy}
+                  onClick={() => setAssetPickerOpen((open) => !open)}
+                >
+                  {assetPickerOpen ? "Hide asset list" : "Select Other Asset"}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+          <div className="overflow-x-auto">
+            <Table className="table-fixed">
+              <colgroup>
+                <col className={showLocations ? "w-[14%]" : "w-[22%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[18%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[18%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[18%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[18%]"} />
+                {showLocations ? (
                   <>
-                    <DetailFact
-                      label="Actual Location 1"
-                      value={
-                        order.to_functional_location_name ??
-                        order.to_functional_location ??
-                        "—"
-                      }
-                    />
-                    <DetailFact
-                      label="Actual Location 2"
-                      value={order.to_actual_location_name ?? order.to_actual_location ?? "—"}
-                    />
+                    <col className="w-[16%]" />
+                    <col className="w-[16%]" />
                   </>
                 ) : null}
-                <DetailFact
-                  label="Engineering Approval Required"
-                  value={requiresEngineering ? "Yes" : "No"}
-                />
-                {order.assigned_at ? (
-                  <DetailFact label="Assigned at" value={formatWhen(order.assigned_at)} />
-                ) : null}
-                {order.closed_at ? (
-                  <DetailFact label="Closed at" value={formatWhen(order.closed_at)} />
-                ) : null}
-                <DetailFact
-                  label="Disposal Reason"
-                  value={order.remarks || "—"}
-                  className="col-span-2"
-                />
-                {order.can_close ? (
-                  <FormField id="remarks" labelText="Remarks" className="col-span-2 !gap-1">
-                    <textarea
-                      id="remarks"
-                      className={cn(adminTextareaClass, "min-h-[72px]")}
-                      value={remarks}
-                      onChange={(e) => setRemarks(e.target.value)}
-                      rows={2}
-                    />
-                  </FormField>
-                ) : null}
-              </dl>
-            )}
-          </AdminPanel>
-
-          <AdminPanel
-            title={`Asset (${editAssets.length})`}
-            // description={
-            //   order.can_edit
-            //     ? "Selected assets on this order. Use Select other assets to add or change them."
-            //     : undefined
-            // }
-            headerActions={
-              order.can_edit ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8"
-                    disabled={busy || editAssets.length === 0}
-                    onClick={clearEditAssets}
-                  >
-                    Clear All
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={assetPickerOpen ? "secondary" : "outline"}
-                    size="sm"
-                    className="h-8"
-                    disabled={busy}
-                    onClick={() => setAssetPickerOpen((open) => !open)}
-                  >
-                    {assetPickerOpen ? "Hide asset list" : "Select Other Asset"}
-                  </Button>
-                </div>
-              ) : (
-                <Package className="size-4 text-muted-foreground" aria-hidden />
-              )
-            }
-            contentClassName="flex min-h-0 flex-1 flex-col px-0 py-0"
-            className="flex h-full flex-col overflow-hidden"
-          >
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <AdminTableHeaderRow>
-                    <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
-                      Asset
-                    </AdminTableHeadCell>
-
-                    <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
-                      From Source
-                    </AdminTableHeadCell>
-
-                    <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
-                      From Actual Location 1
-                    </AdminTableHeadCell>
+                {order.can_edit ? <col className="w-[6%]" /> : null}
+              </colgroup>
+              <TableHeader>
+                <AdminTableHeaderRow>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !font-bold !text-black">
+                    Asset
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !font-bold !text-black">
+                    Source CC
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                    From Actual Location 1
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                    From Actual Location 2
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                    Custodian
+                  </AdminTableHeadCell>
                     {showLocations ? (
                       <>
                         <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
@@ -1128,11 +1106,11 @@ export function DisposalOrderDetailPage() {
                 <TableBody>
                   {editAssets.length === 0 ? (
                     <AdminTableEmptyRow
-                      colSpan={3 + (showLocations ? 2 : 0) + (order.can_edit ? 1 : 0)}
+                      colSpan={5 + (showLocations ? 2 : 0) + (order.can_edit ? 1 : 0)}
                     >
                       {order.can_edit
                         ? "No Assets selected — click Select other assets to choose."
-                        : "No Asset"}
+                        : "No Assets"}
                     </AdminTableEmptyRow>
                   ) : (
                     editAssets.map((item) => {
@@ -1143,19 +1121,68 @@ export function DisposalOrderDetailPage() {
                       )
                       return (
                       <AdminTableBodyRow key={item.asset_id} interactive={false}>
-                        <AdminTableCell className="min-h-0 px-4 py-2">
-                          <div className="font-medium leading-tight">{item.asset_code}</div>
-                          <div className="text-xs leading-tight text-muted-foreground">
+                        <AdminTableCell className="min-h-0 min-w-0 whitespace-normal px-4 py-2">
+                          <span className="font-mono text-xs !text-black">{item.asset_code}</span>
+                          <p className="mt-0.5 truncate text-sm !text-black">
                             {item.asset_name || "—"}
-                          </div>
+                          </p>
                         </AdminTableCell>
-                        <AdminTableCell className="min-h-0 px-4 py-2">
-                          {item.from_cost_center_code ?? "—"}
+                        <AdminTableCell className="min-w-0 truncate px-4 py-2 !text-black">
+                          {formatCostCenterWithCode(
+                            item.from_cost_center_code,
+                            masters.costCenters,
+                            order.from_cost_center_description,
+                          )}
                         </AdminTableCell>
-                        <AdminTableCell className="min-h-0 px-4 py-2">
+                        <AdminTableCell className="min-w-0 truncate px-4 py-2">
                           {item.from_functional_location_name ??
                             item.from_functional_location ??
                             "—"}
+                        </AdminTableCell>
+                        <AdminTableCell className="min-w-0 truncate px-4 py-2">
+                          {item.from_actual_location_name ?? item.from_actual_location ?? "—"}
+                        </AdminTableCell>
+                        <AdminTableCell className={tableSelectCellClass}>
+                          {order.can_edit ? (
+                            <select
+                              className={tableSelectClass}
+                              value={
+                                itemCustodians[item.asset_id] != null
+                                  ? String(itemCustodians[item.asset_id])
+                                  : ""
+                              }
+                              disabled={
+                                busy ||
+                                !toCostCenterId ||
+                                custodiansLoading ||
+                                custodianOptions.length === 0
+                              }
+                              onChange={(e) =>
+                                setItemCustodians((prev) => ({
+                                  ...prev,
+                                  [item.asset_id]: e.target.value ? Number(e.target.value) : null,
+                                }))
+                              }
+                              aria-label={`Custodian for ${item.asset_code}`}
+                            >
+                              <option value="">
+                                {!toCostCenterId
+                                  ? "Select cost center first"
+                                  : custodiansLoading
+                                    ? "Loading…"
+                                    : custodianOptions.length === 0
+                                      ? "No custodians assigned"
+                                      : "Select Custodian"}
+                              </option>
+                              {custodianOptions.map((u) => (
+                                <option key={u.id} value={String(u.id)}>
+                                  {u.full_name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            (item.to_asset_custodian_name ?? order.receiver_name ?? "—")
+                          )}
                         </AdminTableCell>
                         {showLocations ? (
                           receiveEditable ? (
@@ -1359,8 +1386,7 @@ export function DisposalOrderDetailPage() {
                 </div>
               </div>
             ) : null}
-          </AdminPanel>
-        </div>
+        </AdminPanel>
 
         <DisposalAuditLog events={order.audit} fillHeight />
           </div>

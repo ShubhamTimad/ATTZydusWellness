@@ -51,6 +51,8 @@ export type DisposalOrderItem = {
   to_actual_location?: string | null
   to_functional_location_name?: string | null
   to_actual_location_name?: string | null
+  to_asset_custodian_id?: number | null
+  to_asset_custodian_name?: string | null
 }
 
 export type DisposalOrderAudit = {

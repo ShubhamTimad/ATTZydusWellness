@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Package, PackageX, Search } from "lucide-react"
+import { Package, Search } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -14,12 +14,12 @@ import {
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
-  adminSwitchRowClass,
   adminTextareaClass,
 } from "@/components/layout/admin-ui"
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
@@ -80,7 +80,7 @@ export function DisposalOrderCreatePage() {
   const [requiresEngineering, setRequiresEngineering] = React.useState(false)
   const [remarks, setRemarks] = React.useState("")
   const [toCostCenterId, setToCostCenterId] = React.useState("")
-  const [receiverUserId, setReceiverUserId] = React.useState<number | null>(null)
+  const [itemCustodians, setItemCustodians] = React.useState<Record<number, number | null>>({})
   const [custodianOptions, setCustodianOptions] = React.useState<DisposalAssigneeOption[]>([])
   const [custodiansLoading, setCustodiansLoading] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
@@ -167,19 +167,20 @@ export function DisposalOrderCreatePage() {
   React.useEffect(() => {
     if (!toCostCenterId) {
       setCustodianOptions([])
-      setReceiverUserId(null)
+      setItemCustodians({})
       return
     }
     let cancelled = false
     setCustodiansLoading(true)
-    setReceiverUserId(null)
+    setItemCustodians({})
     void getJson<DisposalAssigneeListResponse>(
       `/admin/disposal-orders/cost-center-users?cost_center_id=${toCostCenterId}`,
     )
       .then((res) => {
         if (cancelled) return
         setCustodianOptions(res.items)
-        if (res.items.length === 1) setReceiverUserId(res.items[0]!.id)
+        // A yard with one custodian needs no picking — fill every asset.
+        if (res.items.length === 1) setSoleCustodian(res.items[0]!.id)
       })
       .catch(() => {
         if (!cancelled) setCustodianOptions([])
@@ -241,9 +242,20 @@ export function DisposalOrderCreatePage() {
     }
   }, [catalog, presetAssetIds])
 
+  /** Sole custodian of the yard: every asset gets them, including ones picked later. */
+  const soleCustodianId = custodianOptions.length === 1 ? custodianOptions[0]!.id : null
+  function setSoleCustodian(userId: number) {
+    setItemCustodians(Object.fromEntries(selected.map((a) => [a.id, userId])))
+  }
+
   function toggleAsset(row: AssetListItem) {
     if (selectedIds.has(row.id)) {
       setSelected((prev) => prev.filter((a) => a.id !== row.id))
+      setItemCustodians((prev) => {
+        const next = { ...prev }
+        delete next[row.id]
+        return next
+      })
       return
     }
     if (!isDisposable(row)) {
@@ -251,6 +263,45 @@ export function DisposalOrderCreatePage() {
       return
     }
     setSelected((prev) => [...prev, row])
+    if (soleCustodianId != null) {
+      setItemCustodians((prev) => ({ ...prev, [row.id]: soleCustodianId }))
+    }
+  }
+
+  const custodianPlaceholder = !toCostCenterId
+    ? "Select cost center first"
+    : custodiansLoading
+      ? "Loading…"
+      : custodianOptions.length === 0
+        ? "No custodians assigned"
+        : "Select Custodian"
+
+  function custodianSelect(assetId: number, disabled?: boolean) {
+    return (
+      <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        <select
+          className={adminSelectClass}
+          value={itemCustodians[assetId] != null ? String(itemCustodians[assetId]) : ""}
+          disabled={
+            disabled || !toCostCenterId || custodiansLoading || custodianOptions.length === 0
+          }
+          onChange={(e) =>
+            setItemCustodians((prev) => ({
+              ...prev,
+              [assetId]: e.target.value ? Number(e.target.value) : null,
+            }))
+          }
+          aria-label="Scrapyard custodian"
+        >
+          <option value="">{custodianPlaceholder}</option>
+          {custodianOptions.map((u) => (
+            <option key={u.id} value={String(u.id)}>
+              {u.full_name}
+            </option>
+          ))}
+        </select>
+      </div>
+    )
   }
 
   async function create(submit: boolean, assigneeUserId?: number) {
@@ -266,8 +317,11 @@ export function DisposalOrderCreatePage() {
       toast.error("Select a Scrapyard Cost Center.")
       return
     }
-    if (submit && receiverUserId == null) {
-      toast.error("Select a custodian for the scrapyard cost center.")
+    const missingCustodian = selected.filter((a) => itemCustodians[a.id] == null)
+    if (submit && missingCustodian.length > 0) {
+      toast.error(
+        `Select a custodian for ${missingCustodian.map((a) => a.asset_code).join(", ")}.`,
+      )
       return
     }
     if (submit && assigneeUserId == null) {
@@ -281,7 +335,10 @@ export function DisposalOrderCreatePage() {
         remarks: remarks.trim() || null,
         requires_engineering: requiresEngineering,
         to_cost_center_id: toCostCenterId ? Number(toCostCenterId) : null,
-        receiver_user_id: receiverUserId,
+        receiver_user_id: itemCustodians[selected[0]!.id] ?? null,
+        item_custodians: selected
+          .filter((a) => itemCustodians[a.id] != null)
+          .map((a) => ({ asset_id: a.id, to_asset_custodian_id: itemCustodians[a.id] as number })),
         assignee_user_id: assigneeUserId ?? null,
         submit,
       })
@@ -312,7 +369,7 @@ export function DisposalOrderCreatePage() {
         disabled={plantId == null}
         onChange={(e) => {
           setToCostCenterId(e.target.value)
-          setReceiverUserId(null)
+          setItemCustodians({})
         }}
       >
         <option value="">
@@ -346,7 +403,7 @@ export function DisposalOrderCreatePage() {
           void create(true)
         }}
       >
-        <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
+        <div className="grid gap-[var(--app-grid-gap)]">
           <AdminPanel
             title={`Select Asset `}
             // description="Active, approved assets from a single plant. Their current cost center becomes the order's From CC."
@@ -371,7 +428,7 @@ export function DisposalOrderCreatePage() {
                     setAssetSearch("")
                     setBrowseMore(false)
                     setToCostCenterId("")
-                    setReceiverUserId(null)
+                    setItemCustodians({})
                     setCustodianOptions([])
                   }}
                 >
@@ -407,7 +464,7 @@ export function DisposalOrderCreatePage() {
               ) : null}
             </div>
 
-            <div className="-mx-5 -mb-5 max-h-[28rem] overflow-auto">
+            <div className="-mx-5 max-h-[28rem] overflow-auto">
               <Table>
                 <TableHeader>
                   <AdminTableHeaderRow>
@@ -417,19 +474,17 @@ export function DisposalOrderCreatePage() {
                     <AdminTableHeadCell>Asset</AdminTableHeadCell>
                     <AdminTableHeadCell>Cost center</AdminTableHeadCell>
                     <AdminTableHeadCell>Actual Location 1</AdminTableHeadCell>
+                    <AdminTableHeadCell>Actual Location 2</AdminTableHeadCell>
+                    <AdminTableHeadCell>Custodian</AdminTableHeadCell>
                   </AdminTableHeaderRow>
                 </TableHeader>
                 <TableBody>
                   {!showCatalog ? (
                     selected.length === 0 ? (
-                      <AdminTableEmptyRow colSpan={4}>No Assets selected</AdminTableEmptyRow>
+                      <AdminTableEmptyRow colSpan={6}>No Assets selected</AdminTableEmptyRow>
                     ) : (
                       selected.map((a) => (
-                        <AdminTableBodyRow
-                          key={a.id}
-                          className="bg-primary/5"
-                          onClick={() => toggleAsset(a)}
-                        >
+                        <AdminTableBodyRow key={a.id} onClick={() => toggleAsset(a)}>
                           <AdminTableCell className="align-middle">
                             <div
                               onClick={(e) => e.stopPropagation()}
@@ -454,28 +509,28 @@ export function DisposalOrderCreatePage() {
                               a.functional_location ||
                               "—"}
                           </AdminTableCell>
+                          <AdminTableCell>
+                            {a.actual_location_description?.trim() || a.actual_location || "—"}
+                          </AdminTableCell>
+                          <AdminTableCell>{custodianSelect(a.id)}</AdminTableCell>
                         </AdminTableBodyRow>
                       ))
                     )
                   ) : plantId == null ? (
-                    <AdminTableEmptyRow colSpan={4}>
+                    <AdminTableEmptyRow colSpan={6}>
                       Select a plant to list assets.
                     </AdminTableEmptyRow>
                   ) : catalogLoading ? (
-                    <AdminTableEmptyRow colSpan={4}>Loading assets…</AdminTableEmptyRow>
+                    <AdminTableEmptyRow colSpan={6}>Loading assets…</AdminTableEmptyRow>
                   ) : catalog.length === 0 ? (
-                    <AdminTableEmptyRow colSpan={4}>
+                    <AdminTableEmptyRow colSpan={6}>
                       No active, approved assets match this search.
                     </AdminTableEmptyRow>
                   ) : (
                     catalog.map((a) => {
                       const checked = selectedIds.has(a.id)
                       return (
-                        <AdminTableBodyRow
-                          key={a.id}
-                          className={cn(checked && "bg-primary/5")}
-                          onClick={() => toggleAsset(a)}
-                        >
+                        <AdminTableBodyRow key={a.id} onClick={() => toggleAsset(a)}>
                           <AdminTableCell className="align-middle">
                             <div
                               onClick={(e) => e.stopPropagation()}
@@ -500,6 +555,12 @@ export function DisposalOrderCreatePage() {
                               a.functional_location ||
                               "—"}
                           </AdminTableCell>
+                          <AdminTableCell>
+                            {a.actual_location_description?.trim() || a.actual_location || "—"}
+                          </AdminTableCell>
+                          <AdminTableCell>
+                            {checked ? custodianSelect(a.id) : <span className="text-muted-foreground">—</span>}
+                          </AdminTableCell>
                         </AdminTableBodyRow>
                       )
                     })
@@ -507,63 +568,18 @@ export function DisposalOrderCreatePage() {
                 </TableBody>
               </Table>
             </div>
-          </AdminPanel>
 
-          <AdminPanel
-            title="Disposal Detail"
-            // description="Pick the scrapyard destination, approval route, and notes for approvers."
-            headerActions={<PackageX className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
-          >
-            <div className="grid grid-cols-1 gap-4">
-              <FormField id="receiver" labelText="Custodian" required>
-                <select
-                  id="receiver"
-                  className={adminSelectClass}
-                  value={receiverUserId != null ? String(receiverUserId) : ""}
-                  disabled={!toCostCenterId || custodiansLoading || custodianOptions.length === 0}
-                  onChange={(e) =>
-                    setReceiverUserId(e.target.value ? Number(e.target.value) : null)
-                  }
-                >
-                  <option value="">
-                    {!toCostCenterId
-                      ? "Select cost center first"
-                      : custodiansLoading
-                        ? "Loading…"
-                        : custodianOptions.length === 0
-                          ? "No custodians assigned"
-                          : "Select Custodian"}
-                  </option>
-                  {custodianOptions.map((u) => (
-                    <option key={u.id} value={String(u.id)}>
-                      {u.full_name}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
+            <div className="mt-5 grid grid-cols-1 gap-4 border-t border-border/60 pt-5">
               {canSubmitWithEngineering ? (
                 <label
                   htmlFor="requires_engineering"
-                  className={cn(
-                    adminSwitchRowClass,
-                    "cursor-pointer transition-colors hover:bg-muted/35",
-                    requiresEngineering && "border-primary/40 bg-primary/5",
-                  )}
+                  className="flex w-fit cursor-pointer items-center gap-3"
                 >
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <span className="block text-sm font-medium text-foreground">
-                    Engineering Approval Required
-                    </span>
-                    {/* <span className="block text-xs text-muted-foreground">
-                      Routes the order Th Engineering.
-                    </span> */}
-                  </div>
-                  <Checkbox
+                  <span className="app-form-label">Engineering Approval Required</span>
+                  <Switch
                     id="requires_engineering"
                     checked={requiresEngineering}
                     onCheckedChange={(v) => setRequiresEngineering(v === true)}
-                    className="size-5 border-foreground/35 shadow-sm"
                     aria-label="Engineering Approval Required"
                   />
                 </label>

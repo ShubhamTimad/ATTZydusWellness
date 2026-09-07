@@ -76,6 +76,7 @@ def _order(status: str, *, assets, order_id: int = 1, assigned_to: int | None = 
                 asset=a,
                 to_functional_location=None,
                 to_actual_location=None,
+                to_asset_custodian_id=None,
             )
             for i, a in enumerate(assets)
         ],
@@ -129,6 +130,96 @@ def test_submit_requires_custodian():
     svc = DisposalOrderService(MagicMock())
     with pytest.raises(ConflictError, match="Select a custodian"):
         svc._submit(order, actor_user_id=1, assignee_user_id=2)
+
+
+def _custodians_of_yard(*user_ids: int):
+    """Stand in for the cost-center custodian link table."""
+
+    def _assert(*, cost_center_id, user_id):
+        del cost_center_id
+        if int(user_id) not in user_ids:
+            raise ConflictError("Selected custodian must be assigned to the scrapyard cost center.")
+        return SimpleNamespace(id=int(user_id))
+
+    return _assert
+
+
+def test_each_asset_keeps_its_own_scrapyard_custodian():
+    order = _order(STATUS_DRAFT, assets=[_asset(1), _asset(2)])
+    svc = DisposalOrderService(MagicMock())
+    with patch.object(svc, "_assert_cc_custodian", _custodians_of_yard(11, 12)):
+        svc._resolve_item_custodians(
+            order,
+            item_custodians=[
+                {"asset_id": 1, "to_asset_custodian_id": 11},
+                {"asset_id": 2, "to_asset_custodian_id": 12},
+            ],
+            fallback_id=None,
+            require_all=True,
+        )
+    assert [i.to_asset_custodian_id for i in order.items] == [11, 12]
+    # The workflow still needs one order-level receiver; it mirrors the first asset.
+    assert order.receiver_user_id == 11
+
+
+def test_assets_left_unpicked_fall_back_to_the_order_custodian():
+    order = _order(STATUS_DRAFT, assets=[_asset(1), _asset(2)])
+    svc = DisposalOrderService(MagicMock())
+    with patch.object(svc, "_assert_cc_custodian", _custodians_of_yard(11, 12)):
+        svc._resolve_item_custodians(
+            order,
+            item_custodians=[{"asset_id": 2, "to_asset_custodian_id": 12}],
+            fallback_id=11,
+            require_all=True,
+        )
+    assert [i.to_asset_custodian_id for i in order.items] == [11, 12]
+
+
+def test_submit_names_the_asset_that_is_missing_a_custodian():
+    order = _order(STATUS_DRAFT, assets=[_asset(1), _asset(2)])
+    svc = DisposalOrderService(MagicMock())
+    with patch.object(svc, "_assert_cc_custodian", _custodians_of_yard(11)):
+        with pytest.raises(ConflictError, match="Select a custodian"):
+            svc._resolve_item_custodians(
+                order,
+                item_custodians=[{"asset_id": 1, "to_asset_custodian_id": 11}],
+                fallback_id=None,
+                require_all=True,
+            )
+
+
+def test_moving_the_scrapyard_drops_custodians_who_do_not_work_there():
+    order = _order(STATUS_DRAFT, assets=[_asset(1), _asset(2)])
+    order.items[0].to_asset_custodian_id = 11
+    order.items[1].to_asset_custodian_id = 99
+    svc = DisposalOrderService(MagicMock())
+    with patch.object(svc, "_assert_cc_custodian", _custodians_of_yard(11)):
+        svc._resolve_item_custodians(
+            order, item_custodians=None, fallback_id=None, require_all=False
+        )
+    assert [i.to_asset_custodian_id for i in order.items] == [11, None]
+    # An explicit pick is the user's mistake to fix, so it must not be silently dropped.
+    with patch.object(svc, "_assert_cc_custodian", _custodians_of_yard(11)):
+        with pytest.raises(ConflictError, match="assigned to the scrapyard"):
+            svc._resolve_item_custodians(
+                order,
+                item_custodians=[{"asset_id": 2, "to_asset_custodian_id": 99}],
+                fallback_id=None,
+                require_all=False,
+            )
+
+
+def test_any_asset_custodian_may_receive_the_order():
+    order = _order(STATUS_PENDING_RECEIPT, assets=[_asset(1), _asset(2)])
+    order.items[0].to_asset_custodian_id = 11
+    order.items[1].to_asset_custodian_id = 12
+    order.receiver_user_id = 11
+    svc = DisposalOrderService(MagicMock())
+    with patch.object(svc, "_actor_may_act", return_value=False):
+        # Custodian of the second asset is not the assignee, but the yard is still theirs.
+        svc._assert_actor_may_receive(order, actor_user_id=12)
+        with pytest.raises(ConflictError, match="assigned receiver"):
+            svc._assert_actor_may_receive(order, actor_user_id=13)
 
 
 def test_list_cost_center_custodians_maps_users():

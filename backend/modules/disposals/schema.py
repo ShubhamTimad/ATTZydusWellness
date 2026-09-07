@@ -7,6 +7,11 @@ from pydantic import BaseModel, Field
 from modules.platform.tasks.schema import TaskApprovalStepLinePublic
 
 
+class DisposalItemCustodian(BaseModel):
+    asset_id: int
+    to_asset_custodian_id: int
+
+
 class CreateDisposalOrderRequest(BaseModel):
     asset_ids: list[int] = Field(min_length=1)
     remarks: str | None = None
@@ -14,8 +19,10 @@ class CreateDisposalOrderRequest(BaseModel):
     # Scrapyard destination (must be is_scrapyard); required when submit=true.
     to_cost_center_id: int | None = Field(default=None, ge=1)
     assignee_user_id: int | None = Field(default=None, ge=1)
-    # Scrapyard cost-center custodian (receiver). Required on submit.
+    # Scrapyard cost-center custodian (receiver). Required on submit; mirrors the first item.
     receiver_user_id: int | None = Field(default=None, ge=1)
+    # Per-asset scrapyard custodian; falls back to receiver_user_id for assets left out.
+    item_custodians: list[DisposalItemCustodian] | None = None
     submit: bool = False
 
 
@@ -25,6 +32,7 @@ class UpdateDisposalOrderRequest(BaseModel):
     asset_ids: list[int] | None = None
     to_cost_center_id: int | None = Field(default=None, ge=1)
     receiver_user_id: int | None = Field(default=None, ge=1)
+    item_custodians: list[DisposalItemCustodian] | None = None
 
 
 class SubmitDisposalOrderRequest(BaseModel):
@@ -105,6 +113,8 @@ class DisposalOrderItemPublic(BaseModel):
     to_actual_location: str | None = None
     to_functional_location_name: str | None = None
     to_actual_location_name: str | None = None
+    to_asset_custodian_id: int | None = None
+    to_asset_custodian_name: str | None = None
 
 
 class DisposalOrderAuditPublic(BaseModel):

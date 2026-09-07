@@ -400,8 +400,8 @@ def build_pdf(document: ReportDocument) -> bytes:
 
 
 def _filename_token(value: str, *, fallback: str = "Report") -> str:
-    cleaned = re.sub(r"[^\w\-]+", "_", (value or "").strip(), flags=re.UNICODE)
-    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    cleaned = re.sub(r'[<>:"/\\|?*]+', "", (value or "").strip())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ._")
     return cleaned or fallback
 
 
@@ -412,22 +412,12 @@ def report_filename(
     report_name: str | None = None,
     financial_year: str | None = None,
 ) -> str:
-    """Zydus_Takeda_<Report Name>_<Financial_Year>_<Date-Time>.ext"""
-    from modules.platform.settings.financial_year import (
-        financial_year_period_for,
-        financial_year_period_for_start_year,
-    )
-
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    """{Report name}_{DD-MM-YYYY}.ext"""
+    _ = financial_year
+    stamp = datetime.now().strftime("%d-%m-%Y")
     ext = "xlsx" if fmt == "xlsx" else "pdf"
     name = _filename_token(report_name or report_key.replace("_", " ").title())
-    fy_raw = (financial_year or "").strip()
-    if not fy_raw:
-        fy_raw = financial_year_period_for().label
-    elif fy_raw.isdigit():
-        fy_raw = financial_year_period_for_start_year(int(fy_raw)).label
-    fy = _filename_token(fy_raw, fallback="FY")
-    return f"Zydus_Takeda_{name}_{fy}_{stamp}.{ext}"
+    return f"{name}_{stamp}.{ext}"
 
 
 def content_type_for_format(fmt: str) -> str:

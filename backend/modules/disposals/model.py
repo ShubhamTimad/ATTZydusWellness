@@ -99,9 +99,14 @@ class AssetDisposalOrderItem(Base):
     # several visits, so they are set before the order moves on.
     to_functional_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     to_actual_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Scrapyard custodian for this asset; the order's receiver_user_id mirrors the first one.
+    to_asset_custodian_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     order = relationship("AssetDisposalOrder", back_populates="items")
     asset = relationship("AssetMaster")
+    to_asset_custodian = relationship("User", foreign_keys=[to_asset_custodian_id])
 
 
 class AssetDisposalOrderAudit(Base):

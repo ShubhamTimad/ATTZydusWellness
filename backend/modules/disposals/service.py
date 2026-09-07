@@ -280,6 +280,19 @@ def _disposal_loc_map(item_locations: list | None) -> dict[int, tuple[str, str]]
     return out
 
 
+def _item_dest_custodian_ids(order: AssetDisposalOrder) -> set[int]:
+    """Every user who is custodian of at least one asset on this order, plus the order receiver."""
+    ids: set[int] = set()
+    receiver = getattr(order, "receiver_user_id", None)
+    if receiver is not None:
+        ids.add(int(receiver))
+    for item in getattr(order, "items", None) or []:
+        cid = getattr(item, "to_asset_custodian_id", None)
+        if cid is not None:
+            ids.add(int(cid))
+    return ids
+
+
 def _item_location_snapshot(order: AssetDisposalOrder) -> dict[int, tuple[str | None, str | None]]:
     return {
         int(i.asset_id): (i.to_functional_location, i.to_actual_location) for i in order.items
@@ -644,6 +657,72 @@ class DisposalOrderService:
             )
         return user
 
+    def _resolve_item_custodians(
+        self,
+        order: AssetDisposalOrder,
+        *,
+        item_custodians: list | None,
+        fallback_id: int | None,
+        require_all: bool,
+    ) -> None:
+        """Point every asset at a custodian of the current scrapyard cost center.
+
+        An explicit pick that does not belong to the yard is an error the user can fix; one
+        merely inherited from an earlier edit is dropped, since the cost center may have moved
+        out from under it. ``receiver_user_id`` mirrors the first custodian so the workflow
+        still has one order-level receiver to assign and to bounce back to.
+        """
+        cc_id = order.to_cost_center_id
+        if cc_id is None:
+            for item in order.items:
+                item.to_asset_custodian_id = None
+            order.receiver_user_id = None
+            return
+
+        picked: dict[int, int] = {}
+        for row in item_custodians or []:
+            if isinstance(row, dict):
+                picked[int(row["asset_id"])] = int(row["to_asset_custodian_id"])
+            else:
+                picked[int(row.asset_id)] = int(row.to_asset_custodian_id)
+
+        inherited_ok: dict[int, int | None] = {}
+
+        def _keep_if_valid(user_id: int) -> int | None:
+            if user_id not in inherited_ok:
+                try:
+                    inherited_ok[user_id] = int(
+                        self._assert_cc_custodian(
+                            cost_center_id=int(cc_id), user_id=user_id
+                        ).id
+                    )
+                except (ConflictError, NotFoundError):
+                    inherited_ok[user_id] = None
+            return inherited_ok[user_id]
+
+        for item in order.items:
+            wanted = picked.get(int(item.asset_id))
+            if wanted is not None:
+                item.to_asset_custodian_id = int(
+                    self._assert_cc_custodian(cost_center_id=int(cc_id), user_id=wanted).id
+                )
+                continue
+            inherited = item.to_asset_custodian_id or fallback_id
+            item.to_asset_custodian_id = (
+                _keep_if_valid(int(inherited)) if inherited is not None else None
+            )
+
+        if require_all and any(i.to_asset_custodian_id is None for i in order.items):
+            raise ConflictError("Select a custodian for every asset.")
+        order.receiver_user_id = next(
+            (
+                int(i.to_asset_custodian_id)
+                for i in order.items
+                if i.to_asset_custodian_id is not None
+            ),
+            None,
+        )
+
     def _require_scrapyard_locations(
         self, *, plant_id: int, functional_location: str, actual_location: str
     ) -> tuple[str, str]:
@@ -899,15 +978,8 @@ class DisposalOrderService:
             )
         if data.submit and to_cc is None:
             raise ConflictError("Select a scrapyard cost center before submitting.")
-        receiver = None
-        if data.receiver_user_id is not None:
-            if to_cc is None:
-                raise ConflictError("Select a scrapyard cost center before choosing a custodian.")
-            receiver = self._assert_cc_custodian(
-                cost_center_id=int(to_cc.id), user_id=int(data.receiver_user_id)
-            )
-        if data.submit and receiver is None:
-            raise ConflictError("Select a custodian for the scrapyard cost center.")
+        if to_cc is None and (data.receiver_user_id is not None or data.item_custodians):
+            raise ConflictError("Select a scrapyard cost center before choosing a custodian.")
         order = AssetDisposalOrder(
             order_number=self._next_order_number(),
             plant_id=int(plant_id),
@@ -917,11 +989,16 @@ class DisposalOrderService:
             created_by=actor_user_id,
             status=STATUS_DRAFT,
             remarks=_strip_or_none(data.remarks),
-            receiver_user_id=int(receiver.id) if receiver is not None else None,
         )
         self._db.add(order)
         self._db.flush()
         self._replace_items(order, assets)
+        self._resolve_item_custodians(
+            order,
+            item_custodians=data.item_custodians,
+            fallback_id=data.receiver_user_id,
+            require_all=bool(data.submit),
+        )
         self._mark_assets_pending_disposal(assets)
         log_disposal_event(
             self._db,
@@ -1006,26 +1083,17 @@ class DisposalOrderService:
                     order.to_cost_center_id = None
             self._replace_items(order, assets)
             self._mark_assets_pending_disposal(added_assets)
-        if "receiver_user_id" in patch:
-            rid = patch["receiver_user_id"]
-            if rid is None or order.to_cost_center_id is None:
-                order.receiver_user_id = None
-            else:
-                self._assert_cc_custodian(
-                    cost_center_id=int(order.to_cost_center_id), user_id=int(rid)
-                )
-                order.receiver_user_id = int(rid)
-        elif order.receiver_user_id is not None:
-            if order.to_cost_center_id is None:
-                order.receiver_user_id = None
-            else:
-                try:
-                    self._assert_cc_custodian(
-                        cost_center_id=int(order.to_cost_center_id),
-                        user_id=int(order.receiver_user_id),
-                    )
-                except (ConflictError, NotFoundError):
-                    order.receiver_user_id = None
+        # Assets or the scrapyard may have just changed, so re-check custodians either way.
+        self._resolve_item_custodians(
+            order,
+            item_custodians=data.item_custodians,
+            fallback_id=(
+                patch["receiver_user_id"]
+                if "receiver_user_id" in patch
+                else order.receiver_user_id
+            ),
+            require_all=False,
+        )
         log_disposal_event(
             self._db,
             order_id=int(order.id),
@@ -1504,6 +1572,10 @@ class DisposalOrderService:
     ) -> None:
         if order.status != STATUS_PENDING_RECEIPT and not _is_returned_to_receiver(self._db, order):
             raise ConflictError("Only fully approved disposal orders can be received.")
+        # Assets on one order can belong to different scrapyard custodians, so any of them may
+        # do the receiving — not just the single user the workflow happened to assign.
+        if int(actor_user_id) in _item_dest_custodian_ids(order):
+            return
         if not self._actor_may_act(
             order, actor_user_id=actor_user_id, permission=PERMISSION_RECEIVE
         ):
@@ -2311,6 +2383,12 @@ class DisposalOrderService:
                     to_actual_location=to_item_al,
                     to_functional_location_name=to_item_fl_n,
                     to_actual_location_name=to_item_al_n,
+                    to_asset_custodian_id=(
+                        int(i.to_asset_custodian_id) if i.to_asset_custodian_id else None
+                    ),
+                    to_asset_custodian_name=(
+                        i.to_asset_custodian.full_name if i.to_asset_custodian else None
+                    ),
                 )
             )
 
