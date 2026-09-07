@@ -19,6 +19,7 @@ from modules.disposals.schema import (
     DisposalOrderListResponse,
     ReassignDisposalRequest,
     ReceiveDisposalRequest,
+    SaveDisposalLocationsRequest,
     SubmitDisposalOrderRequest,
     UpdateDisposalOrderRequest,
 )
@@ -127,9 +128,13 @@ def list_assignees(
         None,
         description="Selected asset ids so the create picker can resolve the From cost center",
     ),
+    for_next: bool = Query(
+        False,
+        description="Resolve the next step's role from order_id when the caller has no role_id",
+    ),
 ) -> DisposalAssigneeListResponse:
     try:
-        if role_id is not None:
+        if role_id is not None or (for_next and order_id is not None):
             return svc.list_assignees_by_role_id(
                 role_id=role_id,
                 order_id=order_id,
@@ -305,6 +310,21 @@ def reassign_approver(
             actor_user_id=int(current.subject),
             assignee_user_id=int(body.assignee_user_id),
         )
+    except Exception as e:
+        raise _http(e) from e
+
+
+@router.post("/{order_id}/receive-locations", response_model=DisposalOrderDetail)
+def save_receive_locations(
+    order_id: int,
+    body: SaveDisposalLocationsRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[DisposalOrderService, Depends(get_disposal_service)],
+    _: Annotated[object, Depends(require_permission("disposal.receive"))],
+) -> DisposalOrderDetail:
+    """Park partially filled scrapyard locations so the receiver can finish later."""
+    try:
+        return svc.save_receive_locations(order_id, body, actor_user_id=int(current.subject))
     except Exception as e:
         raise _http(e) from e
 

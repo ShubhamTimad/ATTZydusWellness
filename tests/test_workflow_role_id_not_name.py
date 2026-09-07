@@ -25,7 +25,9 @@ def test_frontend_next_assignee_urls_prefer_role_id() -> None:
         "frontend/src/pages/capex/capex-detail.tsx",
     ):
         src = _read(rel)
-        assert "assignees?role_id=" in src
+        # role_id may be one of several query params (transfer/disposal also send for_next),
+        # but the pool must never be picked by role display name or hardcoded level.
+        assert "role_id=" in src
         assert 'assignees?level=central_finance' not in src
 
 

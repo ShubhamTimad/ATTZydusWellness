@@ -70,6 +70,7 @@ from modules.disposals.schema import (
     DisposalListFilterPlant,
     DisposalWorkflowRunPublic,
     ReceiveDisposalRequest,
+    SaveDisposalLocationsRequest,
     SubmitDisposalOrderRequest,
     UpdateDisposalOrderRequest,
 )
@@ -192,45 +193,19 @@ def _ensure_financial(asset: AssetMaster) -> AssetFinancialInformation:
 def _scrapyard_locations_after_receive(
     db: Session, order: AssetDisposalOrder
 ) -> tuple[str | None, str | None]:
-    """AL1/AL2 from last receive — also after CF bounce so details still show prior values."""
+    """Order-level AL1/AL2 — only meaningful when every asset landed in the same spot.
+
+    Assets can now be received into different scrapyard locations, so a mixed order has no
+    single destination; the detail page falls back to the per-asset columns.
+    """
     show = order.status in (STATUS_PENDING_CF_CLOSE, STATUS_CLOSED) or _is_returned_to_receiver(
         db, order
     )
     if not show:
         return None, None
-    row = db.scalar(
-        select(AssetDisposalOrderAudit)
-        .where(
-            AssetDisposalOrderAudit.order_id == int(order.id),
-            AssetDisposalOrderAudit.action == "received",
-        )
-        .order_by(AssetDisposalOrderAudit.id.desc())
-        .limit(1)
-    )
-    if row is not None and isinstance(row.new_value, dict):
-        fl = _strip_or_none(
-            None
-            if row.new_value.get("functional_location") is None
-            else str(row.new_value.get("functional_location"))
-        )
-        al = _strip_or_none(
-            None
-            if row.new_value.get("actual_location") is None
-            else str(row.new_value.get("actual_location"))
-        )
-        if fl or al:
-            return fl, al
-    # After bounce, assets are reverted — only use live asset locs when still at CF/closed.
-    if order.status not in (STATUS_PENDING_CF_CLOSE, STATUS_CLOSED):
-        return None, None
-    for item in order.items or []:
-        asset = item.asset
-        if asset is None:
-            continue
-        fl = _asset_functional_location(asset)
-        al = _asset_actual_location(asset)
-        if fl or al:
-            return fl, al
+    pairs = {(i.to_functional_location, i.to_actual_location) for i in order.items or []}
+    if len(pairs) == 1:
+        return next(iter(pairs))
     return None, None
 
 
@@ -286,6 +261,101 @@ def require_scrapyard_locations(
     if not bool(al.is_active):
         raise ConflictError("Actual Location 2 is inactive.")
     return fl.code, al.code
+
+
+def _disposal_loc_map(item_locations: list | None) -> dict[int, tuple[str, str]]:
+    """Per-asset {asset_id: (AL1, AL2)} from request rows; half-filled rows are ignored."""
+    out: dict[int, tuple[str, str]] = {}
+    for row in item_locations or []:
+        if isinstance(row, dict):
+            aid = int(row["asset_id"])
+            fl = _strip_or_none(row.get("to_functional_location"))
+            al = _strip_or_none(row.get("to_actual_location"))
+        else:
+            aid = int(row.asset_id)
+            fl = _strip_or_none(getattr(row, "to_functional_location", None))
+            al = _strip_or_none(getattr(row, "to_actual_location", None))
+        if fl and al:
+            out[aid] = (fl, al)
+    return out
+
+
+def _item_location_snapshot(order: AssetDisposalOrder) -> dict[int, tuple[str | None, str | None]]:
+    return {
+        int(i.asset_id): (i.to_functional_location, i.to_actual_location) for i in order.items
+    }
+
+
+def _changed_item_locations(
+    order: AssetDisposalOrder, before: dict[int, tuple[str | None, str | None]]
+) -> list[dict]:
+    """Audit rows for assets this action actually moved — locations saved earlier aren't repeated."""
+    rows: list[dict] = []
+    for item in order.items:
+        if before.get(int(item.asset_id)) == (item.to_functional_location, item.to_actual_location):
+            continue
+        rows.append(
+            {
+                "asset_code": (item.asset.asset_code if item.asset else str(item.asset_id)),
+                "to_functional_location": item.to_functional_location,
+                "to_actual_location": item.to_actual_location,
+            }
+        )
+    return rows
+
+
+def _apply_receive_assets(
+    db: Session,
+    order: AssetDisposalOrder,
+    *,
+    cost_center_code: str,
+    functional_location: str | None,
+    actual_location: str | None,
+    item_locations: list | None = None,
+) -> tuple[str | None, str | None]:
+    """Stamp scrapyard CC + per-asset Actual Location 1/2 onto the items and their assets.
+
+    Precedence per asset: the request's per-asset row, then whatever the receiver parked
+    earlier via Save Locations, then the order-level pair. Returns the shared pair when every
+    asset ended up in the same place, so the audit entry can name it once.
+    """
+    if not order.items:
+        raise ConflictError("Disposal has no assets to receive.")
+    loc_map = _disposal_loc_map(item_locations)
+    fallback = (_strip_or_none(functional_location), _strip_or_none(actual_location))
+    checked: dict[tuple[str, str], tuple[str, str]] = {}
+
+    for item in order.items:
+        pair = loc_map.get(int(item.asset_id))
+        if pair is None and item.to_functional_location and item.to_actual_location:
+            pair = (item.to_functional_location, item.to_actual_location)
+        if pair is None and all(fallback):
+            pair = fallback  # type: ignore[assignment]
+        if pair is None:
+            code = item.asset.asset_code if item.asset else str(item.asset_id)
+            raise ConflictError(
+                f"Actual Location 1 and Actual Location 2 are required for {code} before receiving."
+            )
+        if pair not in checked:
+            checked[pair] = require_scrapyard_locations(
+                db,
+                plant_id=int(order.plant_id),
+                functional_location=pair[0],
+                actual_location=pair[1],
+            )
+        fl, al = checked[pair]
+        item.to_functional_location = fl
+        item.to_actual_location = al
+        asset = item.asset
+        if asset is None:
+            continue
+        loc = _ensure_location(asset)
+        loc.functional_location = fl
+        loc.actual_location = al
+        _ensure_financial(asset).cost_center = cost_center_code
+
+    shared = set(checked.values())
+    return next(iter(shared)) if len(shared) == 1 else (None, None)
 
 
 def _users_in_role(db: Session, role_id: int) -> list[User]:
@@ -730,7 +800,7 @@ class DisposalOrderService:
     def list_assignees_by_role_id(
         self,
         *,
-        role_id: int,
+        role_id: int | None = None,
         order_id: int | None = None,
         source_cost_center_id: int | None = None,
         destination_cost_center_id: int | None = None,
@@ -739,7 +809,17 @@ class DisposalOrderService:
 
         order = self._load_order(int(order_id)) if order_id is not None else None
         step = self._picker_step_for_order(order) if order is not None else None
-        rid = int(step.approver_role_id) if step is not None else int(role_id)
+        if step is not None:
+            rid: int | None = int(step.approver_role_id)
+        elif role_id is not None:
+            rid = int(role_id)
+        else:
+            # Legacy workflows end at approve, so the next user is the receiver: resolve the
+            # role that grants disposal.receive rather than trusting the caller to know it.
+            receiver = _role_with_permission(self._db, PERMISSION_RECEIVE)
+            if receiver is None:
+                raise ConflictError("No role grants disposal receive — cannot list assignees.")
+            rid = int(receiver.id)
         # Last-step receiver has no next workflow step — pool is scrapyard Cost Center User.
         fallback = ORG_SCOPE_DESTINATION if step is None and order is not None else None
         role, users = self._assignee_pool(
@@ -1419,17 +1499,63 @@ class DisposalOrderService:
         self._db.commit()
         return True
 
-    def receive_order(
-        self, order_id: int, data: ReceiveDisposalRequest, *, actor_user_id: int
-    ) -> DisposalOrderDetail:
-        order = self._load_order(order_id)
-        returned = _is_returned_to_receiver(self._db, order)
-        if order.status != STATUS_PENDING_RECEIPT and not returned:
+    def _assert_actor_may_receive(
+        self, order: AssetDisposalOrder, *, actor_user_id: int
+    ) -> None:
+        if order.status != STATUS_PENDING_RECEIPT and not _is_returned_to_receiver(self._db, order):
             raise ConflictError("Only fully approved disposal orders can be received.")
         if not self._actor_may_act(
             order, actor_user_id=actor_user_id, permission=PERMISSION_RECEIVE
         ):
             raise ConflictError("Only the assigned receiver can receive this disposal order.")
+
+    def save_receive_locations(
+        self, order_id: int, data: SaveDisposalLocationsRequest, *, actor_user_id: int
+    ) -> DisposalOrderDetail:
+        """Park the receiver's progress: save the scrapyard locations picked so far, finish later."""
+        order = self._load_order(order_id)
+        self._assert_actor_may_receive(order, actor_user_id=actor_user_id)
+        by_asset = {int(row.asset_id): row for row in data.item_locations}
+        saved: list[dict] = []
+        for item in order.items:
+            row = by_asset.get(int(item.asset_id))
+            if row is None:
+                continue
+            fl = _strip_or_none(row.to_functional_location)
+            al = _strip_or_none(row.to_actual_location)
+            if (item.to_functional_location, item.to_actual_location) == (fl, al):
+                continue
+            if fl and al:
+                # Catch a non-scrapyard pick now rather than at receive.
+                fl, al = self._require_scrapyard_locations(
+                    plant_id=int(order.plant_id), functional_location=fl, actual_location=al
+                )
+            item.to_functional_location = fl
+            item.to_actual_location = al
+            saved.append(
+                {
+                    "asset_code": item.asset.asset_code if item.asset else str(item.asset_id),
+                    "to_functional_location": fl,
+                    "to_actual_location": al,
+                }
+            )
+        if not saved:
+            return self.get_order(order_id, viewer_user_id=actor_user_id)
+        log_disposal_event(
+            self._db,
+            order_id=int(order.id),
+            action="receive_locations_saved",
+            actor_user_id=actor_user_id,
+            new_value={"item_locations": saved},
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def receive_order(
+        self, order_id: int, data: ReceiveDisposalRequest, *, actor_user_id: int
+    ) -> DisposalOrderDetail:
+        order = self._load_order(order_id)
+        self._assert_actor_may_receive(order, actor_user_id=actor_user_id)
 
         # Engine workflows: REST receive must advance the pending receive task (not leave it open).
         pending_receive = self._pending_step_task(order, step_kind="receive")
@@ -1443,6 +1569,7 @@ class DisposalOrderService:
                     next_assigned_user_id=int(data.assigned_to),
                     to_functional_location=data.functional_location,
                     to_actual_location=data.actual_location,
+                    item_locations=data.item_locations,
                 )
             except ApprovalError as exc:
                 raise ConflictError(str(exc)) from exc
@@ -1460,20 +1587,15 @@ class DisposalOrderService:
         if cf_user is None or not cf_user.is_active:
             raise NotFoundError("User", data.assigned_to)
 
-        functional_location, actual_location = self._require_scrapyard_locations(
-            plant_id=int(order.plant_id),
+        locations_before = _item_location_snapshot(order)
+        functional_location, actual_location = _apply_receive_assets(
+            self._db,
+            order,
+            cost_center_code=cc.code,
             functional_location=data.functional_location,
             actual_location=data.actual_location,
+            item_locations=data.item_locations,
         )
-
-        for item in order.items:
-            asset = item.asset
-            if asset is None:
-                continue
-            loc = _ensure_location(asset)
-            loc.functional_location = functional_location
-            loc.actual_location = actual_location
-            _ensure_financial(asset).cost_center = cc.code
 
         old_status = order.status
         if data.remarks is not None:
@@ -1495,6 +1617,7 @@ class DisposalOrderService:
                 "cost_center": cc.code,
                 "functional_location": functional_location,
                 "actual_location": actual_location,
+                "item_locations": _changed_item_locations(order, locations_before),
             },
         )
         self._db.commit()
@@ -2155,22 +2278,24 @@ class DisposalOrderService:
             functional_location_code=to_fl,
             actual_location_code=to_al,
         )
-        from_name_cache: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+        name_cache: dict[tuple[str, str], tuple[str | None, str | None]] = {}
 
-        def _from_names(fl: str | None, al: str | None) -> tuple[str | None, str | None]:
+        def _loc_names(fl: str | None, al: str | None) -> tuple[str | None, str | None]:
             key = ((fl or "").strip(), (al or "").strip())
-            if key not in from_name_cache:
-                from_name_cache[key] = resolve_plant_location_names(
+            if key not in name_cache:
+                name_cache[key] = resolve_plant_location_names(
                     self._db,
                     plant_id=int(order.plant_id),
                     functional_location_code=fl,
                     actual_location_code=al,
                 )
-            return from_name_cache[key]
+            return name_cache[key]
 
         item_publics: list[DisposalOrderItemPublic] = []
         for i in order.items:
-            fl_n, al_n = _from_names(i.from_functional_location, i.from_actual_location)
+            fl_n, al_n = _loc_names(i.from_functional_location, i.from_actual_location)
+            to_item_fl, to_item_al = i.to_functional_location, i.to_actual_location
+            to_item_fl_n, to_item_al_n = _loc_names(to_item_fl, to_item_al)
             item_publics.append(
                 DisposalOrderItemPublic(
                     id=int(i.id),
@@ -2182,6 +2307,10 @@ class DisposalOrderService:
                     from_actual_location=i.from_actual_location,
                     from_functional_location_name=fl_n,
                     from_actual_location_name=al_n,
+                    to_functional_location=to_item_fl,
+                    to_actual_location=to_item_al,
+                    to_functional_location_name=to_item_fl_n,
+                    to_actual_location_name=to_item_al_n,
                 )
             )
 
@@ -2345,6 +2474,7 @@ def apply_disposal_receive(
     functional_location: str | None,
     actual_location: str | None,
     next_assignee_user_id: int,
+    item_locations: list | None = None,
     step_role_name: str | None = None,
     comment: str | None = None,
 ) -> None:
@@ -2373,21 +2503,15 @@ def apply_disposal_receive(
         raise ConflictError("Selected cost center is not marked as a scrapyard.")
     if not bool(cc.is_active):
         raise ConflictError("Scrapyard cost center is inactive.")
-    fl, al = require_scrapyard_locations(
+    locations_before = _item_location_snapshot(order)
+    fl, al = _apply_receive_assets(
         db,
-        plant_id=int(order.plant_id),
-        functional_location=functional_location or "",
-        actual_location=actual_location or "",
+        order,
+        cost_center_code=cc.code,
+        functional_location=functional_location,
+        actual_location=actual_location,
+        item_locations=item_locations,
     )
-
-    for item in order.items:
-        asset = item.asset
-        if asset is None:
-            continue
-        loc = _ensure_location(asset)
-        loc.functional_location = fl
-        loc.actual_location = al
-        _ensure_financial(asset).cost_center = cc.code
 
     old_status = order.status
     order.to_cost_center_id = int(cc.id)
@@ -2412,6 +2536,7 @@ def apply_disposal_receive(
             "cost_center": cc.code,
             "functional_location": fl,
             "actual_location": al,
+            "item_locations": _changed_item_locations(order, locations_before),
             "comment": (comment or "").strip() or None,
         },
     )

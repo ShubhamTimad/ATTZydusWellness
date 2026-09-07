@@ -62,6 +62,8 @@ export function disposalAuditHeadline(ev: DisposalOrderAudit): string {
       return step ? `Rejected — ${step}` : "Rejected"
     case "received":
       return step ? `Received — ${step}` : "Received"
+    case "receive_locations_saved":
+      return "Actual Locations Saved"
     case "closed":
       return step ? `Closed — ${step}` : "Closed"
     case "archived":
@@ -89,6 +91,7 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
     action === "approved" ||
     action === "rejected" ||
     action === "received" ||
+    action === "receive_locations_saved" ||
     action === "closed" ||
     action === "submitted" ||
     action === "resubmitted" ||
@@ -105,13 +108,33 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
       lines.push(action === "rejected" ? `Rejected Reason: ${comment}` : `Comment: ${comment}`)
     }
 
-    if (action === "received") {
+    if (action === "received" || action === "receive_locations_saved") {
       const cc = fromNew(ev, "cost_center")
       const loc1 = fromNew(ev, "functional_location")
       const loc2 = fromNew(ev, "actual_location")
+      const itemLocs = ev.new_value?.item_locations
       if (cc) lines.push(`Cost center: ${cc}`)
-      if (loc1) lines.push(`Location 1: ${loc1}`)
-      if (loc2) lines.push(`Location 2: ${loc2}`)
+      // Per-asset rows list only what this action changed; empty means nothing new to report.
+      if (Array.isArray(itemLocs)) {
+        for (const row of itemLocs) {
+          if (!row || typeof row !== "object") continue
+          const rec = row as Record<string, unknown>
+          const code = typeof rec.asset_code === "string" ? rec.asset_code : ""
+          const a1 =
+            typeof rec.to_functional_location === "string" ? rec.to_functional_location : ""
+          const a2 = typeof rec.to_actual_location === "string" ? rec.to_actual_location : ""
+          const bits = [
+            a1 && `Actual Location 1: ${a1}`,
+            a2 && `Actual Location 2: ${a2}`,
+          ].filter(Boolean)
+          if (code) lines.push(code)
+          if (bits.length) lines.push(...bits.map((bit) => `   ${bit}`))
+          else if (code) lines.push("   Locations cleared")
+        }
+      } else {
+        if (loc1) lines.push(`Actual Location 1: ${loc1}`)
+        if (loc2) lines.push(`Actual Location 2: ${loc2}`)
+      }
     }
 
     if (action === "closed") {
@@ -138,6 +161,7 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
     "assignee_user_id",
     "next_assignee_user_id",
     "approval_request_id",
+    "item_locations",
   ])
   const preferName: [string, string][] = [
     ["assigned_to", "assigned_to_name"],
@@ -166,8 +190,8 @@ export function disposalAuditDetailLines(ev: DisposalOrderAudit): string[] {
     step_role_name: "Step",
     cost_center: "Cost center",
     to_cost_center: "Destination",
-    functional_location: "Location 1",
-    actual_location: "Location 2",
+    functional_location: "Actual Location 1",
+    actual_location: "Actual Location 2",
   }
 
   for (const key of [...new Set([...Object.keys(oldV), ...Object.keys(newV)])]) {
@@ -191,9 +215,9 @@ function activityForEvent(ev: DisposalOrderAudit): React.ReactNode {
       <p className="text-sm font-medium leading-snug text-foreground">
         {disposalAuditHeadline(ev)}
       </p>
-      {details.map((line) => (
+      {details.map((line, i) => (
         <p
-          key={line}
+          key={`${i}-${line}`}
           className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground"
         >
           {line}

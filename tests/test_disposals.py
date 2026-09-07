@@ -69,7 +69,16 @@ def _order(status: str, *, assets, order_id: int = 1, assigned_to: int | None = 
         rejection_comment=None,
         closed_at=None,
         requires_engineering=False,
-        items=[SimpleNamespace(id=i + 1, asset_id=a.id, asset=a) for i, a in enumerate(assets)],
+        items=[
+            SimpleNamespace(
+                id=i + 1,
+                asset_id=a.id,
+                asset=a,
+                to_functional_location=None,
+                to_actual_location=None,
+            )
+            for i, a in enumerate(assets)
+        ],
     )
 
 
@@ -81,28 +90,28 @@ def test_action_and_entity_mapping():
     )
 
 
-def test_scrapyard_locations_from_received_audit():
-    order = _order(STATUS_PENDING_CF_CLOSE, assets=[_asset()])
-    order.id = 5
+def test_scrapyard_locations_from_received_items():
+    order = _order(STATUS_PENDING_CF_CLOSE, assets=[_asset(1), _asset(2)])
+    for item in order.items:
+        item.to_functional_location = "FL-YARD"
+        item.to_actual_location = "AL-YARD-01"
     db = MagicMock()
-    db.scalar.return_value = SimpleNamespace(
-        new_value={"functional_location": "FL-YARD", "actual_location": "AL-YARD-01"}
-    )
     assert _scrapyard_locations_after_receive(db, order) == ("FL-YARD", "AL-YARD-01")
+    # Assets received into different spots have no single order-level destination.
+    order.items[1].to_actual_location = "AL-YARD-02"
+    assert _scrapyard_locations_after_receive(db, order) == (None, None)
     order.status = STATUS_DRAFT
     assert _scrapyard_locations_after_receive(db, order) == (None, None)
 
 
 def test_scrapyard_locations_shown_after_cf_bounce():
     order = _order(STATUS_REJECTED, assets=[_asset()])
-    order.id = 5
     order.rejection_comment = "fix locs"
     order.approval_request_id = 48
+    order.items[0].to_functional_location = "FL-YARD"
+    order.items[0].to_actual_location = "AL-YARD-01"
     db = MagicMock()
     db.get.return_value = SimpleNamespace(status="pending")
-    db.scalar.return_value = SimpleNamespace(
-        new_value={"functional_location": "FL-YARD", "actual_location": "AL-YARD-01"}
-    )
     assert _scrapyard_locations_after_receive(db, order) == ("FL-YARD", "AL-YARD-01")
 
 
@@ -419,7 +428,10 @@ def test_receive_relocates_assets_and_assigns_cf():
     svc = DisposalOrderService(db)
     with patch.object(svc, "_load_order", return_value=order):
         with patch.object(svc, "_pending_step_task", return_value=None):
-            with patch.object(svc, "_require_scrapyard_locations", return_value=("YARD-FL", "YARD-AL")):
+            with patch(
+                "modules.disposals.service.require_scrapyard_locations",
+                return_value=("YARD-FL", "YARD-AL"),
+            ):
                 with patch.object(svc, "get_order", return_value="detail"):
                     svc.receive_order(
                         1,

@@ -29,7 +29,7 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { formatAppDateTime as formatWhen } from "@/lib/dates"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
-import type { CostCenterMaster } from "@/lib/masters-types"
+import type { ActualLocationMaster, CostCenterMaster } from "@/lib/masters-types"
 import {
   buildDisposalProgress,
   disposalStatusLabel,
@@ -126,6 +126,9 @@ function DetailFact({
   )
 }
 
+const tableSelectClass = cn(adminSelectClass, "min-w-0 focus-visible:ring-inset")
+const tableSelectCellClass = "min-w-0 overflow-hidden whitespace-normal px-4 py-2"
+
 function itemsToEditAssets(items: DisposalOrderItem[]): DisposalOrderItem[] {
   return items.map((i) => ({ ...i }))
 }
@@ -147,8 +150,9 @@ export function DisposalOrderDetailPage() {
   const [receiverUserId, setReceiverUserId] = React.useState<number | null>(null)
   const [custodianOptions, setCustodianOptions] = React.useState<DisposalAssigneeOption[]>([])
   const [custodiansLoading, setCustodiansLoading] = React.useState(false)
-  const [functionalLocation, setFunctionalLocation] = React.useState("")
-  const [actualLocation, setActualLocation] = React.useState("")
+  const [itemLoc1, setItemLoc1] = React.useState<Record<number, string>>({})
+  const [itemLoc2, setItemLoc2] = React.useState<Record<number, string>>({})
+  const [plantActualLocations, setPlantActualLocations] = React.useState<ActualLocationMaster[]>([])
   const [editAssets, setEditAssets] = React.useState<DisposalOrderItem[]>([])
   const [editPlantId, setEditPlantId] = React.useState<number | null>(null)
   const [assetSearch, setAssetSearch] = React.useState("")
@@ -158,7 +162,7 @@ export function DisposalOrderDetailPage() {
   const [assetPickerOpen, setAssetPickerOpen] = React.useState(false)
 
   const lookupPlantId = order?.can_edit ? editPlantId : (order?.plant_id ?? null)
-  const masters = useAssetMasterLookups(lookupPlantId ?? null, null, functionalLocation || null)
+  const masters = useAssetMasterLookups(lookupPlantId ?? null)
   const [scrapyardCostCenters, setScrapyardCostCenters] = React.useState<CostCenterMaster[]>([])
   const scrapyardFunctionalLocations = React.useMemo(
     () =>
@@ -168,14 +172,41 @@ export function DisposalOrderDetailPage() {
     [masters.functionalLocations],
   )
 
+  const panel = order?.approval_panel
+  const stepKind = (panel?.current_step_kind || "approve").toLowerCase()
+  const canDecide = Boolean(panel?.my_pending_task_id) && hasPermission("approval.act")
+  const engineReceive = canDecide && stepKind === "receive"
+  const engineClose = canDecide && stepKind === "close"
+  const receiveEditable = Boolean(order?.can_receive) || engineReceive
+  const showLocations =
+    receiveEditable ||
+    Boolean(
+      order &&
+        (order.items.some((i) => i.to_functional_location || i.to_actual_location) ||
+          ["pending_cf_close", "closed"].includes(order.status)),
+    )
+
   const applyOrder = React.useCallback((res: DisposalOrderDetail) => {
     setOrder(res)
     setRequiresEngineering(res.requires_engineering)
     setRemarks(res.remarks ?? "")
     setToCostCenterId(res.to_cost_center_id != null ? String(res.to_cost_center_id) : "")
     setReceiverUserId(res.receiver_user_id ?? null)
-    setFunctionalLocation(res.to_functional_location?.trim() || "")
-    setActualLocation(res.to_actual_location?.trim() || "")
+    // A reload must not discard locations the receiver picked but has not saved yet.
+    const mergeLocations =
+      (
+        pick: (item: DisposalOrderItem) => string | null | undefined,
+        orderLevel: string | null | undefined,
+      ) =>
+      (prev: Record<number, string>) =>
+        Object.fromEntries(
+          res.items.map((item) => [
+            item.asset_id,
+            pick(item) ?? prev[item.asset_id] ?? orderLevel ?? "",
+          ]),
+        )
+    setItemLoc1(mergeLocations((i) => i.to_functional_location, res.to_functional_location))
+    setItemLoc2(mergeLocations((i) => i.to_actual_location, res.to_actual_location))
     setEditAssets(itemsToEditAssets(res.items))
     setEditPlantId(res.plant_id)
     setFilterCostCenter("")
@@ -223,6 +254,28 @@ export function DisposalOrderDetailPage() {
     if (!order?.can_edit || toCostCenterId || scrapyardCostCenters.length !== 1) return
     setToCostCenterId(String(scrapyardCostCenters[0]!.id))
   }, [order?.can_edit, scrapyardCostCenters, toCostCenterId])
+
+  // Every scrapyard Actual Location 2 in the plant; each row narrows them by its own Location 1.
+  React.useEffect(() => {
+    const plantId = order?.plant_id
+    if (!receiveEditable || plantId == null) {
+      setPlantActualLocations([])
+      return
+    }
+    let cancelled = false
+    void getJson<ActualLocationMaster[]>(
+      `/admin/asset-masters/actual-locations?plant_id=${plantId}&active_only=false`,
+    )
+      .then((rows) => {
+        if (!cancelled) setPlantActualLocations(rows)
+      })
+      .catch(() => {
+        if (!cancelled) setPlantActualLocations([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [order?.plant_id, receiveEditable])
 
   React.useEffect(() => {
     if (!toCostCenterId || !order?.can_edit) {
@@ -389,6 +442,52 @@ export function DisposalOrderDetailPage() {
     )
   }
 
+  /** Asset codes still missing Actual Location 1 or 2 — named in the error so the row is obvious. */
+  function assetsMissingLocations(): string[] {
+    return (order?.items ?? [])
+      .filter(
+        (item) =>
+          !(itemLoc1[item.asset_id] ?? "").trim() || !(itemLoc2[item.asset_id] ?? "").trim(),
+      )
+      .map((item) => item.asset_code || String(item.asset_id))
+  }
+
+  function warnMissingLocations(missing: string[]) {
+    toast.error(`Select Actual Location 1 and 2 for ${missing.join(", ")} before receiving.`)
+  }
+
+  function receiveLocationPayload() {
+    const items = (order?.items ?? []).map((item) => ({
+      asset_id: item.asset_id,
+      to_functional_location: (itemLoc1[item.asset_id] ?? "").trim(),
+      to_actual_location: (itemLoc2[item.asset_id] ?? "").trim(),
+    }))
+    return {
+      item_locations: items,
+      to_functional_location: items[0]?.to_functional_location ?? "",
+      to_actual_location: items[0]?.to_actual_location ?? "",
+    }
+  }
+
+  /** Park the locations picked so far; the rest can be filled in on a later visit. */
+  async function saveReceiveLocations() {
+    if (!order) return
+    const pending = assetsMissingLocations().length
+    await run(
+      () =>
+        postJson<DisposalOrderDetail>(`/admin/disposal-orders/${order.id}/receive-locations`, {
+          item_locations: order.items.map((item) => ({
+            asset_id: item.asset_id,
+            to_functional_location: (itemLoc1[item.asset_id] ?? "").trim() || null,
+            to_actual_location: (itemLoc2[item.asset_id] ?? "").trim() || null,
+          })),
+        }),
+      pending === 0
+        ? "Locations saved. You can receive this disposal now."
+        : `Locations saved. ${pending} asset${pending === 1 ? "" : "s"} still need Actual Location 1 and 2.`,
+    )
+  }
+
   async function run(action: () => Promise<DisposalOrderDetail>, okMessage: string) {
     setBusy(true)
     try {
@@ -410,8 +509,9 @@ export function DisposalOrderDetailPage() {
     if (!taskId) return
     const kind = (order?.approval_panel?.current_step_kind || "approve").toLowerCase()
     if (decisionMode === "approve" && kind === "receive") {
-      if (!functionalLocation.trim() || !actualLocation.trim()) {
-        toast.error("Select Actual Location 1 and 2 before receiving.")
+      const missing = assetsMissingLocations()
+      if (missing.length > 0) {
+        warnMissingLocations(missing)
         return
       }
     }
@@ -423,12 +523,7 @@ export function DisposalOrderDetailPage() {
         ...(decisionMode === "approve" && payload.nextAssignedUserId != null
           ? { next_assigned_user_id: payload.nextAssignedUserId }
           : {}),
-        ...(decisionMode === "approve" && kind === "receive"
-          ? {
-              to_functional_location: functionalLocation.trim(),
-              to_actual_location: actualLocation.trim(),
-            }
-          : {}),
+        ...(decisionMode === "approve" && kind === "receive" ? receiveLocationPayload() : {}),
       })
       setDecisionOpen(false)
       const ok =
@@ -456,14 +551,13 @@ export function DisposalOrderDetailPage() {
     )
   }
 
-  const panel = order.approval_panel
-  const canDecide = Boolean(panel?.my_pending_task_id) && hasPermission("approval.act")
-  const stepKind = (panel?.current_step_kind || "approve").toLowerCase()
-  const engineReceive = canDecide && stepKind === "receive"
-  const engineClose = canDecide && stepKind === "close"
   const canEditEngineering = order.can_edit && hasPermission("disposal.submit_with_engineering")
   const progress = buildDisposalProgress(order)
-  const receiveEditable = Boolean(order.can_receive) || engineReceive
+  // Legacy workflows leave next_assignee_role_id null, so let the backend resolve the next
+  // step from the order itself and pass the role only as a hint.
+  const nextAssigneesUrl = `/admin/disposal-orders/assignees?order_id=${order.id}&for_next=true${
+    panel?.next_assignee_role_id ? `&role_id=${panel.next_assignee_role_id}` : ""
+  }`
   const decisionConfirmLabel =
     stepKind === "receive" ? "Receive & assign next" : stepKind === "close" ? "Close" : "Approve"
 
@@ -660,6 +754,18 @@ export function DisposalOrderDetailPage() {
               Submit for Approval
             </AdminPrimaryButton>
           ) : null}
+          {receiveEditable ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9"
+              disabled={busy}
+              onClick={() => void saveReceiveLocations()}
+            >
+              Save Locations
+            </Button>
+          ) : null}
           {canDecide ? (
             <>
               <Button
@@ -680,8 +786,9 @@ export function DisposalOrderDetailPage() {
                 disabled={busy}
                 onClick={() => {
                   if (engineReceive) {
-                    if (!functionalLocation.trim() || !actualLocation.trim()) {
-                      toast.error("Select Actual Location 1 and 2 first.")
+                    const missing = assetsMissingLocations()
+                    if (missing.length > 0) {
+                      warnMissingLocations(missing)
                       return
                     }
                     if (panel?.needs_next_assignee) {
@@ -702,8 +809,9 @@ export function DisposalOrderDetailPage() {
               type="button"
               disabled={busy}
               onClick={() => {
-                if (!functionalLocation.trim() || !actualLocation.trim()) {
-                  toast.error("Select Actual Location 1 and 2 first.")
+                const missing = assetsMissingLocations()
+                if (missing.length > 0) {
+                  warnMissingLocations(missing)
                   return
                 }
                 setPickerMode("receive")
@@ -1000,6 +1108,16 @@ export function DisposalOrderDetailPage() {
                     <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
                       From Actual Location 1
                     </AdminTableHeadCell>
+                    {showLocations ? (
+                      <>
+                        <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                          Actual Location 1
+                        </AdminTableHeadCell>
+                        <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                          Actual Location 2
+                        </AdminTableHeadCell>
+                      </>
+                    ) : null}
                     {order.can_edit ? (
                       <AdminTableHeadCell className="h-9 w-12 px-2 py-2">
                         <span className="sr-only">Remove</span>
@@ -1009,13 +1127,21 @@ export function DisposalOrderDetailPage() {
                 </TableHeader>
                 <TableBody>
                   {editAssets.length === 0 ? (
-                    <AdminTableEmptyRow colSpan={order.can_edit ? 4 : 3}>
+                    <AdminTableEmptyRow
+                      colSpan={3 + (showLocations ? 2 : 0) + (order.can_edit ? 1 : 0)}
+                    >
                       {order.can_edit
                         ? "No Assets selected — click Select other assets to choose."
                         : "No Asset"}
                     </AdminTableEmptyRow>
                   ) : (
-                    editAssets.map((item) => (
+                    editAssets.map((item) => {
+                      const loc1 = itemLoc1[item.asset_id] ?? ""
+                      const loc2 = itemLoc2[item.asset_id] ?? ""
+                      const loc2Options = plantActualLocations.filter(
+                        (l) => l.functional_location_code === loc1,
+                      )
+                      return (
                       <AdminTableBodyRow key={item.asset_id} interactive={false}>
                         <AdminTableCell className="min-h-0 px-4 py-2">
                           <div className="font-medium leading-tight">{item.asset_code}</div>
@@ -1031,6 +1157,69 @@ export function DisposalOrderDetailPage() {
                             item.from_functional_location ??
                             "—"}
                         </AdminTableCell>
+                        {showLocations ? (
+                          receiveEditable ? (
+                            <>
+                              <AdminTableCell className={tableSelectCellClass}>
+                                <select
+                                  className={tableSelectClass}
+                                  value={loc1}
+                                  onChange={(e) => {
+                                    const next = e.target.value
+                                    setItemLoc1((prev) => ({ ...prev, [item.asset_id]: next }))
+                                    setItemLoc2((prev) => ({ ...prev, [item.asset_id]: "" }))
+                                  }}
+                                  aria-label={`Actual Location 1 for ${item.asset_code}`}
+                                >
+                                  <option value="">
+                                    {scrapyardFunctionalLocations.length === 0
+                                      ? "No scrapyard locations for this plant"
+                                      : "Select location"}
+                                  </option>
+                                  {scrapyardFunctionalLocations.map((l) => (
+                                    <option key={l.id} value={l.code}>
+                                      {functionalLocationLabel(l)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </AdminTableCell>
+                              <AdminTableCell className={tableSelectCellClass}>
+                                <select
+                                  className={tableSelectClass}
+                                  value={loc2}
+                                  disabled={!loc1}
+                                  onChange={(e) =>
+                                    setItemLoc2((prev) => ({
+                                      ...prev,
+                                      [item.asset_id]: e.target.value,
+                                    }))
+                                  }
+                                  aria-label={`Actual Location 2 for ${item.asset_code}`}
+                                >
+                                  <option value="">
+                                    {loc1 ? "Select location" : "Select Actual Location 1 first"}
+                                  </option>
+                                  {loc2Options.map((l) => (
+                                    <option key={l.id} value={l.code}>
+                                      {actualLocationLabel(l)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </AdminTableCell>
+                            </>
+                          ) : (
+                            <>
+                              <AdminTableCell className="min-h-0 min-w-0 truncate px-4 py-2">
+                                {item.to_functional_location_name ??
+                                  item.to_functional_location ??
+                                  "—"}
+                              </AdminTableCell>
+                              <AdminTableCell className="min-h-0 min-w-0 truncate px-4 py-2">
+                                {item.to_actual_location_name ?? item.to_actual_location ?? "—"}
+                              </AdminTableCell>
+                            </>
+                          )
+                        ) : null}
                         {order.can_edit ? (
                           <AdminTableCell className="min-h-0 px-2 py-2">
                             <Button
@@ -1047,7 +1236,8 @@ export function DisposalOrderDetailPage() {
                           </AdminTableCell>
                         ) : null}
                       </AdminTableBodyRow>
-                    ))
+                      )
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -1172,68 +1362,6 @@ export function DisposalOrderDetailPage() {
           </AdminPanel>
         </div>
 
-        {receiveEditable ? (
-          <AdminPanel
-            title="Receive"
-            description=""
-            contentClassName="px-4 py-3"
-          >
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <FormField id="scrap_cc" labelText="Scrapyard cost center">
-                <p className="text-sm">
-                  {order.to_cost_center_code
-                    ? `${order.to_cost_center_code}${
-                        order.to_cost_center_description
-                          ? ` — ${order.to_cost_center_description}`
-                          : ""
-                      }`
-                    : "—"}
-                </p>
-              </FormField>
-              <FormField id="scrap_loc1" labelText="Actual Location 1" required>
-                <select
-                  id="scrap_loc1"
-                  className={adminSelectClass}
-                  value={functionalLocation}
-                  onChange={(e) => {
-                    setFunctionalLocation(e.target.value)
-                    setActualLocation("")
-                  }}
-                >
-                  <option value="">
-                    {scrapyardFunctionalLocations.length === 0
-                      ? "No scrapyard locations for this plant"
-                      : "Select location"}
-                  </option>
-                  {scrapyardFunctionalLocations.map((l) => (
-                    <option key={l.id} value={l.code}>
-                      {functionalLocationLabel(l)}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              <FormField id="scrap_loc2" labelText="Actual Location 2" required>
-                <select
-                  id="scrap_loc2"
-                  className={adminSelectClass}
-                  value={actualLocation}
-                  disabled={!functionalLocation}
-                  onChange={(e) => setActualLocation(e.target.value)}
-                >
-                  <option value="">
-                    {functionalLocation ? "Select location" : "Select Actual Location 1 first"}
-                  </option>
-                  {masters.actualLocations.map((l) => (
-                    <option key={l.id} value={l.code}>
-                      {actualLocationLabel(l)}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-            </div>
-          </AdminPanel>
-        ) : null}
-
         <DisposalAuditLog events={order.audit} fillHeight />
           </div>
 
@@ -1244,9 +1372,7 @@ export function DisposalOrderDetailPage() {
         }}
         assigneesUrl={
           pickerMode === "receive"
-            ? panel?.next_assignee_role_id
-              ? `/admin/disposal-orders/assignees?role_id=${panel.next_assignee_role_id}&order_id=${order.id}`
-              : undefined
+            ? nextAssigneesUrl
             : `/admin/disposal-orders/assignees?requires_engineering=${requiresEngineering ? "true" : "false"}&order_id=${order.id}`
         }
         roleLabel={
@@ -1272,8 +1398,7 @@ export function DisposalOrderDetailPage() {
                 await postJson(`/approvals/tasks/${taskId}/action`, {
                   action: "approve",
                   next_assigned_user_id: userId,
-                  to_functional_location: functionalLocation.trim(),
-                  to_actual_location: actualLocation.trim(),
+                  ...receiveLocationPayload(),
                 })
                 toast.success("Assets received.")
                 setPickerMode(null)
@@ -1285,12 +1410,14 @@ export function DisposalOrderDetailPage() {
               }
               return
             }
+            const locations = receiveLocationPayload()
             await run(
               () =>
                 postJson(`/admin/disposal-orders/${order.id}/receive`, {
                   assigned_to: userId,
-                  functional_location: functionalLocation.trim(),
-                  actual_location: actualLocation.trim(),
+                  functional_location: locations.to_functional_location,
+                  actual_location: locations.to_actual_location,
+                  item_locations: locations.item_locations,
                   remarks: remarks.trim() || null,
                 }),
               "Assets received. Assigned to Central Finance for final approval.",
@@ -1326,11 +1453,7 @@ export function DisposalOrderDetailPage() {
         needsNextAssignee={Boolean(panel?.needs_next_assignee) && decisionMode === "approve"}
         nextAssigneeLevel={null}
         nextStepRoleName={panel?.next_step_role_name ?? null}
-        assigneesUrl={
-          panel?.next_assignee_role_id
-            ? `/admin/disposal-orders/assignees?role_id=${panel.next_assignee_role_id}&order_id=${order.id}`
-            : undefined
-        }
+        assigneesUrl={nextAssigneesUrl}
         onConfirm={confirmDecision}
       />
       {confirmDialog}

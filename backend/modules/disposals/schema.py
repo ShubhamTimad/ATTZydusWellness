@@ -39,6 +39,24 @@ class ReassignDisposalRequest(BaseModel):
     assignee_user_id: int = Field(ge=1)
 
 
+class DisposalItemReceiveLocation(BaseModel):
+    asset_id: int
+    to_functional_location: str = Field(min_length=1, max_length=255)
+    to_actual_location: str = Field(min_length=1, max_length=255)
+
+
+class DisposalItemPartialLocation(BaseModel):
+    """One asset's scrapyard locations, either of which may be filled in later."""
+
+    asset_id: int
+    to_functional_location: str | None = Field(default=None, max_length=255)
+    to_actual_location: str | None = Field(default=None, max_length=255)
+
+
+class SaveDisposalLocationsRequest(BaseModel):
+    item_locations: list[DisposalItemPartialLocation] = Field(min_length=1)
+
+
 class ReceiveDisposalRequest(BaseModel):
     """Receiver: set scrapyard Actual Location 1/2, then pick the CF who will approve and close.
 
@@ -48,6 +66,8 @@ class ReceiveDisposalRequest(BaseModel):
     assigned_to: int = Field(ge=1, description="Central Finance user for final approve + close")
     functional_location: str = Field(min_length=1, max_length=255)
     actual_location: str = Field(min_length=1, max_length=255)
+    # Per-asset override of the order-level pair above.
+    item_locations: list[DisposalItemReceiveLocation] | None = None
     cost_center_id: int | None = Field(
         default=None,
         ge=1,
@@ -81,6 +101,10 @@ class DisposalOrderItemPublic(BaseModel):
     from_actual_location: str | None = None
     from_functional_location_name: str | None = None
     from_actual_location_name: str | None = None
+    to_functional_location: str | None = None
+    to_actual_location: str | None = None
+    to_functional_location_name: str | None = None
+    to_actual_location_name: str | None = None
 
 
 class DisposalOrderAuditPublic(BaseModel):

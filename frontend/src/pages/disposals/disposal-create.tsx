@@ -303,6 +303,34 @@ export function DisposalOrderCreatePage() {
     }
   }
 
+  const scrapyardCostCenterField = (
+    <FormField id="scrapyard_cc" labelText="Scrapyard Cost Center" required>
+      <select
+        id="scrapyard_cc"
+        className={adminSelectClass}
+        value={toCostCenterId}
+        disabled={plantId == null}
+        onChange={(e) => {
+          setToCostCenterId(e.target.value)
+          setReceiverUserId(null)
+        }}
+      >
+        <option value="">
+          {plantId == null
+            ? "Select plant first"
+            : scrapyardCostCenters.length === 0
+              ? "No scrapyard cost centers for this plant"
+              : "Select scrapyard"}
+        </option>
+        {scrapyardCostCenters.map((cc) => (
+          <option key={cc.id} value={String(cc.id)}>
+            {cc.code} — {cc.name}
+          </option>
+        ))}
+      </select>
+    </FormField>
+  )
+
   return (
     <AdminPage
       fullWidth
@@ -325,7 +353,12 @@ export function DisposalOrderCreatePage() {
             headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
           >
-            <div className={cn("mb-4 grid grid-cols-1 gap-3", showCatalog && "sm:grid-cols-2")}>
+            <div
+              className={cn(
+                "mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2",
+                showCatalog && "lg:grid-cols-3",
+              )}
+            >
               <FormField id="plant" labelText="Plant" required>
                 <select
                   id="plant"
@@ -350,6 +383,8 @@ export function DisposalOrderCreatePage() {
                   ))}
                 </select>
               </FormField>
+
+              {scrapyardCostCenterField}
 
               {showCatalog ? (
                 <FormField id="asset_search" labelText="Search">
@@ -481,31 +516,6 @@ export function DisposalOrderCreatePage() {
             contentClassName="px-5 py-5"
           >
             <div className="grid grid-cols-1 gap-4">
-              <FormField id="scrapyard_cc" labelText="Scrapyard Cost Center" required>
-                <select
-                  id="scrapyard_cc"
-                  className={adminSelectClass}
-                  value={toCostCenterId}
-                  disabled={plantId == null}
-                  onChange={(e) => {
-                    setToCostCenterId(e.target.value)
-                    setReceiverUserId(null)
-                  }}
-                >
-                  <option value="">
-                    {plantId == null
-                      ? "Select plant first"
-                      : scrapyardCostCenters.length === 0
-                        ? "No scrapyard cost centers for this plant"
-                        : "Select scrapyard"}
-                  </option>
-                    {scrapyardCostCenters.map((cc) => (
-                      <option key={cc.id} value={String(cc.id)}>
-                        {cc.code} — {cc.name}
-                      </option>
-                    ))}
-                  </select>
-                </FormField>
               <FormField id="receiver" labelText="Custodian" required>
                 <select
                   id="receiver"

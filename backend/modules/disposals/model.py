@@ -95,6 +95,10 @@ class AssetDisposalOrderItem(Base):
     from_cost_center_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     from_functional_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     from_actual_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Scrapyard Actual Location 1 / 2 per asset — the receiver may fill these in over
+    # several visits, so they are set before the order moves on.
+    to_functional_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    to_actual_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     order = relationship("AssetDisposalOrder", back_populates="items")
     asset = relationship("AssetMaster")

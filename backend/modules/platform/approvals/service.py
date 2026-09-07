@@ -1230,6 +1230,7 @@ class ApprovalEngineService:
                 to_functional_location=to_functional_location,
                 to_actual_location=to_actual_location,
                 to_cost_center_id=to_cost_center_id,
+                item_locations=item_locations,
                 kind=kind,
             )
 
@@ -1441,6 +1442,7 @@ class ApprovalEngineService:
         to_functional_location: str | None,
         to_actual_location: str | None,
         to_cost_center_id: int | None,
+        item_locations: list | None,
         kind: str,
     ) -> ApprovalRequest:
         """Disposal workflow with receive/confirm/close kinds (mirrors transfer)."""
@@ -1499,6 +1501,7 @@ class ApprovalEngineService:
                 functional_location=to_functional_location,
                 actual_location=to_actual_location,
                 next_assignee_user_id=int(next_assigned_user_id),
+                item_locations=item_locations,
                 step_role_name=step_role_name,
                 comment=comment,
             )
