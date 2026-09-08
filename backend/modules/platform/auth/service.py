@@ -44,7 +44,7 @@ from modules.errors import NotFoundError
 from modules.platform.mfa.service import MfaService
 from modules.platform.rbac_audit.service import RbacAuditService
 from modules.platform.users.model import User
-from modules.platform.emails.service import EmailNotificationService
+from modules.platform.emails.service import EmailNotificationService, enqueue_trigger_events
 
 logger = logging.getLogger(__name__)
 
@@ -149,13 +149,17 @@ class AuthService:
         if not email:
             return
         try:
-            EmailNotificationService(self._db).trigger_event(
-                event_code="ACCOUNT_LOCKED",
-                payload={
-                    "user_name": user.full_name,
-                    "email": email,
-                    "company_name": "Takeda Asset Management",
-                },
+            enqueue_trigger_events(
+                [
+                    (
+                        "ACCOUNT_LOCKED",
+                        {
+                            "user_name": user.full_name,
+                            "email": email,
+                            "company_name": "Takeda Asset Management",
+                        },
+                    )
+                ]
             )
         except Exception:
             logger.exception("account_locked_email_failed", extra={"user_id": int(user.id)})
@@ -444,11 +448,15 @@ class AuthService:
         self._db.commit()
 
         if user.email:
-            EmailNotificationService(self._db).trigger_event(
-                event_code="PASSWORD_RESET",
-                payload={
-                    "user_name": user.full_name,
-                    "email": user.email,
-                    "company_name": "Takeda Asset Management",
-                },
+            enqueue_trigger_events(
+                [
+                    (
+                        "PASSWORD_RESET",
+                        {
+                            "user_name": user.full_name,
+                            "email": user.email,
+                            "company_name": "Takeda Asset Management",
+                        },
+                    )
+                ]
             )

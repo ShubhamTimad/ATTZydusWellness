@@ -3,32 +3,31 @@ import * as React from "react"
 import { AuditDetailLine, AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import type { CapexAuditEvent } from "@/lib/capex-types"
 
+function detailLines(ev: CapexAuditEvent): string[] {
+  const lines: string[] = []
+  if (ev.detail?.trim()) lines.push(...ev.detail.split("\n").filter((line) => line.trim()))
+  for (const c of ev.changes) {
+    const from = (c.from_value || "").trim()
+    const to = (c.to_value || "").trim()
+    const label = c.field.trim()
+    if ((from === "—" || !from) && to && to !== "—") {
+      lines.push(`${label}: ${to}`)
+    } else if (from && to && from !== to && to !== "—") {
+      lines.push(`${label}: ${from} → ${to}`)
+    } else if (from && from !== "—" && (!to || to === "—")) {
+      lines.push(`${label}: cleared (was ${from})`)
+    }
+  }
+  return lines
+}
+
 function activityForEvent(ev: CapexAuditEvent): React.ReactNode {
   return (
-    <div className="space-y-1">
-      <p className="font-medium">{ev.label}</p>
-      {ev.detail
-        ? ev.detail.split("\n").map((line, i) => <AuditDetailLine key={`${i}-${line}`} line={line} />)
-        : null}
-      {ev.changes.length > 0 ? (
-        <dl className="mt-0.5 space-y-0.5 rounded-md border border-border/40 bg-muted/15 px-2.5 py-1.5">
-          {ev.changes.map((c) => (
-            <div
-              key={c.field}
-              className="grid grid-cols-1 gap-0.5 text-[11px] leading-relaxed sm:grid-cols-[minmax(0,12.5rem)_minmax(0,1fr)] sm:items-baseline sm:gap-x-3"
-            >
-              <dt className="break-words font-bold text-black">{c.field}</dt>
-              <dd className="min-w-0 break-words tabular-nums text-black">
-                <span>{c.from_value ?? "—"}</span>
-                <span className="mx-1" aria-hidden>
-                  →
-                </span>
-                <span>{c.to_value ?? "—"}</span>
-              </dd>
-            </div>
-          ))}
-        </dl>
-      ) : null}
+    <div className="min-w-0 space-y-1.5">
+      <p className="text-sm font-medium leading-snug text-foreground">{ev.label}</p>
+      {detailLines(ev).map((line, i) => (
+        <AuditDetailLine key={`${i}-${line}`} line={line} />
+      ))}
     </div>
   )
 }
