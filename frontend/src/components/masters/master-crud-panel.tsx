@@ -452,9 +452,9 @@ export function MasterCrudPanel({
                   className={columnFilterControlClass}
                 />
               </AdminTableHeadCell>
-              {kind === "tag-color" ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
-              {kind === "location" ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
-              {kind === "location" ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
+              {kind === "tag-color" ? <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell> : null}
+              {kind === "location" ? <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell> : null}
+              {kind === "location" ? <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell> : null}
               <AdminTableHeadCell className="px-2 py-1.5">
                 <select
                   className={cn(adminSelectClass, columnFilterControlClass)}
@@ -467,7 +467,7 @@ export function MasterCrudPanel({
                   <option value="inactive">Inactive</option>
                 </select>
               </AdminTableHeadCell>
-              {showActions ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
+              {showActions ? <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell> : null}
             </AdminTableHeaderRow>
           ) : null}
         </TableHeader>

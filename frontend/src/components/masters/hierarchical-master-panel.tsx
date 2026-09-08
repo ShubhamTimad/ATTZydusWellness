@@ -549,7 +549,7 @@ export function HierarchicalMasterPanel({
                     className={columnFilterControlClass}
                   />
                 </AdminTableHeadCell>
-                <AdminTableHeadCell className="px-2 py-1.5" />
+                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
                 <AdminTableHeadCell className="px-2 py-1.5">
                   <Input
                     value={plantFilter}
@@ -596,7 +596,7 @@ export function HierarchicalMasterPanel({
                     <option value="inactive">Inactive</option>
                   </select>
                 </AdminTableHeadCell>
-                {showActions ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
+                {showActions ? <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell> : null}
               </AdminTableHeaderRow>
             ) : null}
           </TableHeader>

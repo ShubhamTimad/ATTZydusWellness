@@ -251,15 +251,7 @@ export function DisposalOrderCreatePage() {
   }
 
   function toggleAsset(row: AssetListItem) {
-    if (selectedIds.has(row.id)) {
-      setSelected((prev) => prev.filter((a) => a.id !== row.id))
-      setItemCustodians((prev) => {
-        const next = { ...prev }
-        delete next[row.id]
-        return next
-      })
-      return
-    }
+    if (selectedIds.has(row.id)) return
     if (!isDisposable(row)) {
       toast.error("Only active, approved assets can be disposed.")
       return
@@ -471,9 +463,11 @@ export function DisposalOrderCreatePage() {
               <Table>
                 <TableHeader>
                   <AdminTableHeaderRow>
-                    <AdminTableHeadCell className="w-10">
-                      <span className="sr-only">Select</span>
-                    </AdminTableHeadCell>
+                    {showCatalog ? (
+                      <AdminTableHeadCell className="w-10">
+                        <span className="sr-only">Select</span>
+                      </AdminTableHeadCell>
+                    ) : null}
                     <AdminTableHeadCell>Asset</AdminTableHeadCell>
                     <AdminTableHeadCell>Cost center</AdminTableHeadCell>
                     <AdminTableHeadCell>Actual Location 1</AdminTableHeadCell>
@@ -484,22 +478,10 @@ export function DisposalOrderCreatePage() {
                 <TableBody>
                   {!showCatalog ? (
                     selected.length === 0 ? (
-                      <AdminTableEmptyRow colSpan={6}>No Assets selected</AdminTableEmptyRow>
+                      <AdminTableEmptyRow colSpan={5}>No Assets selected</AdminTableEmptyRow>
                     ) : (
                       selected.map((a) => (
-                        <AdminTableBodyRow key={a.id} onClick={() => toggleAsset(a)}>
-                          <AdminTableCell className="align-middle">
-                            <div
-                              onClick={(e) => e.stopPropagation()}
-                              onKeyDown={(e) => e.stopPropagation()}
-                            >
-                              <Checkbox
-                                checked
-                                onCheckedChange={() => toggleAsset(a)}
-                                aria-label={`Select ${a.asset_code}`}
-                              />
-                            </div>
-                          </AdminTableCell>
+                        <AdminTableBodyRow key={a.id} interactive={false}>
                           <AdminTableCell>
                             <div className="font-medium">{a.asset_code}</div>
                             <div className="text-xs text-muted-foreground">
@@ -541,6 +523,7 @@ export function DisposalOrderCreatePage() {
                             >
                               <Checkbox
                                 checked={checked}
+                                disabled={checked}
                                 onCheckedChange={() => toggleAsset(a)}
                                 aria-label={`Select ${a.asset_code}`}
                               />
