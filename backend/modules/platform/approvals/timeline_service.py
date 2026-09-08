@@ -175,8 +175,9 @@ class ApprovalTimelineService:
         )
         if step_row is None:
             return None
-        role = self._db.get(Role, int(step_row.approver_role_id))
-        return role.name if role is not None else "Approvers"
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+        return role_names_label(self._db, step_role_ids(step_row))
 
     def _user_creation_timeline(
         self,
@@ -505,8 +506,9 @@ class ApprovalTimelineService:
             )
             assigned: list[str] = []
             if step_row is not None:
-                role = self._db.get(Role, int(step_row.approver_role_id))
-                role_name = role.name if role is not None else "Approvers"
+                from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+                role_name = role_names_label(self._db, step_role_ids(step_row))
                 for t in req.tasks:
                     if t.step_id != step_row.id or t.status != "pending":
                         continue

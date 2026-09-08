@@ -7,12 +7,14 @@ export function MultiCheckList({
   onChange,
   disabled,
   emptyLabel,
+  className,
 }: {
   options: { id: number; label: string; title?: string }[]
   values: string[]
   onChange: (next: string[]) => void
   disabled?: boolean
   emptyLabel: string
+  className?: string
 }) {
   const selected = new Set(values)
   const box = "rounded-lg border border-border/70 bg-background"
@@ -28,7 +30,7 @@ export function MultiCheckList({
   }
 
   return (
-    <div className={cn(box, "md:max-h-56 md:overflow-y-auto", disabled && "bg-muted/20")}>
+    <div className={cn(box, "max-h-56 overflow-y-auto", className, disabled && "bg-muted/20")}>
       {options.map((opt) => {
         const id = String(opt.id)
         const checked = selected.has(id)

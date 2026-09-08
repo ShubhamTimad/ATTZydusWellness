@@ -12,7 +12,6 @@ import {
   AdminBackLink,
   AdminPanel,
   AdminPrimaryButton,
-  adminSelectClass,
   adminSwitchRowClass,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -61,6 +60,7 @@ type UserPublic = {
   is_active: boolean
   is_superuser: boolean
   role: { id: number; name: string } | null
+  roles?: { id: number; name: string }[]
   org_units?: { id: number; name: string; type: string; code?: string | null }[]
   departments?: { id: number; name: string; type: string; code?: string | null }[]
   cost_centers?: { id: number; code: string; name: string }[]
@@ -74,7 +74,7 @@ const editUserSchema = z.object({
   username: z.string().min(3, "Username is required").max(64),
   phone: phoneFieldSchema,
   email: z.string().email("Enter a valid email"),
-  role_id: z.string().min(1, "Role is required"),
+  role_ids: z.array(z.string()).min(1, "Select at least one role"),
   org_unit_ids: z.array(z.string()).min(1, "Select at least one plant"),
   department_ids: z.array(z.string()),
   cost_center_ids: z.array(z.string()),
@@ -105,7 +105,7 @@ export function UserEditPage() {
       username: "",
       phone: "",
       email: "",
-      role_id: "",
+      role_ids: [],
       org_unit_ids: [],
       department_ids: [],
       cost_center_ids: [],
@@ -118,10 +118,11 @@ export function UserEditPage() {
 
   React.useEffect(() => {
     if (!roles) return
-    const rid = form.getValues("role_id")
-    if (!rid) return
-    if (!rolesForPlants(roles, plantIds).some((r) => String(r.id) === rid)) {
-      form.setValue("role_id", "")
+    const allowed = new Set(rolesForPlants(roles, plantIds).map((r) => String(r.id)))
+    const current = form.getValues("role_ids")
+    const next = current.filter((id) => allowed.has(id))
+    if (next.length !== current.length) {
+      form.setValue("role_ids", next)
     }
   }, [plantIds, roles, form])
 
@@ -217,7 +218,12 @@ export function UserEditPage() {
             username: u.username ?? "",
             phone: u.phone ?? "",
             email: u.email ?? "",
-            role_id: u.role?.id ? String(u.role.id) : "",
+            role_ids:
+              u.roles && u.roles.length > 0
+                ? u.roles.map((r) => String(r.id))
+                : u.role?.id
+                  ? [String(u.role.id)]
+                  : [],
             org_unit_ids: orgIds,
             department_ids: deptIds,
             cost_center_ids: ccIds,
@@ -238,10 +244,10 @@ export function UserEditPage() {
     toast.loading("Saving user…", { id: "edit-user" })
     setError(null)
     try {
-      const roleId = Number(values.role_id)
+      const roleIds = values.role_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
       const orgUnitIds = values.org_unit_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
-      if (!Number.isFinite(roleId) || roleId <= 0) {
-        toast.error("Role is required", { id: "edit-user" })
+      if (roleIds.length === 0) {
+        toast.error("Select at least one role", { id: "edit-user" })
         return
       }
       if (orgUnitIds.length === 0) {
@@ -253,7 +259,7 @@ export function UserEditPage() {
         username: values.username.trim(),
         phone: values.phone.trim(),
         email: values.email.trim(),
-        role_id: roleId,
+        role_ids: roleIds,
         org_unit_ids: orgUnitIds,
         department_ids: values.department_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0),
         cost_center_ids: values.cost_center_ids
@@ -360,9 +366,9 @@ export function UserEditPage() {
               <section className="space-y-4">
                 <div>
                   <h4 className="text-sm font-semibold">Assignment</h4>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  {/* <p className="mt-1 text-xs text-muted-foreground">
                     Plant is required. Department can be skipped if the user only needs a plant and cost center.
-                  </p>
+                  </p> */}
                 </div>
                 <div className="space-y-1.5">
                   <Label>Plants</Label>
@@ -406,17 +412,16 @@ export function UserEditPage() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Role</Label>
-                  <select className={adminSelectClass} {...form.register("role_id")} disabled={locked}>
-                    <option value="">Select a role…</option>
-                    {rolesForPlants(roles, plantIds).map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                  {form.formState.errors.role_id?.message ? (
-                    <p className="text-xs text-destructive">{form.formState.errors.role_id.message}</p>
+                  <Label>Roles</Label>
+                  <MultiCheckList
+                    options={rolesForPlants(roles, plantIds).map((r) => ({ id: r.id, label: r.name }))}
+                    values={form.watch("role_ids")}
+                    onChange={(next) => form.setValue("role_ids", next, { shouldDirty: true, shouldValidate: true })}
+                    disabled={locked}
+                    emptyLabel="No roles available."
+                  />
+                  {form.formState.errors.role_ids?.message ? (
+                    <p className="text-xs text-destructive">{form.formState.errors.role_ids.message}</p>
                   ) : null}
                 </div>
               </section>

@@ -19,6 +19,8 @@ type Props = {
   busy?: boolean
   /** When true, comment/reason is required for both approve and reject. */
   requireComment?: boolean
+  /** Overrides the field label. Approve bulk actions use Comment instead of Reason. */
+  fieldLabel?: string
   title?: string
   confirmLabel?: string
   /** When approving and another step follows, pick next user (via assigneesUrl or level). */
@@ -39,6 +41,7 @@ export function CapexDecisionDialog({
   mode,
   busy = false,
   requireComment = false,
+  fieldLabel,
   title,
   confirmLabel,
   needsNextAssignee = false,
@@ -99,7 +102,11 @@ export function CapexDecisionDialog({
   async function confirm() {
     if (commentRequired && !comment.trim()) {
       toast.error(
-        mode === "reject" ? "Reason is required when rejecting." : "Reason is required.",
+        mode === "reject"
+          ? "Reason is required when rejecting."
+          : fieldLabel
+            ? `${fieldLabel} is required.`
+            : "Reason is required.",
       )
       return
     }
@@ -151,7 +158,7 @@ export function CapexDecisionDialog({
 
           <div className="app-form-field">
             <Label htmlFor="capex_decision_comment" className="app-form-label">
-              {mode === "reject" || requireComment ? "Reason" : "Comment"}
+              {fieldLabel ?? (mode === "reject" || requireComment ? "Reason" : "Comment")}
               {commentRequired ? <RequiredFieldMark /> : null}
             </Label>
             <textarea
@@ -161,11 +168,13 @@ export function CapexDecisionDialog({
               disabled={busy}
               onChange={(e) => setComment(e.target.value)}
               placeholder={
-                commentRequired
-                  ? mode === "reject"
-                    ? "Reason for Rejection"
-                    : "Reason for Approval"
-                  : "Optional Comment"
+                fieldLabel
+                  ? fieldLabel
+                  : commentRequired
+                    ? mode === "reject"
+                      ? "Reason for Rejection"
+                      : "Reason for Approval"
+                    : "Optional Comment"
               }
               rows={3}
               autoFocus={!showNextPicker}

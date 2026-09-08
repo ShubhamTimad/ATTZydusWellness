@@ -33,6 +33,7 @@ from modules.asset_masters.schema import (
     CategoryPublic,
     CategoryUpdate,
     CostCenterCreate,
+    CostCenterCustodianAssignmentPublic,
     CostCenterCustodianUserPublic,
     CostCenterCustodiansPublic,
     CostCenterCustodiansReplaceRequest,
@@ -440,6 +441,42 @@ class AssetMastersService:
                 username=u.username,
             )
             for u in users
+        ]
+
+    def list_cost_center_custodian_assignments(
+        self,
+        *,
+        plant_id: int | None = None,
+        cost_center_id: int | None = None,
+    ) -> list[CostCenterCustodianAssignmentPublic]:
+        stmt = (
+            select(CostCenterAssetCustodian, User, CostCenterMaster, OrgUnit)
+            .join(User, CostCenterAssetCustodian.user_id == User.id)
+            .join(CostCenterMaster, CostCenterAssetCustodian.cost_center_id == CostCenterMaster.id)
+            .join(OrgUnit, CostCenterMaster.plant_id == OrgUnit.id)
+            .where(User.is_active.is_(True))
+            .order_by(User.full_name.asc(), CostCenterMaster.code.asc(), CostCenterAssetCustodian.id.asc())
+        )
+        if cost_center_id is not None:
+            stmt = stmt.where(CostCenterAssetCustodian.cost_center_id == int(cost_center_id))
+        elif plant_id is not None:
+            stmt = stmt.where(CostCenterMaster.plant_id == int(plant_id))
+        rows = self._db.execute(stmt).all()
+        return [
+            CostCenterCustodianAssignmentPublic(
+                id=int(link.id),
+                user_id=int(user.id),
+                full_name=user.full_name,
+                email=user.email,
+                username=user.username,
+                cost_center_id=int(cc.id),
+                cost_center_code=cc.code,
+                cost_center_name=cc.name,
+                plant_id=int(cc.plant_id),
+                plant_code=plant.code,
+                plant_name=plant.name,
+            )
+            for link, user, cc, plant in rows
         ]
 
     def list_cost_center_custodians(self, *, cost_center_id: int) -> CostCenterCustodiansPublic:

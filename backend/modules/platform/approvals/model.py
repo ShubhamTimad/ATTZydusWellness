@@ -19,6 +19,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import Base
+from modules.rbac_association import approval_step_roles
 
 
 class ApprovalWorkflow(Base):
@@ -98,6 +99,14 @@ class ApprovalStep(Base):
     org_scope: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     workflow = relationship("ApprovalWorkflow", back_populates="steps")
+    # Every role on this level, including ``approver_role_id``.
+    approver_roles = relationship("Role", secondary=approval_step_roles, lazy="selectin")
+
+    @property
+    def approver_role_ids(self) -> list[int]:
+        from modules.platform.approvals.step_roles import step_role_ids
+
+        return step_role_ids(self)
 
     __table_args__ = (
         UniqueConstraint("workflow_id", "step_order", name="uq_approval_steps_workflow_step_order"),

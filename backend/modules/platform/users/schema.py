@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, computed_field, field_validator, model_validator
 
 from core.phone import normalize_phone
 
@@ -29,12 +29,28 @@ class CostCenterSummary(BaseModel):
     name: str
 
 
+def _dedupe_positive_ids(value: object) -> object:
+    if not isinstance(value, list):
+        return value
+    seen: set[int] = set()
+    out: list[int] = []
+    for raw in value:
+        n = int(raw)
+        if n in seen:
+            continue
+        seen.add(n)
+        out.append(n)
+    return out
+
+
 class UserCreate(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
     username: str = Field(min_length=3, max_length=64)
     phone: str = Field(min_length=10, max_length=32)
     email: EmailStr
-    role_id: int = Field(ge=1)
+    # ``role_id`` is accepted so older clients keep working; assignment uses ``role_ids``.
+    role_id: int | None = Field(default=None, ge=1)
+    role_ids: list[int] = Field(default_factory=list)
     org_unit_ids: list[int] = Field(min_length=1)
     department_ids: list[int] = Field(default_factory=list)
     cost_center_ids: list[int] = Field(default_factory=list)
@@ -45,20 +61,20 @@ class UserCreate(BaseModel):
     def _validate_phone(cls, value: str) -> str:
         return normalize_phone(value)
 
-    @field_validator("org_unit_ids", "department_ids", "cost_center_ids", mode="before")
+    @field_validator("role_ids", "org_unit_ids", "department_ids", "cost_center_ids", mode="before")
     @classmethod
     def _dedupe_ids(cls, value: object) -> object:
-        if not isinstance(value, list):
-            return value
-        seen: set[int] = set()
-        out: list[int] = []
-        for raw in value:
-            n = int(raw)
-            if n in seen:
-                continue
-            seen.add(n)
-            out.append(n)
-        return out
+        return _dedupe_positive_ids(value)
+
+    @model_validator(mode="after")
+    def _require_roles(self) -> "UserCreate":
+        ids = list(self.role_ids)
+        if self.role_id is not None and self.role_id not in ids:
+            ids.append(self.role_id)
+        if not ids:
+            raise ValueError("At least one role is required")
+        self.role_ids = ids
+        return self
 
 
 class UserUpdate(BaseModel):
@@ -67,6 +83,7 @@ class UserUpdate(BaseModel):
     phone: str | None = Field(default=None, min_length=10, max_length=32)
     email: EmailStr | None = None
     role_id: int | None = Field(default=None, ge=1)
+    role_ids: list[int] | None = None
     org_unit_ids: list[int] | None = None
     department_ids: list[int] | None = None
     cost_center_ids: list[int] | None = None
@@ -79,20 +96,12 @@ class UserUpdate(BaseModel):
             return None
         return normalize_phone(value)
 
-    @field_validator("org_unit_ids", "department_ids", "cost_center_ids", mode="before")
+    @field_validator("role_ids", "org_unit_ids", "department_ids", "cost_center_ids", mode="before")
     @classmethod
     def _dedupe_ids(cls, value: object) -> object:
-        if value is None or not isinstance(value, list):
+        if value is None:
             return value
-        seen: set[int] = set()
-        out: list[int] = []
-        for raw in value:
-            n = int(raw)
-            if n in seen:
-                continue
-            seen.add(n)
-            out.append(n)
-        return out
+        return _dedupe_positive_ids(value)
 
 
 class UserListPage(BaseModel):
@@ -123,7 +132,7 @@ class UserPublic(BaseModel):
     updated_at: datetime
 
     mfa_record: object | None = Field(default=None, exclude=True)
-    roles: list[RoleSummary] = Field(default_factory=list, exclude=True)
+    roles: list[RoleSummary] = Field(default_factory=list)
     org_units: list[OrgUnitSummary] = Field(default_factory=list)
     departments: list[OrgUnitSummary] = Field(default_factory=list)
     cost_centers: list[CostCenterSummary] = Field(default_factory=list)

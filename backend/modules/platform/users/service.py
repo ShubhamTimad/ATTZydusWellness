@@ -49,6 +49,15 @@ class DuplicateUsernameError(Exception):
     """Another user already owns this username."""
 
 
+def _role_ids_from_updates(updates: dict[str, object]) -> list[int] | None:
+    """Role set from a patch. ``role_ids`` wins; ``role_id`` replaces with one role."""
+    if "role_ids" in updates and updates["role_ids"] is not None:
+        return [int(rid) for rid in updates["role_ids"]]  # type: ignore[union-attr]
+    if "role_id" in updates and updates["role_id"] is not None:
+        return [int(updates["role_id"])]  # type: ignore[arg-type]
+    return None
+
+
 class UserService:
     def __init__(self, db: Session) -> None:
         self._db = db
@@ -69,6 +78,21 @@ class UserService:
         if (org.type or "").upper() != "PLANT":
             raise ValueError("org_unit_id must be a plant")
         return org
+
+    def _require_roles(self, role_ids: list[int]) -> list[Role]:
+        if not role_ids:
+            raise ValueError("At least one role is required")
+        roles: list[Role] = []
+        for rid in role_ids:
+            role = self._db.get(Role, int(rid))
+            if role is None:
+                raise NotFoundError("Role", int(rid))
+            roles.append(role)
+        return roles
+
+    @staticmethod
+    def _role_label(roles: list[Role]) -> str:
+        return ", ".join(r.name for r in roles)
 
     def _require_plants(self, org_unit_ids: list[int]) -> list[OrgUnit]:
         if not org_unit_ids:
@@ -185,9 +209,7 @@ class UserService:
         if existing_email is not None:
             raise DuplicateEmailError
 
-        role = self._db.get(Role, data.role_id)
-        if role is None:
-            raise NotFoundError("Role", data.role_id)
+        roles = self._require_roles(data.role_ids)
 
         plants = self._require_plants(data.org_unit_ids)
         plant_ids = {int(p.id) for p in plants}
@@ -208,7 +230,7 @@ class UserService:
             password_changed_at=now,
             is_active=bool(data.is_active),
         )
-        user.roles.append(role)
+        user.roles = roles
         user.org_units = plants
         user.departments = departments
         user.cost_centers = cost_centers
@@ -227,8 +249,8 @@ class UserService:
                 "username": user.username,
                 "phone": user.phone,
                 "email": user.email,
-                "role_id": role.id,
-                "role_name": role.name,
+                "role_ids": [int(r.id) for r in roles],
+                "role_name": self._role_label(roles),
                 "org_unit_ids": [int(p.id) for p in plants],
                 "department_ids": [int(d.id) for d in departments],
                 "cost_center_ids": [int(c.id) for c in cost_centers],
@@ -507,23 +529,22 @@ class UserService:
             if becoming_inactive:
                 self._revoke_user_access(user.id)
 
-        old_role = user.roles[0] if user.roles else None
-        old_role_name = old_role.name if old_role is not None else None
+        old_roles = list(user.roles or [])
+        old_role_name = self._role_label(old_roles)
         role_changed = False
-        if "role_id" in updates and updates["role_id"] is not None:
-            role = self._db.get(Role, int(updates["role_id"]))
-            if role is None:
-                raise NotFoundError("Role", int(updates["role_id"]))
+        next_role_ids = _role_ids_from_updates(updates)
+        if next_role_ids is not None:
+            roles = self._require_roles(next_role_ids)
             assert_self_role_update_keeps_users_view(
                 self._db,
                 actor_user_id=actor_user_id,
                 target_user_id=user_id,
-                new_role_id=role.id,
+                new_role_ids=[int(r.id) for r in roles],
             )
-            if old_role is None or int(old_role.id) != int(role.id):
+            old_ids = sorted(int(r.id) for r in old_roles)
+            if old_ids != sorted(int(r.id) for r in roles):
                 role_changed = True
-            user.roles.clear()
-            user.roles.append(role)
+            user.roles = roles
 
         plant_ids: set[int] = {int(p.id) for p in (user.org_units or [])}
         plants_changed = False
@@ -580,7 +601,7 @@ class UserService:
         audit_new: dict[str, object] = {}
         if role_changed:
             audit_old["role_name"] = old_role_name
-            audit_new["role_name"] = role.name
+            audit_new["role_name"] = self._role_label(list(user.roles or []))
         for key in profile_keys:
             if profile_before.get(key) != profile_after.get(key):
                 audit_old[key] = profile_before[key]

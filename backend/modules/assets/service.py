@@ -1241,21 +1241,15 @@ class AssetMasterService:
             raise ConflictError(
                 "No active asset approval workflow is configured. Map a workflow in Admin."
             )
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids, users_in_any_role
+
         first = sorted(wf.steps, key=lambda s: int(s.step_order))[0]
-        role = self._db.get(Role, int(first.approver_role_id))
-        if role is None:
+        role_ids = step_role_ids(first)
+        if not role_ids:
             raise ConflictError("Workflow approver role is missing.")
-        users = list(
-            self._db.scalars(
-                select(User)
-                .select_from(user_role)
-                .join(User, User.id == user_role.c.user_id)
-                .where(user_role.c.role_id == int(role.id), User.is_active.is_(True))
-                .order_by(User.full_name.asc(), User.id.asc())
-            ).all()
-        )
+        users = users_in_any_role(self._db, role_ids)
         return AssetAssigneeListResponse(
-            role_name=str(role.name),
+            role_name=role_names_label(self._db, role_ids),
             items=[
                 AssetAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
                 for u in users
@@ -1292,26 +1286,31 @@ class AssetMasterService:
                 else None
             )
             if pending is not None and pending.step is not None:
-                role_id = int(pending.step.approver_role_id)
+                from modules.platform.approvals.step_roles import role_names_label, step_role_ids, users_in_any_role
+
+                role_ids = step_role_ids(pending.step)
+                users = users_in_any_role(self._db, role_ids)
+                return AssetAssigneeListResponse(
+                    role_name=role_names_label(self._db, role_ids),
+                    items=[
+                        AssetAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
+                        for u in users
+                    ],
+                )
 
         if role_id is None:
             action_code, _ = action_codes_for_asset(asset)
             return self.list_assignees_for_action(action_code=action_code)
 
-        role = self._db.get(Role, role_id)
+        from modules.platform.approvals.step_roles import picker_role_ids, role_names_label, users_in_any_role
+
+        ids = picker_role_ids(self._db, int(role_id))
+        role = self._db.get(Role, ids[0] if ids else role_id)
         if role is None:
             raise ConflictError("Approver role is missing.")
-        users = list(
-            self._db.scalars(
-                select(User)
-                .select_from(user_role)
-                .join(User, User.id == user_role.c.user_id)
-                .where(user_role.c.role_id == role_id, User.is_active.is_(True))
-                .order_by(User.full_name.asc(), User.id.asc())
-            ).all()
-        )
+        users = users_in_any_role(self._db, ids)
         return AssetAssigneeListResponse(
-            role_name=str(role.name),
+            role_name=role_names_label(self._db, ids),
             items=[
                 AssetAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
                 for u in users
@@ -1357,11 +1356,12 @@ class AssetMasterService:
         ):
             raise ConflictError("Select a different approver.")
 
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids, users_in_any_role
+
         engine = ApprovalEngineService(self._db)
-        role_id = int(pending.step.approver_role_id)
-        role = self._db.get(Role, role_id)
-        role_name = role.name if role is not None else "Approvers"
-        role_users = engine._users_for_role(role_id)
+        role_ids = step_role_ids(pending.step)
+        role_name = role_names_label(self._db, role_ids)
+        role_users = users_in_any_role(self._db, role_ids)
         if not any(int(u.id) == int(assignee_user_id) for u in role_users):
             raise ConflictError(f"Selected user is not an active member of role {role_name!r}.")
 
@@ -2902,9 +2902,9 @@ class AssetMasterService:
                     else f"User #{current_assignee_id}"
                 )
             if pending_task.step is not None:
-                role = self._db.get(Role, int(pending_task.step.approver_role_id))
-                if role is not None:
-                    current_role = role.name
+                from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+                current_role = role_names_label(self._db, step_role_ids(pending_task.step))
 
         is_final = True
         if str(req.status) == "pending" and steps:

@@ -1049,11 +1049,11 @@ export function OrderDetailPage() {
               value={executorName || "—"}
             />
           </div>
-          <div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
+          <div className="mt-2 min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
             <p className="text-xs font-bold uppercase tracking-[0.06em] text-black">
               Order Description
             </p>
-            <p className="mt-0.5 whitespace-pre-wrap break-words text-sm font-medium leading-snug text-black">
+            <p className="mt-1.5 whitespace-pre-wrap break-words text-sm font-normal leading-snug text-black">
               {orderDescription || "—"}
             </p>
           </div>
@@ -1559,7 +1559,7 @@ export function OrderDetailPage() {
           <div className="dialog-body space-y-4">
             <div className="space-y-2">
               <Label htmlFor="assign-to">
-                {executorRoleName ? `Select ${executorRoleName}` : "Select executor"}{" "}
+                {executorRoleName ? `Select ${executorRoleName}` : "Select Executor"}{" "}
                 <span className="text-destructive" aria-hidden>
                   *
                 </span>
@@ -1571,7 +1571,7 @@ export function OrderDetailPage() {
                 onChange={(e) => setAssignTo(e.target.value)}
               >
                 <option value="">
-                  {executorRoleName ? `Select ${executorRoleName}` : "Select executor"}
+                  {executorRoleName ? `Select ${executorRoleName}` : "Select Executor"}
                 </option>
                 {executors.map((e) => (
                   <option key={e.id} value={String(e.id)}>
@@ -1583,8 +1583,8 @@ export function OrderDetailPage() {
               {executors.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
                   {executorRoleName
-                    ? `No users in the "${executorRoleName}" role with access to all cost centers on this order. Assign that role to users scoped to every selected cost center.`
-                    : "Configure the Physical order workflow (order.complete) with an Assign step and ensure that role has users who cover all cost centers on this order."}
+                    ? `No users in the "${executorRoleName}" ${executorRoleName.includes(",") ? "roles" : "role"} with access to all cost centers on this order. Assign ${executorRoleName.includes(",") ? "those roles" : "that role"} to users scoped to every selected cost center.`
+                    : "Configure the Physical order workflow"}
                 </p>
               ) : null}
             </div>
@@ -1647,7 +1647,7 @@ export function OrderDetailPage() {
           <div className="dialog-body space-y-4">
             <div className="space-y-2">
               <Label htmlFor="reassign-to">
-                {executorRoleName ? `Select ${executorRoleName}` : "Select executor"}
+                {executorRoleName ? `Select ${executorRoleName}` : "Select Executor"}
               </Label>
               <select
                 id="reassign-to"
@@ -1656,7 +1656,7 @@ export function OrderDetailPage() {
                 onChange={(e) => setReassignTo(e.target.value)}
               >
                 <option value="">
-                  {executorRoleName ? `Select ${executorRoleName}` : "Select executor"}
+                  {executorRoleName ? `Select ${executorRoleName}` : "Select Executor"}
                 </option>
                 {executors
                   .filter((e) => e.id !== order.assigned_to)

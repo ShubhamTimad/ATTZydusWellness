@@ -13,7 +13,7 @@ from modules.platform.org_units.model import OrgUnit
 from modules.platform.permissions.model import Permission
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
-from modules.platform.users.schema import UserCreate
+from modules.platform.users.schema import UserCreate, UserUpdate
 from modules.platform.rbac_audit.model import RbacAuditLog
 from modules.platform.users.service import DuplicatePhoneError, UserService
 from sqlalchemy import select
@@ -273,3 +273,41 @@ def test_locked_account_appears_on_user_timeline_as_system(db: Session) -> None:
     unlocked = [ev for ev in events if ev.get("type") == "account_unlocked"]
     assert len(unlocked) == 1
     assert unlocked[0]["user"] == "Admin User"
+
+
+def test_create_and_update_user_keeps_multiple_roles(db: Session) -> None:
+    plant = OrgUnit(name="Plant A", code="PLT-A", type="PLANT")
+    operator = Role(name="Operator", description=None)
+    viewer = Role(name="Viewer", description=None)
+    db.add_all([plant, operator, viewer])
+    db.commit()
+    db.refresh(plant)
+    db.refresh(operator)
+    db.refresh(viewer)
+
+    svc = UserService(db)
+    user = svc.create_user(
+        UserCreate(
+            full_name="Multi Role",
+            username="multi.role",
+            phone="9876543299",
+            email="multi@example.com",
+            role_ids=[operator.id, viewer.id],
+            org_unit_ids=[plant.id],
+        )
+    )
+    assert {r.id for r in user.roles} == {operator.id, viewer.id}
+
+    updated = svc.update_user(
+        user.id,
+        UserUpdate(full_name="Multi Role Updated"),
+        actor_user_id=99,
+    )
+    assert {r.id for r in updated.roles} == {operator.id, viewer.id}
+
+    replaced = svc.update_user(
+        user.id,
+        UserUpdate(role_ids=[viewer.id]),
+        actor_user_id=99,
+    )
+    assert {r.id for r in replaced.roles} == {viewer.id}

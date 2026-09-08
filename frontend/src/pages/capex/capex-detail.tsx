@@ -480,7 +480,7 @@ export function CapexDetailPage() {
               disabled={!isDirty || saving || acting || reassigning}
               onClick={() => void save()}
             >
-              {saving ? "Saving…" : "Save Changes"}
+              {saving ? "Saving…" : "Save"}
             </Button>
           ) : null}
           {canSubmit ? (

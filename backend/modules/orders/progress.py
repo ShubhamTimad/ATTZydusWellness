@@ -210,9 +210,11 @@ def _workflow_next_assignee_line(
             if role is not None and role.name:
                 roles.append(str(role.name))
         elif t.step is not None:
-            role = db.get(Role, int(t.step.approver_role_id))
-            if role is not None and role.name:
-                roles.append(str(role.name))
+            from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+            label = role_names_label(db, step_role_ids(t.step))
+            if label:
+                roles.append(label)
     if names:
         uniq = list(dict.fromkeys(names))
         return f"Assigned to: {', '.join(uniq)}"
@@ -239,7 +241,12 @@ def _first_request_assignee_line(
     if first.assigned_user_id is not None:
         name = user_name_fn(int(first.assigned_user_id))
         return f"Assigned to: {name}" if name else f"Assigned to: user #{first.assigned_user_id}"
-    role_id = first.assigned_role_id or (first.step.approver_role_id if first.step else None)
+    if first.step is not None and first.assigned_role_id is None:
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+        label = role_names_label(db, step_role_ids(first.step))
+        return f"Assigned role: {label}" if label else None
+    role_id = first.assigned_role_id
     if role_id is not None:
         role = db.get(Role, int(role_id))
         if role is not None and role.name:
@@ -604,11 +611,12 @@ def _workflow_definition(db: Session, *, action_code: str, phase: str) -> OrderW
         return None
     steps: list[OrderWorkflowStepDefinition] = []
     for step in sorted(wf.steps, key=lambda s: int(s.step_order)):
-        role = db.get(Role, int(step.approver_role_id))
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
         steps.append(
             OrderWorkflowStepDefinition(
                 step_order=int(step.step_order),
-                role_name=role.name if role is not None else "Approvers",
+                role_name=role_names_label(db, step_role_ids(step)),
                 required_approvals=int(step.required_approvals),
                 step_kind=str(getattr(step, "step_kind", None) or "approve"),
             )

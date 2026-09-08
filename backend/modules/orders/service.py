@@ -521,8 +521,9 @@ class PhysicalOrderService:
             first = first_approval_step(wf)
         except ConflictError:
             return empty
-        first_role = self._db.get(Role, int(first.approver_role_id))
-        empty["closure_approver_role_name"] = first_role.name if first_role is not None else None
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+        empty["closure_approver_role_name"] = role_names_label(self._db, step_role_ids(first))
 
         steps = sorted(wf.steps, key=lambda s: int(s.step_order))
         assign = assignment_step_for_workflow(wf)
@@ -536,13 +537,12 @@ class PhysicalOrderService:
 
         if not self._awaiting_closure_approval(order):
             nxt = approval_steps[0]
-            role = self._db.get(Role, int(nxt.approver_role_id))
             more_after = len(approval_steps) > 1
             return {
                 "is_final_closure_step": not more_after,
                 "needs_next_closure_assignee": True,
                 "next_closure_role_id": int(nxt.approver_role_id),
-                "next_closure_role_name": role.name if role is not None else None,
+                "next_closure_role_name": role_names_label(self._db, step_role_ids(nxt)),
                 "closure_approver_role_name": empty["closure_approver_role_name"],
             }
 
@@ -561,12 +561,11 @@ class PhysicalOrderService:
                 "is_final_closure_step": True,
                 "closure_approver_role_name": empty["closure_approver_role_name"],
             }
-        role = self._db.get(Role, int(nxt.approver_role_id))
         return {
             "is_final_closure_step": False,
             "needs_next_closure_assignee": True,
             "next_closure_role_id": int(nxt.approver_role_id),
-            "next_closure_role_name": role.name if role is not None else None,
+            "next_closure_role_name": role_names_label(self._db, step_role_ids(nxt)),
             "closure_approver_role_name": empty["closure_approver_role_name"],
         }
 
@@ -1113,44 +1112,6 @@ class PhysicalOrderService:
             )
         return wf
 
-    def _executor_role_from_workflow(self) -> Role:
-        """Executor pool = Assign step (or first step) of the Physical order workflow."""
-        wf = self._physical_order_workflow()
-        step = assignment_step_for_workflow(wf)
-        if step is None:
-            raise ConflictError("Physical order workflow has no steps.")
-        role = self._db.get(Role, int(step.approver_role_id))
-        if role is None:
-            raise ConflictError("Workflow assignment role is missing.")
-        return role
-
-    def _first_approver_role_from_workflow(self) -> Role:
-        """First Approve-step role — named handoff after Complete."""
-        wf = self._physical_order_workflow()
-        step = first_approval_step(wf)
-        role = self._db.get(Role, int(step.approver_role_id))
-        if role is None:
-            raise ConflictError("Workflow approval role is missing.")
-        return role
-
-    def _closure_approver_role(self) -> Role | None:
-        """Role that approves after complete (and may close) — last non-assign step."""
-        wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
-        if wf is None or not wf.steps:
-            return None
-        try:
-            first = first_approval_step(wf)
-        except ConflictError:
-            return None
-        steps = sorted(wf.steps, key=lambda s: int(s.step_order))
-        approval_steps = [
-            s
-            for s in steps
-            if str(getattr(s, "step_kind", None) or "approve").strip().lower() != "assign"
-        ]
-        last = approval_steps[-1] if approval_steps else first
-        return self._db.get(Role, int(last.approver_role_id))
-
     def _user_in_role(self, user_id: int, role_id: int) -> bool:
         return (
             self._db.scalar(
@@ -1168,10 +1129,13 @@ class PhysicalOrderService:
         plant_id: int | None = None,
         cost_center_ids: list[int] | None = None,
     ) -> ExecutorListResponse:
-        """Users in the workflow Assign-step role (must cover every listed cost center)."""
-        role = self._executor_role_from_workflow()
-        return self._role_users_response(
-            role, plant_id=plant_id, cost_center_ids=cost_center_ids
+        """Users in every Assign-step role (must cover every listed cost center)."""
+        wf = self._physical_order_workflow()
+        step = assignment_step_for_workflow(wf)
+        if step is None:
+            raise ConflictError("Physical order workflow has no steps.")
+        return self._step_users_response(
+            step, plant_id=plant_id, cost_center_ids=cost_center_ids
         )
 
     def list_assignees(
@@ -1183,22 +1147,46 @@ class PhysicalOrderService:
     ) -> ExecutorListResponse:
         """Users in an Approve-step role (closure handoff after Complete, or a later level)."""
         if role_id is not None:
-            role = self._approver_role_from_workflow(int(role_id))
-        else:
-            role = self._first_approver_role_from_workflow()
-        return self._role_users_response(
-            role, plant_id=plant_id, cost_center_ids=cost_center_ids
+            step = self._workflow_step_for_role(int(role_id))
+            return self._step_users_response(
+                step, plant_id=plant_id, cost_center_ids=cost_center_ids
+            )
+        wf = self._physical_order_workflow()
+        return self._step_users_response(
+            first_approval_step(wf),
+            plant_id=plant_id,
+            cost_center_ids=cost_center_ids,
         )
 
-    def _approver_role_from_workflow(self, role_id: int) -> Role:
+    def _workflow_step_for_role(self, role_id: int):
+        from modules.platform.approvals.step_roles import step_role_ids
+
         wf = self._physical_order_workflow()
-        allowed = {int(s.approver_role_id) for s in (wf.steps or [])}
-        if int(role_id) not in allowed:
-            raise ConflictError("That role is not on the Physical order workflow.")
-        role = self._db.get(Role, int(role_id))
+        wanted = int(role_id)
+        for step in sorted(wf.steps or [], key=lambda s: int(s.step_order)):
+            if wanted == int(step.approver_role_id) or wanted in step_role_ids(step):
+                return step
+        raise ConflictError("That role is not on the Physical order workflow.")
+
+    def _step_users_response(
+        self,
+        step,
+        *,
+        plant_id: int | None = None,
+        cost_center_ids: list[int] | None = None,
+    ) -> ExecutorListResponse:
+        from modules.platform.approvals.step_roles import step_role_ids
+
+        ids = step_role_ids(step)
+        role = self._db.get(Role, ids[0]) if ids else None
         if role is None:
-            raise ConflictError("Workflow approval role is missing.")
-        return role
+            raise ConflictError("Workflow role is missing.")
+        return self._role_users_response(
+            role,
+            plant_id=plant_id,
+            cost_center_ids=cost_center_ids,
+            role_ids=ids,
+        )
 
     def _role_users_response(
         self,
@@ -1206,8 +1194,12 @@ class PhysicalOrderService:
         *,
         plant_id: int | None = None,
         cost_center_ids: list[int] | None = None,
+        role_ids: list[int] | None = None,
     ) -> ExecutorListResponse:
-        users = self._users_in_role(int(role.id))
+        from modules.platform.approvals.step_roles import role_names_label, users_in_any_role
+
+        ids = role_ids or [int(role.id)]
+        users = users_in_any_role(self._db, ids) if role_ids else self._users_in_role(int(role.id))
         cc_ids = [int(x) for x in (cost_center_ids or [])]
         items: list[ExecutorUserPublic] = []
         for user in users:
@@ -1226,7 +1218,7 @@ class PhysicalOrderService:
             )
         return ExecutorListResponse(
             role_id=int(role.id),
-            role_name=str(role.name),
+            role_name=role_names_label(self._db, ids),
             items=items,
         )
 
@@ -1268,20 +1260,37 @@ class PhysicalOrderService:
         return user
 
     def _assert_can_close(self, *, actor_user_id: int) -> None:
-        """Same role that approves after complete may close the order."""
-        role = self._closure_approver_role()
-        if role is None:
+        """Any role on the last approval step may close the order."""
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+        wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
+        if wf is None or not wf.steps:
             snapshot = _get_cached_permission_snapshot(self._db, actor_user_id)
             if _has_any_permission(snapshot, ("order.approve", "order.update", "order.create")):
                 return
             raise ConflictError("You do not have permission to close this order.")
+        try:
+            first = first_approval_step(wf)
+        except ConflictError:
+            snapshot = _get_cached_permission_snapshot(self._db, actor_user_id)
+            if _has_any_permission(snapshot, ("order.approve", "order.update", "order.create")):
+                return
+            raise ConflictError("You do not have permission to close this order.")
+        steps = sorted(wf.steps, key=lambda s: int(s.step_order))
+        approval_steps = [
+            s
+            for s in steps
+            if str(getattr(s, "step_kind", None) or "approve").strip().lower() != "assign"
+        ]
+        last = approval_steps[-1] if approval_steps else first
+        ids = step_role_ids(last)
         user = self._db.get(User, actor_user_id)
         if user is not None and bool(user.is_superuser):
             return
-        if self._user_in_role(actor_user_id, int(role.id)):
+        if any(self._user_in_role(actor_user_id, rid) for rid in ids):
             return
         raise ConflictError(
-            f"Only users in the \"{role.name}\" role can close the order after approval."
+            f"Only users in the \"{role_names_label(self._db, ids)}\" role can close the order after approval."
         )
 
     def _apply_pending_verification_resets(

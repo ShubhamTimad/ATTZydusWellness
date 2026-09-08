@@ -56,15 +56,15 @@ class TaskService:
         ``inbox=done``: completed / closed / final approval / rejected tasks you were involved in
         (no ``should_show_approval_in_inbox`` filter — otherwise finished work would disappear).
         """
+        from modules.platform.approvals.step_roles import role_pool_task_clause
+
         role_ids = {
             int(rid)
             for rid in self._db.execute(
                 select(user_role.c.role_id).where(user_role.c.user_id == viewer_id)
             ).scalars().all()
         }
-        role_filter = False
-        if role_ids:
-            role_filter = (ApprovalTask.assigned_role_id.is_not(None)) & (ApprovalTask.assigned_role_id.in_(role_ids))
+        role_filter = role_pool_task_clause(role_ids) if role_ids else False
 
         done_mode = (inbox or "active").lower() == "done"
 
@@ -139,7 +139,9 @@ class TaskService:
                 select(user_role.c.role_id).where(user_role.c.user_id == viewer_id)
             ).scalars().all()
         }
-        if task.assigned_role_id is not None and int(task.assigned_role_id) in role_ids:
+        from modules.platform.approvals.step_roles import user_matches_role_task
+
+        if user_matches_role_task(self._db, task, role_ids):
             return True
 
         if str(task.task_type) == "manual" and task.created_by == viewer_id:
@@ -289,16 +291,12 @@ def _action_sort_ts(a: ApprovalAction) -> datetime:
 _POOL_NAME_CAP = 24
 
 
-def _role_pool_summary(db: Session, role_id: int) -> tuple[int, list[str]]:
-    """Active users in ``role_id`` (ordered for display); names list is capped for API size."""
-    stmt = (
-        select(User)
-        .select_from(user_role)
-        .join(User, User.id == user_role.c.user_id)
-        .where(user_role.c.role_id == int(role_id), User.is_active.is_(True))
-        .order_by(User.full_name.asc(), User.id.asc())
-    )
-    users = list(db.scalars(stmt).all())
+def _role_pool_summary(db: Session, role_id: int, role_ids: list[int] | None = None) -> tuple[int, list[str]]:
+    """Active users in the step roles (ordered for display); names list is capped for API size."""
+    from modules.platform.approvals.step_roles import users_in_any_role
+
+    ids = role_ids or [int(role_id)]
+    users = users_in_any_role(db, ids)
     count = len(users)
     names: list[str] = []
     for u in users[:_POOL_NAME_CAP]:
@@ -360,11 +358,13 @@ def _build_workflow_steps_for_request(
 
     out: list[TaskApprovalStepLinePublic] = []
     for step in steps_sorted:
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
         s_order = int(step.step_order)
-        r = db.get(Role, int(step.approver_role_id))
-        approver_role_name = r.name if r is not None else "Approvers"
+        role_ids = step_role_ids(step)
+        approver_role_name = role_names_label(db, role_ids)
         required = int(step.required_approvals)
-        pool_size, pool_member_names = _role_pool_summary(db, int(step.approver_role_id))
+        pool_size, pool_member_names = _role_pool_summary(db, int(step.approver_role_id), role_ids)
 
         step_tasks = [x for x in task_list if x.step_id is not None and int(x.step_id) == int(step.id)]
         all_actions: list[ApprovalAction] = []
@@ -461,11 +461,13 @@ def build_workflow_preview_steps(
     total_steps = len(steps_sorted)
     out: list[TaskApprovalStepLinePublic] = []
     for step in steps_sorted:
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
         s_order = int(step.step_order)
-        r = db.get(Role, int(step.approver_role_id))
-        approver_role_name = r.name if r is not None else "Approvers"
+        role_ids = step_role_ids(step)
+        approver_role_name = role_names_label(db, role_ids)
         required = int(step.required_approvals)
-        pool_size, pool_member_names = _role_pool_summary(db, int(step.approver_role_id))
+        pool_size, pool_member_names = _role_pool_summary(db, int(step.approver_role_id), role_ids)
         out.append(
             TaskApprovalStepLinePublic(
                 step_order=s_order,
@@ -525,10 +527,10 @@ def build_task_detail_public(db: Session, t: ApprovalTask) -> TaskDetailPublic:
         if step is not None:
             step_order = int(step.step_order)
             required = int(step.required_approvals)
+            from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
             approver_role_id = int(step.approver_role_id)
-            r = db.get(Role, step.approver_role_id)
-            if r is not None:
-                approver_role_name = r.name
+            approver_role_name = role_names_label(db, step_role_ids(step))
         approval = TaskApprovalContextPublic(
             request_id=int(req.id),
             entity_type=str(req.entity_type),
