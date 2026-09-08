@@ -59,7 +59,15 @@ def format_generated_at(when: datetime | None = None) -> str:
 
 
 def logo_png_bytes() -> bytes | None:
-    """Raster logo for Excel/PDF. PNG/JPG as-is; SVG drawn with Pillow."""
+    """Raster logo for Excel/PDF. Settings upload first, then shipped PNG/JPG/SVG."""
+    try:
+        from modules.platform.settings.brand_logo import get_brand_logo_bytes
+
+        custom = get_brand_logo_bytes()
+    except Exception:
+        custom = None
+    if custom is not None:
+        return custom[0]
     path = logo_file_path()
     if path is not None:
         return path.read_bytes()
@@ -167,15 +175,9 @@ def write_xlsx_header(
         ws.merge_cells(f"{get_column_letter(text_col)}{title_row}:{text_last}{title_row}")
         ws.merge_cells(f"{get_column_letter(text_col)}{subtitle_row}:{text_last}{subtitle_row}")
 
-    path = logo_file_path()
-    png = None if path is not None else logo_png_bytes()
+    png = logo_png_bytes()
     logo_anchor = f"{logo_start}{title_row}"
-    if path is not None:
-        img = XLImage(str(path))
-        img.width = 118
-        img.height = 36
-        ws.add_image(img, logo_anchor)
-    elif png is not None:
+    if png is not None:
         img = XLImage(io.BytesIO(png))
         img.width = 118
         img.height = 36

@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Pencil, Plus, Power, PowerOff, Trash2 } from "lucide-react"
+import { ListFilter, Pencil, Plus, Power, PowerOff, Search, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -13,6 +13,8 @@ import {
 import {
   AdminDataTable,
   AdminTableBodyRow,
+  AdminTablePagination,
+  LIST_PAGE_SIZE,
 } from "@/components/layout/list-page-ui"
 import { Button } from "@/components/ui/button"
 import {
@@ -27,8 +29,10 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
+import { useUrlPage } from "@/lib/use-url-tab"
 import type { PlantOption } from "@/lib/masters-types"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
+import { cn } from "@/lib/utils"
 
 type Row = {
   id: number
@@ -47,6 +51,9 @@ type MasterCrudPanelProps = {
   kind: "simple" | "category" | "location" | "tag-color" | "code-name"
   plants?: PlantOption[]
 }
+
+const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
+const columnFilterControlClass = "h-8 w-full min-w-[6rem] text-xs"
 
 function MasterHeaderLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -82,6 +89,13 @@ export function MasterCrudPanel({
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
   const listBase = listUrl.replace(/\?.*$/, "").replace(/\/$/, "")
+  const [page, setPage] = useUrlPage(`page_${listBase.split("/").pop() ?? "master"}`)
+  const [searchInput, setSearchInput] = React.useState("")
+  const [search, setSearch] = React.useState("")
+  const [filtersOpen, setFiltersOpen] = React.useState(false)
+  const [codeFilter, setCodeFilter] = React.useState("")
+  const [nameFilter, setNameFilter] = React.useState("")
+  const [statusFilter, setStatusFilter] = React.useState<"" | "active" | "inactive">("")
 
   async function load() {
     const data = await getJson<Row[]>(`${listBase}?active_only=false`)
@@ -102,6 +116,21 @@ export function MasterCrudPanel({
   React.useEffect(() => {
     void load().catch((e) => toast.error(e instanceof Error ? e.message : "Failed to load"))
   }, [listBase])
+
+  React.useEffect(() => {
+    const t = window.setTimeout(() => {
+      setSearch((prev) => {
+        if (prev === searchInput) return prev
+        setPage(1)
+        return searchInput
+      })
+    }, 300)
+    return () => window.clearTimeout(t)
+  }, [searchInput, setPage])
+
+  React.useEffect(() => {
+    setPage(1)
+  }, [codeFilter, nameFilter, statusFilter, setPage])
 
   function openCreate() {
     setCode("")
@@ -259,9 +288,111 @@ export function MasterCrudPanel({
   const nameColumnLabel =
     kind === "category" || kind === "tag-color" || kind === "code-name" ? "Name" : "Description"
 
+  const filteredRows = React.useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const codeQ = codeFilter.trim().toLowerCase()
+    const nameQ = nameFilter.trim().toLowerCase()
+    return rows.filter((row) => {
+      if (q) {
+        const blob = [row.code, row.name, row.description, row.color_hex, row.plant_name, row.location_type]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+        if (!blob.includes(q)) return false
+      }
+      if (codeQ && !row.code.toLowerCase().includes(codeQ)) return false
+      const label = (row.name ?? row.description).toLowerCase()
+      if (nameQ && !label.includes(nameQ)) return false
+      if (statusFilter === "active" && !row.is_active) return false
+      if (statusFilter === "inactive" && row.is_active) return false
+      return true
+    })
+  }, [rows, search, codeFilter, nameFilter, statusFilter])
+
+  const activeFilterCount =
+    (codeFilter.trim() ? 1 : 0) + (nameFilter.trim() ? 1 : 0) + (statusFilter ? 1 : 0)
+  const hasQuery = Boolean(search.trim() || activeFilterCount)
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / LIST_PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pageRows = filteredRows.slice((safePage - 1) * LIST_PAGE_SIZE, safePage * LIST_PAGE_SIZE)
+
+  function clearFilters() {
+    setSearchInput("")
+    setSearch("")
+    setCodeFilter("")
+    setNameFilter("")
+    setStatusFilter("")
+    setPage(1)
+  }
+
+  React.useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages, setPage])
+
   return (
-    <>
-    <AdminDataTable title={title} headerActions={addButton} className="min-h-0 flex-1">
+    <div className="flex min-h-0 flex-1 flex-col gap-[var(--app-grid-gap)]">
+    <div className="app-list-toolbar shrink-0">
+      <div className="relative min-w-[16rem] flex-1">
+        <Search
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search by code or name"
+          className="w-full pl-9"
+          aria-label={`Search ${title}`}
+        />
+        {searchInput ? (
+          <button
+            type="button"
+            className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            aria-label="Clear search"
+            onClick={() => setSearchInput("")}
+          >
+            <X className="size-4" />
+          </button>
+        ) : null}
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className={cn(listToolbarBtnClass, filtersOpen && "border-primary/40 bg-primary/5")}
+        aria-expanded={filtersOpen}
+        onClick={() => setFiltersOpen((open) => !open)}
+      >
+        <ListFilter className="size-4" aria-hidden />
+        <span className="inline-flex items-center gap-0.5">
+          Filter
+          {activeFilterCount > 0 ? (
+            <span className="text-xs font-medium text-red-600">({activeFilterCount})</span>
+          ) : null}
+        </span>
+      </Button>
+      {hasQuery ? (
+        <Button type="button" variant="outline" size="sm" className={listToolbarBtnClass} onClick={clearFilters}>
+          Clear
+        </Button>
+      ) : null}
+    </div>
+    <AdminDataTable
+      title={title}
+      headerActions={addButton}
+      className="min-h-0 flex-1"
+      footer={
+        <AdminTablePagination
+          page={safePage}
+          totalPages={totalPages}
+          total={filteredRows.length}
+          pageSize={LIST_PAGE_SIZE}
+          itemLabel="records"
+          onPageChange={setPage}
+        />
+      }
+    >
       <Table className="app-table-head-sticky">
         <TableHeader>
           <AdminTableHeaderRow>
@@ -301,18 +432,56 @@ export function MasterCrudPanel({
               </AdminTableHeadCell>
             ) : null}
           </AdminTableHeaderRow>
+          {filtersOpen ? (
+            <AdminTableHeaderRow className="border-b bg-muted/20 hover:bg-muted/20">
+              <AdminTableHeadCell className="px-2 py-1.5">
+                <Input
+                  value={codeFilter}
+                  onChange={(e) => setCodeFilter(e.target.value)}
+                  aria-label="Filter code"
+                  placeholder="Code"
+                  className={columnFilterControlClass}
+                />
+              </AdminTableHeadCell>
+              <AdminTableHeadCell className="px-2 py-1.5">
+                <Input
+                  value={nameFilter}
+                  onChange={(e) => setNameFilter(e.target.value)}
+                  aria-label={`Filter ${nameColumnLabel}`}
+                  placeholder={nameColumnLabel}
+                  className={columnFilterControlClass}
+                />
+              </AdminTableHeadCell>
+              {kind === "tag-color" ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
+              {kind === "location" ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
+              {kind === "location" ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
+              <AdminTableHeadCell className="px-2 py-1.5">
+                <select
+                  className={cn(adminSelectClass, columnFilterControlClass)}
+                  value={statusFilter}
+                  aria-label="Filter status"
+                  onChange={(e) => setStatusFilter(e.target.value as "" | "active" | "inactive")}
+                >
+                  <option value="">All</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </AdminTableHeadCell>
+              {showActions ? <AdminTableHeadCell className="px-2 py-1.5" /> : null}
+            </AdminTableHeaderRow>
+          ) : null}
         </TableHeader>
         <TableBody>
-          {rows.length === 0 ? (
+          {filteredRows.length === 0 ? (
             <AdminTableEmptyRow
               colSpan={
                 (kind === "tag-color" ? 4 : kind === "location" ? 5 : kind === "code-name" ? 3 : 3) + (showActions ? 1 : 0)
               }
             >
-              No records yet.
+              {hasQuery ? "No records match your search or filters." : "No records yet."}
             </AdminTableEmptyRow>
           ) : (
-            rows.map((row) => (
+            pageRows.map((row) => (
               <AdminTableBodyRow key={row.id} interactive={false}>
                 <AdminTableCell className="font-mono text-xs">{row.code}</AdminTableCell>
                 <AdminTableCell>
@@ -457,7 +626,7 @@ export function MasterCrudPanel({
       </Dialog>
     </AdminDataTable>
     {confirmDialog}
-    </>
+    </div>
   )
 }
 

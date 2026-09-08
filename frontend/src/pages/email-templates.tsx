@@ -16,10 +16,12 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { AdminPage } from "@/components/layout/admin-page"
+import { PageLoader } from "@/components/ui/page-loader"
 import {
   AdminDataTable,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
 } from "@/components/layout/list-page-ui"
 import {
   AdminPanel,
@@ -264,8 +266,8 @@ export function EmailTemplatesPage() {
   if (view === "edit") {
     if (editLoading) {
       return (
-        <AdminPage fullWidth>
-          <p className="text-sm text-muted-foreground">Loading…</p>
+        <AdminPage fullWidth viewportFill>
+          <PageLoader label="Loading template" />
         </AdminPage>
       )
     }
@@ -444,7 +446,7 @@ export function EmailTemplatesPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <AdminTableEmptyRow colSpan={4}>Loading templates…</AdminTableEmptyRow>
+              <AdminTableLoadingRow colSpan={4} label="Loading templates" />
             ) : sortedTemplates.length === 0 ? (
               <AdminTableEmptyRow colSpan={4}>
                 No templates yet. Click Create template.

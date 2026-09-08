@@ -26,6 +26,13 @@ class RoleUpdate(BaseModel):
     )
 
 
+class RoleListPage(BaseModel):
+    items: list["RoleListItem"]
+    total: int
+    page: int
+    page_size: int
+
+
 class RoleListItem(BaseModel):
     """Built explicitly in the roles router (includes ``org_unit_ids`` from the association)."""
 
@@ -45,3 +52,6 @@ class RoleDetail(BaseModel):
     created_at: datetime
     permissions: list[PermissionPublic]
     org_units: list[OrgUnitPublic]
+
+
+RoleListPage.model_rebuild()

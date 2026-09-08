@@ -1,4 +1,5 @@
 import * as React from "react"
+import { ListFilter, Search, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { MultiCheckList } from "@/components/admin/multi-check-list"
@@ -7,11 +8,18 @@ import {
   AdminPrimaryButton,
   adminSelectClass,
 } from "@/components/layout/admin-ui"
+import {
+  AdminTablePagination,
+  LIST_PAGE_SIZE,
+} from "@/components/layout/list-page-ui"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, getJson, putJson } from "@/lib/api"
 import type { CostCenterMaster, PlantOption } from "@/lib/masters-types"
 import { costCenterLabel, plantLabel } from "@/lib/use-asset-masters"
 import { hasPermission } from "@/lib/permissions"
+import { useUrlPage } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 type UserOption = {
@@ -31,12 +39,14 @@ type CustodiansResponse = {
 
 export function CostCenterCustodiansPanel({ plants }: { plants: PlantOption[] }) {
   const canUpdate = hasPermission("masters.update")
+  const [page, setPage] = useUrlPage("page_custodians")
   const [plantId, setPlantId] = React.useState("")
   const [costCenters, setCostCenters] = React.useState<CostCenterMaster[]>([])
   const [costCenterId, setCostCenterId] = React.useState("")
   const [allUsers, setAllUsers] = React.useState<UserOption[]>([])
   const [selected, setSelected] = React.useState<string[]>([])
   const [userFilter, setUserFilter] = React.useState("")
+  const [filtersOpen, setFiltersOpen] = React.useState(true)
   const [loading, setLoading] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
 
@@ -111,6 +121,18 @@ export function CostCenterCustodiansPanel({ plants }: { plants: PlantOption[] })
     return opts.filter((o) => o.label.toLowerCase().includes(q))
   }, [allUsers, userFilter])
 
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / LIST_PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pageUsers = filteredUsers.slice((safePage - 1) * LIST_PAGE_SIZE, safePage * LIST_PAGE_SIZE)
+
+  React.useEffect(() => {
+    setPage(1)
+  }, [userFilter, costCenterId, setPage])
+
+  React.useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages, setPage])
+
   async function save() {
     if (!costCenterId) return
     setSaving(true)
@@ -130,8 +152,9 @@ export function CostCenterCustodiansPanel({ plants }: { plants: PlantOption[] })
   return (
     <AdminPanel
       title="Custodians"
-      description="Assign which users may be asset custodians for each cost center. Transfer and asset forms use this list."
-      contentClassName="px-5 py-5"
+      // description="Assign which users may be asset custodians for each cost center. Transfer and asset forms use this list."
+      className="flex min-h-0 flex-1 flex-col"
+      contentClassName="flex min-h-0 flex-1 flex-col gap-4 px-5 py-5"
       footer={
         canUpdate && costCenterId ? (
           <div className="flex justify-end">
@@ -142,6 +165,69 @@ export function CostCenterCustodiansPanel({ plants }: { plants: PlantOption[] })
         ) : null
       }
     >
+      <div className="app-list-toolbar shrink-0">
+        <div className="relative min-w-[16rem] flex-1">
+          <Search
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            value={userFilter}
+            onChange={(e) => setUserFilter(e.target.value)}
+            placeholder="Search users by name, username, or email"
+            className="w-full pl-9"
+            aria-label="Search custodians"
+            disabled={!costCenterId}
+          />
+          {userFilter ? (
+            <button
+              type="button"
+              className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+              onClick={() => setUserFilter("")}
+            >
+              <X className="size-4" />
+            </button>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={cn("h-9 shrink-0 gap-1.5 px-3", filtersOpen && "border-primary/40 bg-primary/5")}
+          aria-expanded={filtersOpen}
+          onClick={() => setFiltersOpen((open) => !open)}
+        >
+          <ListFilter className="size-4" aria-hidden />
+          <span className="inline-flex items-center gap-0.5">
+            Filter
+            {plantId || costCenterId ? (
+              <span className="text-xs font-medium text-red-600">
+                ({(plantId ? 1 : 0) + (costCenterId ? 1 : 0)})
+              </span>
+            ) : null}
+          </span>
+        </Button>
+        {userFilter || plantId ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-9 shrink-0 gap-1.5 px-3"
+            onClick={() => {
+              setUserFilter("")
+              setPlantId("")
+              setCostCenterId("")
+              setSelected([])
+              setPage(1)
+            }}
+          >
+            Clear
+          </Button>
+        ) : null}
+      </div>
+
+      {filtersOpen ? (
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor="cc-custodian-plant">Plant</Label>
@@ -178,34 +264,33 @@ export function CostCenterCustodiansPanel({ plants }: { plants: PlantOption[] })
           </select>
         </div>
       </div>
+      ) : null}
 
       <div className="mt-4 space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <Label>Custodians</Label>
-          {costCenterId ? (
-            <input
-              value={userFilter}
-              onChange={(e) => setUserFilter(e.target.value)}
-              placeholder="Filter users…"
-              className={cn(
-                "h-8 w-full max-w-xs rounded-md border border-input bg-background px-2.5 text-xs shadow-sm",
-              )}
-              disabled={!canUpdate}
-            />
-          ) : null}
-        </div>
+        <Label>Custodians</Label>
         {!costCenterId ? (
           <p className="text-sm text-muted-foreground">Select a cost center to manage its custodians.</p>
         ) : loading ? (
           <p className="text-sm text-muted-foreground">Loading…</p>
         ) : (
-          <MultiCheckList
-            options={filteredUsers}
-            values={selected}
-            onChange={setSelected}
-            disabled={!canUpdate}
-            emptyLabel="You do not have permission to update masters."
-          />
+          <>
+            <MultiCheckList
+              options={pageUsers}
+              values={selected}
+              onChange={setSelected}
+              disabled={!canUpdate}
+              emptyLabel="You do not have permission to update masters."
+            />
+            <AdminTablePagination
+              page={safePage}
+              totalPages={totalPages}
+              total={filteredUsers.length}
+              pageSize={LIST_PAGE_SIZE}
+              loading={loading}
+              itemLabel="users"
+              onPageChange={setPage}
+            />
+          </>
         )}
       </div>
     </AdminPanel>

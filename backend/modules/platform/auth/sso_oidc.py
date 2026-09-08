@@ -409,6 +409,10 @@ def complete_sso_callback(
         raise SsoPortalMismatchError("Admin SSO requires a superuser account.")
     if portal == "user" and user.is_superuser:
         raise SsoPortalMismatchError("Superadmin accounts must use admin SSO.")
+    if user.locked_at is not None:
+        from modules.platform.auth.service import AccountLockedError
+
+        raise AccountLockedError
 
     set_user_id(int(user.id))
     tokens = AuthService(db).issue_token_pair(user, auth_method="sso")

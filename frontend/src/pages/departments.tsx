@@ -12,8 +12,12 @@ import {
 } from "@/components/layout/admin-ui"
 import {
   AdminDataTable,
+  type AdminListPage,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
+  AdminTablePagination,
+  LIST_PAGE_SIZE,
 } from "@/components/layout/list-page-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -28,6 +32,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { useUrlPage } from "@/lib/use-url-tab"
 import { hasPermission, isSuperuser } from "@/lib/permissions"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
@@ -42,7 +47,10 @@ type OrgUnitPublic = {
 }
 
 export function DepartmentsPage() {
+  const [page, setPage] = useUrlPage()
   const [departments, setDepartments] = React.useState<OrgUnitPublic[] | null>(null)
+  const [total, setTotal] = React.useState(0)
+  const [loading, setLoading] = React.useState(false)
   const [plants, setPlants] = React.useState<OrgUnitPublic[]>([])
   const [error, setError] = React.useState<string | null>(null)
 
@@ -69,25 +77,35 @@ export function DepartmentsPage() {
     return map
   }, [plants])
 
-  async function load() {
+  const load = React.useCallback(async () => {
     setError(null)
+    setLoading(true)
     try {
+      const q = new URLSearchParams({
+        type: "DEPARTMENT",
+        page: String(page),
+        page_size: String(LIST_PAGE_SIZE),
+      })
       const [d, p] = await Promise.all([
-        getJson<OrgUnitPublic[]>("/admin/org-units?type=DEPARTMENT"),
+        getJson<AdminListPage<OrgUnitPublic>>(`/admin/org-units/page?${q}`),
         getJson<OrgUnitPublic[]>("/admin/org-units?type=PLANT"),
       ])
-      setDepartments(d)
+      setDepartments(d.items)
+      setTotal(d.total)
       setPlants(p)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load departments")
       setDepartments([])
+      setTotal(0)
       setPlants([])
+    } finally {
+      setLoading(false)
     }
-  }
+  }, [page])
 
   React.useEffect(() => {
     void load()
-  }, [])
+  }, [load])
 
   function openEdit(dept: OrgUnitPublic) {
     setEditDept(dept)
@@ -191,9 +209,17 @@ export function DepartmentsPage() {
     }
   }
 
+  const pageSize = LIST_PAGE_SIZE
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  React.useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages, setPage])
+
   return (
     <AdminPage
       fullWidth
+      viewportFill
       // description="Departments belong to a plant and can be assigned when creating users."
       actions={
         canCreate ? (
@@ -211,7 +237,21 @@ export function DepartmentsPage() {
         </Alert>
       ) : null}
 
-      <AdminDataTable title="All departments">
+      <AdminDataTable
+        className="min-h-0 flex-1"
+        title="All departments"
+        footer={
+          <AdminTablePagination
+            page={Math.min(page, totalPages)}
+            totalPages={totalPages}
+            total={total}
+            pageSize={pageSize}
+            loading={loading || departments === null}
+            itemLabel="departments"
+            onPageChange={setPage}
+          />
+        }
+      >
         <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>
@@ -225,14 +265,11 @@ export function DepartmentsPage() {
           </TableHeader>
           <TableBody>
             {departments === null ? (
-              <AdminTableEmptyRow colSpan={3 + actionColSpan}>Loading departments…</AdminTableEmptyRow>
+              <AdminTableLoadingRow colSpan={3 + actionColSpan} label="Loading departments" />
             ) : departments.length === 0 ? (
               <AdminTableEmptyRow colSpan={3 + actionColSpan}>No departments found.</AdminTableEmptyRow>
             ) : (
-              departments
-                .slice()
-                .sort((a, b) => a.code.localeCompare(b.code))
-                .map((d) => {
+              departments.map((d) => {
                   const plant = d.parent_id != null ? plantById.get(d.parent_id) : undefined
                   return (
                     <AdminTableBodyRow key={d.id} interactive={false}>

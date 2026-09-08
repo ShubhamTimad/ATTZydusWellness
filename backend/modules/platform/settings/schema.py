@@ -20,6 +20,12 @@ class AuthPolicyPublic(BaseModel):
     mfa_enabled: bool = False
     captcha_enabled: bool = False
     mfa_enforced: bool = False
+    max_failed_login_attempts: int = Field(
+        default=5,
+        ge=0,
+        le=20,
+        description="Lock the account after this many consecutive failed password attempts. 0 disables lockout.",
+    )
     # From SSO settings (read-only on PUT /auth-policy; edit via /settings/sso).
     sso_enabled: bool = False
     sso_button_label: str = "Sign in with SSO"

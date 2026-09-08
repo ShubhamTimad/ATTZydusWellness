@@ -67,44 +67,44 @@ export function MastersPage() {
 
         <WorkspaceTabsContent value="categories" className={TAB_PANEL}>
           <MasterCrudPanel
-            title="Asset category"
+            title="Asset Category"
             listUrl="/admin/asset-masters/categories?active_only=true"
             kind="category"
           />
         </WorkspaceTabsContent>
         <WorkspaceTabsContent value="asset-classes" className={TAB_PANEL}>
           <MasterCrudPanel
-            title="Asset class"
+            title="Asset Class"
             listUrl="/admin/asset-masters/asset-classes?active_only=true"
             kind="code-name"
           />
         </WorkspaceTabsContent>
         <WorkspaceTabsContent value="functional" className={TAB_PANEL}>
             <HierarchicalMasterPanel
-              title="Functional location"
+              title="Functional Location"
               kind="functional-location"
               plants={plants}
             />
           </WorkspaceTabsContent>
           <WorkspaceTabsContent value="actual" className={TAB_PANEL}>
             <HierarchicalMasterPanel
-              title="Actual location"
+              title="Actual Location"
               kind="actual-location"
               plants={plants}
             />
           </WorkspaceTabsContent>
           <WorkspaceTabsContent value="cost-centers" className={TAB_PANEL}>
-            <HierarchicalMasterPanel title="Cost center" kind="cost-center" plants={plants} />
+            <HierarchicalMasterPanel title="Cost Center" kind="cost-center" plants={plants} />
           </WorkspaceTabsContent>
           <WorkspaceTabsContent value="cc-custodians" className={TAB_PANEL}>
             <CostCenterCustodiansPanel plants={plants} />
           </WorkspaceTabsContent>
           <WorkspaceTabsContent value="profit-centers" className={TAB_PANEL}>
-            <HierarchicalMasterPanel title="Profit center" kind="profit-center" plants={plants} />
+            <HierarchicalMasterPanel title="Profit Center" kind="profit-center" plants={plants} />
           </WorkspaceTabsContent>
           <WorkspaceTabsContent value="tag-colors" className={TAB_PANEL}>
             <MasterCrudPanel
-              title="Tag color"
+              title="Tag Color"
               listUrl="/admin/asset-masters/tag-colors?active_only=true"
               kind="tag-color"
             />

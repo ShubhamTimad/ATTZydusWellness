@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useQuery } from "@tanstack/react-query"
 import { ListFilter, Search, X } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
@@ -8,6 +9,7 @@ import {
   AdminDataTable,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
   AdminTablePagination,
   ListPageHeader,
   WorkspaceTabs,
@@ -32,6 +34,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
+import { disposalListRootKey } from "@/lib/query-client"
 import {
   DISPOSAL_STATUS_TABS,
   disposalStatusLabel,
@@ -82,8 +85,6 @@ export function DisposalOrdersListPage() {
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [tab, setTab] = useUrlTab(DISPOSAL_TAB_KEYS, DEFAULT_TAB)
   const [page, setPage] = useUrlPage()
-  const [data, setData] = React.useState<DisposalOrderListResponse | null>(null)
-  const [loading, setLoading] = React.useState(false)
   const [busyId, setBusyId] = React.useState<number | null>(null)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
@@ -136,9 +137,9 @@ export function DisposalOrdersListPage() {
       })
   }, [columnFilterInputs.plant_id])
 
-  const load = React.useCallback(async () => {
-    setLoading(true)
-    try {
+  const disposalsQuery = useQuery({
+    queryKey: [...disposalListRootKey, { tab, page, search, columnFilters, sortBy, sortDir }],
+    queryFn: async () => {
       const q = new URLSearchParams({ tab, page: String(page), page_size: "25" })
       if (search.trim()) q.set("search", search.trim())
       if (columnFilters.order_number.trim()) q.set("order_number", columnFilters.order_number.trim())
@@ -152,21 +153,38 @@ export function DisposalOrdersListPage() {
       if (columnFilters.created_on.trim()) q.set("created_on", columnFilters.created_on.trim())
       q.set("sort_by", sortBy)
       q.set("sort_dir", sortDir)
-      setData(await getJson<DisposalOrderListResponse>(`/admin/disposal-orders?${q}`))
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load disposal orders")
-    } finally {
-      setLoading(false)
+      return getJson<DisposalOrderListResponse>(`/admin/disposal-orders?${q}`)
+    },
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: (query) => query.state.isInvalidated,
+  })
+  const data = disposalsQuery.data ?? null
+  const loading = disposalsQuery.isPending && !disposalsQuery.data
+
+  React.useEffect(() => {
+    if (disposalsQuery.error) {
+      toast.error(
+        disposalsQuery.error instanceof Error
+          ? disposalsQuery.error.message
+          : "Failed to load disposal orders",
+      )
     }
-  }, [tab, page, search, columnFilters, sortBy, sortDir])
+  }, [disposalsQuery.error])
+
+  const load = React.useCallback(async () => {
+    await disposalsQuery.refetch()
+  }, [disposalsQuery])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
-      setSearch(searchInput)
-      setPage(1)
+      setSearch((prev) => {
+        if (prev === searchInput) return prev
+        setPage(1)
+        return searchInput
+      })
     }, 300)
     return () => window.clearTimeout(t)
-  }, [searchInput])
+  }, [searchInput, setPage])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -181,10 +199,6 @@ export function DisposalOrdersListPage() {
     }, 300)
     return () => window.clearTimeout(t)
   }, [columnFilterInputs])
-
-  React.useEffect(() => {
-    void load()
-  }, [load])
 
   function clearFilters() {
     setSearchInput("")
@@ -271,7 +285,7 @@ export function DisposalOrdersListPage() {
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const counts = data?.tab_counts ?? {}
-  const showDiscard = items.some((r) => r.can_delete || r.can_archive || r.can_unarchive)
+  const showDiscard = true
   const colSpan = 7 + (showDiscard ? 1 : 0)
 
   return (
@@ -297,9 +311,9 @@ export function DisposalOrdersListPage() {
             return (
               <WorkspaceTabsTrigger key={t.key} value={t.key}>
                 {t.label}
-                {typeof count === "number" ? (
-                  <span className="ml-1.5 tabular-nums text-muted-foreground">({count})</span>
-                ) : null}
+                <span className="ml-1.5 inline-block min-w-[3.25rem] text-left tabular-nums text-muted-foreground">
+                  {typeof count === "number" ? `(${count})` : "\u00a0"}
+                </span>
               </WorkspaceTabsTrigger>
             )
           })}
@@ -552,7 +566,7 @@ export function DisposalOrdersListPage() {
               </TableHeader>
               <TableBody>
                 {loading && items.length === 0 ? (
-                  <AdminTableEmptyRow colSpan={colSpan}>Loading…</AdminTableEmptyRow>
+                  <AdminTableLoadingRow colSpan={colSpan} label="Loading disposals" />
                 ) : items.length === 0 ? (
                   <AdminTableEmptyRow colSpan={colSpan}>
                     {search.trim() || activeColumnFilterCount > 0

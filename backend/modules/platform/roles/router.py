@@ -8,7 +8,7 @@ from core.permissions import require_permission
 from db.session import get_db
 from modules.errors import ConflictError, NotFoundError, RbacSafetyError
 from modules.platform.roles.model import Role
-from modules.platform.roles.schema import RoleCreate, RoleDetail, RoleListItem, RoleUpdate
+from modules.platform.roles.schema import RoleCreate, RoleDetail, RoleListItem, RoleListPage, RoleUpdate
 from modules.platform.roles.service import RoleService
 
 router = APIRouter(prefix="/roles", tags=["admin", "roles"])
@@ -52,6 +52,30 @@ def list_roles(
         )
         for r in roles
     ]
+
+
+@router.get("/page", response_model=RoleListPage)
+def list_roles_page(
+    svc: Annotated[RoleService, Depends(get_role_service)],
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+) -> RoleListPage:
+    roles, total = svc.list_roles_page(page=page, page_size=page_size)
+    return RoleListPage(
+        items=[
+            RoleListItem(
+                id=r.id,
+                name=r.name,
+                description=r.description,
+                created_at=r.created_at,
+                org_unit_ids=[o.id for o in r.org_units],
+            )
+            for r in roles
+        ],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/{role_id}", response_model=RoleDetail)

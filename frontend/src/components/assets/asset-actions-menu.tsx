@@ -23,6 +23,7 @@ type AssetActionsMenuProps = {
 
 export function AssetActionsMenu({
   actions,
+  selectedCount,
   onAction,
   busy = false,
   triggerLabel = "Actions",
@@ -45,7 +46,7 @@ export function AssetActionsMenu({
           disabled={busy}
         >
           <MoreHorizontal className="size-4" aria-hidden />
-          {label}
+          {selectedCount != null && selectedCount > 0 ? `${label} (${selectedCount})` : label}
           <ChevronDown className="size-3.5 opacity-60" aria-hidden />
         </Button>
       </DropdownMenuTrigger>

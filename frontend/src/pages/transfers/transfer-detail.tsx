@@ -4,6 +4,7 @@ import { toast } from "sonner"
 
 
 import { AdminPage } from "@/components/layout/admin-page"
+import { PageLoader } from "@/components/ui/page-loader"
 import {
   AdminBackLink,
   AdminPanel,
@@ -20,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { invalidateTransferLists } from "@/lib/query-client"
 import { formatAppDateTime as formatDt } from "@/lib/dates"
 import type { ActualLocationMaster } from "@/lib/masters-types"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
@@ -273,6 +275,7 @@ export function TransferOrderDetailPage() {
     try {
       applyOrder(await action())
       toast.success(okMessage)
+      void invalidateTransferLists()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed")
     } finally {
@@ -363,6 +366,7 @@ export function TransferOrderDetailPage() {
                 ? "Transfer order closed."
                 : "Approved."
       toast.success(ok)
+      void invalidateTransferLists()
       await load()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
@@ -387,6 +391,7 @@ export function TransferOrderDetailPage() {
         ...receiveLocationPayload(),
       })
       toast.success("Assets received. Assigned for confirmation.")
+      void invalidateTransferLists()
       setPickerMode(null)
       await load()
     } catch (e) {
@@ -480,6 +485,7 @@ export function TransferOrderDetailPage() {
     try {
       await deleteJson(`/admin/transfer-orders/${order.id}`)
       toast.success("Draft transfer order deleted.")
+      void invalidateTransferLists()
       navigate("/dashboard/transfer-orders")
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not delete transfer order")
@@ -500,6 +506,7 @@ export function TransferOrderDetailPage() {
     try {
       applyOrder(await postJson(`/admin/transfer-orders/${order.id}/archive`, {}))
       toast.success("Transfer order archived.")
+      void invalidateTransferLists()
       navigate("/dashboard/transfer-orders")
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not archive transfer order")
@@ -520,6 +527,7 @@ export function TransferOrderDetailPage() {
     try {
       applyOrder(await postJson(`/admin/transfer-orders/${order.id}/unarchive`, {}))
       toast.success("Transfer order unarchived.")
+      void invalidateTransferLists()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not unarchive transfer order")
     } finally {
@@ -545,6 +553,7 @@ export function TransferOrderDetailPage() {
         ),
       )
       toast.success("Transfer Restarted as Draft — update destination, then submit for approval.")
+      void invalidateTransferLists()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not restart transfer")
     } finally {
@@ -554,8 +563,8 @@ export function TransferOrderDetailPage() {
 
   if (loading || !order) {
     return (
-      <AdminPage fullWidth dense description="" className="w-full pb-6">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+      <AdminPage fullWidth viewportFill>
+        {loading ? <PageLoader label="Loading transfer" /> : <p className="text-sm text-muted-foreground">Transfer not found.</p>}
       </AdminPage>
     )
   }
@@ -639,6 +648,7 @@ export function TransferOrderDetailPage() {
                   toast.success(
                     "Transfer restarted as draft. Update details, then submit for approval.",
                   )
+                  void invalidateTransferLists()
                 } catch (e) {
                   toast.error(
                     e instanceof ApiError ? e.message : "Could not restart transfer order",
@@ -660,7 +670,7 @@ export function TransferOrderDetailPage() {
               disabled={busy}
               onClick={() => void saveDraftChanges()}
             >
-              {busy ? "Saving…" : "Save Changes"}
+              {busy ? "Saving…" : "Save"}
             </Button>
           ) : null}
           {order.can_submit ? (
@@ -1153,6 +1163,7 @@ export function TransferOrderDetailPage() {
               )
               applyOrder(res)
               toast.success("Transfer order submitted for approval.")
+              void invalidateTransferLists()
             } catch (e) {
               toast.error(e instanceof ApiError ? e.message : "Action failed")
             } finally {

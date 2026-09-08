@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
+import { PageLoader } from "@/components/ui/page-loader"
 import {
   AdminBackLink,
   AdminPanel,
@@ -13,6 +14,7 @@ import {
   AdminPrimaryButton,
   AdminTableCell,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
@@ -27,6 +29,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { invalidateDisposalLists } from "@/lib/query-client"
 import { formatAppDateTime as formatWhen } from "@/lib/dates"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import type { ActualLocationMaster, CostCenterMaster } from "@/lib/masters-types"
@@ -109,13 +112,18 @@ function FormField({
 function SummaryField({
   label,
   value,
+  required,
 }: {
   label: string
   value: React.ReactNode
+  required?: boolean
 }) {
   return (
     <div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
-      <p className="text-xs font-bold uppercase tracking-[0.06em] !text-black">{label}</p>
+      <p className="text-xs font-bold uppercase tracking-[0.06em] !text-black">
+        {label}
+        {required ? <RequiredFieldMark /> : null}
+      </p>
       <div className="mt-0.5 min-w-0 text-sm font-medium leading-snug !text-black">{value}</div>
     </div>
   )
@@ -529,6 +537,7 @@ export function DisposalOrderDetailPage() {
     try {
       applyOrder(await action())
       toast.success(okMessage)
+      void invalidateDisposalLists()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed")
     } finally {
@@ -571,6 +580,7 @@ export function DisposalOrderDetailPage() {
               ? "Disposal order closed."
               : "Approved."
       toast.success(ok)
+      void invalidateDisposalLists()
       await load()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Action failed.")
@@ -581,8 +591,8 @@ export function DisposalOrderDetailPage() {
 
   if (loading || !order) {
     return (
-      <AdminPage fullWidth dense description="" className="w-full pb-6">
-        <p className="text-sm text-muted-foreground">Loading…</p>
+      <AdminPage fullWidth viewportFill>
+        {loading ? <PageLoader label="Loading disposal" /> : <p className="text-sm text-muted-foreground">Disposal not found.</p>}
       </AdminPage>
     )
   }
@@ -639,7 +649,7 @@ export function DisposalOrderDetailPage() {
               disabled={!isDirty || busy}
               onClick={() => void saveEdits()}
             >
-              {busy ? "Saving…" : "Save Changes"}
+              {busy ? "Saving…" : "Save"}
             </Button>
           ) : null}
           {order.can_delete ? (
@@ -663,6 +673,7 @@ export function DisposalOrderDetailPage() {
                 try {
                   await deleteJson(`/admin/disposal-orders/${order.id}`)
                   toast.success("Draft disposal order deleted. Assets reactivated.")
+                  void invalidateDisposalLists()
                   navigate("/dashboard/disposal-orders")
                 } catch (e) {
                   toast.error(
@@ -697,6 +708,7 @@ export function DisposalOrderDetailPage() {
                     await postJson(`/admin/disposal-orders/${order.id}/archive`, {}),
                   )
                   toast.success("Disposal order archived. Assets reactivated.")
+                  void invalidateDisposalLists()
                   navigate("/dashboard/disposal-orders")
                 } catch (e) {
                   toast.error(
@@ -731,6 +743,7 @@ export function DisposalOrderDetailPage() {
                     await postJson(`/admin/disposal-orders/${order.id}/unarchive`, {}),
                   )
                   toast.success("Disposal order unarchived.")
+                  void invalidateDisposalLists()
                 } catch (e) {
                   toast.error(
                     e instanceof ApiError ? e.message : "Could not unarchive disposal order",
@@ -754,6 +767,7 @@ export function DisposalOrderDetailPage() {
                     await postJson(`/admin/disposal-orders/${order.id}/resume`, {}),
                   )
                   toast.success("Disposal restarted as draft. Update details, then submit for approval.")
+                  void invalidateDisposalLists()
                 } catch (e) {
                   toast.error(
                     e instanceof ApiError ? e.message : "Could not restart disposal order",
@@ -987,6 +1001,7 @@ export function DisposalOrderDetailPage() {
             {order.can_edit || order.can_close ? (
               <SummaryField
                 label={order.can_close && !order.can_edit ? "Remarks" : "Disposal Reason"}
+                required={order.can_edit}
                 value={
                   <textarea
                     id="remarks"
@@ -1039,16 +1054,6 @@ export function DisposalOrderDetailPage() {
                   onClick={clearEditAssets}
                 >
                   Clear All
-                </Button>
-                <Button
-                  type="button"
-                  variant={assetPickerOpen ? "secondary" : "outline"}
-                  size="sm"
-                  className="h-8"
-                  disabled={busy}
-                  onClick={() => setAssetPickerOpen((open) => !open)}
-                >
-                  {assetPickerOpen ? "Hide asset list" : "Select Other Asset"}
                 </Button>
               </div>
             ) : null}
@@ -1108,9 +1113,7 @@ export function DisposalOrderDetailPage() {
                     <AdminTableEmptyRow
                       colSpan={5 + (showLocations ? 2 : 0) + (order.can_edit ? 1 : 0)}
                     >
-                      {order.can_edit
-                        ? "No Assets selected — click Select other assets to choose."
-                        : "No Assets"}
+                      {order.can_edit ? "No Assets selected." : "No Assets"}
                     </AdminTableEmptyRow>
                   ) : (
                     editAssets.map((item) => {
@@ -1350,7 +1353,7 @@ export function DisposalOrderDetailPage() {
                           Select a plant to list assets.
                         </AdminTableEmptyRow>
                       ) : catalogLoading ? (
-                        <AdminTableEmptyRow colSpan={3}>Loading assets…</AdminTableEmptyRow>
+                        <AdminTableLoadingRow colSpan={3} label="Loading assets" />
                       ) : filteredCatalog.length === 0 ? (
                         <AdminTableEmptyRow colSpan={3}>
                           No active, approved assets match this filter.
@@ -1427,6 +1430,7 @@ export function DisposalOrderDetailPage() {
                   ...receiveLocationPayload(),
                 })
                 toast.success("Assets received.")
+                void invalidateDisposalLists()
                 setPickerMode(null)
                 await load()
               } catch (e) {

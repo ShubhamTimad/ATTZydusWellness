@@ -11,8 +11,12 @@ import {
 } from "@/components/layout/admin-ui"
 import {
   AdminDataTable,
+  type AdminListPage,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
+  AdminTablePagination,
+  LIST_PAGE_SIZE,
 } from "@/components/layout/list-page-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -27,6 +31,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { useUrlPage } from "@/lib/use-url-tab"
 import { hasPermission, isSuperuser } from "@/lib/permissions"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
@@ -41,7 +46,10 @@ type OrgUnitPublic = {
 }
 
 export function PlantsPage() {
+  const [page, setPage] = useUrlPage()
   const [plants, setPlants] = React.useState<OrgUnitPublic[] | null>(null)
+  const [total, setTotal] = React.useState(0)
+  const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
   const [createOpen, setCreateOpen] = React.useState(false)
@@ -60,20 +68,30 @@ export function PlantsPage() {
   const actionColSpan = (canUpdate ? 1 : 0) + (canDelete ? 1 : 0)
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
 
-  async function load() {
+  const load = React.useCallback(async () => {
     setError(null)
+    setLoading(true)
     try {
-      const p = await getJson<OrgUnitPublic[]>("/admin/org-units?type=PLANT")
-      setPlants(p)
+      const q = new URLSearchParams({
+        type: "PLANT",
+        page: String(page),
+        page_size: String(LIST_PAGE_SIZE),
+      })
+      const p = await getJson<AdminListPage<OrgUnitPublic>>(`/admin/org-units/page?${q}`)
+      setPlants(p.items)
+      setTotal(p.total)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load plants")
       setPlants([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
     }
-  }
+  }, [page])
 
   React.useEffect(() => {
     void load()
-  }, [])
+  }, [load])
 
   function openEdit(plant: OrgUnitPublic) {
     setEditPlant(plant)
@@ -212,9 +230,17 @@ export function PlantsPage() {
     </Dialog>
   )
 
+  const pageSize = LIST_PAGE_SIZE
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  React.useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages, setPage])
+
   return (
     <AdminPage
       fullWidth
+      viewportFill
       description=""
       actions={
         canCreate ? (
@@ -232,7 +258,21 @@ export function PlantsPage() {
         </Alert>
       ) : null}
 
-      <AdminDataTable title="All plants" >
+      <AdminDataTable
+        className="min-h-0 flex-1"
+        title="All plants"
+        footer={
+          <AdminTablePagination
+            page={Math.min(page, totalPages)}
+            totalPages={totalPages}
+            total={total}
+            pageSize={pageSize}
+            loading={loading || plants === null}
+            itemLabel="plants"
+            onPageChange={setPage}
+          />
+        }
+      >
         <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>
@@ -246,14 +286,11 @@ export function PlantsPage() {
           </TableHeader>
           <TableBody>
             {plants === null ? (
-              <AdminTableEmptyRow colSpan={3 + actionColSpan}>Loading plants…</AdminTableEmptyRow>
+              <AdminTableLoadingRow colSpan={3 + actionColSpan} label="Loading plants" />
             ) : plants.length === 0 ? (
               <AdminTableEmptyRow colSpan={3 + actionColSpan}>No plants found.</AdminTableEmptyRow>
             ) : (
-              plants
-                .slice()
-                .sort((a, b) => a.code.localeCompare(b.code))
-                .map((p) => (
+              plants.map((p) => (
                   <AdminTableBodyRow key={p.id} interactive={false}>
                     <AdminTableCell className="font-mono text-sm font-medium">{p.code}</AdminTableCell>
                     <AdminTableCell className="font-medium">{p.name}</AdminTableCell>
@@ -327,7 +364,7 @@ export function PlantsPage() {
                 Cancel
               </Button>
               <AdminPrimaryButton type="button" disabled={saving} onClick={() => void savePlant()}>
-                {saving ? "Saving…" : "Save Changes"}
+                {saving ? "Saving…" : "Save"}
               </AdminPrimaryButton>
             </div>
           </div>

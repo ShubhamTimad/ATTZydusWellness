@@ -16,8 +16,12 @@ import {
 import { AdminPage } from "@/components/layout/admin-page"
 import {
   AdminDataTable,
+  type AdminListPage,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
+  AdminTablePagination,
+  LIST_PAGE_SIZE,
 } from "@/components/layout/list-page-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -26,6 +30,7 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { UserCostCentersDisplay } from "@/components/users/user-cost-centers"
 import { getJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
+import { useUrlPage } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 type UserPublic = {
@@ -36,6 +41,7 @@ type UserPublic = {
   email: string | null
   is_active: boolean
   is_superuser: boolean
+  is_locked?: boolean
   role: { id: number; name: string } | null
   org_units?: { id: number; name: string; type: string; code?: string | null }[]
   departments?: { id: number; name: string; type: string; code?: string | null }[]
@@ -53,13 +59,23 @@ type RoleListItem = {
 }
 
 type UserColumnFilters = {
-  status: "" | "active" | "inactive"
+  name: string
+  phone: string
   role_id: string
+  plant: string
+  department: string
+  cost_center: string
+  status: "" | "active" | "inactive" | "locked"
 }
 
 const DEFAULT_COLUMN_FILTERS: UserColumnFilters = {
-  status: "",
+  name: "",
+  phone: "",
   role_id: "",
+  plant: "",
+  department: "",
+  cost_center: "",
+  status: "",
 }
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -71,8 +87,14 @@ function joinNames(items: { name: string }[] | undefined, fallback: string | nul
 }
 
 export function UsersPage() {
+  const [page, setPage] = useUrlPage()
   const [users, setUsers] = React.useState<UserPublic[] | null>(null)
+  const [total, setTotal] = React.useState(0)
+  const [loading, setLoading] = React.useState(false)
   const [roles, setRoles] = React.useState<RoleListItem[]>([])
+  const [plantOptions, setPlantOptions] = React.useState<string[]>([])
+  const [departmentOptions, setDepartmentOptions] = React.useState<string[]>([])
+  const [costCenterOptions, setCostCenterOptions] = React.useState<string[]>([])
   const [error, setError] = React.useState<string | null>(null)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
@@ -90,19 +112,38 @@ export function UsersPage() {
 
   const load = React.useCallback(async () => {
     setError(null)
+    setLoading(true)
     try {
-      const q = new URLSearchParams({ skip: "0", limit: "200" })
+      const q = new URLSearchParams({
+        page: String(page),
+        page_size: String(LIST_PAGE_SIZE),
+      })
       if (search.trim()) q.set("search", search.trim())
-      if (columnFilters.status === "active") q.set("is_active", "true")
-      if (columnFilters.status === "inactive") q.set("is_active", "false")
+      if (columnFilters.name.trim()) q.set("name", columnFilters.name.trim())
+      if (columnFilters.phone.trim()) q.set("phone", columnFilters.phone.trim())
+      if (columnFilters.status === "active") {
+        q.set("is_active", "true")
+        q.set("is_locked", "false")
+      } else if (columnFilters.status === "inactive") {
+        q.set("is_active", "false")
+      } else if (columnFilters.status === "locked") {
+        q.set("is_locked", "true")
+      }
       if (columnFilters.role_id.trim()) q.set("role_id", columnFilters.role_id.trim())
-      const u = await getJson<UserPublic[]>(`/admin/users?${q}`)
-      setUsers(u)
+      if (columnFilters.plant.trim()) q.set("plant", columnFilters.plant.trim())
+      if (columnFilters.department.trim()) q.set("department", columnFilters.department.trim())
+      if (columnFilters.cost_center.trim()) q.set("cost_center", columnFilters.cost_center.trim())
+      const u = await getJson<AdminListPage<UserPublic>>(`/admin/users/page?${q}`)
+      setUsers(u.items)
+      setTotal(u.total)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load users")
       setUsers([])
+      setTotal(0)
+    } finally {
+      setLoading(false)
     }
-  }, [search, columnFilters])
+  }, [page, search, columnFilters])
 
   React.useEffect(() => {
     void load()
@@ -112,12 +153,31 @@ export function UsersPage() {
     void getJson<RoleListItem[]>("/admin/roles?skip=0&limit=200")
       .then(setRoles)
       .catch(() => setRoles([]))
+    void getJson<{ plants: string[]; departments: string[]; cost_centers: string[] }>(
+      "/admin/users/filter-options",
+    )
+      .then((opts) => {
+        setPlantOptions(opts.plants)
+        setDepartmentOptions(opts.departments)
+        setCostCenterOptions(opts.cost_centers)
+      })
+      .catch(() => {
+        setPlantOptions([])
+        setDepartmentOptions([])
+        setCostCenterOptions([])
+      })
   }, [])
 
   React.useEffect(() => {
-    const t = window.setTimeout(() => setSearch(searchInput), 300)
+    const t = window.setTimeout(() => {
+      setSearch((prev) => {
+        if (prev === searchInput) return prev
+        setPage(1)
+        return searchInput
+      })
+    }, 300)
     return () => window.clearTimeout(t)
-  }, [searchInput])
+  }, [searchInput, setPage])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -125,18 +185,28 @@ export function UsersPage() {
         const changed = Object.entries(columnFilterInputs).some(
           ([k, v]) => prev[k as keyof UserColumnFilters] !== v,
         )
-        return changed ? { ...columnFilterInputs } : prev
+        if (!changed) return prev
+        setPage(1)
+        return { ...columnFilterInputs }
       })
     }, 300)
     return () => window.clearTimeout(t)
-  }, [columnFilterInputs])
+  }, [columnFilterInputs, setPage])
 
   function clearFilters() {
     setSearchInput("")
     setSearch("")
     setColumnFilterInputs({ ...DEFAULT_COLUMN_FILTERS })
     setColumnFilters({ ...DEFAULT_COLUMN_FILTERS })
+    setPage(1)
   }
+
+  const pageSize = LIST_PAGE_SIZE
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  React.useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages, setPage])
 
   return (
     <AdminPage
@@ -220,7 +290,20 @@ export function UsersPage() {
         ) : null}
       </div>
 
-      <AdminDataTable className="min-h-0 flex-1">
+      <AdminDataTable
+        className="min-h-0 flex-1"
+        footer={
+          <AdminTablePagination
+            page={Math.min(page, totalPages)}
+            totalPages={totalPages}
+            total={total}
+            pageSize={pageSize}
+            loading={loading || users === null}
+            itemLabel="users"
+            onPageChange={setPage}
+          />
+        }
+      >
         <Table className="app-table-head-sticky">
           <TableHeader>
             <AdminTableHeaderRow>
@@ -235,8 +318,24 @@ export function UsersPage() {
             </AdminTableHeaderRow>
             {columnFiltersOpen ? (
               <AdminTableHeaderRow className="border-b bg-muted/20 hover:bg-muted/20">
-                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
-                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
+                <AdminTableHeadCell className="px-2 py-1.5">
+                  <Input
+                    value={columnFilterInputs.name}
+                    onChange={(e) => setColumnFilterInputs((f) => ({ ...f, name: e.target.value }))}
+                    aria-label="Filter name"
+                    placeholder="Name"
+                    className={columnFilterControlClass}
+                  />
+                </AdminTableHeadCell>
+                <AdminTableHeadCell className="px-2 py-1.5">
+                  <Input
+                    value={columnFilterInputs.phone}
+                    onChange={(e) => setColumnFilterInputs((f) => ({ ...f, phone: e.target.value }))}
+                    aria-label="Filter phone"
+                    placeholder="Phone"
+                    className={columnFilterControlClass}
+                  />
+                </AdminTableHeadCell>
                 <AdminTableHeadCell className="px-2 py-1.5">
                   <select
                     className={cn(adminSelectClass, columnFilterControlClass)}
@@ -254,9 +353,55 @@ export function UsersPage() {
                     ))}
                   </select>
                 </AdminTableHeadCell>
-                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
-                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
-                <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
+                <AdminTableHeadCell className="px-2 py-1.5">
+                  <select
+                    className={cn(adminSelectClass, columnFilterControlClass)}
+                    value={columnFilterInputs.plant}
+                    aria-label="Filter plant"
+                    onChange={(e) => setColumnFilterInputs((f) => ({ ...f, plant: e.target.value }))}
+                  >
+                    <option value="">All</option>
+                    {plantOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </AdminTableHeadCell>
+                <AdminTableHeadCell className="px-2 py-1.5">
+                  <select
+                    className={cn(adminSelectClass, columnFilterControlClass)}
+                    value={columnFilterInputs.department}
+                    aria-label="Filter department"
+                    onChange={(e) =>
+                      setColumnFilterInputs((f) => ({ ...f, department: e.target.value }))
+                    }
+                  >
+                    <option value="">All</option>
+                    {departmentOptions.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </AdminTableHeadCell>
+                <AdminTableHeadCell className="px-2 py-1.5">
+                  <select
+                    className={cn(adminSelectClass, columnFilterControlClass)}
+                    value={columnFilterInputs.cost_center}
+                    aria-label="Filter cost center"
+                    onChange={(e) =>
+                      setColumnFilterInputs((f) => ({ ...f, cost_center: e.target.value }))
+                    }
+                  >
+                    <option value="">All</option>
+                    {costCenterOptions.map((code) => (
+                      <option key={code} value={code}>
+                        {code}
+                      </option>
+                    ))}
+                  </select>
+                </AdminTableHeadCell>
                 <AdminTableHeadCell className="px-2 py-1.5">
                   <select
                     className={cn(adminSelectClass, columnFilterControlClass)}
@@ -272,6 +417,7 @@ export function UsersPage() {
                     <option value="">All</option>
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
+                    <option value="locked">Locked</option>
                   </select>
                 </AdminTableHeadCell>
                 <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell>
@@ -280,7 +426,7 @@ export function UsersPage() {
           </TableHeader>
           <TableBody>
             {users === null ? (
-              <AdminTableEmptyRow colSpan={8}>Loading users…</AdminTableEmptyRow>
+              <AdminTableLoadingRow colSpan={8} label="Loading users" />
             ) : users.length === 0 ? (
               <AdminTableEmptyRow colSpan={8}>
                 {search.trim() || activeColumnFilterCount > 0
@@ -309,10 +455,14 @@ export function UsersPage() {
                     {joinNames(u.departments, u.department?.name ?? null)}
                   </AdminTableCell>
                   <AdminTableCell>
-                    <UserCostCentersDisplay items={u.cost_centers} fallback={u.cost_center} />
+                    <UserCostCentersDisplay
+                      items={u.cost_centers}
+                      fallback={u.cost_center}
+                      maxVisible={3}
+                    />
                   </AdminTableCell>
                   <AdminTableCell>
-                    <AdminStatusBadge active={u.is_active} />
+                    <AdminStatusBadge active={u.is_active} locked={u.is_locked} />
                   </AdminTableCell>
                   <AdminTableCell className="text-right">
                     <AdminRowActions>

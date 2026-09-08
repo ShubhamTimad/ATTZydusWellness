@@ -5,6 +5,8 @@ from typing import Literal
 
 EventCode = Literal[
     "USER_CREATED",
+    "ACCOUNT_LOCKED",
+    "ACCOUNT_UNLOCKED",
     "FORGOT_PASSWORD",
     "PASSWORD_RESET",
     "TASK_ASSIGNED",
@@ -24,6 +26,8 @@ EventCode = Literal[
 
 EVENT_CODES: tuple[str, ...] = (
     "USER_CREATED",
+    "ACCOUNT_LOCKED",
+    "ACCOUNT_UNLOCKED",
     "FORGOT_PASSWORD",
     "PASSWORD_RESET",
     "TASK_ASSIGNED",

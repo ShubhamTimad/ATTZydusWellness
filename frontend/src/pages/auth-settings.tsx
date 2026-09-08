@@ -2,6 +2,7 @@ import * as React from "react"
 import { toast } from "sonner"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { PageLoader } from "@/components/ui/page-loader"
 import { Switch } from "@/components/ui/switch"
 import { ApiError, getJson, patchJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
@@ -131,7 +132,7 @@ export function AuthSettingsPage() {
       </Card>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <PageLoader label="Loading policy" compact className="min-h-48" />
       ) : !companyId ? (
         <p className="text-sm text-muted-foreground">Select a company to edit its policy.</p>
       ) : !pol ? (

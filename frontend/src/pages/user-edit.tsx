@@ -7,11 +7,13 @@ import { toast } from "sonner"
 
 import { MultiCheckList } from "@/components/admin/multi-check-list"
 import { AdminPage } from "@/components/layout/admin-page"
+import { PageLoader } from "@/components/ui/page-loader"
 import {
   AdminBackLink,
   AdminPanel,
   AdminPrimaryButton,
   adminSelectClass,
+  adminSwitchRowClass,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -270,103 +272,157 @@ export function UserEditPage() {
 
   if (loading) {
     return (
-      <AdminPage fullWidth description="Loading…" actions={<AdminBackLink to=".." />}>
-        <p className="text-sm text-muted-foreground">Please wait.</p>
+      <AdminPage fullWidth viewportFill actions={<AdminBackLink to=".." />}>
+        <PageLoader label="Loading user" />
       </AdminPage>
     )
   }
 
+  const locked = Boolean(user?.is_superuser)
+
   return (
-    <AdminPage
-      fullWidth
-      description="Plant is required. Department is optional — plant + cost center, or plant + department + cost center."
-      actions={<AdminBackLink to=".." />}
-    >
-      {error ? (
-        <Alert variant="destructive">
-          <AlertTitle>Something went wrong</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
+    <AdminPage fullWidth actions={<AdminBackLink to=".." />}>
+      <div className="w-full space-y-4">
+        {error ? (
+          <Alert variant="destructive">
+            <AlertTitle>Something went wrong</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
 
-      {!user ? (
-        <Alert>
-          <AlertTitle>User not found</AlertTitle>
-          <AlertDescription>This user may have been deleted or is outside the loaded range.</AlertDescription>
-        </Alert>
-      ) : (
-        <AdminPanel title={user.full_name} description="Make changes and save." contentClassName="px-5 py-5">
-          <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="edit-full-name">Full name</Label>
-                <Input id="edit-full-name" {...form.register("full_name")} disabled={user.is_superuser} />
+        {!user ? (
+          <Alert>
+            <AlertTitle>User not found</AlertTitle>
+            <AlertDescription>This user may have been deleted or is outside the loaded range.</AlertDescription>
+          </Alert>
+        ) : (
+          <AdminPanel
+            title={user.full_name}
+            description={
+              locked
+                ? "Superuser accounts cannot be edited here."
+                : "Update profile, assignment, and access. Department is optional."
+            }
+            contentClassName="space-y-6 px-5 py-5"
+            footer={
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" className="h-9" onClick={() => navigate("..")}>
+                  Cancel
+                </Button>
+                <AdminPrimaryButton type="submit" form="edit-user-form" disabled={form.formState.isSubmitting || locked}>
+                  {form.formState.isSubmitting ? "Saving…" : "Save changes"}
+                </AdminPrimaryButton>
               </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="edit-username">Username</Label>
-                <Input id="edit-username" {...form.register("username")} disabled={user.is_superuser} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-phone">Phone</Label>
-                <Input id="edit-phone" maxLength={10} {...form.register("phone")} disabled={user.is_superuser} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-email">Email</Label>
-                <Input id="edit-email" type="email" {...form.register("email")} disabled={user.is_superuser} />
-              </div>
+            }
+          >
+            <form id="edit-user-form" className="grid items-start gap-6 xl:grid-cols-2" onSubmit={form.handleSubmit(onSubmit)}>
+              <section className="space-y-4">
+                <h4 className="text-sm font-semibold">Profile</h4>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-full-name">Full name</Label>
+                    <Input id="edit-full-name" {...form.register("full_name")} disabled={locked} />
+                    {form.formState.errors.full_name?.message ? (
+                      <p className="text-xs text-destructive">{form.formState.errors.full_name.message}</p>
+                    ) : null}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-username">Username</Label>
+                    <Input id="edit-username" {...form.register("username")} disabled={locked} />
+                    {form.formState.errors.username?.message ? (
+                      <p className="text-xs text-destructive">{form.formState.errors.username.message}</p>
+                    ) : null}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-phone">Phone</Label>
+                    <Input
+                      id="edit-phone"
+                      inputMode="numeric"
+                      maxLength={10}
+                      placeholder="e.g. 9876543210"
+                      {...form.register("phone")}
+                      disabled={locked}
+                    />
+                    {form.formState.errors.phone?.message ? (
+                      <p className="text-xs text-destructive">{form.formState.errors.phone.message}</p>
+                    ) : null}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-email">Email</Label>
+                    <Input id="edit-email" type="email" {...form.register("email")} disabled={locked} />
+                    {form.formState.errors.email?.message ? (
+                      <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
 
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Plants</Label>
-                <MultiCheckList
-                  options={(plants ?? []).map((p) => ({ id: p.id, label: `${p.code} — ${p.name}` }))}
-                  values={plantIds}
-                  onChange={(next) =>
-                    form.setValue("org_unit_ids", next, { shouldDirty: true, shouldValidate: true })
-                  }
-                  disabled={user.is_superuser}
-                  emptyLabel="No plants available."
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Departments (optional)</Label>
-                <MultiCheckList
-                  options={departments.map((d) => ({ id: d.id, label: `${d.code} — ${d.name}` }))}
-                  values={form.watch("department_ids")}
-                  onChange={(next) => form.setValue("department_ids", next, { shouldDirty: true })}
-                  disabled={user.is_superuser || plantIds.length === 0}
-                  emptyLabel="Select at least one plant first…"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Skip if the user only needs plant and cost center.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>Cost centers (optional)</Label>
-                <MultiCheckList
-                  options={costCenters.map((c) => ({
-                    id: c.id,
-                    label: c.code,
-                    title: `${c.code} — ${c.name}`,
-                  }))}
-                  values={form.watch("cost_center_ids")}
-                  onChange={(next) => form.setValue("cost_center_ids", next, { shouldDirty: true })}
-                  disabled={user.is_superuser || plantIds.length === 0}
-                  emptyLabel="Select at least one plant first…"
-                />
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label>Role</Label>
-                <select className={adminSelectClass} {...form.register("role_id")} disabled={user.is_superuser}>
-                  <option value="">Select a role…</option>
-                  {rolesForPlants(roles, plantIds).map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center justify-between gap-3 sm:col-span-2">
-                <div className="space-y-1">
+              <section className="space-y-4">
+                <div>
+                  <h4 className="text-sm font-semibold">Assignment</h4>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Plant is required. Department can be skipped if the user only needs a plant and cost center.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Plants</Label>
+                  <MultiCheckList
+                    options={(plants ?? []).map((p) => ({ id: p.id, label: `${p.code} — ${p.name}` }))}
+                    values={plantIds}
+                    onChange={(next) =>
+                      form.setValue("org_unit_ids", next, { shouldDirty: true, shouldValidate: true })
+                    }
+                    disabled={locked}
+                    emptyLabel="No plants available."
+                  />
+                  {form.formState.errors.org_unit_ids?.message ? (
+                    <p className="text-xs text-destructive">{form.formState.errors.org_unit_ids.message}</p>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Departments</Label>
+                    <MultiCheckList
+                      options={departments.map((d) => ({ id: d.id, label: `${d.code} — ${d.name}` }))}
+                      values={form.watch("department_ids")}
+                      onChange={(next) => form.setValue("department_ids", next, { shouldDirty: true })}
+                      disabled={locked || plantIds.length === 0}
+                      emptyLabel="Select at least one plant first."
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Cost centers</Label>
+                    <MultiCheckList
+                      options={costCenters.map((c) => ({
+                        id: c.id,
+                        label: c.code,
+                        title: `${c.code} — ${c.name}`,
+                      }))}
+                      values={form.watch("cost_center_ids")}
+                      onChange={(next) => form.setValue("cost_center_ids", next, { shouldDirty: true })}
+                      disabled={locked || plantIds.length === 0}
+                      emptyLabel="Select at least one plant first."
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Role</Label>
+                  <select className={adminSelectClass} {...form.register("role_id")} disabled={locked}>
+                    <option value="">Select a role…</option>
+                    {rolesForPlants(roles, plantIds).map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                  {form.formState.errors.role_id?.message ? (
+                    <p className="text-xs text-destructive">{form.formState.errors.role_id.message}</p>
+                  ) : null}
+                </div>
+              </section>
+
+              <div className={`${adminSwitchRowClass} xl:col-span-2`}>
+                <div className="min-w-0">
                   <div className="text-sm font-medium">Active</div>
                   <div className="text-xs text-muted-foreground">
                     Inactive users cannot sign in and will not receive emails.
@@ -375,21 +431,13 @@ export function UserEditPage() {
                 <Switch
                   checked={form.watch("is_active")}
                   onCheckedChange={(v) => form.setValue("is_active", v, { shouldDirty: true })}
-                  disabled={user.is_superuser}
+                  disabled={locked}
                 />
               </div>
-            </div>
-            <div className="sticky bottom-0 z-10 -mx-5 mt-1 flex justify-end gap-2 border-t border-border/60 bg-card/95 px-5 pt-4 pb-5 backdrop-blur supports-[backdrop-filter]:bg-card/90">
-              <Button type="button" variant="outline" className="h-9 shadow-sm" onClick={() => navigate("..")}>
-                Cancel
-              </Button>
-              <AdminPrimaryButton type="submit" disabled={form.formState.isSubmitting || user.is_superuser}>
-                {form.formState.isSubmitting ? "Saving…" : "Save Changes"}
-              </AdminPrimaryButton>
-            </div>
-          </form>
-        </AdminPanel>
-      )}
+            </form>
+          </AdminPanel>
+        )}
+      </div>
     </AdminPage>
   )
 }

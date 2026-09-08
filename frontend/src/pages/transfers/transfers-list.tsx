@@ -1,5 +1,6 @@
 import * as React from "react"
-import { ListFilter, PlusIcon, Search, X } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { ListFilter, Search, X } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -8,6 +9,7 @@ import {
   AdminDataTable,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
   AdminTablePagination,
   ListPageHeader,
   WorkspaceTabs,
@@ -17,7 +19,6 @@ import {
 } from "@/components/layout/list-page-ui"
 import {
   AdminPillBadge,
-  AdminPrimaryButton,
   AdminTableCell,
   AdminTableHeadCell,
   AdminTableHeaderRow,
@@ -33,7 +34,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
-import { hasPermission } from "@/lib/permissions"
+import { transferListRootKey } from "@/lib/query-client"
 import {
   TRANSFER_STATUS_TABS,
   transferStatusLabel,
@@ -87,8 +88,6 @@ export function TransferOrdersListPage() {
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [tab, setTab] = useUrlTab(TRANSFER_TAB_KEYS, DEFAULT_TAB)
   const [page, setPage] = useUrlPage()
-  const [data, setData] = React.useState<TransferOrderListResponse | null>(null)
-  const [loading, setLoading] = React.useState(false)
   const [busyId, setBusyId] = React.useState<number | null>(null)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
@@ -107,7 +106,6 @@ export function TransferOrdersListPage() {
   const [filterStatuses, setFilterStatuses] = React.useState<string[]>([])
   const [sortBy, setSortBy] = React.useState("created_at")
   const [sortDir, setSortDir] = React.useState<SortDir>("desc")
-  const canCreate = hasPermission("transfer.create")
 
   const activeColumnFilterCount = Object.values(columnFilters).filter((value) => value.trim()).length
 
@@ -154,9 +152,9 @@ export function TransferOrdersListPage() {
       })
   }, [columnFilterInputs.plant_id])
 
-  const load = React.useCallback(async () => {
-    setLoading(true)
-    try {
+  const transfersQuery = useQuery({
+    queryKey: [...transferListRootKey, { tab, page, search, columnFilters, sortBy, sortDir }],
+    queryFn: async () => {
       const q = new URLSearchParams({ tab, page: String(page), page_size: "25" })
       if (search.trim()) q.set("search", search.trim())
       if (columnFilters.order_number.trim()) q.set("order_number", columnFilters.order_number.trim())
@@ -173,22 +171,38 @@ export function TransferOrdersListPage() {
       if (columnFilters.created_on.trim()) q.set("created_on", columnFilters.created_on.trim())
       q.set("sort_by", sortBy)
       q.set("sort_dir", sortDir)
-      const res = await getJson<TransferOrderListResponse>(`/admin/transfer-orders?${q}`)
-      setData(res)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load transfer orders")
-    } finally {
-      setLoading(false)
+      return getJson<TransferOrderListResponse>(`/admin/transfer-orders?${q}`)
+    },
+    staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: (query) => query.state.isInvalidated,
+  })
+  const data = transfersQuery.data ?? null
+  const loading = transfersQuery.isPending && !transfersQuery.data
+
+  React.useEffect(() => {
+    if (transfersQuery.error) {
+      toast.error(
+        transfersQuery.error instanceof Error
+          ? transfersQuery.error.message
+          : "Failed to load transfer orders",
+      )
     }
-  }, [tab, page, search, columnFilters, sortBy, sortDir])
+  }, [transfersQuery.error])
+
+  const load = React.useCallback(async () => {
+    await transfersQuery.refetch()
+  }, [transfersQuery])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
-      setSearch(searchInput)
-      setPage(1)
+      setSearch((prev) => {
+        if (prev === searchInput) return prev
+        setPage(1)
+        return searchInput
+      })
     }, 300)
     return () => window.clearTimeout(t)
-  }, [searchInput])
+  }, [searchInput, setPage])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -203,10 +217,6 @@ export function TransferOrdersListPage() {
     }, 300)
     return () => window.clearTimeout(t)
   }, [columnFilterInputs])
-
-  React.useEffect(() => {
-    void load()
-  }, [load])
 
   function clearFilters() {
     setSearchInput("")
@@ -293,26 +303,12 @@ export function TransferOrdersListPage() {
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const counts = data?.tab_counts ?? {}
-  const showDiscard = items.some((r) => r.can_delete || r.can_archive || r.can_unarchive)
+  const showDiscard = true
   const colSpan = 8 + (showDiscard ? 1 : 0)
 
   return (
     <AdminPage fullWidth dense viewportFill className="w-full gap-[var(--app-grid-gap)]">
-      <ListPageHeader
-        className="shrink-0"
-        title="Asset Transfer Order"
-        actions={
-          canCreate ? (
-            <AdminPrimaryButton
-              type="button"
-              onClick={() => navigate("/dashboard/transfer-orders/new")}
-            >
-              <PlusIcon className="h-4 w-4" />
-              Create Transfer
-            </AdminPrimaryButton>
-          ) : null
-        }
-      />
+      <ListPageHeader className="shrink-0" title="Asset Transfer Order" />
 
       <WorkspaceTabs
         value={tab}
@@ -328,9 +324,9 @@ export function TransferOrdersListPage() {
             return (
               <WorkspaceTabsTrigger key={t.key} value={t.key}>
                 {t.label}
-                {typeof count === "number" ? (
-                  <span className="ml-1.5 tabular-nums text-muted-foreground">({count})</span>
-                ) : null}
+                <span className="ml-1.5 inline-block min-w-[3.25rem] text-left tabular-nums text-muted-foreground">
+                  {typeof count === "number" ? `(${count})` : "\u00a0"}
+                </span>
               </WorkspaceTabsTrigger>
             )
           })}
@@ -611,7 +607,7 @@ export function TransferOrdersListPage() {
               </TableHeader>
               <TableBody>
                 {loading && items.length === 0 ? (
-                  <AdminTableEmptyRow colSpan={colSpan}>Loading…</AdminTableEmptyRow>
+                  <AdminTableLoadingRow colSpan={colSpan} label="Loading transfers" />
                 ) : items.length === 0 ? (
                   <AdminTableEmptyRow colSpan={colSpan}>
                     {search.trim() || activeColumnFilterCount > 0

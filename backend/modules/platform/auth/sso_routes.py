@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from db.session import get_db
+from modules.platform.auth.service import ACCOUNT_LOCKED_MESSAGE, AccountLockedError
 from modules.platform.auth.sso_oidc import (
     SsoNotConfiguredError,
     SsoPortalMismatchError,
@@ -127,6 +128,15 @@ def sso_callback(
         )
         return RedirectResponse(
             url=frontend_sso_error_url(portal=portal, error="SSO is not configured."),
+            status_code=status.HTTP_302_FOUND,
+        )
+    except AccountLockedError:
+        logger.warning(
+            "sso_callback_failed",
+            extra={"event": "sso_callback_failed", "reason": "account_locked", "portal": portal},
+        )
+        return RedirectResponse(
+            url=frontend_sso_error_url(portal=portal, error=ACCOUNT_LOCKED_MESSAGE),
             status_code=status.HTTP_302_FOUND,
         )
     except SsoUserNotAuthorizedError:

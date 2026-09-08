@@ -21,13 +21,13 @@ _SKIP_PREFIXES = (
     "/auth/session-policy",
     "/auth/app-version",
     "/auth/login-background",
+    "/auth/brand-logo",
     "/auth/sso",
     "/forgot-password",
     "/reset-password",
     "/docs",
     "/openapi.json",
     "/redoc",
-    "/sentry-debug",
 )
 
 

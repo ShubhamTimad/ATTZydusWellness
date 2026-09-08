@@ -1,3 +1,4 @@
+import { Checkbox } from "@/components/ui/checkbox"
 import { cn } from "@/lib/utils"
 
 export function MultiCheckList({
@@ -14,39 +15,38 @@ export function MultiCheckList({
   emptyLabel: string
 }) {
   const selected = new Set(values)
-  if (disabled) {
-    return <p className="text-xs text-muted-foreground">{emptyLabel}</p>
-  }
+  const box = "rounded-lg border border-border/70 bg-background"
+
   if (options.length === 0) {
     return (
-      <p className="text-xs text-muted-foreground">
-        No options for the selected plant(s). You can continue without selecting any.
-      </p>
+      <div className={cn(box, "px-3 py-8 text-center text-xs text-muted-foreground")}>
+        {disabled
+          ? emptyLabel
+          : "No options for the selected plant"}
+      </div>
     )
   }
+
   return (
-    <div
-      className={cn(
-        "space-y-1.5 rounded-md border border-border/70 p-2",
-        // Nested max-height scroll traps page scrolling on short viewports —
-        // only constrain the list from md up.
-        "md:max-h-56 md:overflow-y-auto",
-      )}
-    >
+    <div className={cn(box, "md:max-h-56 md:overflow-y-auto", disabled && "bg-muted/20")}>
       {options.map((opt) => {
         const id = String(opt.id)
         const checked = selected.has(id)
         return (
           <label
             key={opt.id}
-            className="flex cursor-pointer items-center gap-2 text-sm"
             title={opt.title}
+            className={cn(
+              "flex cursor-pointer items-center gap-2.5 border-b border-border/40 px-3 py-2 text-sm last:border-b-0",
+              checked && "bg-primary/5",
+              disabled ? "cursor-not-allowed" : "hover:bg-muted/30",
+            )}
           >
-            <input
-              type="checkbox"
-              className="size-4 accent-primary"
+            <Checkbox
               checked={checked}
-              onChange={() => {
+              disabled={disabled}
+              onCheckedChange={() => {
+                if (disabled) return
                 if (checked) onChange(values.filter((v) => v !== id))
                 else onChange([...values, id])
               }}

@@ -1,8 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import hashlib
+import os
 import secrets
 import string
+from urllib.parse import quote
 
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -25,6 +28,7 @@ from modules.rbac_safety import (
 )
 from modules.platform.rbac_versioning.service import bump_user_permission_version
 from modules.platform.roles.model import Role
+from modules.rbac_association import user_cost_center, user_department, user_org_unit
 from modules.platform.users.model import User
 from modules.platform.users.schema import UserCreate, UserUpdate
 from modules.platform.approvals.service import ApprovalEngineService
@@ -267,16 +271,23 @@ class UserService:
             maybe_send_mfa_setup_for_user(self._db, reloaded)
         return reloaded
 
-    def list_users(
+    def _users_filter_stmt(
         self,
         *,
-        offset: int = 0,
-        limit: int = 50,
         search: str | None = None,
+        name: str | None = None,
+        phone: str | None = None,
         is_active: bool | None = None,
+        is_locked: bool | None = None,
         role_id: int | None = None,
-    ) -> list[User]:
-        stmt = select(User).options(*self._user_load_options())
+        plant: str | None = None,
+        department: str | None = None,
+        cost_center: str | None = None,
+        with_options: bool = True,
+    ):
+        stmt = select(User)
+        if with_options:
+            stmt = stmt.options(*self._user_load_options())
         q = (search or "").strip()
         if q:
             like = f"%{q}%"
@@ -288,12 +299,146 @@ class UserService:
                     User.phone.ilike(like),
                 )
             )
+        name_q = (name or "").strip()
+        if name_q:
+            like = f"%{name_q}%"
+            stmt = stmt.where(
+                or_(
+                    User.full_name.ilike(like),
+                    User.username.ilike(like),
+                    User.email.ilike(like),
+                )
+            )
+        phone_q = (phone or "").strip()
+        if phone_q:
+            stmt = stmt.where(User.phone.ilike(f"%{phone_q}%"))
         if is_active is not None:
             stmt = stmt.where(User.is_active.is_(bool(is_active)))
+        if is_locked is True:
+            stmt = stmt.where(User.locked_at.is_not(None))
+        elif is_locked is False:
+            stmt = stmt.where(User.locked_at.is_(None))
         if role_id is not None:
             stmt = stmt.where(User.roles.any(Role.id == int(role_id)))
+        plant_name = (plant or "").strip()
+        if plant_name:
+            stmt = stmt.where(User.org_units.any(OrgUnit.name == plant_name))
+        dept_name = (department or "").strip()
+        if dept_name:
+            stmt = stmt.where(User.departments.any(OrgUnit.name == dept_name))
+        cc = (cost_center or "").strip()
+        if cc:
+            stmt = stmt.where(User.cost_centers.any(CostCenterMaster.code == cc))
+        return stmt
+
+    def list_users(
+        self,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        search: str | None = None,
+        name: str | None = None,
+        phone: str | None = None,
+        is_active: bool | None = None,
+        is_locked: bool | None = None,
+        role_id: int | None = None,
+        plant: str | None = None,
+        department: str | None = None,
+        cost_center: str | None = None,
+    ) -> list[User]:
+        stmt = self._users_filter_stmt(
+            search=search,
+            name=name,
+            phone=phone,
+            is_active=is_active,
+            is_locked=is_locked,
+            role_id=role_id,
+            plant=plant,
+            department=department,
+            cost_center=cost_center,
+        )
         stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(limit)
         return list(self._db.scalars(stmt).all())
+
+    def list_users_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        search: str | None = None,
+        name: str | None = None,
+        phone: str | None = None,
+        is_active: bool | None = None,
+        is_locked: bool | None = None,
+        role_id: int | None = None,
+        plant: str | None = None,
+        department: str | None = None,
+        cost_center: str | None = None,
+    ) -> tuple[list[User], int]:
+        stmt = self._users_filter_stmt(
+            search=search,
+            name=name,
+            phone=phone,
+            is_active=is_active,
+            is_locked=is_locked,
+            role_id=role_id,
+            plant=plant,
+            department=department,
+            cost_center=cost_center,
+        )
+        count_stmt = self._users_filter_stmt(
+            search=search,
+            name=name,
+            phone=phone,
+            is_active=is_active,
+            is_locked=is_locked,
+            role_id=role_id,
+            plant=plant,
+            department=department,
+            cost_center=cost_center,
+            with_options=False,
+        )
+        total = int(
+            self._db.scalar(select(func.count()).select_from(count_stmt.order_by(None).subquery())) or 0
+        )
+        offset = max(page - 1, 0) * page_size
+        items = list(
+            self._db.scalars(stmt.order_by(User.created_at.desc()).offset(offset).limit(page_size)).all()
+        )
+        return items, total
+
+    def list_user_filter_options(self) -> dict[str, list[str]]:
+        plants = [
+            name
+            for name in self._db.scalars(
+                select(OrgUnit.name)
+                .join(user_org_unit, user_org_unit.c.org_unit_id == OrgUnit.id)
+                .distinct()
+                .order_by(OrgUnit.name.asc())
+            ).all()
+            if (name or "").strip()
+        ]
+        departments = [
+            name
+            for name in self._db.scalars(
+                select(OrgUnit.name)
+                .join(user_department, user_department.c.org_unit_id == OrgUnit.id)
+                .distinct()
+                .order_by(OrgUnit.name.asc())
+            ).all()
+            if (name or "").strip()
+        ]
+        cost_centers = [
+            code
+            for code in self._db.scalars(
+                select(CostCenterMaster.code)
+                .join(user_cost_center, user_cost_center.c.cost_center_id == CostCenterMaster.id)
+                .distinct()
+                .order_by(CostCenterMaster.code.asc())
+            ).all()
+            if (code or "").strip()
+        ]
+        return {"plants": plants, "departments": departments, "cost_centers": cost_centers}
 
     def update_user(
         self,
@@ -627,6 +772,66 @@ class UserService:
             raise
 
         invalidate_permission_cache(user_id)
+
+    def unlock_account(self, user_id: int, *, actor_user_id: int | None = None) -> dict[str, object]:
+        """Clear a failed-login lock, set a temporary password, and email a reset link."""
+        user = self._db.scalar(select(User).where(User.id == int(user_id)))
+        if user is None:
+            raise NotFoundError("User", user_id)
+        if user.locked_at is None:
+            raise ValueError("This account is not locked.")
+
+        now = datetime.now(timezone.utc)
+        plain = self._generate_password()
+        user.locked_at = None
+        user.failed_login_attempts = 0
+        user.hashed_password = hash_password(plain)
+        user.password_changed_at = now
+        RbacAuditService(self._db).log(
+            actor_user_id=actor_user_id,
+            target_type="user",
+            target_id=int(user.id),
+            action="account_unlocked",
+            old_value={"locked": True},
+            new_value={"locked": False},
+        )
+
+        raw = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        expires_minutes = int((os.environ.get("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES") or "30").strip() or "30")
+        if expires_minutes < 5:
+            expires_minutes = 5
+        self._db.add(
+            PasswordResetToken(
+                user_id=int(user.id),
+                token_hash=token_hash,
+                expires_at=now + timedelta(minutes=expires_minutes),
+            )
+        )
+        self._db.commit()
+
+        email = (user.email or "").strip()
+        email_sent = False
+        if email:
+            base = (
+                os.environ.get("FRONTEND_APP_URL")
+                or os.environ.get("FRONTEND_ORIGIN")
+                or "http://localhost:5173"
+            ).rstrip("/")
+            reset_link = f"{base}/reset-password?token={quote(raw, safe='')}"
+            result = EmailNotificationService(self._db).trigger_event(
+                event_code="ACCOUNT_UNLOCKED",
+                payload={
+                    "user_name": user.full_name,
+                    "email": email,
+                    "company_name": "Takeda Asset Management",
+                    "temp_password": plain,
+                    "reset_link": reset_link,
+                },
+            )
+            email_sent = result.status == "sent"
+
+        return {"email_sent": email_sent}
 
     def resend_mfa_setup_email(self, user_id: int) -> None:
         from modules.platform.auth.notify import trigger_mfa_setup_email, user_has_pending_user_creation_approval

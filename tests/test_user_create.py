@@ -211,3 +211,65 @@ def test_list_users_search_and_filters(db: Session) -> None:
 
     by_role = svc.list_users(role_id=role_b.id)
     assert [u.id for u in by_role] == [bob.id]
+
+    page1, total = svc.list_users_page(page=1, page_size=1)
+    page2, _ = svc.list_users_page(page=2, page_size=1)
+    assert total == 2
+    assert len(page1) == 1
+    assert len(page2) == 1
+    assert {page1[0].id, page2[0].id} == {alice.id, bob.id}
+
+
+def test_locked_account_appears_on_user_timeline_as_system(db: Session) -> None:
+    from modules.platform.approvals.timeline_service import ApprovalTimelineService
+
+    plant = OrgUnit(name="Plant A", code="PLT-A", type="PLANT")
+    role = Role(name="Operator", description=None)
+    db.add_all([plant, role])
+    db.commit()
+    db.refresh(plant)
+    db.refresh(role)
+
+    user = UserService(db).create_user(
+        UserCreate(
+            full_name="Locked User",
+            username="locked.user",
+            phone="9876543213",
+            email="locked@example.com",
+            role_id=role.id,
+            org_unit_ids=[plant.id],
+        )
+    )
+    locked_at = datetime(2026, 9, 8, 9, 0, tzinfo=timezone.utc)
+    user.locked_at = locked_at
+    db.commit()
+
+    events = ApprovalTimelineService(db).get_entity_timeline(
+        path_entity_type="user",
+        entity_id=user.id,
+        viewer_id=user.id,
+    )
+    locked = [ev for ev in events if ev.get("type") == "account_locked"]
+    assert len(locked) == 1
+    assert locked[0]["user"] == "System"
+    assert locked[0]["timestamp"] == locked_at
+
+    admin = UserService(db).create_user(
+        UserCreate(
+            full_name="Admin User",
+            username="admin.user",
+            phone="9876543214",
+            email="admin@example.com",
+            role_id=role.id,
+            org_unit_ids=[plant.id],
+        )
+    )
+    UserService(db).unlock_account(user.id, actor_user_id=admin.id)
+    events = ApprovalTimelineService(db).get_entity_timeline(
+        path_entity_type="user",
+        entity_id=user.id,
+        viewer_id=admin.id,
+    )
+    unlocked = [ev for ev in events if ev.get("type") == "account_unlocked"]
+    assert len(unlocked) == 1
+    assert unlocked[0]["user"] == "Admin User"

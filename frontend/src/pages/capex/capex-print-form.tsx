@@ -1,4 +1,4 @@
-import { TAKEDA_LOGO_SRC } from "@/components/layout/app-brand-mark"
+import { currentBrandLogoSrc } from "@/components/layout/app-brand-mark"
 import { getJson } from "@/lib/api"
 import {
   capexStatusLabel,
@@ -151,7 +151,7 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
   const generatedBy = escapeHtml((me.full_name || "").trim())
   const showSigns = chrome.signatures?.capex !== false
   const signs = showSigns ? buildSignBlocks(detail) : []
-  const logoUrl = new URL(TAKEDA_LOGO_SRC, window.location.origin).href
+  const logoUrl = new URL(currentBrandLogoSrc(), window.location.origin).href
   const status = escapeHtml(capexStatusLabel(detail.status))
 
   const tableRows = rows

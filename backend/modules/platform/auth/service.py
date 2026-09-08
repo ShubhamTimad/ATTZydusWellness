@@ -24,6 +24,7 @@ from core.security import (
     verify_password,
 )
 from modules.platform.auth.model import PasswordResetToken, UserSession
+from modules.platform.settings.lookup import get_setting
 from core.permissions import get_flat_permission_codes_for_user, user_has_mobile_access
 from modules.platform.auth.login_result import (
     CaptchaInvalidError,
@@ -41,6 +42,7 @@ from modules.platform.auth.schema import LoginRequest, TokenPair, UserMe
 from modules.platform.auth_policy.service import get_global_policy
 from modules.errors import NotFoundError
 from modules.platform.mfa.service import MfaService
+from modules.platform.rbac_audit.service import RbacAuditService
 from modules.platform.users.model import User
 from modules.platform.emails.service import EmailNotificationService
 
@@ -49,6 +51,16 @@ logger = logging.getLogger(__name__)
 
 class InvalidCredentialsError(Exception):
     pass
+
+
+class AccountLockedError(Exception):
+    pass
+
+
+ACCOUNT_LOCKED_MESSAGE = (
+    "Your account has been locked due to multiple failed login attempts. "
+    "Please contact an administrator."
+)
 
 
 class InvalidRefreshTokenError(Exception):
@@ -124,15 +136,72 @@ class AuthService:
             )
         return None
 
+    def _max_failed_login_attempts(self) -> int:
+        raw = get_setting("auth.max_failed_login_attempts")
+        try:
+            n = int(str(raw).strip()) if raw else 5
+        except ValueError:
+            n = 5
+        return min(20, max(0, n))
+
+    def _send_account_locked_email(self, user: User) -> None:
+        email = (user.email or "").strip()
+        if not email:
+            return
+        try:
+            EmailNotificationService(self._db).trigger_event(
+                event_code="ACCOUNT_LOCKED",
+                payload={
+                    "user_name": user.full_name,
+                    "email": email,
+                    "company_name": "Takeda Asset Management",
+                },
+            )
+        except Exception:
+            logger.exception("account_locked_email_failed", extra={"user_id": int(user.id)})
+
+    def _note_failed_login(self, user: User) -> None:
+        """Increment failures and lock when the policy threshold is reached."""
+        limit = self._max_failed_login_attempts()
+        if limit <= 0 or user.locked_at is not None:
+            return
+        user.failed_login_attempts = int(user.failed_login_attempts or 0) + 1
+        just_locked = user.failed_login_attempts >= limit
+        if just_locked:
+            user.locked_at = datetime.now(timezone.utc)
+            RbacAuditService(self._db).log(
+                actor_user_id=None,
+                target_type="user",
+                target_id=int(user.id),
+                action="account_locked",
+                old_value={"locked": False},
+                new_value={"locked": True},
+            )
+        self._db.commit()
+        if just_locked:
+            self._send_account_locked_email(user)
+            raise AccountLockedError
+
     def login_outcome(self, data: LoginRequest) -> LoginOutcome:
         user = self._load_user_for_login(data)
+        if user is not None and user.locked_at is not None:
+            logger.warning(
+                "login_failed",
+                extra={"event": "login_failed", "reason": "account_locked", "user_id": int(user.id)},
+            )
+            raise AccountLockedError
         if (
             user is None
             or not user.is_active
             or not verify_password(data.password, user.hashed_password)
         ):
+            if user is not None and user.is_active:
+                self._note_failed_login(user)
             logger.warning("login_failed", extra={"event": "login_failed", "reason": "invalid_credentials"})
             raise InvalidCredentialsError
+        if int(user.failed_login_attempts or 0) > 0:
+            user.failed_login_attempts = 0
+            self._db.commit()
         if is_password_expired(user):
             logger.warning(
                 "login_failed",

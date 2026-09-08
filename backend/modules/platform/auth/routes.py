@@ -24,7 +24,9 @@ from modules.platform.auth.login_result import (
 )
 from modules.platform.auth.schema import LoginRequest, RefreshRequest, TokenPair, UserMe
 from modules.platform.auth.service import (
+    ACCOUNT_LOCKED_MESSAGE,
     AuthService,
+    AccountLockedError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
 )
@@ -139,6 +141,43 @@ def public_login_background_meta() -> JSONResponse:
     return JSONResponse(
         content=body.model_dump(),
         headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/auth/brand-logo/meta", response_model=LoginBackgroundMetaPublic)
+def public_brand_logo_meta() -> JSONResponse:
+    """Tiny cache-busting token for the application logo. Do not HTTP-cache this."""
+    from modules.platform.settings.brand_logo import get_brand_logo_served
+
+    served = get_brand_logo_served()
+    if served is None:
+        body = LoginBackgroundMetaPublic(configured=False, content_type=None, version=None)
+    else:
+        _data, content_type, version = served
+        body = LoginBackgroundMetaPublic(configured=True, content_type=content_type, version=version)
+    return JSONResponse(
+        content=body.model_dump(),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/auth/brand-logo")
+def public_brand_logo(request: Request, v: str | None = None) -> Response:
+    """Custom application logo when configured in Settings; 404 when unset."""
+    from modules.platform.settings.brand_logo import get_brand_logo_served
+
+    served = get_brand_logo_served()
+    if served is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No logo configured.")
+    data, content_type, version = served
+    etag = f'"{version}"'
+    cache = "public, max-age=31536000, immutable" if v else "public, max-age=60"
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag, "Cache-Control": cache})
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Cache-Control": cache, "ETag": etag},
     )
 
 
@@ -265,6 +304,12 @@ async def login(
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"error": "captcha_invalid"},
         )
+    except AccountLockedError:
+        clear_login_failures(client_ip)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=ACCOUNT_LOCKED_MESSAGE,
+        ) from None
     except InvalidCredentialsError:
         record_login_failure(client_ip)
         raise HTTPException(

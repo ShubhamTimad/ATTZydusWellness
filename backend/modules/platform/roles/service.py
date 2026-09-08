@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -45,6 +45,11 @@ class RoleService:
             .limit(limit)
         )
         return list(self._db.scalars(stmt).all())
+
+    def list_roles_page(self, *, page: int, page_size: int) -> tuple[list[Role], int]:
+        total = int(self._db.scalar(select(func.count()).select_from(Role)) or 0)
+        offset = max(page - 1, 0) * page_size
+        return self.list_roles(offset=offset, limit=page_size), total
 
     def get_role(self, role_id: int) -> Role:
         role = self._db.scalar(

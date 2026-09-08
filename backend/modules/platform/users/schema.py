@@ -95,6 +95,19 @@ class UserUpdate(BaseModel):
         return out
 
 
+class UserListPage(BaseModel):
+    items: list["UserPublic"]
+    total: int
+    page: int
+    page_size: int
+
+
+class UserFilterOptions(BaseModel):
+    plants: list[str] = Field(default_factory=list)
+    departments: list[str] = Field(default_factory=list)
+    cost_centers: list[str] = Field(default_factory=list)
+
+
 class UserPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -105,6 +118,7 @@ class UserPublic(BaseModel):
     email: str | None
     is_active: bool
     is_superuser: bool
+    locked_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -113,6 +127,11 @@ class UserPublic(BaseModel):
     org_units: list[OrgUnitSummary] = Field(default_factory=list)
     departments: list[OrgUnitSummary] = Field(default_factory=list)
     cost_centers: list[CostCenterSummary] = Field(default_factory=list)
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def is_locked(self) -> bool:
+        return self.locked_at is not None
 
     @computed_field  # type: ignore[misc]
     @property
@@ -150,3 +169,6 @@ class UserPublic(BaseModel):
         if not self.cost_centers:
             return None
         return self.cost_centers[0]
+
+
+UserListPage.model_rebuild()

@@ -122,6 +122,20 @@ class ApprovalTimelineService:
                 "timestamp": lg.created_at,
                 "details": None,
             }
+        if action == "account_locked":
+            return {
+                "type": "account_locked",
+                "user": "System",
+                "timestamp": lg.created_at,
+                "details": None,
+            }
+        if action == "account_unlocked":
+            return {
+                "type": "account_unlocked",
+                "user": actor_name or "System",
+                "timestamp": lg.created_at,
+                "details": None,
+            }
         if action != "update":
             return None
 
@@ -244,6 +258,21 @@ class ApprovalTimelineService:
             ev = self._rbac_log_event(lg)
             if ev is not None:
                 events.append(ev)
+
+        # Locks written before the audit row existed still belong on the user trail.
+        if (
+            target_user is not None
+            and target_user.locked_at is not None
+            and not any(ev.get("type") == "account_locked" for ev in events)
+        ):
+            events.append(
+                {
+                    "type": "account_locked",
+                    "user": "System",
+                    "timestamp": target_user.locked_at,
+                    "details": None,
+                }
+            )
 
         if req is not None and can_view_approval:
             actions = self._db.scalars(

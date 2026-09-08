@@ -225,7 +225,7 @@ export function AppLoginPage() {
       >
         {error ? (
           <Alert variant="destructive">
-            <AlertTitle>Sign-in failed</AlertTitle>
+            <AlertTitle>Sign-In Failed</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}

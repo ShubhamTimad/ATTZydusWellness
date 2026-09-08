@@ -9,6 +9,7 @@ import {
   AdminDataTable,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
   AdminTablePagination,
   ListPageHeader,
   WorkspaceTabs,
@@ -32,7 +33,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { getJson } from "@/lib/api"
-import { orderListRootKey, LIST_STALE_MS } from "@/lib/query-client"
+import { orderListRootKey } from "@/lib/query-client"
 import {
   ORDER_STATUS_TABS,
   orderStatusLabel,
@@ -169,7 +170,9 @@ export function OrdersListPage() {
       q.set("sort_dir", sortDir)
       return getJson<PhysicalOrderListResponse>(`/admin/physical-orders?${q}`)
     },
-    staleTime: LIST_STALE_MS,
+    staleTime: Number.POSITIVE_INFINITY,
+    // Show the last list immediately. Refetch only after an order is created or updated.
+    refetchOnMount: (query) => query.state.isInvalidated,
   })
 
   const data = ordersQuery.data ?? null
@@ -185,11 +188,14 @@ export function OrdersListPage() {
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
-      setSearch(searchInput)
-      setPage(1)
+      setSearch((prev) => {
+        if (prev === searchInput) return prev
+        setPage(1)
+        return searchInput
+      })
     }, 300)
     return () => window.clearTimeout(t)
-  }, [searchInput])
+  }, [searchInput, setPage])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -249,9 +255,9 @@ export function OrdersListPage() {
             return (
               <WorkspaceTabsTrigger key={t.key} value={t.key}>
                 {t.label}
-                {typeof count === "number" ? (
-                  <span className="ml-1.5 tabular-nums text-muted-foreground">({count})</span>
-                ) : null}
+                <span className="ml-1.5 inline-block min-w-[3.25rem] text-left tabular-nums text-muted-foreground">
+                  {typeof count === "number" ? `(${count})` : "\u00a0"}
+                </span>
               </WorkspaceTabsTrigger>
             )
           })}
@@ -521,7 +527,7 @@ export function OrdersListPage() {
                 </TableHeader>
                 <TableBody>
                   {loading ? (
-                    <AdminTableEmptyRow colSpan={colSpan}>Loading orders…</AdminTableEmptyRow>
+                    <AdminTableLoadingRow colSpan={colSpan} label="Loading orders" />
                   ) : items.length === 0 ? (
                     <AdminTableEmptyRow colSpan={colSpan}>
                       {orderTabEmptyMessage(tab)}

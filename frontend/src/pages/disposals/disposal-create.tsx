@@ -11,6 +11,7 @@ import {
   AdminPrimaryButton,
   AdminTableCell,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
@@ -24,6 +25,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, postJson } from "@/lib/api"
+import { invalidateDisposalLists } from "@/lib/query-client"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import type { DisposalAssigneeListResponse, DisposalAssigneeOption, DisposalOrderDetail } from "@/lib/disposal-types"
 import type { CostCenterMaster } from "@/lib/masters-types"
@@ -347,6 +349,7 @@ export function DisposalOrderCreatePage() {
           ? `Disposal ${order.order_number} Submitted For Approval.`
           : `Draft ${order.order_number} saved.`,
       )
+      void invalidateDisposalLists()
       try {
         sessionStorage.removeItem("disposal-order-draft-assets")
       } catch {
@@ -521,7 +524,7 @@ export function DisposalOrderCreatePage() {
                       Select a plant to list assets.
                     </AdminTableEmptyRow>
                   ) : catalogLoading ? (
-                    <AdminTableEmptyRow colSpan={6}>Loading assets…</AdminTableEmptyRow>
+                    <AdminTableLoadingRow colSpan={6} label="Loading assets" />
                   ) : catalog.length === 0 ? (
                     <AdminTableEmptyRow colSpan={6}>
                       No active, approved assets match this search.

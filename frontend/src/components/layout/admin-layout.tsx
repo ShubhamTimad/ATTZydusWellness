@@ -16,6 +16,7 @@ import {
   Users,
 } from "lucide-react"
 
+import { useBrandLogoSrc } from "@/components/layout/app-brand-mark"
 import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -170,6 +171,7 @@ export function AdminLayout({
   userEmail,
   onSignOut,
 }: AdminLayoutProps) {
+  const logoSrc = useBrandLogoSrc()
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const allItems = navGroups.flatMap((g) => g.items)
   const activeLabel = allItems.find((i) => i.id === activeId)?.label ?? "Overview"
@@ -209,7 +211,7 @@ export function AdminLayout({
   const sidebarHeader = (
     <div className="flex items-center gap-3">
       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent ring-1 ring-sidebar-border">
-        <img src="/logo.svg" alt="" className="h-7 w-auto object-contain" />
+        <img src={logoSrc} alt="" className="h-7 w-auto object-contain" />
       </div>
       <div className="min-w-0 leading-tight">
         <p className="truncate text-sm font-semibold text-sidebar-foreground">Admin Console</p>
@@ -299,8 +301,12 @@ export function AdminLayout({
             </Button>
             <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <SessionIdleNavbarBadge />
+          <div className="relative flex shrink-0 items-center">
+            <div className="pointer-events-none absolute right-full mr-3">
+              <div className="pointer-events-auto">
+                <SessionIdleNavbarBadge />
+              </div>
+            </div>
             <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

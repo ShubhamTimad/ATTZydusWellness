@@ -15,6 +15,15 @@ from modules.platform.settings.session_idle import (
     get_session_idle_timeout_minutes,
     is_sso_idle_enabled,
 )
+from modules.platform.settings.brand_logo import (
+    SETTING_KEY as BRAND_LOGO_SETTING_KEY,
+    InvalidBrandLogoError,
+    clear_brand_logo_cache,
+    encode_brand_logo,
+    get_brand_logo_bytes,
+    get_brand_logo_served,
+    prepare_brand_logo,
+)
 from modules.platform.settings.login_background import (
     SETTING_KEY as LOGIN_BACKGROUND_SETTING_KEY,
     InvalidLoginBackgroundError,
@@ -99,11 +108,19 @@ class SettingsService:
                 return default
             return str(row.value).strip() or default
 
+        raw_attempts = s("auth.max_failed_login_attempts", "5")
+        try:
+            max_failed = int(raw_attempts)
+        except ValueError:
+            max_failed = 5
+        max_failed = min(20, max(0, max_failed))
+
         return AuthPolicyPublic(
             password_enabled=b("auth.password_enabled", True),
             mfa_enabled=b("auth.mfa_enabled", False),
             captcha_enabled=b("auth.captcha_enabled", False),
             mfa_enforced=b("auth.mfa_enforced", False),
+            max_failed_login_attempts=max_failed,
             sso_enabled=b("sso.enabled", False),
             sso_button_label=s("sso.button_label", DEFAULT_BUTTON_LABEL) or DEFAULT_BUTTON_LABEL,
         )
@@ -115,6 +132,7 @@ class SettingsService:
             ("auth.mfa_enabled", "true" if payload.mfa_enabled else "false"),
             ("auth.captcha_enabled", "true" if payload.captcha_enabled else "false"),
             ("auth.mfa_enforced", "true" if payload.mfa_enforced else "false"),
+            ("auth.max_failed_login_attempts", str(int(payload.max_failed_login_attempts))),
         ]
         for key, value in mapping:
             self._upsert(key, value)
@@ -305,6 +323,33 @@ class SettingsService:
         self._db.commit()
         clear_login_background_cache()
         return self.get_login_background_meta()
+
+    def get_brand_logo_meta(self) -> LoginBackgroundMetaPublic:
+        served = get_brand_logo_served()
+        if served is None:
+            return LoginBackgroundMetaPublic(configured=False, content_type=None, version=None)
+        _data, content_type, version = served
+        return LoginBackgroundMetaPublic(configured=True, content_type=content_type, version=version)
+
+    def get_brand_logo(self) -> tuple[bytes, str] | None:
+        return get_brand_logo_bytes()
+
+    def put_brand_logo(self, data: bytes) -> LoginBackgroundMetaPublic:
+        try:
+            data, content_type = prepare_brand_logo(data)
+        except InvalidBrandLogoError:
+            raise
+        self._upsert(BRAND_LOGO_SETTING_KEY, encode_brand_logo(data, content_type))
+        self._db.commit()
+        clear_brand_logo_cache()
+        return self.get_brand_logo_meta()
+
+    def delete_brand_logo(self) -> None:
+        row = self._db.scalar(select(Setting).where(Setting.key == BRAND_LOGO_SETTING_KEY))
+        if row is not None:
+            self._db.delete(row)
+            self._db.commit()
+        clear_brand_logo_cache()
 
     def delete_login_background(self) -> None:
         row = self._db.scalar(select(Setting).where(Setting.key == LOGIN_BACKGROUND_SETTING_KEY))

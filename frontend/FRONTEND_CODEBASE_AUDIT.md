@@ -145,7 +145,6 @@ frontend/
     │   ├── phone.ts             # Phone validation helpers
     │   ├── query-client.ts      # TanStack QueryClient instance & root keys
     │   ├── reports-types.ts     # Report types
-    │   ├── sentry.ts            # Sentry error monitoring initialization
     │   ├── session-idle-events.ts # Idle custom DOM events
     │   ├── transfer-types.ts    # Transfer order types
     │   ├── use-asset-field-config.ts # Asset field visibility hooks
@@ -232,7 +231,6 @@ frontend/
 | `lucide-react` | `^1.8.0` | UI Vector Icons | Application icons throughout components |
 | `recharts` | `^3.8.1` | Analytics Data Visualization | Dashboard charts ([`dashboard-charts.tsx`](file:///d:/TZ/Asset-Tagging-and-Tracking-Takeda-Web/frontend/src/components/dashboard/dashboard-charts.tsx)) |
 | `sonner` | `^2.0.7` | Toast Notifications | App Toaster setup (`app-toaster.tsx`, `sonner.tsx`) and global API notifications |
-| `@sentry/react` | `^10.73.0` | Exception Tracking | Monitoring initialization ([`sentry.ts`](file:///d:/TZ/Asset-Tagging-and-Tracking-Takeda-Web/frontend/src/lib/sentry.ts)) |
 | `next-themes` | `^0.4.6` | Theme Context Provider | Theme resolution in Toast Provider ([`sonner.tsx`](file:///d:/TZ/Asset-Tagging-and-Tracking-Takeda-Web/frontend/src/components/ui/sonner.tsx#L3)) |
 | `class-variance-authority` | `^0.7.1` | Component Styling Variants | Shadcn component variants (`button.tsx`, `badge.tsx`) |
 | `clsx` | `^2.1.1` | Class String Utility | Class composition in [`utils.ts`](file:///d:/TZ/Asset-Tagging-and-Tracking-Takeda-Web/frontend/src/lib/utils.ts) |
@@ -258,7 +256,6 @@ sequenceDiagram
     autonumber
     actor Browser as User Browser
     participant Main as main.tsx
-    participant Sentry as sentry.ts
     participant QC as QueryClientProvider
     participant Router as BrowserRouter
     participant App as App.tsx
@@ -267,7 +264,6 @@ sequenceDiagram
     participant Session as SessionIdleWatcher
 
     Browser->>Main: Loads document root & scripts
-    Main->>Sentry: initSentry()
     Main->>QC: Mount QueryClientProvider (staleTime: 5m)
     Main->>Router: Mount BrowserRouter
     Main->>App: Render <App />
@@ -585,7 +581,6 @@ Tables use shared design primitives defined in [`list-page-ui.tsx`](file:///d:/T
 
 ### Environment Variables
 - `VITE_API_URL`: Backend API URL target.
-- `VITE_SENTRY_DSN`: Sentry DSN key.
 
 ---
 

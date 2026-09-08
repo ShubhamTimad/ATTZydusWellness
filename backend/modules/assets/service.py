@@ -597,36 +597,35 @@ class AssetMasterService:
         viewer_user_id: int,
         plant_id: int | None = None,
     ) -> AssetListFilterOptionsResponse:
-        """Distinct CC / location codes that appear on assets in the list scope."""
+        """CC / location dropdowns from masters in scope. Does not scan the asset table."""
         raw_scope = load_viewer_org_scope(self._db, viewer_user_id)
         scope = list_viewer_scope(
             raw_scope,
             view_all=self._can_view_all_assets(viewer_user_id),
         )
-        base, *_rest = self._asset_list_base_query(
-            plant_id=plant_id,
-            viewer_scope=scope,
-        )
-        asset_ids = base.with_only_columns(AssetMaster.id).order_by(None).scalar_subquery()
+        if plant_id is not None:
+            plant_ids: list[int] | None = [int(plant_id)]
+        elif scope.plant_ids is not None:
+            plant_ids = sorted(scope.plant_ids)
+        else:
+            plant_ids = None
 
-        cc_rows = self._db.execute(
-            select(
-                AssetFinancialInformation.cost_center,
-                func.min(CostCenterMaster.name),
+        cc_stmt = select(CostCenterMaster.code, func.min(CostCenterMaster.name)).group_by(
+            CostCenterMaster.code
+        )
+        if plant_ids is not None:
+            cc_stmt = cc_stmt.where(
+                CostCenterMaster.plant_id.in_(plant_ids) if plant_ids else false()
             )
-            .select_from(AssetFinancialInformation)
-            .outerjoin(
-                CostCenterMaster,
-                CostCenterMaster.code == AssetFinancialInformation.cost_center,
+        if scope.cost_center_keys is not None:
+            cc_stmt = cc_stmt.where(
+                tuple_(CostCenterMaster.plant_id, CostCenterMaster.code).in_(
+                    list(scope.cost_center_keys)
+                )
+                if scope.cost_center_keys
+                else false()
             )
-            .where(
-                AssetFinancialInformation.asset_id.in_(asset_ids),
-                AssetFinancialInformation.cost_center.isnot(None),
-                AssetFinancialInformation.cost_center != "",
-            )
-            .group_by(AssetFinancialInformation.cost_center)
-            .order_by(AssetFinancialInformation.cost_center)
-        ).all()
+        cc_rows = self._db.execute(cc_stmt.order_by(CostCenterMaster.code)).all()
         cost_centers = [
             AssetListFilterOption(code=str(code), name=str(name) if name else None)
             for code, name in cc_rows
@@ -656,48 +655,33 @@ class AssetMasterService:
             for code in assigned_codes
         ]
 
-        fl_rows = self._db.execute(
-            select(
-                AssetLocationInformation.functional_location,
-                func.min(FunctionalLocationMaster.name),
+        fl_stmt = select(
+            FunctionalLocationMaster.code, func.min(FunctionalLocationMaster.name)
+        ).group_by(FunctionalLocationMaster.code)
+        if plant_ids is not None:
+            fl_stmt = fl_stmt.where(
+                FunctionalLocationMaster.plant_id.in_(plant_ids) if plant_ids else false()
             )
-            .select_from(AssetLocationInformation)
-            .outerjoin(
-                FunctionalLocationMaster,
-                FunctionalLocationMaster.code == AssetLocationInformation.functional_location,
-            )
-            .where(
-                AssetLocationInformation.asset_id.in_(asset_ids),
-                AssetLocationInformation.functional_location.isnot(None),
-                AssetLocationInformation.functional_location != "",
-            )
-            .group_by(AssetLocationInformation.functional_location)
-            .order_by(AssetLocationInformation.functional_location)
-        ).all()
+        fl_rows = self._db.execute(fl_stmt.order_by(FunctionalLocationMaster.code)).all()
         functional_locations = [
             AssetListFilterOption(code=str(code), name=str(name) if name else None)
             for code, name in fl_rows
             if code
         ]
 
-        al_rows = self._db.execute(
-            select(
-                AssetLocationInformation.actual_location,
-                func.min(ActualLocationMaster.name),
+        al_stmt = (
+            select(ActualLocationMaster.code, func.min(ActualLocationMaster.name))
+            .join(
+                FunctionalLocationMaster,
+                FunctionalLocationMaster.id == ActualLocationMaster.functional_location_id,
             )
-            .select_from(AssetLocationInformation)
-            .outerjoin(
-                ActualLocationMaster,
-                ActualLocationMaster.code == AssetLocationInformation.actual_location,
+            .group_by(ActualLocationMaster.code)
+        )
+        if plant_ids is not None:
+            al_stmt = al_stmt.where(
+                FunctionalLocationMaster.plant_id.in_(plant_ids) if plant_ids else false()
             )
-            .where(
-                AssetLocationInformation.asset_id.in_(asset_ids),
-                AssetLocationInformation.actual_location.isnot(None),
-                AssetLocationInformation.actual_location != "",
-            )
-            .group_by(AssetLocationInformation.actual_location)
-            .order_by(AssetLocationInformation.actual_location)
-        ).all()
+        al_rows = self._db.execute(al_stmt.order_by(ActualLocationMaster.code)).all()
         actual_locations = [
             AssetListFilterOption(code=str(code), name=str(name) if name else None)
             for code, name in al_rows

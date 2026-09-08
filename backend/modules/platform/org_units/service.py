@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -25,15 +25,15 @@ class OrgUnitService:
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    def list_org_units(
+    def _org_units_stmt(
         self,
         *,
         org_type: str | None = None,
         parent_id: int | None = None,
         viewer_user_id: int | None = None,
-    ) -> list[OrgUnit]:
+    ):
         scope = load_viewer_org_scope(self._db, viewer_user_id)
-        stmt = select(OrgUnit).order_by(OrgUnit.name.asc())
+        stmt = select(OrgUnit)
         if org_type:
             stmt = stmt.where(OrgUnit.type == org_type)
         if parent_id is not None:
@@ -47,7 +47,7 @@ class OrgUnitService:
             type_u = (org_type or "").strip().upper()
             if type_u == "PLANT" or (not org_type and parent_id is None):
                 if not plant_ids:
-                    return []
+                    return None
                 if type_u == "PLANT":
                     stmt = stmt.where(OrgUnit.id.in_(plant_ids))
                 else:
@@ -57,8 +57,48 @@ class OrgUnitService:
                     )
             elif type_u == "DEPARTMENT" and plant_ids:
                 stmt = stmt.where(OrgUnit.parent_id.in_(plant_ids))
+        return stmt
 
-        return list(self._db.scalars(stmt).all())
+    def list_org_units(
+        self,
+        *,
+        org_type: str | None = None,
+        parent_id: int | None = None,
+        viewer_user_id: int | None = None,
+    ) -> list[OrgUnit]:
+        stmt = self._org_units_stmt(
+            org_type=org_type,
+            parent_id=parent_id,
+            viewer_user_id=viewer_user_id,
+        )
+        if stmt is None:
+            return []
+        return list(self._db.scalars(stmt.order_by(OrgUnit.name.asc())).all())
+
+    def list_org_units_page(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        org_type: str | None = None,
+        parent_id: int | None = None,
+        viewer_user_id: int | None = None,
+    ) -> tuple[list[OrgUnit], int]:
+        stmt = self._org_units_stmt(
+            org_type=org_type,
+            parent_id=parent_id,
+            viewer_user_id=viewer_user_id,
+        )
+        if stmt is None:
+            return [], 0
+        total = int(self._db.scalar(select(func.count()).select_from(stmt.subquery())) or 0)
+        offset = max(page - 1, 0) * page_size
+        items = list(
+            self._db.scalars(
+                stmt.order_by(OrgUnit.code.asc(), OrgUnit.name.asc()).offset(offset).limit(page_size)
+            ).all()
+        )
+        return items, total
 
     def get_org_unit(self, org_unit_id: int) -> OrgUnit:
         row = self._db.get(OrgUnit, org_unit_id)

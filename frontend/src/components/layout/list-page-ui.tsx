@@ -4,12 +4,23 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 import {
   AdminPanel,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
 } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 
-export { AdminTableEmptyRow }
+export { AdminTableEmptyRow, AdminTableLoadingRow }
+
+/** Shared page size for administration lists (users, plants, departments, roles, permissions). */
+export const LIST_PAGE_SIZE = 20
+
+export type AdminListPage<T> = {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
 
 /** Page title block for list screens (layout header shows nav title). */
 export function ListPageHeader({
@@ -144,6 +155,7 @@ export function AdminTablePagination({
   onPageChange,
   itemLabel = "items",
   loading = false,
+  selectedCount,
 }: {
   page: number
   totalPages: number
@@ -152,12 +164,18 @@ export function AdminTablePagination({
   onPageChange: (page: number) => void
   itemLabel?: string
   loading?: boolean
+  selectedCount?: number
 }) {
   const pages = Math.max(1, totalPages)
 
   return (
     <div className="app-list-pagination shrink-0">
-      <span>{loading ? "Loading…" : total === 0 ? `0 ${itemLabel}` : `${total} ${itemLabel}`}</span>
+      <span className="inline-flex min-w-[7.5rem] items-center gap-2">
+        <span>{loading ? "" : total === 0 ? `0 ${itemLabel}` : `${total} ${itemLabel}`}</span>
+        {!loading && selectedCount != null && selectedCount > 0 ? (
+          <span className="font-medium text-foreground">{selectedCount} selected</span>
+        ) : null}
+      </span>
       <div className="flex items-center gap-1">
         <Button
           type="button"

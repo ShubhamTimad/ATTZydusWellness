@@ -33,6 +33,13 @@ class OrgUnitUpdate(BaseModel):
         return code
 
 
+class OrgUnitListPage(BaseModel):
+    items: list["OrgUnitPublic"]
+    total: int
+    page: int
+    page_size: int
+
+
 class OrgUnitPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -43,3 +50,6 @@ class OrgUnitPublic(BaseModel):
     parent_id: int | None
     created_at: datetime
     updated_at: datetime
+
+
+OrgUnitListPage.model_rebuild()

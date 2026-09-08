@@ -14,7 +14,6 @@ from app_api.routes import router as app_api_router
 from core.logging_setup import configure_logging
 from core.request_context import get_request_id
 from core.request_logging_middleware import RequestLoggingMiddleware
-from core.sentry_setup import capture_exception, init_sentry, sentry_enabled
 from modules.platform.audit import AdminAuditMiddleware
 from modules.platform.auth.session_idle_middleware import SessionIdleMiddleware
 
@@ -22,7 +21,6 @@ from db.session import SessionLocal
 from modules.rbac_sync import sync_all_modules_to_db
 
 configure_logging()
-init_sentry()
 logger = logging.getLogger(__name__)
 
 
@@ -68,8 +66,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    if exc.status_code >= 500:
-        capture_exception(exc)
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail, "request_id": _request_id(request)},
@@ -79,8 +75,6 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    # Custom handlers swallow the exception; send to Sentry explicitly.
-    capture_exception(exc)
     logger.exception(
         "unhandled_exception",
         extra={
@@ -101,31 +95,6 @@ def _env_flag(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-@app.get("/sentry-debug", include_in_schema=False)
-def sentry_debug(
-    request: Request,
-    token: str = Query(default=""),
-) -> JSONResponse:
-    """
-    Fire a test exception to Sentry (verify DSN on local/Docker/server).
-
-    Only works when ``SENTRY_DEBUG_TOKEN`` is set and matches ``?token=…``.
-    Example: GET /api/sentry-debug?token=your-secret  (behind nginx ROOT_PATH=/api)
-    """
-    expected = (os.getenv("SENTRY_DEBUG_TOKEN") or "").strip()
-    if not expected or token != expected:
-        raise HTTPException(status_code=404, detail="Not found")
-    if not sentry_enabled():
-        return JSONResponse(
-            status_code=503,
-            content={
-                "detail": "Sentry is not configured (set SENTRY_DSN).",
-                "request_id": _request_id(request),
-            },
-        )
-    raise RuntimeError("Sentry debug probe — safe to ignore")
 
 
 @app.get("/admin", include_in_schema=False)

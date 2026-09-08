@@ -4,6 +4,7 @@ import { FileSearch } from "lucide-react"
 import { toast } from "sonner"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { PageLoader } from "@/components/ui/page-loader"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -588,7 +589,7 @@ export function MyTaskDetailPage() {
       ) : null}
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <PageLoader label="Loading task" />
       ) : !task ? (
         <Alert>
           <AlertTitle>Task not found</AlertTitle>

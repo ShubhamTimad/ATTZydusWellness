@@ -19,6 +19,7 @@ import {
   AdminDataTable,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
 } from "@/components/layout/list-page-ui"
 import {
   AdminPanel,
@@ -624,7 +625,7 @@ export function WorkflowAssignmentPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <AdminTableEmptyRow colSpan={5}>Loading workflows…</AdminTableEmptyRow>
+              <AdminTableLoadingRow colSpan={5} label="Loading workflows" />
             ) : sortedWorkflows.length === 0 ? (
               <AdminTableEmptyRow colSpan={5}>
                 No workflows yet. Click Create workflow.

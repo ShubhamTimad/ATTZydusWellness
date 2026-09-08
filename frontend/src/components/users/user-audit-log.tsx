@@ -95,6 +95,14 @@ function activityForEvent(ev: UserTimelineEvent): React.ReactNode {
     return <p className="font-medium">Deactivated</p>
   }
 
+  if (ev.type === "account_locked") {
+    return <p className="font-medium">Account locked</p>
+  }
+
+  if (ev.type === "account_unlocked") {
+    return <p className="font-medium">Account unlocked</p>
+  }
+
   if (ev.type === "approval_step") {
     if (ev.action === "pending") {
       const assignees = (ev.assigned_to ?? []).filter(Boolean).join(", ") || "—"

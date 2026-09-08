@@ -3,6 +3,7 @@ import { ArrowLeft, type LucideIcon } from "lucide-react"
 import { Link } from "react-router-dom"
 
 import { Button } from "@/components/ui/button"
+import { PageLoader } from "@/components/ui/page-loader"
 import { TableCell, TableHead } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
@@ -194,14 +195,9 @@ export function AdminPillBadge({
   )
 }
 
-export function AdminStatusBadge({ active }: { active: boolean }) {
-  if (active) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground shadow-sm">
-        Active
-      </span>
-    )
-  }
+export function AdminStatusBadge({ active, locked }: { active: boolean; locked?: boolean }) {
+  if (locked) return <AdminPillBadge tone="danger">Locked</AdminPillBadge>
+  if (active) return <AdminPillBadge tone="success">Active</AdminPillBadge>
   return <AdminPillBadge tone="neutral">Inactive</AdminPillBadge>
 }
 
@@ -355,6 +351,23 @@ export function AdminTableEmptyRow({
     <tr>
       <td colSpan={colSpan} className="app-empty-state">
         {children}
+      </td>
+    </tr>
+  )
+}
+
+/** Fixed-height loader so the table card does not jump when rows arrive. */
+export function AdminTableLoadingRow({
+  colSpan,
+}: {
+  colSpan: number
+  /** Ignored. The caption is always "Loading". */
+  label?: string
+}) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="app-empty-state">
+        <PageLoader compact className="min-h-48 py-10" />
       </td>
     </tr>
   )

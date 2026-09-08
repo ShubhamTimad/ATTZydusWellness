@@ -29,8 +29,31 @@ const FEATURES = [
   },
 ] as const
 
+const BG_VERSION_KEY = "auth.loginBackground.version"
+
 function apiUrl(path: string) {
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`
+}
+
+function versionedBgUrl(version: string) {
+  return apiUrl(`/auth/login-background?v=${encodeURIComponent(version)}`)
+}
+
+function readStoredBgVersion() {
+  try {
+    return sessionStorage.getItem(BG_VERSION_KEY)
+  } catch {
+    return null
+  }
+}
+
+function writeStoredBgVersion(version: string | null) {
+  try {
+    if (version) sessionStorage.setItem(BG_VERSION_KEY, version)
+    else sessionStorage.removeItem(BG_VERSION_KEY)
+  } catch {
+    // ignore
+  }
 }
 
 export function AppAuthMarketingLayout({
@@ -39,7 +62,8 @@ export function AppAuthMarketingLayout({
 }: AppAuthMarketingLayoutProps) {
   const isAdmin = variant === "admin"
   const [version, setVersion] = React.useState<string | null>(null)
-  const [bgSrc, setBgSrc] = React.useState<string | null>(null)
+  // Remembered version lets the browser reuse the cached image on the next visit.
+  const [bgVersion, setBgVersion] = React.useState<string | null>(readStoredBgVersion)
   // Pending uses the photo shell so the default marketing layout never flashes first.
   const [bgStatus, setBgStatus] = React.useState<"pending" | "ready" | "failed">("pending")
 
@@ -59,7 +83,6 @@ export function AppAuthMarketingLayout({
 
   React.useEffect(() => {
     let cancelled = false
-    let objectUrl: string | null = null
 
     async function loadBackground() {
       const meta = await getJson<{ configured: boolean; version: string | null }>(
@@ -68,36 +91,22 @@ export function AppAuthMarketingLayout({
       )
       if (cancelled) return
       if (!meta.configured || !meta.version) {
+        writeStoredBgVersion(null)
+        setBgVersion(null)
         setBgStatus("failed")
         return
       }
-      // Same API prefix as getJson — a bare /auth URL is the SPA on the server and is not an image.
-      const res = await fetch(
-        apiUrl(`/auth/login-background?v=${encodeURIComponent(meta.version)}`),
-        { cache: "no-store" },
-      )
-      if (!res.ok) throw new Error("missing")
-      const type = res.headers.get("content-type") || ""
-      if (!type.startsWith("image/")) throw new Error("not-image")
-      const blob = await res.blob()
-      if (cancelled) return
-      if (!blob.size) throw new Error("empty")
-      objectUrl = URL.createObjectURL(blob)
-      if (cancelled) {
-        URL.revokeObjectURL(objectUrl)
-        return
-      }
-      setBgSrc(objectUrl)
-      setBgStatus("ready")
+      writeStoredBgVersion(meta.version)
+      setBgVersion(meta.version)
     }
 
     void loadBackground().catch(() => {
-      if (!cancelled) setBgStatus("failed")
+      if (cancelled) return
+      if (!readStoredBgVersion()) setBgStatus("failed")
     })
 
     return () => {
       cancelled = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [])
 
@@ -106,14 +115,20 @@ export function AppAuthMarketingLayout({
       <AuthShellModeContext.Provider value="rail">
         {/* Neutral charcoal while the photo loads — avoids a long blue flash on slow networks. */}
         <div className="relative h-svh max-h-svh w-full overflow-hidden bg-[#171717]">
-          {bgSrc ? (
+          {bgVersion ? (
             <img
-              src={bgSrc}
+              src={versionedBgUrl(bgVersion)}
               alt=""
               fetchPriority="high"
               decoding="async"
               className="absolute inset-0 size-full object-cover object-center"
               aria-hidden
+              onLoad={() => setBgStatus("ready")}
+              onError={() => {
+                writeStoredBgVersion(null)
+                setBgVersion(null)
+                setBgStatus("failed")
+              }}
             />
           ) : null}
 

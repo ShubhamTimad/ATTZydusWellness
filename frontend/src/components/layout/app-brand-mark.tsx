@@ -1,7 +1,82 @@
+import * as React from "react"
+
+import { API_BASE_URL, getJson } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-/** Official Takeda logo served from `frontend/public/logo.svg`. */
+/** Official fallback logo from `frontend/public/logo.svg`. */
 export const TAKEDA_LOGO_SRC = "/logo.svg"
+
+const LOGO_VERSION_KEY = "auth.brandLogo.version"
+const LOGO_CHANGED = "att:brand-logo-changed"
+
+type BrandLogoMeta = {
+  configured: boolean
+  version: string | null
+}
+
+function brandLogoUrl(version: string | null | undefined) {
+  if (!version) return TAKEDA_LOGO_SRC
+  const base = API_BASE_URL.replace(/\/+$/, "")
+  return `${base}/auth/brand-logo?v=${encodeURIComponent(version)}`
+}
+
+function readStoredBrandLogoVersion() {
+  try {
+    return sessionStorage.getItem(LOGO_VERSION_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function writeStoredBrandLogoVersion(version: string | null) {
+  try {
+    if (version) sessionStorage.setItem(LOGO_VERSION_KEY, version)
+    else sessionStorage.removeItem(LOGO_VERSION_KEY)
+  } catch {
+    // ignore
+  }
+  window.dispatchEvent(new Event(LOGO_CHANGED))
+}
+
+export function currentBrandLogoSrc() {
+  return brandLogoUrl(readStoredBrandLogoVersion())
+}
+
+export function useBrandLogoSrc() {
+  const [src, setSrc] = React.useState(() => brandLogoUrl(readStoredBrandLogoVersion()))
+
+  React.useEffect(() => {
+    let cancelled = false
+
+    function apply(version: string | null) {
+      if (!cancelled) setSrc(brandLogoUrl(version))
+    }
+
+    function onChanged() {
+      apply(readStoredBrandLogoVersion())
+    }
+
+    window.addEventListener(LOGO_CHANGED, onChanged)
+    void getJson<BrandLogoMeta>("/auth/brand-logo/meta")
+      .then((meta) => {
+        const version = meta.configured ? meta.version : null
+        if (version !== readStoredBrandLogoVersion()) {
+          writeStoredBrandLogoVersion(version)
+        }
+        apply(version)
+      })
+      .catch(() => {
+        apply(readStoredBrandLogoVersion())
+      })
+
+    return () => {
+      cancelled = true
+      window.removeEventListener(LOGO_CHANGED, onChanged)
+    }
+  }, [])
+
+  return src
+}
 
 type AppBrandMarkProps = {
   className?: string
@@ -39,9 +114,10 @@ export function AppBrandMark({
   size = "md",
   onDark = false,
 }: AppBrandMarkProps) {
+  const src = useBrandLogoSrc()
   const logo = (
     <img
-      src={TAKEDA_LOGO_SRC}
+      src={src}
       alt="Takeda"
       className={cn(
         logoHeights[size],

@@ -14,7 +14,6 @@ from starlette.responses import Response
 
 from core.request_context import clear_request_context, set_request_id, set_user_id
 from core.security import decode_access_token
-from core.sentry_setup import clear_request_scope, set_request_scope
 
 logger = logging.getLogger("app.access")
 
@@ -61,7 +60,6 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         uid = _user_id_from_auth(request)
         set_request_id(rid)
         set_user_id(uid)
-        set_request_scope(request_id=rid, user_id=uid)
         request.state.request_id = rid
 
         started = time.perf_counter()
@@ -99,5 +97,4 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 logger.warning(msg, extra=extra)
             else:
                 logger.info(msg, extra=extra)
-            clear_request_scope()
             clear_request_context()

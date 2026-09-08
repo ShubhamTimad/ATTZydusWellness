@@ -16,6 +16,8 @@ export const queryClient = new QueryClient({
 
 export const assetListRootKey = ["assets", "list"] as const
 export const orderListRootKey = ["orders", "list"] as const
+export const transferListRootKey = ["transfers", "list"] as const
+export const disposalListRootKey = ["disposals", "list"] as const
 
 export function invalidateAssetLists() {
   return queryClient.invalidateQueries({ queryKey: assetListRootKey })
@@ -23,4 +25,12 @@ export function invalidateAssetLists() {
 
 export function invalidateOrderLists() {
   return queryClient.invalidateQueries({ queryKey: orderListRootKey })
+}
+
+export function invalidateTransferLists() {
+  return queryClient.invalidateQueries({ queryKey: transferListRootKey })
+}
+
+export function invalidateDisposalLists() {
+  return queryClient.invalidateQueries({ queryKey: disposalListRootKey })
 }

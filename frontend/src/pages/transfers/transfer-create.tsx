@@ -11,6 +11,7 @@ import {
   AdminPrimaryButton,
   AdminTableCell,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
@@ -22,6 +23,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, postJson } from "@/lib/api"
+import { invalidateTransferLists } from "@/lib/query-client"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import { isAssetPendingTransfer } from "@/lib/asset-lifecycle"
 import type { ActualLocationMaster } from "@/lib/masters-types"
@@ -566,6 +568,7 @@ export function TransferOrderCreatePage() {
           ? `Transfer ${order.order_number} submitted for approval.`
           : `Draft ${order.order_number} saved.`,
       )
+      void invalidateTransferLists()
       navigate(`/dashboard/transfer-orders/${order.id}`, { replace: true })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to create transfer order.")
@@ -740,7 +743,7 @@ export function TransferOrderCreatePage() {
                     plantId == null ? (
                       <AdminTableEmptyRow colSpan={6}>Select a plant to list assets.</AdminTableEmptyRow>
                     ) : catalogLoading ? (
-                      <AdminTableEmptyRow colSpan={6}>Loading assets…</AdminTableEmptyRow>
+                      <AdminTableLoadingRow colSpan={6} label="Loading assets" />
                     ) : catalogItems.length === 0 ? (
                       <AdminTableEmptyRow colSpan={6}>
                         No approved custodiated assets match these filters.

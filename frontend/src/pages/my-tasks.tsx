@@ -7,6 +7,7 @@ import {
   AdminDataTable,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
   ListPageHeader,
   WorkspaceTabs,
   WorkspaceTabsContent,
@@ -58,13 +59,15 @@ function InboxTable({ rows, loading, canView, emptyMessage, onOpen }: InboxTable
         </TableHeader>
         <TableBody>
           {(rows ?? []).length === 0 ? (
-            <AdminTableEmptyRow colSpan={5}>
-              {!canView
-                ? "Missing permission: task.view (or related task access)"
-                : loading
-                  ? "Loading tasks…"
-                  : emptyMessage}
-            </AdminTableEmptyRow>
+            !canView ? (
+              <AdminTableEmptyRow colSpan={5}>
+                Missing permission: task.view (or related task access)
+              </AdminTableEmptyRow>
+            ) : loading ? (
+              <AdminTableLoadingRow colSpan={5} label="Loading tasks" />
+            ) : (
+              <AdminTableEmptyRow colSpan={5}>{emptyMessage}</AdminTableEmptyRow>
+            )
           ) : (
             (rows ?? []).map((r) => (
               <AdminTableBodyRow key={r.id}>

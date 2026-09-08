@@ -12,6 +12,7 @@ import { toast } from "sonner"
 
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
+import { PageLoader } from "@/components/ui/page-loader"
 import {
   AdminBackLink,
   AdminPanel,
@@ -209,7 +210,6 @@ function OrderSummaryField({
 }
 
 const orderPanelPad = "px-[var(--app-card-padding)]"
-const ORDER_DESCRIPTION_INLINE_MAX = 48
 
 export function OrderDetailPage() {
   const { id } = useParams()
@@ -527,8 +527,8 @@ export function OrderDetailPage() {
 
   if (loading || !order) {
     return (
-      <AdminPage>
-        <p className="text-muted-foreground">{loading ? "Loading…" : "Order not found."}</p>
+      <AdminPage viewportFill>
+        {loading ? <PageLoader label="Loading order" /> : <p className="text-muted-foreground">Order not found.</p>}
       </AdminPage>
     )
   }
@@ -553,7 +553,6 @@ export function OrderDetailPage() {
   const canAssignSubmit =
     (isDraft || (isRejected && !executionSideReject)) && canCreate && isCreator
   const orderDescription = (order.remarks ?? "").trim()
-  const showDescriptionExpanded = orderDescription.length > ORDER_DESCRIPTION_INLINE_MAX
   const canScan =
     isInProgress && canExecute && isAssignee
   const filteredItems = order.items.filter(
@@ -1029,7 +1028,7 @@ export function OrderDetailPage() {
       <AdminPanel className="shrink-0 overflow-hidden p-0">
         <div className={cn("space-y-2 py-3", orderPanelPad)}>
           <h3 className="text-sm font-semibold text-foreground">Order Summary</h3>
-          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
             <OrderSummaryField
               label="Pending"
               value={order.pending_physical_count}
@@ -1049,31 +1048,15 @@ export function OrderDetailPage() {
               label="Executor"
               value={executorName || "—"}
             />
-            <div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-black">
-                Order Description
-              </p>
-              <p
-                className={cn(
-                  "mt-0.5 text-sm font-normal leading-snug text-black",
-                  showDescriptionExpanded ? "line-clamp-2" : "truncate",
-                )}
-                title={orderDescription || undefined}
-              >
-                {orderDescription || "—"}
-              </p>
-            </div>
           </div>
-          {showDescriptionExpanded ? (
-            <div className="rounded-md bg-muted/35 px-2.5 py-1.5">
-              <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-black">
-                Order Description
-              </p>
-              <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-black">
-                {orderDescription}
-              </p>
-            </div>
-          ) : null}
+          <div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
+            <p className="text-xs font-bold uppercase tracking-[0.06em] text-black">
+              Order Description
+            </p>
+            <p className="mt-0.5 whitespace-pre-wrap break-words text-sm font-medium leading-snug text-black">
+              {orderDescription || "—"}
+            </p>
+          </div>
           {isRejected && (order.rejection_reason || "").trim() ? (
             <div className="min-w-0 overflow-hidden rounded-lg border border-red-200 bg-red-50/70 px-3 py-2.5">
               <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-red-700">

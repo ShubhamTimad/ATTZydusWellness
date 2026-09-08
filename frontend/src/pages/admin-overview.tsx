@@ -15,6 +15,7 @@ import {
 } from "lucide-react"
 
 import { AdminPage, AdminSection } from "@/components/layout/admin-page"
+import { PageLoader } from "@/components/ui/page-loader"
 import { AdminPanel, adminPanelClass } from "@/components/layout/admin-ui"
 import { getJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
@@ -145,7 +146,7 @@ export function AdminOverviewPage() {
   return (
     <AdminPage fullWidth>
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading summary…</p>
+        <PageLoader label="Loading summary" />
       ) : stats.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {stats.map((s) => (

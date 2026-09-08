@@ -5,6 +5,7 @@ import { toast } from "sonner"
 
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
+import { PageLoader } from "@/components/ui/page-loader"
 import {
   AdminBackLink,
   AdminPanel,
@@ -295,11 +296,10 @@ export function CapexDetailPage() {
     return (
       <AdminPage
         fullWidth
-        dense
-        description="Loading capitalization form…"
+        viewportFill
         actions={<AdminBackLink to="/dashboard/capitalization">Capitalization</AdminBackLink>}
       >
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        {loading ? <PageLoader label="Loading capitalization" /> : <p className="text-sm text-muted-foreground">Form not found.</p>}
       </AdminPage>
     )
   }

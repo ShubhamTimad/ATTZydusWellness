@@ -12,7 +12,13 @@ import {
   AdminTableHeaderRow,
   adminPanelClass,
 } from "@/components/layout/admin-ui"
+import {
+  AdminTablePagination,
+  LIST_PAGE_SIZE,
+  type AdminListPage,
+} from "@/components/layout/list-page-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { PageLoader } from "@/components/ui/page-loader"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -24,6 +30,7 @@ import { cn } from "@/lib/utils"
 import { Pencil, Plus, Trash2 } from "lucide-react"
 import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
 import { canListOrgUnitsForAssignments, hasPermission, isSuperuser } from "@/lib/permissions"
+import { useUrlPage } from "@/lib/use-url-tab"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 
 type OrgUnitPublic = {
@@ -109,6 +116,7 @@ const ACTION_LABEL: Record<string, string> = {
   export: "Export",
   deactivate: "Deactivate",
   reactivate: "Reactivate",
+  unlock: "Unlock",
 }
 
 function orderedActionColumns(actions: string[]): string[] {
@@ -148,7 +156,11 @@ function selectionState(ids: number[], selected: Set<number>): boolean | "indete
 }
 
 export function RolesPage() {
+  const [page, setPage] = useUrlPage()
+  const [permPage, setPermPage] = useUrlPage("permPage")
   const [roles, setRoles] = React.useState<RoleListItem[] | null>(null)
+  const [rolesTotal, setRolesTotal] = React.useState(0)
+  const [rolesLoading, setRolesLoading] = React.useState(false)
   const [plants, setPlants] = React.useState<OrgUnitPublic[] | null>(null)
   const [catalog, setCatalog] = React.useState<PermissionCatalog | null>(null)
 
@@ -181,12 +193,16 @@ export function RolesPage() {
 
   async function loadBase() {
     setError(null)
+    setRolesLoading(true)
     try {
       const [r, cat] = await Promise.all([
-        getJson<RoleListItem[]>("/admin/roles?skip=0&limit=200"),
+        getJson<AdminListPage<RoleListItem>>(
+          `/admin/roles/page?page=${page}&page_size=${LIST_PAGE_SIZE}`,
+        ),
         getJson<PermissionCatalog>("/admin/permissions/catalog"),
       ])
-      setRoles(r)
+      setRoles(r.items)
+      setRolesTotal(r.total)
       setCatalog(cat)
       if (canLoadPlantList) {
         try {
@@ -198,12 +214,15 @@ export function RolesPage() {
       } else {
         setPlants([])
       }
-      if (selectedRoleId == null && r.length > 0) setSelectedRoleId(r[0].id)
+      if (selectedRoleId == null && r.items.length > 0) setSelectedRoleId(r.items[0].id)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load roles")
       setRoles([])
+      setRolesTotal(0)
       setPlants([])
       setCatalog({ modules: [] })
+    } finally {
+      setRolesLoading(false)
     }
   }
 
@@ -225,7 +244,7 @@ export function RolesPage() {
   React.useEffect(() => {
     void loadBase()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [page])
 
   React.useEffect(() => {
     if (selectedRoleId != null) void loadRole(selectedRoleId)
@@ -292,8 +311,9 @@ export function RolesPage() {
       })
       toast.success("Role created", { id: "create-role" })
       closeCreate()
-      await loadBase()
       setSelectedRoleId(created.id)
+      if (page !== 1) setPage(1)
+      else await loadBase()
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to create role"
       toast.error(message, { id: "create-role" })
@@ -415,6 +435,30 @@ export function RolesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canSaveRole, hasMissingCatalogPermissions, syncingCatalog, autoSyncAttempted])
 
+  const roleTotalPages = Math.max(1, Math.ceil(rolesTotal / LIST_PAGE_SIZE))
+  const catalogTabRows = (catalog?.modules ?? []).flatMap((mod) =>
+    mod.tabs.map((tab) => ({ module: mod, tab })),
+  )
+  const permTotalPages = Math.max(1, Math.ceil(catalogTabRows.length / LIST_PAGE_SIZE))
+  const catalogTabPage = catalogTabRows.slice(
+    (Math.min(permPage, permTotalPages) - 1) * LIST_PAGE_SIZE,
+    Math.min(permPage, permTotalPages) * LIST_PAGE_SIZE,
+  )
+  const catalogTabGroups: { module: (typeof catalogTabRows)[number]["module"]; tabs: (typeof catalogTabRows)[number]["tab"][] }[] = []
+  for (const row of catalogTabPage) {
+    const last = catalogTabGroups[catalogTabGroups.length - 1]
+    if (last?.module.key === row.module.key) last.tabs.push(row.tab)
+    else catalogTabGroups.push({ module: row.module, tabs: [row.tab] })
+  }
+
+  React.useEffect(() => {
+    if (page > roleTotalPages) setPage(roleTotalPages)
+  }, [page, roleTotalPages, setPage])
+
+  React.useEffect(() => {
+    if (permPage > permTotalPages) setPermPage(permTotalPages)
+  }, [permPage, permTotalPages, setPermPage])
+
   function closeCreate() {
     setCreateOpen(false)
     setCreateName("")
@@ -434,7 +478,7 @@ export function RolesPage() {
             {canCreateRole ? (
               <AdminPrimaryButton type="button" onClick={() => setCreateOpen(true)}>
                 <Plus className="size-4" aria-hidden />
-                Create role
+                Create Role
               </AdminPrimaryButton>
             ) : null}
             {canSaveRole ? (
@@ -480,16 +524,27 @@ export function RolesPage() {
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)] lg:items-stretch">
         <AdminPanel
           title="Roles"
-          description="Select a role to configure"
+          // description="Select a role to configure"
           className="flex max-h-[min(42dvh,22rem)] min-h-0 flex-col lg:max-h-none"
           contentClassName="min-h-0 flex-1 overflow-y-auto p-0"
+          footer={
+            <AdminTablePagination
+              page={Math.min(page, roleTotalPages)}
+              totalPages={roleTotalPages}
+              total={rolesTotal}
+              pageSize={LIST_PAGE_SIZE}
+              loading={rolesLoading || roles === null}
+              itemLabel="roles"
+              onPageChange={setPage}
+            />
+          }
         >
           <Table>
             <TableBody>
               {roles === null ? (
                 <TableRow>
-                  <TableCell className="px-5 py-10 text-center text-sm text-muted-foreground">
-                    Loading…
+                  <TableCell className="p-0">
+                    <PageLoader label="Loading roles" compact className="min-h-40" />
                   </TableCell>
                 </TableRow>
               ) : roles.length === 0 ? (
@@ -513,11 +568,11 @@ export function RolesPage() {
                     >
                       <TableCell className="px-5 py-3.5">
                         <div className="text-sm font-semibold leading-snug text-foreground">{r.name}</div>
-                        {r.description ? (
+                        {/* {r.description ? (
                           <div className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
                             {r.description}
                           </div>
-                        ) : null}
+                        ) : null} */}
                       </TableCell>
                     </TableRow>
                   )
@@ -529,6 +584,20 @@ export function RolesPage() {
 
         <AdminPanel
           title={selectedRole ? selectedRole.name : "Permissions"}
+          footer={
+            catalog ? (
+              <AdminTablePagination
+                page={Math.min(permPage, permTotalPages)}
+                totalPages={permTotalPages}
+                total={catalogTabRows.length}
+                pageSize={LIST_PAGE_SIZE}
+                itemLabel="tabs"
+                onPageChange={(next) => {
+                  setPermPage(next)
+                }}
+              />
+            ) : null
+          }
           description={
             hasDirty
               ? "Unsaved Changes — Click Save Changes"
@@ -560,7 +629,7 @@ export function RolesPage() {
         >
           <>
             {catalog === null ? (
-              <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
+              <PageLoader label="Loading permissions" compact className="min-h-48" />
             ) : selectedRoleId == null ? (
               <div className="py-10 text-center text-sm text-muted-foreground">Select a role.</div>
             ) : catalog.modules.length === 0 ? (
@@ -654,7 +723,8 @@ export function RolesPage() {
                   </div>
                 ) : null}
 
-                {catalog.modules.map((mod) => {
+                {catalogTabGroups.map((group) => {
+                  const mod = group.module
                   const moduleActions = orderedActionColumns(
                     mod.tabs.flatMap((t) => (Array.isArray(t.actions) ? t.actions : [])),
                   )
@@ -700,7 +770,7 @@ export function RolesPage() {
                             </AdminTableHeaderRow>
                           </TableHeader>
                           <TableBody>
-                            {mod.tabs.map((tab) => {
+                            {group.tabs.map((tab) => {
                               const tabIds = permissionIdsInTab(tab)
                               const tabChecked = selectionState(tabIds, selectedPermissionIds)
                               return (
@@ -790,10 +860,10 @@ export function RolesPage() {
       >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Create role</DialogTitle>
-            <DialogDescription>
+            <DialogTitle>Create Role</DialogTitle>
+            {/* <DialogDescription>
               Add a new role, optionally restrict it to specific plants, then assign permissions.
-            </DialogDescription>
+            </DialogDescription> */}
           </DialogHeader>
           <div className="dialog-body">
             <div className="space-y-1.5">
@@ -818,9 +888,9 @@ export function RolesPage() {
             {canLoadPlantList ? (
               <div className="space-y-2">
                 <Label>Plants (optional)</Label>
-                <p className="text-xs text-muted-foreground">
+                {/* <p className="text-xs text-muted-foreground">
                   Leave none selected so this role applies at every plant.
-                </p>
+                </p> */}
                 <ScrollArea className="h-[160px] rounded-md border p-2">
                   {plants === null || plants.length === 0 ? (
                     <p className="text-xs text-muted-foreground">No plants yet. Create plants under Plants.</p>
@@ -860,7 +930,7 @@ export function RolesPage() {
                 Cancel
               </Button>
               <AdminPrimaryButton type="button" disabled={creating} onClick={() => void createRole()}>
-                {creating ? "Creating…" : "Create role"}
+                {creating ? "Creating…" : "Create Role"}
               </AdminPrimaryButton>
             </div>
           </div>

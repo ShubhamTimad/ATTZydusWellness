@@ -10,7 +10,7 @@ from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.errors import RbacSafetyError
 from modules.platform.org_units.model import OrgUnit
-from modules.platform.org_units.schema import OrgUnitCreate, OrgUnitPublic, OrgUnitUpdate
+from modules.platform.org_units.schema import OrgUnitCreate, OrgUnitListPage, OrgUnitPublic, OrgUnitUpdate
 from modules.platform.org_units.service import (
     DuplicateOrgUnitCodeError,
     NotFoundError,
@@ -51,6 +51,46 @@ def list_org_units(
         org_type=org_type,
         parent_id=parent_id,
         viewer_user_id=int(current.subject),
+    )
+
+
+@router.get("/page", response_model=OrgUnitListPage)
+def list_org_units_page(
+    svc: Annotated[OrgUnitService, Depends(get_org_unit_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "org_units.view",
+                "users.create",
+                "users.update",
+                "roles.create",
+                "roles.update",
+                "asset.view",
+                "asset.create",
+                "asset.update",
+                "masters.view",
+            )
+        ),
+    ],
+    org_type: str | None = Query(None, alias="type"),
+    parent_id: int | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+) -> OrgUnitListPage:
+    items, total = svc.list_org_units_page(
+        page=page,
+        page_size=page_size,
+        org_type=org_type,
+        parent_id=parent_id,
+        viewer_user_id=int(current.subject),
+    )
+    return OrgUnitListPage(
+        items=[OrgUnitPublic.model_validate(u) for u in items],
+        total=total,
+        page=page,
+        page_size=page_size,
     )
 
 

@@ -32,7 +32,7 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
             {
                 "key": "users",
                 "title": "Users",
-                "actions": list(DEFAULT_TAB_ACTIONS),
+                "actions": [*DEFAULT_TAB_ACTIONS, "unlock"],
             },
         ],
     },

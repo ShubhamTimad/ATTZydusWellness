@@ -781,7 +781,7 @@ export function AssetDetailPage() {
             disabled={saving || acting || !editDirty}
             onClick={() => void save()}
           >
-            {saving ? "Saving…" : "Save Changes"}
+            {saving ? "Saving…" : "Save"}
           </AdminPrimaryButton>
         </span>
       ) : null}

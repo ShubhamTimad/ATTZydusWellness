@@ -2,6 +2,7 @@ import * as React from "react"
 import { toast } from "sonner"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { PageLoader } from "@/components/ui/page-loader"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -15,15 +16,17 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
-import { TAKEDA_LOGO_SRC } from "@/components/layout/app-brand-mark"
+import { currentBrandLogoSrc, writeStoredBrandLogoVersion } from "@/components/layout/app-brand-mark"
 import { AdminPage } from "@/components/layout/admin-page"
-import { AdminPanel, AdminPrimaryButton, adminSwitchRowClass } from "@/components/layout/admin-ui"
 import {
-  WorkspaceTabs,
-  WorkspaceTabsContent,
-  WorkspaceTabsList,
-  WorkspaceTabsTrigger,
-} from "@/components/layout/list-page-ui"
+  AdminPanel,
+  AdminPrimaryButton,
+  adminSelectClass,
+  adminSwitchRowClass,
+  adminTabsListClass,
+  adminTabsTriggerClass,
+} from "@/components/layout/admin-ui"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { deleteJson, getBlob, getJson, postBlob, postJson, putFormData, putJson } from "@/lib/api"
 import { formatAppDate } from "@/lib/dates"
 import { hasPermission } from "@/lib/permissions"
@@ -43,6 +46,7 @@ type AuthPolicy = {
   mfa_enabled: boolean
   captcha_enabled: boolean
   mfa_enforced: boolean
+  max_failed_login_attempts: number
   sso_enabled?: boolean
   sso_button_label?: string
 }
@@ -116,6 +120,8 @@ const DEFAULT_DOCUMENT_FORMAT: DocumentFormatSettings = {
   signatures: { capex: true, reports: false, transfer: false, disposal: false },
 }
 
+const settingsTabClass = "mt-0 space-y-4 outline-none"
+
 const MONTHS = [
   { value: 1, label: "January" },
   { value: 2, label: "February" },
@@ -144,6 +150,10 @@ export function SettingsPage() {
   const [loginBgPreviewUrl, setLoginBgPreviewUrl] = React.useState<string | null>(null)
   const [loginBgBusy, setLoginBgBusy] = React.useState(false)
   const loginBgInputRef = React.useRef<HTMLInputElement>(null)
+  const [logoMeta, setLogoMeta] = React.useState<LoginBackgroundMeta | null>(null)
+  const [logoPreviewUrl, setLogoPreviewUrl] = React.useState<string | null>(null)
+  const [logoBusy, setLogoBusy] = React.useState(false)
+  const logoInputRef = React.useRef<HTMLInputElement>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
   const [savingAuth, setSavingAuth] = React.useState(false)
@@ -153,10 +163,18 @@ export function SettingsPage() {
   const [testToEmail, setTestToEmail] = React.useState("")
   const [ssoSettings, setSsoSettings] = React.useState<SsoSettings | null>(null)
   const [savingSso, setSavingSso] = React.useState(false)
-  const [tab, setTab] = useUrlTab(
-    ["auth", "password", "email", "financial", "documents"] as const,
-    "auth",
+  const [urlTab, setTab] = useUrlTab(
+    ["general", "appearance", "security", "sso", "auth", "password", "session", "email", "branding", "financial", "documents"] as const,
+    "general",
   )
+  const tab =
+    urlTab === "auth" || urlTab === "password" || urlTab === "session"
+      ? "security"
+      : urlTab === "email" || urlTab === "financial"
+        ? "general"
+        : urlTab === "branding" || urlTab === "documents"
+          ? "appearance"
+          : urlTab
   const [financialYear, setFinancialYear] = React.useState<FinancialYearSettings | null>(null)
   const [savingFinancialYear, setSavingFinancialYear] = React.useState(false)
   const [documentFormat, setDocumentFormat] = React.useState<DocumentFormatSettings | null>(null)
@@ -180,10 +198,24 @@ export function SettingsPage() {
     }
   }
 
+  async function loadLogoPreview(configured: boolean) {
+    setLogoPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
+    if (!configured) return
+    try {
+      const blob = await getBlob("/admin/settings/brand-logo")
+      setLogoPreviewUrl(URL.createObjectURL(blob))
+    } catch {
+      setLogoPreviewUrl(null)
+    }
+  }
+
   async function load() {
     setLoadError(null)
     try {
-      const [data, auth, email, sso, fy, idle, docs, ver, bgMeta] = await Promise.all([
+      const [data, auth, email, sso, fy, idle, docs, ver, bgMeta, brandLogo] = await Promise.all([
         getJson<PasswordPolicy>("/admin/settings/password-policy"),
         getJson<AuthPolicy>("/admin/settings/auth-policy").catch(() => null),
         getJson<EmailDelivery>("/admin/settings/email-delivery").catch(() => null),
@@ -204,6 +236,11 @@ export function SettingsPage() {
           content_type: null,
           version: null,
         })),
+        getJson<LoginBackgroundMeta>("/admin/settings/brand-logo/meta").catch(() => ({
+          configured: false,
+          content_type: null,
+          version: null,
+        })),
       ])
       setPolicy(data)
       setAuthPolicy(auth)
@@ -217,7 +254,10 @@ export function SettingsPage() {
       setDocumentFormat(docs)
       setAppVersion(ver)
       setLoginBgMeta(bgMeta)
+      setLogoMeta(brandLogo)
+      writeStoredBrandLogoVersion(brandLogo.configured ? brandLogo.version : null)
       void loadLoginBackgroundPreview(bgMeta.configured)
+      void loadLogoPreview(brandLogo.configured)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Failed to load settings")
       setPolicy(null)
@@ -307,27 +347,36 @@ export function SettingsPage() {
 
   if (!policy) {
     return (
-      <AdminPage fullWidth description="Loading settings…">
-        <p className="text-sm text-muted-foreground">Please wait.</p>
+      <AdminPage fullWidth viewportFill>
+        <PageLoader label="Loading settings" />
       </AdminPage>
     )
   }
 
   return (
     <AdminPage fullWidth>
-      <WorkspaceTabs value={tab} onValueChange={setTab}>
-        <WorkspaceTabsList>
-          <WorkspaceTabsTrigger value="auth">Authentication</WorkspaceTabsTrigger>
-          <WorkspaceTabsTrigger value="password">Password policy</WorkspaceTabsTrigger>
-          <WorkspaceTabsTrigger value="email">Email delivery</WorkspaceTabsTrigger>
-          <WorkspaceTabsTrigger value="financial">Financial year</WorkspaceTabsTrigger>
-          <WorkspaceTabsTrigger value="documents">PDF & Excel</WorkspaceTabsTrigger>
-        </WorkspaceTabsList>
+      <Tabs value={tab} onValueChange={setTab} className="gap-5">
+        <TabsList className={adminTabsListClass}>
+          <TabsTrigger className={adminTabsTriggerClass} value="general">
+            General
+          </TabsTrigger>
+          <TabsTrigger className={adminTabsTriggerClass} value="appearance">
+            Appearance
+          </TabsTrigger>
+          <TabsTrigger className={adminTabsTriggerClass} value="security">
+            Security
+          </TabsTrigger>
+          <TabsTrigger className={adminTabsTriggerClass} value="sso">
+            Single sign-on
+          </TabsTrigger>
+        </TabsList>
 
-        <WorkspaceTabsContent value="auth" className="space-y-4">
+        <TabsContent value="security" className={settingsTabClass}>
+          <div className="grid items-start gap-4 xl:grid-cols-2">
           <AdminPanel
-            title="Authentication policy"
-            // description="Org-wide controls for password login, MFA, and captcha. Superusers are not affected."
+            className="h-full"
+            title="Sign-in policy"
+            // description="Password login, MFA, captcha, and account lockout. Superusers are not affected."
             contentClassName="space-y-4 px-5 py-5"
           >
               {!authPolicy ? (
@@ -345,6 +394,7 @@ export function SettingsPage() {
                       </div>
                       <Switch
                         checked={authPolicy.password_enabled}
+                        disabled={!canWriteAuth}
                         onCheckedChange={(v) => setAuthPolicy((p) => (p ? { ...p, password_enabled: Boolean(v) } : p))}
                       />
                     </div>
@@ -355,6 +405,7 @@ export function SettingsPage() {
                       </div>
                       <Switch
                         checked={authPolicy.captcha_enabled}
+                        disabled={!canWriteAuth}
                         onCheckedChange={(v) => setAuthPolicy((p) => (p ? { ...p, captcha_enabled: Boolean(v) } : p))}
                       />
                     </div>
@@ -365,6 +416,7 @@ export function SettingsPage() {
                       </div>
                       <Switch
                         checked={authPolicy.mfa_enabled}
+                        disabled={!canWriteAuth}
                         onCheckedChange={(v) => setAuthPolicy((p) => (p ? { ...p, mfa_enabled: Boolean(v) } : p))}
                       />
                     </div>
@@ -375,9 +427,37 @@ export function SettingsPage() {
                       </div>
                       <Switch
                         checked={authPolicy.mfa_enforced}
-                        disabled={!authPolicy.mfa_enabled}
+                        disabled={!canWriteAuth || !authPolicy.mfa_enabled}
                         onCheckedChange={(v) => setAuthPolicy((p) => (p ? { ...p, mfa_enforced: Boolean(v) } : p))}
                       />
+                    </div>
+                    <div className="space-y-1.5 lg:col-span-2">
+                      <Label htmlFor="max-failed-login-attempts">Failed login attempts before lock</Label>
+                      <Input
+                        id="max-failed-login-attempts"
+                        type="number"
+                        min={0}
+                        max={20}
+                        className="max-w-[8rem]"
+                        value={authPolicy.max_failed_login_attempts}
+                        disabled={!canWriteAuth}
+                        onChange={(e) => {
+                          const n = Number(e.target.value)
+                          setAuthPolicy((p) =>
+                            p
+                              ? {
+                                  ...p,
+                                  max_failed_login_attempts: Number.isFinite(n)
+                                    ? Math.min(20, Math.max(0, n))
+                                    : 0,
+                                }
+                              : p,
+                          )
+                        }}
+                      />
+                      {/* <p className="text-xs text-muted-foreground">
+                        Lock the account after this many consecutive failed password attempts. Use 0 to disable.
+                      </p> */}
                     </div>
                   </div>
 
@@ -410,10 +490,157 @@ export function SettingsPage() {
                 </>
               )}
           </AdminPanel>
+          <AdminPanel
+            className="h-full"
+            title="Password rules"
+            // description="Enforced on password changes and resets."
+            contentClassName="space-y-4 px-5 py-5"
+          >
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="min_length">Minimum length</Label>
+                <Input
+                  id="min_length"
+                  type="number"
+                  min={1}
+                  max={256}
+                  value={policy.min_length}
+                  disabled={!canWriteSettings}
+                  onChange={(e) => {
+                    const n = Number(e.target.value)
+                    setPolicy((p) => (p ? { ...p, min_length: Number.isFinite(n) ? n : p.min_length } : p))
+                  }}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="max_age_days">Max age (days)</Label>
+                <Input
+                  id="max_age_days"
+                  type="number"
+                  min={0}
+                  max={36500}
+                  value={policy.max_age_days}
+                  disabled={!canWriteSettings}
+                  onChange={(e) => {
+                    const n = Number(e.target.value)
+                    setPolicy((p) => (p ? { ...p, max_age_days: Number.isFinite(n) ? n : p.max_age_days } : p))
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">Use 0 to disable password expiry.</p>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(
+                [
+                  ["require_uppercase", "Require uppercase (A–Z)"],
+                  ["require_lowercase", "Require lowercase (a–z)"],
+                  ["require_digit", "Require a digit"],
+                  ["require_special", "Require a special character"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className={adminSwitchRowClass}>
+                  <Label htmlFor={key} className="font-medium text-foreground">
+                    {label}
+                  </Label>
+                  <Switch
+                    id={key}
+                    checked={policy[key]}
+                    disabled={!canWriteSettings}
+                    onCheckedChange={(v) => setPolicy((p) => (p ? { ...p, [key]: Boolean(v) } : p))}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end border-t border-border/60 pt-4">
+              <AdminPrimaryButton type="button" onClick={() => void save()} disabled={saving || !canWriteSettings}>
+                {saving ? "Saving…" : "Save password policy"}
+              </AdminPrimaryButton>
+            </div>
+          </AdminPanel>
+          <AdminPanel
+            className="h-full xl:col-span-2"
+            title="Session idle timeout"
+            // description="Password sign-in always uses this timer. For SSO, use Apply to SSO below (off by default — no navbar countdown)."
+            contentClassName="space-y-4 px-5 py-5"
+          >
+            {sessionIdle ? (
+              <>
+                <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-start">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="idle-timeout-minutes">Idle timeout (minutes)</Label>
+                    <Input
+                      id="idle-timeout-minutes"
+                      type="number"
+                      min={1}
+                      max={1440}
+                      value={sessionIdle.idle_timeout_minutes}
+                      disabled={!canWriteSettings}
+                      onChange={(e) => {
+                        const n = parseInt(e.target.value, 10)
+                        setSessionIdle((s) =>
+                          s ? { ...s, idle_timeout_minutes: Number.isFinite(n) ? n : s.idle_timeout_minutes } : s,
+                        )
+                      }}
+                    />
+                  </div>
+                  <div className={adminSwitchRowClass}>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium">Apply to SSO sessions</div>
+                      <div className="text-xs text-muted-foreground">
+                        Off (default): Microsoft/OIDC sessions stay signed in until logout or JWT expiry — no top
+                        navbar timer. On: SSO uses the same idle minutes as password sign-in.
+                      </div>
+                    </div>
+                    <Switch
+                      checked={sessionIdle.apply_to_sso}
+                      disabled={!canWriteSettings}
+                      onCheckedChange={(v) =>
+                        setSessionIdle((s) => (s ? { ...s, apply_to_sso: Boolean(v) } : s))
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end border-t border-border/60 pt-4">
+                  <AdminPrimaryButton
+                    type="button"
+                    disabled={savingSessionIdle || !canWriteSettings}
+                    onClick={async () => {
+                      if (!sessionIdle) return
+                      setSavingSessionIdle(true)
+                      toast.loading("Saving session timeout…", { id: "session-idle-save" })
+                      try {
+                        const updated = await putJson<SessionIdleSettings>(
+                          "/admin/settings/session-idle",
+                          sessionIdle as unknown as Record<string, unknown>,
+                        )
+                        setSessionIdle({
+                          idle_timeout_minutes: updated.idle_timeout_minutes,
+                          apply_to_sso: Boolean(updated.apply_to_sso),
+                        })
+                        toast.success("Saved", { id: "session-idle-save" })
+                      } catch (e) {
+                        const message = e instanceof Error ? e.message : "Save failed"
+                        toast.error(message, { id: "session-idle-save" })
+                      } finally {
+                        setSavingSessionIdle(false)
+                      }
+                    }}
+                  >
+                    {savingSessionIdle ? "Saving…" : "Save session timeout"}
+                  </AdminPrimaryButton>
+                </div>
+              </>
+            ) : (
+              <PageLoader compact className="min-h-40" />
+            )}
+          </AdminPanel>
+          </div>
+        </TabsContent>
 
+        <TabsContent value="sso" className={settingsTabClass}>
           <AdminPanel
             title="Single sign-on (OIDC)"
-            description="Works with Microsoft Entra ID, Okta, Auth0, Keycloak, and any OpenID Connect provider. Redirect URI must match the IdP app registration."
+            // description="Works with Microsoft Entra ID, Okta, Auth0, Keycloak, and any OpenID Connect provider. Redirect URI must match the IdP app registration."
             contentClassName="space-y-4 px-5 py-5"
           >
             {!ssoSettings ? (
@@ -426,9 +653,9 @@ export function SettingsPage() {
                 <div className={adminSwitchRowClass}>
                   <div className="min-w-0">
                     <div className="text-sm font-medium">Enable SSO</div>
-                    <div className="text-xs text-muted-foreground">
+                    {/* <div className="text-xs text-muted-foreground">
                       Show SSO on login pages. Requires issuer, client ID, secret, and redirect URI.
-                    </div>
+                    </div> */}
                   </div>
                   <Switch
                     checked={ssoSettings.enabled}
@@ -595,90 +822,19 @@ export function SettingsPage() {
               </>
             )}
           </AdminPanel>
+        </TabsContent>
 
+        <TabsContent value="appearance" className={settingsTabClass}>
+          <div className="grid items-start gap-4 xl:grid-cols-3">
           <AdminPanel
-            title="Session idle timeout"
-            description="Password sign-in always uses this timer. For SSO, use Apply to SSO below (off by default — no navbar countdown)."
-            contentClassName="space-y-4 px-5 py-5"
-          >
-            {sessionIdle ? (
-              <>
-                <div className="max-w-xs space-y-1.5">
-                  <Label htmlFor="idle-timeout-minutes">Idle timeout (minutes)</Label>
-                  <Input
-                    id="idle-timeout-minutes"
-                    type="number"
-                    min={1}
-                    max={1440}
-                    value={sessionIdle.idle_timeout_minutes}
-                    disabled={!canWriteSettings}
-                    onChange={(e) => {
-                      const n = parseInt(e.target.value, 10)
-                      setSessionIdle((s) =>
-                        s ? { ...s, idle_timeout_minutes: Number.isFinite(n) ? n : s.idle_timeout_minutes } : s
-                      )
-                    }}
-                  />
-                </div>
-                <div className={adminSwitchRowClass}>
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">Apply to SSO sessions</div>
-                    <div className="text-xs text-muted-foreground">
-                      Off (default): Microsoft/OIDC sessions stay signed in until logout or JWT expiry — no top
-                      navbar timer. On: SSO uses the same idle minutes as password sign-in.
-                    </div>
-                  </div>
-                  <Switch
-                    checked={sessionIdle.apply_to_sso}
-                    disabled={!canWriteSettings}
-                    onCheckedChange={(v) =>
-                      setSessionIdle((s) => (s ? { ...s, apply_to_sso: Boolean(v) } : s))
-                    }
-                  />
-                </div>
-                <div className="flex justify-end border-t border-border/60 pt-4">
-                  <AdminPrimaryButton
-                    type="button"
-                    disabled={savingSessionIdle || !canWriteSettings}
-                    onClick={async () => {
-                      if (!sessionIdle) return
-                      setSavingSessionIdle(true)
-                      toast.loading("Saving session timeout…", { id: "session-idle-save" })
-                      try {
-                        const updated = await putJson<SessionIdleSettings>(
-                          "/admin/settings/session-idle",
-                          sessionIdle as unknown as Record<string, unknown>
-                        )
-                        setSessionIdle({
-                          idle_timeout_minutes: updated.idle_timeout_minutes,
-                          apply_to_sso: Boolean(updated.apply_to_sso),
-                        })
-                        toast.success("Saved", { id: "session-idle-save" })
-                      } catch (e) {
-                        const message = e instanceof Error ? e.message : "Save failed"
-                        toast.error(message, { id: "session-idle-save" })
-                      } finally {
-                        setSavingSessionIdle(false)
-                      }
-                    }}
-                  >
-                    {savingSessionIdle ? "Saving…" : "Save session timeout"}
-                  </AdminPrimaryButton>
-                </div>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">Loading…</p>
-            )}
-          </AdminPanel>
-
-          <AdminPanel
+            className="h-full"
             title="Application version"
-            description="Shown on the login screen. Update this when you release a new build."
+            // description="Shown on the login screen. Update this when you release a new build."
             contentClassName="space-y-4 px-5 py-5"
           >
             {appVersion ? (
               <>
-                <div className="max-w-xs space-y-1.5">
+                <div className="space-y-1.5">
                   <Label htmlFor="app-version">Version</Label>
                   <Input
                     id="app-version"
@@ -717,13 +873,105 @@ export function SettingsPage() {
                 </div>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <PageLoader compact className="min-h-40" />
             )}
           </AdminPanel>
 
           <AdminPanel
+            className="h-full"
+            title="Logo"
+            // description="Application logo on the login screen, sidebar, and reports. PNG, JPEG, or WebP · max 5 MB. When unset, the default logo is used."
+            contentClassName="space-y-4 px-5 py-5"
+          >
+            {logoMeta ? (
+              <>
+                <div className="flex h-28 items-center justify-center overflow-hidden rounded-xl border border-border/70 bg-muted/30 px-4">
+                  <img
+                    src={logoPreviewUrl ?? currentBrandLogoSrc()}
+                    alt="Application logo preview"
+                    className="h-16 w-auto max-w-full object-contain"
+                  />
+                </div>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    e.target.value = ""
+                    if (!file || !canWriteSettings) return
+                    if (file.size > 5 * 1024 * 1024) {
+                      toast.error("Image must be 5 MB or smaller.")
+                      return
+                    }
+                    setLogoBusy(true)
+                    toast.loading("Uploading…", { id: "brand-logo-upload" })
+                    try {
+                      const fd = new FormData()
+                      fd.append("file", file)
+                      const meta = await putFormData<LoginBackgroundMeta>(
+                        "/admin/settings/brand-logo",
+                        fd,
+                      )
+                      setLogoMeta(meta)
+                      writeStoredBrandLogoVersion(meta.version)
+                      await loadLogoPreview(meta.configured)
+                      toast.success("Logo updated", { id: "brand-logo-upload" })
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Upload failed", {
+                        id: "brand-logo-upload",
+                      })
+                    } finally {
+                      setLogoBusy(false)
+                    }
+                  }}
+                />
+                <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-4">
+                  {logoMeta.configured ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={logoBusy || !canWriteSettings}
+                      onClick={async () => {
+                        setLogoBusy(true)
+                        toast.loading("Removing…", { id: "brand-logo-remove" })
+                        try {
+                          await deleteJson("/admin/settings/brand-logo")
+                          setLogoMeta({ configured: false, content_type: null, version: null })
+                          writeStoredBrandLogoVersion(null)
+                          await loadLogoPreview(false)
+                          toast.success("Logo reset to default", { id: "brand-logo-remove" })
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Remove failed", {
+                            id: "brand-logo-remove",
+                          })
+                        } finally {
+                          setLogoBusy(false)
+                        }
+                      }}
+                    >
+                      Use default
+                    </Button>
+                  ) : null}
+                  <AdminPrimaryButton
+                    type="button"
+                    disabled={logoBusy || !canWriteSettings}
+                    onClick={() => logoInputRef.current?.click()}
+                  >
+                    {logoBusy ? "Working…" : logoMeta.configured ? "Replace logo" : "Upload logo"}
+                  </AdminPrimaryButton>
+                </div>
+              </>
+            ) : (
+              <PageLoader compact className="min-h-40" />
+            )}
+          </AdminPanel>
+
+          <AdminPanel
+            className="h-full"
             title="Login background"
-            description="Optional full-page background image on the login screen. PNG, JPEG, or WebP · max 5 MB. Large photos are resized automatically. When unset, the default marketing layout is used."
+            // description="Optional full-page background image on the login screen. PNG, JPEG, or WebP · max 5 MB. Large photos are resized automatically. When unset, the default marketing layout is used."
             contentClassName="space-y-4 px-5 py-5"
           >
             {loginBgMeta ? (
@@ -806,94 +1054,27 @@ export function SettingsPage() {
                     disabled={loginBgBusy || !canWriteSettings}
                     onClick={() => loginBgInputRef.current?.click()}
                   >
-                    {loginBgBusy ? "Working…" : loginBgMeta.configured ? "Replace image" : "Upload Image"}
+                    {loginBgBusy ? "Working…" : loginBgMeta.configured ? "Replace image" : "Upload image"}
                   </AdminPrimaryButton>
                 </div>
               </>
             ) : (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <PageLoader compact className="min-h-40" />
             )}
           </AdminPanel>
-        </WorkspaceTabsContent>
+          </div>
+        </TabsContent>
 
-        <WorkspaceTabsContent value="password" className="space-y-4">
+        <TabsContent value="general" className={settingsTabClass}>
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(22rem,1fr)]">
           <AdminPanel
-            title="Password rules"
-            // description="Enforced on password changes and resets."
-            contentClassName="space-y-4 px-5 py-5"
-          >
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="min_length">Minimum length</Label>
-                  <Input
-                    id="min_length"
-                    type="number"
-                    min={1}
-                    max={256}
-                    value={policy.min_length}
-                    onChange={(e) => {
-                      const n = Number(e.target.value)
-                      setPolicy((p) => (p ? { ...p, min_length: Number.isFinite(n) ? n : p.min_length } : p))
-                    }}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="max_age_days">Max age (days)</Label>
-                  <Input
-                    id="max_age_days"
-                    type="number"
-                    min={0}
-                    max={36500}
-                    value={policy.max_age_days}
-                    onChange={(e) => {
-                      const n = Number(e.target.value)
-                      setPolicy((p) => (p ? { ...p, max_age_days: Number.isFinite(n) ? n : p.max_age_days } : p))
-                    }}
-                  />
-                  <p className="text-xs text-muted-foreground">Use 0 to disable password expiry.</p>
-                </div>
-              </div>
-
-              <Separator />
-
-              {(
-                [
-                  ["require_uppercase", "Require uppercase (A–Z)"],
-                  ["require_lowercase", "Require lowercase (a–z)"],
-                  ["require_digit", "Require a digit"],
-                  ["require_special", "Require a special character"],
-                ] as const
-              ).map(([key, label]) => (
-                <div key={key} className="flex items-center justify-between gap-4">
-                  <Label htmlFor={key} className="font-normal text-muted-foreground">
-                    {label}
-                  </Label>
-                  <Switch
-                    id={key}
-                    checked={policy[key]}
-                    onCheckedChange={(v) =>
-                      setPolicy((p) => (p ? { ...p, [key]: Boolean(v) } : p))
-                    }
-                  />
-                </div>
-              ))}
-
-              <div className="flex justify-end border-t border-border/60 pt-4">
-                <AdminPrimaryButton type="button" onClick={() => void save()} disabled={saving || !canWriteSettings}>
-                  {saving ? "Saving…" : "Save password policy"}
-                </AdminPrimaryButton>
-              </div>
-          </AdminPanel>
-        </WorkspaceTabsContent>
-
-        <WorkspaceTabsContent value="email" className="space-y-4">
-          <AdminPanel
+            className="h-full"
             title="SMTP & email delivery"
-            // description="Used for notifications, password reset, tasks, and user invites. Use an app password when 2FA is enabled."
+            // description="Used for notifications, password reset, tasks, and invites. Use an app password when 2FA is enabled."
             contentClassName="space-y-4 px-5 py-5"
           >
               {!emailDelivery ? (
-                <p className="text-sm text-muted-foreground">Loading email settings…</p>
+                <PageLoader label="Loading email settings" compact className="min-h-40" />
               ) : (
                 <>
                   <div className={adminSwitchRowClass}>
@@ -1090,16 +1271,14 @@ export function SettingsPage() {
                 </>
               )}
           </AdminPanel>
-        </WorkspaceTabsContent>
-
-        <WorkspaceTabsContent value="financial" className="space-y-4">
           <AdminPanel
+            className="h-full"
             title="Financial year"
-            // description="Used when creating physical verification orders to detect assets already verified in the current period (e.g. 1 Apr – 31 Mar)."
+            // description="Start date for the current verification period, used when creating physical verification orders."
             contentClassName="space-y-4 px-5 py-5"
           >
             {!financialYear ? (
-              <p className="text-sm text-muted-foreground">Loading financial year settings…</p>
+              <PageLoader label="Loading financial year settings" compact className="min-h-40" />
             ) : (
               <>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -1107,7 +1286,8 @@ export function SettingsPage() {
                     <Label htmlFor="fy_start_month">Start month</Label>
                     <select
                       id="fy_start_month"
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      className={adminSelectClass}
+                      disabled={!canWriteSettings}
                       value={financialYear.start_month}
                       onChange={(e) =>
                         setFinancialYear((p) =>
@@ -1130,6 +1310,7 @@ export function SettingsPage() {
                       min={1}
                       max={31}
                       value={financialYear.start_day}
+                      disabled={!canWriteSettings}
                       onChange={(e) => {
                         const n = Number(e.target.value)
                         setFinancialYear((p) =>
@@ -1183,16 +1364,17 @@ export function SettingsPage() {
               </>
             )}
           </AdminPanel>
-        </WorkspaceTabsContent>
+          </div>
+        </TabsContent>
 
-        <WorkspaceTabsContent value="documents" className="space-y-4">
+        <TabsContent value="appearance" className={settingsTabClass}>
           <AdminPanel
             title="PDF & Excel format"
-            // description="Edit the fields, preview PDF or Excel with those unsaved values, then save when it looks right. Logo, header and footer wrap every report page — the table sits between them."
+            // description="Header, confidential line, and signature blocks. Preview uses the values on this form, then save when it looks right."
             contentClassName="space-y-4 px-5 py-5"
           >
             {!documentFormat ? (
-              <p className="text-sm text-muted-foreground">Loading document format…</p>
+              <PageLoader label="Loading document format" compact className="min-h-40" />
             ) : (
               <>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -1217,11 +1399,14 @@ export function SettingsPage() {
                     />
                   </div>
                 </div>
-                <Separator />
-                <p className="text-sm font-medium">Signature blocks</p>
-                <p className="text-xs text-muted-foreground">
-                  When on, name and date lines sit above the footer for the creator and each approve step.
-                </p>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm font-medium">Signature blocks</p>
+                    {/* <p className="text-xs text-muted-foreground">
+                      When on, name and date lines sit above the footer for the creator and each approve step.
+                    </p> */}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
                 {(
                   [
                     ["capex", "Capitalization form"],
@@ -1236,6 +1421,7 @@ export function SettingsPage() {
                     </div>
                     <Switch
                       checked={documentFormat.signatures[key]}
+                      disabled={!canWriteSettings}
                       onCheckedChange={(v) =>
                         setDocumentFormat((p) =>
                           p
@@ -1249,6 +1435,8 @@ export function SettingsPage() {
                     />
                   </div>
                 ))}
+                  </div>
+                </div>
                 <div className="flex flex-wrap justify-end gap-2 border-t border-border/60 pt-4">
                   <Button
                     type="button"
@@ -1303,7 +1491,7 @@ export function SettingsPage() {
                       <div className="flex items-start justify-between gap-4 border-b-2 border-[#E1242A] px-3 py-3">
                         <div className="flex min-w-0 items-start gap-3">
                           <img
-                            src={TAKEDA_LOGO_SRC}
+                            src={logoPreviewUrl ?? currentBrandLogoSrc()}
                             alt=""
                             className="h-9 w-auto max-w-[120px] object-contain object-left"
                           />
@@ -1410,8 +1598,8 @@ export function SettingsPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </WorkspaceTabsContent>
-      </WorkspaceTabs>
+        </TabsContent>
+      </Tabs>
     </AdminPage>
   )
 }

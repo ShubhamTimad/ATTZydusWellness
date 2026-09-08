@@ -216,6 +216,14 @@ function navItemVisible(item: ShellNavItem): boolean {
   return Boolean(item.to)
 }
 
+function readSidebarCollapsed() {
+  try {
+    return localStorage.getItem("ui.sidebarCollapsed") === "1"
+  } catch {
+    return false
+  }
+}
+
 function pathMatchesNav(pathname: string, to: string): boolean {
   if (to === "/dashboard") return pathname === "/dashboard" || pathname === "/dashboard/"
   return pathname === to || pathname.startsWith(`${to}/`)
@@ -284,16 +292,13 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
   const activeNav = resolveActiveNav(visibleNav, location.pathname)
   const title = activeNav?.child?.label ?? activeNav?.item.label ?? "Dashboard"
   const [profileOpen, setProfileOpen] = React.useState(false)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = React.useState(readSidebarCollapsed)
+  const [sidebarMotion, setSidebarMotion] = React.useState(false)
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false)
   const [expandedNavIds, setExpandedNavIds] = React.useState<Set<string>>(() => new Set())
 
   React.useEffect(() => {
-    try {
-      setIsSidebarCollapsed(localStorage.getItem("ui.sidebarCollapsed") === "1")
-    } catch {
-      // ignore
-    }
+    setSidebarMotion(true)
   }, [])
   React.useEffect(() => {
     setMobileNavOpen(false)
@@ -467,7 +472,8 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
     <div className="flex h-svh min-h-0 w-full overflow-hidden app-canvas text-foreground">
       <aside
         className={cn(
-          "hidden min-h-0 shrink-0 flex-col border-r border-border/80 bg-card shadow-[var(--app-shadow-surface)] transition-[width] duration-200 lg:flex",
+          "hidden min-h-0 shrink-0 flex-col border-r border-border/80 bg-card shadow-[var(--app-shadow-surface)] lg:flex",
+          sidebarMotion && "transition-[width] duration-200",
           isSidebarCollapsed ? "w-16" : "w-60"
         )}
       >
@@ -525,8 +531,12 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
             <h1 className="truncate text-base font-bold tracking-tight text-foreground">{title}</h1>
           </div>
 
-          <div className="flex shrink-0 items-center gap-3">
-            <SessionIdleNavbarBadge />
+          <div className="relative flex shrink-0 items-center">
+            <div className="pointer-events-none absolute right-full mr-3">
+              <div className="pointer-events-auto">
+                <SessionIdleNavbarBadge />
+              </div>
+            </div>
             <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -586,7 +596,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
         </header>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-[var(--app-page-padding)]">
-          <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-auto">
+          <div className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
             {children}
           </div>
         </main>

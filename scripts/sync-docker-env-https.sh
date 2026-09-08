@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Upsert public-URL / bind keys from .env.docker.example into .env.docker
-# without wiping secrets (JWT, DB password, Sentry DSN, SMTP, etc.).
+# without wiping secrets (JWT, DB password, SMTP, etc.).
 #
 # Syncs only *active* (uncommented) keys from the example — HTTPS public URLs
 # for assets.timadit.com behind an external reverse proxy by default.
@@ -43,9 +43,6 @@ FRONTEND_ORIGIN
 FRONTEND_APP_URL
 FRONTEND_ADMIN_URL
 SSO_REDIRECT_URI
-SENTRY_SERVER_NAME
-SENTRY_ENVIRONMENT
-VITE_SENTRY_ENVIRONMENT
 "
 
 tmp="$(mktemp)"

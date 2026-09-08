@@ -43,6 +43,7 @@ import * as React from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
 import { getJson } from "@/lib/api"
 import { AccessDenied } from "@/components/admin/access-denied"
+import { ScreenLoader } from "@/components/ui/page-loader"
 import { SessionIdleWatcher } from "@/components/session-idle-watcher"
 import {
   clearAuthProfile,
@@ -457,7 +458,7 @@ function AppLoginRoute() {
     }
   }, [navigate])
 
-  if (checking) return null
+  if (checking) return <ScreenLoader />
   return <AppLoginPage />
 }
 
@@ -503,7 +504,7 @@ function AppRoute() {
     }
   }, [navigate])
 
-  if (checking) return null
+  if (checking) return <ScreenLoader />
   return (
     <SessionIdleWatcher loginPath="/login">
       <AppShellLayout
@@ -603,7 +604,7 @@ function AdminRoute() {
     return undefined
   }, [location.pathname])
 
-  if (superGate !== "ok") return null
+  if (superGate !== "ok") return <ScreenLoader />
 
   return (
     <SessionIdleWatcher loginPath="/admin/login">

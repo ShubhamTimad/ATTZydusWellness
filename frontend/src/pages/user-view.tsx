@@ -3,12 +3,14 @@ import { Link, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { AdminPage } from "@/components/layout/admin-page"
+import { PageLoader } from "@/components/ui/page-loader"
 import {
   AdminBackLink,
   AdminDangerButton,
   AdminDetailField,
   AdminDetailGrid,
   AdminPanel,
+  AdminPillBadge,
   AdminPrimaryButton,
   AdminStatusBadge,
 } from "@/components/layout/admin-ui"
@@ -30,6 +32,8 @@ type UserPublic = {
   email: string | null
   is_active: boolean
   is_superuser: boolean
+  is_locked?: boolean
+  locked_at?: string | null
   mfa_setup_completed?: boolean
   role: { id: number; name: string } | null
   org_units?: { id: number; name: string; type: string; code?: string | null }[]
@@ -42,18 +46,32 @@ type UserPublic = {
   updated_at: string
 }
 
-function formatOrgList(
-  items: { name: string; code?: string | null }[] | undefined,
-  fallback: { name: string; code?: string | null } | null,
-): string {
-  const list =
-    items && items.length > 0
-      ? items
-      : fallback
-        ? [fallback]
-        : []
-  if (list.length === 0) return "—"
-  return list.map((d) => (d.code ? `${d.code} — ${d.name}` : d.name)).join(", ")
+function orgItems(
+  items: { id?: number; name: string; code?: string | null }[] | undefined,
+  fallback: { id?: number; name: string; code?: string | null } | null,
+) {
+  if (items && items.length > 0) return items
+  return fallback ? [fallback] : []
+}
+
+function OrgPills({
+  items,
+  fallback,
+}: {
+  items?: { id?: number; name: string; code?: string | null }[]
+  fallback?: { id?: number; name: string; code?: string | null } | null
+}) {
+  const list = orgItems(items, fallback ?? null)
+  if (list.length === 0) return <span className="text-sm font-normal text-muted-foreground">—</span>
+  return (
+    <span className="flex flex-wrap gap-1.5">
+      {list.map((item) => (
+        <AdminPillBadge key={item.id ?? item.name} tone="neutral">
+          {item.code ? `${item.code} — ${item.name}` : item.name}
+        </AdminPillBadge>
+      ))}
+    </span>
+  )
 }
 
 export function UserViewPage() {
@@ -68,14 +86,50 @@ export function UserViewPage() {
   const [deleting, setDeleting] = React.useState(false)
   const [resendingMfa, setResendingMfa] = React.useState(false)
   const [resendingWelcome, setResendingWelcome] = React.useState(false)
+  const [unlocking, setUnlocking] = React.useState(false)
   const [mfaEnabled, setMfaEnabled] = React.useState<boolean>(false)
 
   const canUpdate = hasPermission("users.update")
+  const canUnlock = hasPermission("users.unlock")
   const canViewAudit = hasPermission("users.view")
   const canResendMfa = hasPermission("mfa.manage")
 
   const canHardDelete = isSuperuser() && meId !== null && user !== null && user.id !== meId
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
+
+  async function unlockAccount() {
+    if (!user) return
+    const ok = await confirmAsk({
+      title: "Unlock Account?",
+      description:
+        "This will set a temporary password and email a reset link to the user if an email address is available.",
+      confirmLabel: "Unlock",
+    })
+    if (!ok) return
+    setUnlocking(true)
+    try {
+      const res = await postJson<{ email_sent?: boolean }>(`/admin/users/${user.id}/unlock`, {})
+      setUser((prev) => (prev ? { ...prev, is_locked: false, locked_at: null } : prev))
+      if (canViewAudit) {
+        try {
+          const tl = await getJson<UserTimelineEvent[]>(`/audit/entity/user/${user.id}`)
+          setTimeline(tl)
+        } catch {
+          /* keep the trail already shown */
+        }
+      }
+      toast.success(
+        res.email_sent
+          ? "Account unlocked. A temporary password and reset link were emailed."
+          : "Account unlocked. No email was sent because this user has no email address.",
+      )
+    } catch (e) {
+      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not unlock account"
+      toast.error(message)
+    } finally {
+      setUnlocking(false)
+    }
+  }
 
   async function resendWelcomeEmail() {
     if (!user) return
@@ -186,12 +240,22 @@ export function UserViewPage() {
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       <AdminBackLink to=".." />
+      {user && canUnlock && user.is_locked ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={unlocking}
+          onClick={() => void unlockAccount()}
+        >
+          {unlocking ? "Unlocking…" : "Unlock Account"}
+        </Button>
+      ) : null}
       {user && canUpdate && user.is_active && !user.is_superuser ? (
         <Button
           type="button"
           size="sm"
           variant="outline"
-          className="h-9 shadow-sm"
           disabled={resendingWelcome}
           onClick={() => void resendWelcomeEmail()}
         >
@@ -203,7 +267,6 @@ export function UserViewPage() {
           type="button"
           size="sm"
           variant="outline"
-          className="h-9 shadow-sm"
           disabled={resendingMfa}
           onClick={() => void resendMfaSetupEmail()}
         >
@@ -226,8 +289,8 @@ export function UserViewPage() {
   if (loading) {
     return (
       <>
-        <AdminPage fullWidth description="Loading user profile…" actions={toolbar}>
-          <p className="text-sm text-muted-foreground">Please wait.</p>
+        <AdminPage fullWidth viewportFill actions={toolbar}>
+          <PageLoader label="Loading user" />
         </AdminPage>
         {confirmDialog}
       </>
@@ -236,11 +299,7 @@ export function UserViewPage() {
 
   return (
     <>
-    <AdminPage
-      fullWidth
-      description={user ? `${user.username} · ${user.email ?? "no email"}` : "User profile and audit history."}
-      actions={toolbar}
-    >
+    <AdminPage fullWidth actions={toolbar}>
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Something went wrong</AlertTitle>
@@ -254,22 +313,51 @@ export function UserViewPage() {
           <AlertDescription>This user may have been deleted or is outside the loaded range.</AlertDescription>
         </Alert>
       ) : (
-        <div className="space-y-6">
-          <AdminPanel title={user.full_name} description="Profile and assignment">
-            <div className="px-5 py-5">
-              <AdminDetailGrid>
-                <AdminDetailField label="Full name" value={user.full_name} className="sm:col-span-2" />
-                <AdminDetailField label="Username" value={user.username} />
-                <AdminDetailField label="Email" value={user.email ?? "—"} />
-                <AdminDetailField label="Phone" value={user.phone ?? "—"} />
-                <AdminDetailField label="Role" value={user.role?.name ?? "—"} />
+        <div className="space-y-4">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <AdminPanel
+              title={user.full_name}
+              // description={user.username}
+              headerActions={
+                <span className="flex flex-wrap items-center gap-1.5">
+                  <AdminStatusBadge active={user.is_active} locked={user.is_locked} />
+                  {user.is_superuser ? (
+                    <Badge variant="outline" className="rounded-md border-amber-300/80 text-amber-800">
+                      Superuser
+                    </Badge>
+                  ) : null}
+                </span>
+              }
+            >
+              <div className="px-5 py-5">
+                <AdminDetailGrid>
+                  <AdminDetailField label="Email" value={user.email ?? "—"} />
+                  <AdminDetailField label="Phone" value={user.phone ?? "—"} />
+                  <AdminDetailField label="Role" value={user.role?.name ?? "—"} />
+                  <AdminDetailField label="Username" value={user.username} />
+                </AdminDetailGrid>
+              </div>
+              <div className="grid gap-3 border-t border-border/60 bg-muted/15 px-5 py-3 text-xs text-muted-foreground sm:grid-cols-2">
+                <div>
+                  <span className="font-medium text-foreground/70">Created</span>
+                  <p className="mt-0.5 tabular-nums">{formatDateTime(user.created_at)}</p>
+                </div>
+                <div>
+                  <span className="font-medium text-foreground/70">Last updated</span>
+                  <p className="mt-0.5 tabular-nums">{formatDateTime(user.updated_at)}</p>
+                </div>
+              </div>
+            </AdminPanel>
+
+            <AdminPanel title="Assignment" >
+              <div className="space-y-5 px-5 py-5">
                 <AdminDetailField
                   label="Plants"
-                  value={formatOrgList(user.org_units, user.org_unit)}
+                  value={<OrgPills items={user.org_units} fallback={user.org_unit} />}
                 />
                 <AdminDetailField
                   label="Departments"
-                  value={formatOrgList(user.departments, user.department)}
+                  value={<OrgPills items={user.departments} fallback={user.department} />}
                 />
                 <AdminDetailField
                   label="Cost centers"
@@ -277,36 +365,13 @@ export function UserViewPage() {
                     <UserCostCentersDisplay
                       items={user.cost_centers}
                       fallback={user.cost_center}
+                      className="max-w-none"
                     />
                   }
                 />
-                <AdminDetailField
-                  label="Status"
-                  value={
-                    <span className="flex flex-wrap items-center gap-2">
-                      <AdminStatusBadge active={user.is_active} />
-                      {user.is_superuser ? (
-                        <Badge variant="outline" className="rounded-md border-amber-300/80 text-amber-800">
-                          Superuser
-                        </Badge>
-                      ) : null}
-                    </span>
-                  }
-                  className="sm:col-span-2"
-                />
-              </AdminDetailGrid>
-            </div>
-            <div className="grid gap-3 border-t border-border/60 bg-muted/15 px-5 py-3 text-xs text-muted-foreground sm:grid-cols-2">
-              <div>
-                <span className="font-medium text-foreground/70">Created</span>
-                <p className="mt-0.5 tabular-nums">{formatDateTime(user.created_at)}</p>
               </div>
-              <div>
-                <span className="font-medium text-foreground/70">Last updated</span>
-                <p className="mt-0.5 tabular-nums">{formatDateTime(user.updated_at)}</p>
-              </div>
-            </div>
-          </AdminPanel>
+            </AdminPanel>
+          </div>
 
           <UserAuditLog events={timeline} loading={loading && timeline === null} canView={canViewAudit} />
         </div>

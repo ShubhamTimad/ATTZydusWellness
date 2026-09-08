@@ -1607,22 +1607,19 @@ class PhysicalOrderService:
         viewer_id: int,
         plant_id: int | None = None,
     ) -> PhysicalOrderListFilterOptionsResponse:
-        """Distinct plant / CC / status values that appear on orders in the list scope."""
-        base = select(PhysicalOrder)
-        base = self._apply_viewer_org_scope(base, viewer_user_id=viewer_id)
-        all_order_ids = base.with_only_columns(PhysicalOrder.id).order_by(None).scalar_subquery()
+        """Plant / CC / status dropdowns from masters in scope. Does not scan every order."""
+        scope = load_viewer_org_scope(self._db, viewer_id)
+        if plant_id is not None:
+            plant_ids: list[int] | None = [int(plant_id)]
+        elif scope.plant_ids is not None:
+            plant_ids = sorted(scope.plant_ids)
+        else:
+            plant_ids = None
 
-        plant_rows = self._db.execute(
-            select(OrgUnit.id, OrgUnit.code, OrgUnit.name)
-            .where(
-                OrgUnit.id.in_(
-                    select(PhysicalOrder.plant_id)
-                    .where(PhysicalOrder.id.in_(all_order_ids))
-                    .distinct()
-                )
-            )
-            .order_by(OrgUnit.code, OrgUnit.name)
-        ).all()
+        plant_stmt = select(OrgUnit.id, OrgUnit.code, OrgUnit.name).where(OrgUnit.type == "plant")
+        if plant_ids is not None:
+            plant_stmt = plant_stmt.where(OrgUnit.id.in_(plant_ids) if plant_ids else false())
+        plant_rows = self._db.execute(plant_stmt.order_by(OrgUnit.code, OrgUnit.name)).all()
         plants = [
             PhysicalOrderListFilterPlant(
                 id=int(pid),
@@ -1632,26 +1629,22 @@ class PhysicalOrderService:
             for pid, code, name in plant_rows
         ]
 
-        scoped = base
-        if plant_id is not None:
-            scoped = scoped.where(PhysicalOrder.plant_id == int(plant_id))
-        scoped_ids = scoped.with_only_columns(PhysicalOrder.id).order_by(None).scalar_subquery()
-
+        cc_stmt = select(
+            CostCenterMaster.id,
+            CostCenterMaster.code,
+            CostCenterMaster.name,
+            CostCenterMaster.plant_id,
+        )
+        if plant_ids is not None:
+            cc_stmt = cc_stmt.where(
+                CostCenterMaster.plant_id.in_(plant_ids) if plant_ids else false()
+            )
+        if scope.cost_center_ids is not None:
+            cc_stmt = cc_stmt.where(
+                CostCenterMaster.id.in_(scope.cost_center_ids) if scope.cost_center_ids else false()
+            )
         cc_rows = self._db.execute(
-            select(
-                CostCenterMaster.id,
-                CostCenterMaster.code,
-                CostCenterMaster.name,
-                CostCenterMaster.plant_id,
-            )
-            .where(
-                CostCenterMaster.id.in_(
-                    select(PhysicalOrder.cost_center_id)
-                    .where(PhysicalOrder.id.in_(scoped_ids))
-                    .distinct()
-                )
-            )
-            .order_by(CostCenterMaster.code, CostCenterMaster.name)
+            cc_stmt.order_by(CostCenterMaster.code, CostCenterMaster.name)
         ).all()
         cost_centers = [
             PhysicalOrderListFilterCostCenter(
@@ -1663,13 +1656,18 @@ class PhysicalOrderService:
             for cid, code, name, ppid in cc_rows
         ]
 
-        status_rows = self._db.scalars(
-            select(PhysicalOrder.status)
-            .where(PhysicalOrder.id.in_(scoped_ids))
-            .distinct()
-            .order_by(PhysicalOrder.status)
-        ).all()
-        statuses = [str(s) for s in status_rows if s]
+        statuses = [
+            ORDER_STATUS_DRAFT,
+            ORDER_STATUS_PENDING_APPROVAL,
+            ORDER_STATUS_APPROVED,
+            ORDER_STATUS_ASSIGNED,
+            ORDER_STATUS_IN_PROGRESS,
+            ORDER_STATUS_PENDING_CLOSURE,
+            ORDER_STATUS_COMPLETED,
+            ORDER_STATUS_CLOSED,
+            ORDER_STATUS_REJECTED,
+            ORDER_STATUS_CANCELLED,
+        ]
 
         return PhysicalOrderListFilterOptionsResponse(
             plants=plants,
@@ -1703,6 +1701,15 @@ class PhysicalOrderService:
             selectinload(PhysicalOrder.assignee),
         )
         tab = tab.strip().lower()
+        from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
+
+        pending_ids = {
+            int(x)
+            for x in self._db.scalars(
+                pending_approval_request_ids_for_viewer(self._db, int(viewer_id))
+            ).all()
+            if x is not None
+        }
         active_statuses = (
             ORDER_STATUS_PENDING_APPROVAL,
             ORDER_STATUS_APPROVED,
@@ -1711,15 +1718,12 @@ class PhysicalOrderService:
             ORDER_STATUS_PENDING_CLOSURE,
         )
         if tab == "needs_action":
-            from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
-
-            pending_req_ids = pending_approval_request_ids_for_viewer(self._db, int(viewer_id))
-            closure_order_ids = self._pending_closure_order_ids_for_viewer(pending_req_ids)
+            closure_order_ids = self._pending_closure_order_ids_for_viewer(pending_ids)
             base = base.where(
                 or_(
                     and_(
                         PhysicalOrder.approval_request_id.is_not(None),
-                        PhysicalOrder.approval_request_id.in_(pending_req_ids),
+                        PhysicalOrder.approval_request_id.in_(pending_ids or [-1]),
                     ),
                     and_(
                         PhysicalOrder.id.in_(closure_order_ids),
@@ -1926,15 +1930,6 @@ class PhysicalOrderService:
         )
         # List GET stays read-only — promote/handoff heal runs on detail fetch.
         has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
-        from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
-
-        pending_ids = {
-            int(x)
-            for x in self._db.scalars(
-                pending_approval_request_ids_for_viewer(self._db, int(viewer_id))
-            ).all()
-            if x is not None
-        }
         asset_counts = self._asset_counts_for_orders([int(o.id) for o in rows])
         items = [
             self._to_list_item(
@@ -1945,7 +1940,26 @@ class PhysicalOrderService:
             )
             for o in rows
         ]
-        tab_counts = self._order_tab_counts(viewer_id=viewer_id, pending_req_ids=pending_ids)
+        extra_filters = any(
+            (
+                search and search.strip(),
+                plant_id is not None,
+                cost_center_id is not None,
+                order_number and order_number.strip(),
+                status and status.strip(),
+                asset_count is not None,
+                created_on is not None,
+                assigned_to and assigned_to.strip(),
+                created_by and created_by.strip(),
+            )
+        )
+        tab_counts = self._order_tab_counts(
+            viewer_id=viewer_id,
+            pending_req_ids=pending_ids,
+            skip=() if extra_filters else (tab,),
+        )
+        if not extra_filters and tab in ("all", "needs_action", "done"):
+            tab_counts[tab] = total
         return PhysicalOrderListResponse(
             items=items,
             total=total,
@@ -1965,11 +1979,18 @@ class PhysicalOrderService:
         return {int(oid): int(cnt) for oid, cnt in rows}
 
     def _order_tab_counts(
-        self, *, viewer_id: int, pending_req_ids: set[int] | None = None
+        self,
+        *,
+        viewer_id: int,
+        pending_req_ids: set[int] | None = None,
+        skip: tuple[str, ...] = (),
     ) -> dict[str, int]:
         """Tab badge counts without wrapping full entity selects."""
         out: dict[str, int] = {}
+        skipped = set(skip)
         for key in ("all", "needs_action", "done"):
+            if key in skipped:
+                continue
             stmt = self._list_orders_base_for_tab(
                 key, viewer_id=viewer_id, pending_req_ids=pending_req_ids
             )

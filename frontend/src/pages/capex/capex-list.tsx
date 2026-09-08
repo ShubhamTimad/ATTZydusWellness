@@ -8,6 +8,7 @@ import {
   AdminDataTable,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
   AdminTablePagination,
   ListPageHeader,
   WorkspaceTabs,
@@ -68,7 +69,7 @@ export function CapexListPage() {
   const [tab, setTab] = useUrlTab(CAPEX_TAB_KEYS, "all")
   const [page, setPage] = useUrlPage()
   const [data, setData] = React.useState<CapexFormListResponse | null>(null)
-  const [loading, setLoading] = React.useState(false)
+  const [loading, setLoading] = React.useState(true)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
   const [columnFiltersOpen, setColumnFiltersOpen] = React.useState(false)
@@ -375,7 +376,7 @@ export function CapexListPage() {
                 </TableHeader>
                 <TableBody>
                   {loading ? (
-                    <AdminTableEmptyRow colSpan={5}>Loading forms…</AdminTableEmptyRow>
+                    <AdminTableLoadingRow colSpan={5} label="Loading forms" />
                   ) : items.length === 0 ? (
                     <AdminTableEmptyRow colSpan={5}>
                       No forms are currently pending for approval.

@@ -21,6 +21,7 @@ import {
   AdminDataTable,
   AdminTableBodyRow,
   AdminTableEmptyRow,
+  AdminTableLoadingRow,
   AdminTablePagination,
   ListPageHeader,
   WorkspaceTabs,
@@ -186,6 +187,24 @@ const ASSET_LIST_COLUMNS: AssetListColumnDefinition[] = [
   { key: "last_verification_date", label: "Last Verification", group: "Inventory" },
   { key: "lifecycle_status", label: "Status", group: "Asset" },
 ]
+
+const ASSET_LIST_COLUMNS_CACHE_KEY = "asset.listColumns"
+
+function readStoredAssetListColumns(): AssetListColumnKey[] | null {
+  try {
+    const raw = sessionStorage.getItem(ASSET_LIST_COLUMNS_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return null
+    const allowed = new Set(ASSET_LIST_COLUMNS.map((column) => column.key))
+    const columns = parsed.filter((key): key is AssetListColumnKey =>
+      allowed.has(key as AssetListColumnKey),
+    )
+    return columns.length > 0 ? columns : null
+  } catch {
+    return null
+  }
+}
 
 const DEFAULT_ASSET_LIST_COLUMN_KEYS: AssetListColumnKey[] = [
   "asset_code",
@@ -433,7 +452,7 @@ function buildQueryParams(
   scanTo: string,
   columnFilters: AssetColumnFilters,
 ): URLSearchParams {
-  const q = new URLSearchParams({ page: String(page), page_size: "25" })
+  const q = new URLSearchParams({ page: String(page), page_size: "20" })
   if (search.trim()) q.set("search", search.trim())
   if (filters.plant_id) q.set("plant_id", filters.plant_id)
   if (filters.category_id) q.set("category_id", filters.category_id)
@@ -529,6 +548,7 @@ export function AssetsListPage() {
   // view_all + assigned CCs → pre-select one actionable CC once (user can clear to see all).
   const defaultCcAppliedRef = React.useRef(false)
   const canViewAllAssets = hasPermission("asset.view_all")
+  const [defaultCcReady, setDefaultCcReady] = React.useState(!canViewAllAssets)
 
   React.useEffect(() => {
     const qs = draftFilters.plant_id
@@ -553,7 +573,6 @@ export function AssetsListPage() {
             assigned.find((a) => res.cost_centers.some((c) => c.code === a.code))?.code ??
             assigned[0]?.code ??
             ""
-          if (preferredCc) setColumnFiltersOpen(true)
         }
 
         setColumnFilterInputs((prev) => {
@@ -611,6 +630,7 @@ export function AssetsListPage() {
           defaultCcAppliedRef.current = true
         }
       })
+      .finally(() => setDefaultCcReady(true))
   }, [draftFilters.plant_id, canViewAllAssets])
   const [selected, setSelected] = React.useState<Set<number>>(new Set())
   const [selectedHasRfid, setSelectedHasRfid] = React.useState<Map<number, boolean>>(new Map())
@@ -636,7 +656,10 @@ export function AssetsListPage() {
   const [bulkDecisionMode, setBulkDecisionMode] = React.useState<"approve" | "reject">("approve")
   const [columnsOpen, setColumnsOpen] = React.useState(false)
   const [visibleColumnKeys, setVisibleColumnKeys] = React.useState<AssetListColumnKey[]>(
-    DEFAULT_ASSET_LIST_COLUMN_KEYS,
+    () => readStoredAssetListColumns() ?? DEFAULT_ASSET_LIST_COLUMN_KEYS,
+  )
+  const [columnsReady, setColumnsReady] = React.useState(
+    () => readStoredAssetListColumns() != null,
   )
   const [draftColumnKeys, setDraftColumnKeys] = React.useState<Set<AssetListColumnKey>>(
     new Set(DEFAULT_ASSET_LIST_COLUMN_KEYS),
@@ -699,11 +722,19 @@ export function AssetsListPage() {
       .then((preference) => {
         const allowed = new Set(ASSET_LIST_COLUMNS.map((column) => column.key))
         const columns = preference.columns.filter((key) => allowed.has(key))
-        if (columns.length > 0) setVisibleColumnKeys(columns)
+        if (columns.length > 0) {
+          sessionStorage.setItem(ASSET_LIST_COLUMNS_CACHE_KEY, JSON.stringify(columns))
+          setVisibleColumnKeys((prev) =>
+            prev.length === columns.length && prev.every((key, i) => key === columns[i])
+              ? prev
+              : columns,
+          )
+        }
       })
       .catch((e) =>
         toast.error(e instanceof Error ? e.message : "Failed to load column preferences"),
       )
+      .finally(() => setColumnsReady(true))
   }, [])
 
   React.useEffect(() => {
@@ -756,10 +787,11 @@ export function AssetsListPage() {
       return getJson<AssetListResponse>(`/admin/assets?${q}`)
     },
     staleTime: LIST_STALE_MS,
+    enabled: defaultCcReady,
   })
 
   const data = assetsQuery.data ?? null
-  const loading = assetsQuery.isPending && !assetsQuery.data
+  const loading = !columnsReady || (assetsQuery.isPending && !assetsQuery.data)
 
   React.useEffect(() => {
     if (assetsQuery.error) {
@@ -1093,6 +1125,7 @@ export function AssetsListPage() {
         columns,
       })
       setVisibleColumnKeys(saved.columns)
+      sessionStorage.setItem(ASSET_LIST_COLUMNS_CACHE_KEY, JSON.stringify(saved.columns))
       setColumnsOpen(false)
       toast.success("Asset-list columns saved")
     } catch (e) {
@@ -1785,7 +1818,7 @@ export function AssetsListPage() {
     return `/admin/assets/assignees?action=${encodeURIComponent(action)}`
   }, [submitEligibleRows])
   const total = data?.total ?? 0
-  const pageSize = data?.page_size ?? 25
+  const pageSize = data?.page_size ?? 20
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const tableColSpan = visibleColumns.length + 1
 
@@ -2012,11 +2045,9 @@ export function AssetsListPage() {
               <ListFilter className="size-4" aria-hidden />
               <span className="inline-flex items-center gap-0.5">
                 Filter
-                {activeColumnFilterCount > 0 ? (
-                  <span className="text-xs font-medium text-red-600">
-                    ({activeColumnFilterCount})
-                  </span>
-                ) : null}
+                <span className="inline-block min-w-[1.35rem] text-xs font-medium tabular-nums text-red-600">
+                  {activeColumnFilterCount > 0 ? `(${activeColumnFilterCount})` : "\u00a0"}
+                </span>
               </span>
             </Button>
           )}
@@ -2364,12 +2395,14 @@ export function AssetsListPage() {
             pageSize={pageSize}
             loading={loading}
             itemLabel="Asset"
+            selectedCount={selected.size}
             onPageChange={setPage}
           />
         }
       >
         <Table className="app-table-head-sticky">
             <TableHeader>
+              {columnsReady ? (
               <AdminTableHeaderRow>
                 <AdminTableHeadCell className="w-10 px-3">
                   <Checkbox
@@ -2391,6 +2424,7 @@ export function AssetsListPage() {
                   />
                 ))}
               </AdminTableHeaderRow>
+              ) : null}
               {columnFiltersOpen && !isFyTab ? (
                 <AdminTableHeaderRow>
                   <AdminTableHeadCell className="w-10 px-3 py-1.5">
@@ -2406,7 +2440,7 @@ export function AssetsListPage() {
             </TableHeader>
             <TableBody>
               {loading && items.length === 0 ? (
-                <AdminTableEmptyRow colSpan={tableColSpan}>Loading assets…</AdminTableEmptyRow>
+                <AdminTableLoadingRow colSpan={tableColSpan} label="Loading assets" />
               ) : items.length === 0 ? (
                 <AdminTableEmptyRow colSpan={tableColSpan}>
                   {isFyTab

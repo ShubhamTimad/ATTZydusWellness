@@ -25,13 +25,6 @@ def set_user_id(value: int | str | None) -> None:
         user_id_var.set("-")
     else:
         user_id_var.set(str(value))
-    # Keep Sentry scope in sync when auth resolves the user mid-request.
-    try:
-        from core.sentry_setup import set_request_scope
-
-        set_request_scope(request_id=get_request_id(), user_id=None if value in (None, "") else value)
-    except Exception:
-        pass
 
 
 def clear_request_context() -> None:

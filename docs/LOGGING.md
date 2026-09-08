@@ -57,8 +57,6 @@ docker compose logs backend | grep '"user_id": "42"'
 | Debug failures & latency | Compliance / who changed what |
 | stdout / `LOG_FILE` | Postgres + UI timelines |
 
-For cloud error alerts and slow-request notifications, see [SENTRY.md](./SENTRY.md).
-
 ## Self-check
 
 ```bash

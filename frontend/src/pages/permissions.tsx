@@ -1,7 +1,12 @@
 import * as React from "react"
 import { toast } from "sonner"
 
+import {
+  AdminTablePagination,
+  LIST_PAGE_SIZE,
+} from "@/components/layout/list-page-ui"
 import { AdminPage } from "@/components/layout/admin-page"
+import { PageLoader } from "@/components/ui/page-loader"
 import {
   AdminPanel,
   AdminPrimaryButton,
@@ -13,6 +18,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
 import { getJson, postJson } from "@/lib/api"
+import { useUrlPage } from "@/lib/use-url-tab"
 import { hasPermission } from "@/lib/permissions"
 
 type CatalogPermission = {
@@ -59,6 +65,7 @@ const ACTION_LABEL: Record<string, string> = {
   export: "Export",
   deactivate: "Deactivate",
   reactivate: "Reactivate",
+  unlock: "Unlock",
 }
 
 function orderedActionColumns(actions: string[]): string[] {
@@ -78,6 +85,7 @@ function orderedActionColumns(actions: string[]): string[] {
 }
 
 export function PermissionsPage() {
+  const [page, setPage] = useUrlPage()
   const [catalog, setCatalog] = React.useState<PermissionCatalog | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [syncing, setSyncing] = React.useState(false)
@@ -126,6 +134,30 @@ export function PermissionsPage() {
     [catalog],
   )
 
+  const tabRows = React.useMemo(
+    () =>
+      (catalog?.modules ?? []).flatMap((mod) => mod.tabs.map((tab) => ({ module: mod, tab }))),
+    [catalog],
+  )
+  const totalPages = Math.max(1, Math.ceil(tabRows.length / LIST_PAGE_SIZE))
+  const pageRows = tabRows.slice(
+    (Math.min(page, totalPages) - 1) * LIST_PAGE_SIZE,
+    Math.min(page, totalPages) * LIST_PAGE_SIZE,
+  )
+  const pageGroups = React.useMemo(() => {
+    const groups: { module: CatalogModule; tabs: CatalogTab[] }[] = []
+    for (const row of pageRows) {
+      const last = groups[groups.length - 1]
+      if (last?.module.key === row.module.key) last.tabs.push(row.tab)
+      else groups.push({ module: row.module, tabs: [row.tab] })
+    }
+    return groups
+  }, [pageRows])
+
+  React.useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages, setPage])
+
   return (
     <AdminPage
       fullWidth
@@ -160,14 +192,26 @@ export function PermissionsPage() {
         description="Module → tab → action matrix loaded from GET /admin/permissions/catalog"
         className="flex max-h-[calc(100dvh-11rem)] min-h-0 flex-col"
         contentClassName="min-h-0 flex-1 overflow-y-auto"
+        footer={
+          <AdminTablePagination
+            page={Math.min(page, totalPages)}
+            totalPages={totalPages}
+            total={tabRows.length}
+            pageSize={LIST_PAGE_SIZE}
+            loading={catalog === null}
+            itemLabel="tabs"
+            onPageChange={setPage}
+          />
+        }
       >
         {catalog === null ? (
-          <p className="px-5 py-12 text-center text-sm text-muted-foreground">Loading…</p>
+          <PageLoader label="Loading permissions" compact className="min-h-48" />
         ) : catalog.modules.length === 0 ? (
           <p className="px-5 py-12 text-center text-sm text-muted-foreground">No modules in catalog.</p>
         ) : (
           <div className="space-y-8 px-2 py-4">
-            {catalog.modules.map((mod) => {
+            {pageGroups.map((group) => {
+              const mod = group.module
               const moduleActions = orderedActionColumns(
                 mod.tabs.flatMap((t) => (Array.isArray(t.actions) ? t.actions : [])),
               )
@@ -187,7 +231,7 @@ export function PermissionsPage() {
                         </AdminTableHeaderRow>
                       </TableHeader>
                       <TableBody>
-                        {mod.tabs.map((tab) => (
+                        {group.tabs.map((tab) => (
                           <TableRow key={`${mod.key}.${tab.key}`} className="border-b border-border/40">
                             <AdminTableCell className="align-top font-medium text-muted-foreground">
                               {tab.title}
