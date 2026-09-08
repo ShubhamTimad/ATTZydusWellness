@@ -464,7 +464,7 @@ ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
     **ASSET_FIELD_LABELS,
     "category_code": "Asset Category / Group",
     "plant_code": "Plant Code",
-    "plant_name": "Plant",
+    "plant_name": "Plant Name",
     "category_name": "Category description",
     "physical_count": "Physical count",
     "last_verification_date": "Last verification date",

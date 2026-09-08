@@ -265,19 +265,23 @@ class PhysicalOrderService:
         self._restore_executor_assignee(order)
         if order.assigned_to:
             try:
-                from modules.platform.emails.service import EmailNotificationService
+                from modules.platform.emails.service import enqueue_trigger_events
 
                 assignee = self._db.get(User, order.assigned_to)
                 if assignee and assignee.email:
-                    EmailNotificationService(self._db).trigger_event(
-                        event_code="ORDER_RETURNED_FOR_EXECUTION",
-                        payload={
-                            "user_name": assignee.full_name,
-                            "email": assignee.email,
-                            "order_number": order.order_number,
-                            "reason": reason or "Closure approval rejected.",
-                            "order_link": _order_link(int(order.id)),
-                        },
+                    enqueue_trigger_events(
+                        [
+                            (
+                                "ORDER_RETURNED_FOR_EXECUTION",
+                                {
+                                    "user_name": assignee.full_name,
+                                    "email": assignee.email,
+                                    "order_number": order.order_number,
+                                    "reason": reason or "Closure approval rejected.",
+                                    "order_link": _order_link(int(order.id)),
+                                },
+                            )
+                        ]
                     )
             except Exception:
                 pass
@@ -402,19 +406,23 @@ class PhysicalOrderService:
         )
         if order.assigned_to:
             try:
-                from modules.platform.emails.service import EmailNotificationService
+                from modules.platform.emails.service import enqueue_trigger_events
 
                 assignee = self._db.get(User, order.assigned_to)
                 if assignee and assignee.email:
-                    EmailNotificationService(self._db).trigger_event(
-                        event_code="ORDER_RETURNED_FOR_EXECUTION",
-                        payload={
-                            "user_name": assignee.full_name,
-                            "email": assignee.email,
-                            "order_number": order.order_number,
-                            "reason": reason,
-                            "order_link": _order_link(int(order.id)),
-                        },
+                    enqueue_trigger_events(
+                        [
+                            (
+                                "ORDER_RETURNED_FOR_EXECUTION",
+                                {
+                                    "user_name": assignee.full_name,
+                                    "email": assignee.email,
+                                    "order_number": order.order_number,
+                                    "reason": reason,
+                                    "order_link": _order_link(int(order.id)),
+                                },
+                            )
+                        ]
                     )
             except Exception:
                 pass

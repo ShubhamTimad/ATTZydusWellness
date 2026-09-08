@@ -152,6 +152,7 @@ _FIELD_LABELS: dict[str, str] = {
     "auc_code": "AUC code",
     "useful_life": "Useful life",
     "requires_engineering": "Engineering review required",
+    "cost_center_id": "Cost Center",
 }
 
 _AUDIT_LABELS: dict[str, str] = {
@@ -176,6 +177,25 @@ def _fmt_val(value: Any) -> str:
     if isinstance(value, bool):
         return "Yes" if value else "No"
     return str(value)
+
+
+def _cost_center_label(cc: CostCenterMaster | None, raw_id: Any) -> str:
+    if cc is None:
+        return "—" if raw_id is None else f"Cost center #{raw_id}"
+    name = (cc.name or "").strip()
+    return name or f"Cost center #{cc.id}"
+
+
+def _audit_change_value(key: str, value: Any, cost_centers: dict[int, CostCenterMaster]) -> str:
+    if key == "cost_center_id":
+        if value is None:
+            return "—"
+        try:
+            cc_id = int(value)
+        except (TypeError, ValueError):
+            return _fmt_val(value)
+        return _cost_center_label(cost_centers.get(cc_id), cc_id)
+    return _fmt_val(value)
 
 
 def _user_display(db: Session, user_id: int | None) -> str | None:
@@ -1355,6 +1375,27 @@ class CapexFormService:
                 .order_by(CapitalizationFormAudit.id.desc())
             ).all()
         )
+        cc_ids: set[int] = set()
+        for ev in rows:
+            if ev.action != "updated":
+                continue
+            for blob in (ev.old_value, ev.new_value):
+                if not isinstance(blob, dict) or "cost_center_id" not in blob:
+                    continue
+                raw = blob.get("cost_center_id")
+                if raw is None:
+                    continue
+                try:
+                    cc_ids.add(int(raw))
+                except (TypeError, ValueError):
+                    continue
+        cost_centers = {
+            int(cc.id): cc
+            for cc in self._db.scalars(
+                select(CostCenterMaster).where(CostCenterMaster.id.in_(cc_ids))
+            ).all()
+        } if cc_ids else {}
+
         out: list[CapexAuditEventPublic] = []
         for ev in rows:
             actor = ev.actor
@@ -1375,8 +1416,8 @@ class CapexFormService:
                     changes.append(
                         CapexAuditChange(
                             field=_FIELD_LABELS.get(k, k.replace("_", " ").title()),
-                            from_value=_fmt_val(ov.get(k)),
-                            to_value=_fmt_val(nv.get(k)),
+                            from_value=_audit_change_value(k, ov.get(k), cost_centers),
+                            to_value=_audit_change_value(k, nv.get(k), cost_centers),
                         )
                     )
             elif ev.action in ("submitted", "resubmitted"):

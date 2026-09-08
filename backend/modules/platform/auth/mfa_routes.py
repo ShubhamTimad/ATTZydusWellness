@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from db.session import get_db
 from modules.platform.auth.schema import TokenPair
 from modules.platform.auth.service import AuthService
-from modules.platform.emails.service import EmailNotificationService
 from modules.platform.mfa.service import MfaService
 from modules.platform.users.model import User
 
@@ -112,8 +111,9 @@ def mfa_setup_verify(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OTP or enrollment state")
     mfa.mark_setup_token_used(row)
     if user.email:
-        EmailNotificationService(db).trigger_event(
-            event_code="MFA_ENABLED",
-            payload={"user_name": user.full_name, "email": user.email},
+        from modules.platform.emails.service import enqueue_trigger_events
+
+        enqueue_trigger_events(
+            [("MFA_ENABLED", {"user_name": user.full_name, "email": user.email})]
         )
     return {"ok": True}

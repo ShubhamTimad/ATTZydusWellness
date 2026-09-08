@@ -30,7 +30,13 @@ import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import type { DisposalAssigneeListResponse, DisposalAssigneeOption, DisposalOrderDetail } from "@/lib/disposal-types"
 import type { CostCenterMaster } from "@/lib/masters-types"
 import { hasPermission } from "@/lib/permissions"
-import { plantLabel, useAssetMasterLookups } from "@/lib/use-asset-masters"
+import {
+  actualLocationLabel,
+  costCenterLabel,
+  functionalLocationLabel,
+  plantLabel,
+  useAssetMasterLookups,
+} from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 
@@ -89,6 +95,37 @@ export function DisposalOrderCreatePage() {
   const [pickerOpen, setPickerOpen] = React.useState(false)
 
   const masters = useAssetMasterLookups(plantId)
+
+  function placeName(
+    code: string | null | undefined,
+    description: string | null | undefined,
+    masterName: string | null | undefined,
+  ): string {
+    const named = (masterName ?? "").trim()
+    const raw = (code ?? "").trim()
+    if (named && named.toLowerCase() !== raw.toLowerCase()) return named
+    const desc = (description ?? "").trim()
+    if (desc && desc.toLowerCase() !== raw.toLowerCase()) return desc
+    return "—"
+  }
+
+  function assetPlaceLabels(a: AssetListItem) {
+    const ccCode = (a.cost_center ?? "").trim()
+    const flCode = (a.functional_location ?? "").trim()
+    const alCode = (a.actual_location ?? "").trim()
+    const cc = masters.costCenters.find((c) => (c.code ?? "").trim() === ccCode)
+    const fl = masters.functionalLocations.find((l) => (l.code ?? "").trim() === flCode)
+    const al = masters.actualLocations.find(
+      (l) =>
+        (l.code ?? "").trim() === alCode &&
+        (!fl || l.functional_location_id === fl.id || (l.functional_location_code ?? "").trim() === flCode),
+    )
+    return {
+      costCenter: placeName(ccCode, a.cost_center_description, cc ? costCenterLabel(cc) : null),
+      loc1: placeName(flCode, a.functional_location_description, fl ? functionalLocationLabel(fl) : null),
+      loc2: placeName(alCode, a.actual_location_description, al ? actualLocationLabel(al) : null),
+    }
+  }
   const [scrapyardCostCenters, setScrapyardCostCenters] = React.useState<CostCenterMaster[]>([])
   const selectedIds = React.useMemo(() => new Set(selected.map((a) => a.id)), [selected])
   const assigneesUrl = React.useMemo(() => {
@@ -480,7 +517,9 @@ export function DisposalOrderCreatePage() {
                     selected.length === 0 ? (
                       <AdminTableEmptyRow colSpan={5}>No Assets selected</AdminTableEmptyRow>
                     ) : (
-                      selected.map((a) => (
+                      selected.map((a) => {
+                        const places = assetPlaceLabels(a)
+                        return (
                         <AdminTableBodyRow key={a.id} interactive={false}>
                           <AdminTableCell>
                             <div className="font-medium">{a.asset_code}</div>
@@ -488,18 +527,13 @@ export function DisposalOrderCreatePage() {
                               {a.asset_name || "—"}
                             </div>
                           </AdminTableCell>
-                          <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
-                          <AdminTableCell>
-                            {a.functional_location_description?.trim() ||
-                              a.functional_location ||
-                              "—"}
-                          </AdminTableCell>
-                          <AdminTableCell>
-                            {a.actual_location_description?.trim() || a.actual_location || "—"}
-                          </AdminTableCell>
+                          <AdminTableCell>{places.costCenter}</AdminTableCell>
+                          <AdminTableCell>{places.loc1}</AdminTableCell>
+                          <AdminTableCell>{places.loc2}</AdminTableCell>
                           <AdminTableCell>{custodianSelect(a.id)}</AdminTableCell>
                         </AdminTableBodyRow>
-                      ))
+                        )
+                      })
                     )
                   ) : plantId == null ? (
                     <AdminTableEmptyRow colSpan={6}>
@@ -514,6 +548,7 @@ export function DisposalOrderCreatePage() {
                   ) : (
                     catalog.map((a) => {
                       const checked = selectedIds.has(a.id)
+                      const places = assetPlaceLabels(a)
                       return (
                         <AdminTableBodyRow key={a.id} onClick={() => toggleAsset(a)}>
                           <AdminTableCell className="align-middle">
@@ -535,15 +570,9 @@ export function DisposalOrderCreatePage() {
                               {a.asset_name || "—"}
                             </div>
                           </AdminTableCell>
-                          <AdminTableCell>{a.cost_center ?? "—"}</AdminTableCell>
-                          <AdminTableCell>
-                            {a.functional_location_description?.trim() ||
-                              a.functional_location ||
-                              "—"}
-                          </AdminTableCell>
-                          <AdminTableCell>
-                            {a.actual_location_description?.trim() || a.actual_location || "—"}
-                          </AdminTableCell>
+                          <AdminTableCell>{places.costCenter}</AdminTableCell>
+                          <AdminTableCell>{places.loc1}</AdminTableCell>
+                          <AdminTableCell>{places.loc2}</AdminTableCell>
                           <AdminTableCell>
                             {checked ? custodianSelect(a.id) : <span className="text-muted-foreground">—</span>}
                           </AdminTableCell>

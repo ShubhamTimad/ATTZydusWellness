@@ -24,7 +24,7 @@ from modules.platform.roles.model import Role
 from modules.platform.users.model import User
 import os
 
-from modules.platform.emails.service import EmailNotificationService
+from modules.platform.emails.service import enqueue_trigger_events
 from modules.platform.mfa.policy_hooks import maybe_send_mfa_setup_for_user
 from modules.platform.mfa.notify import create_mfa_setup_link
 from modules.platform.auth_policy.service import get_global_policy
@@ -482,22 +482,21 @@ class ApprovalEngineService:
 
             role_ids = step_role_ids(task.step) if task.step is not None else [int(task.assigned_role_id)]
             recipients = users_in_any_role(self._db, role_ids)
-        for user in recipients:
-            if not user.email:
-                continue
-            try:
-                EmailNotificationService(self._db).trigger_event(
-                    event_code="TASK_ASSIGNED",
-                    payload={
-                        "user_name": user.full_name,
-                        "email": user.email,
-                        "task_name": task.title or "Approval task",
-                        "entity_name": entity_name,
-                        "task_link": self._task_link(int(task.id)),
-                    },
-                )
-            except Exception:
-                pass
+        events = [
+            (
+                "TASK_ASSIGNED",
+                {
+                    "user_name": user.full_name,
+                    "email": user.email,
+                    "task_name": task.title or "Approval task",
+                    "entity_name": entity_name,
+                    "task_link": self._task_link(int(task.id)),
+                },
+            )
+            for user in recipients
+            if user.email
+        ]
+        enqueue_trigger_events(events)
 
     def list_my_tasks(self, *, user_id: int) -> list[ApprovalTask]:
         from modules.platform.approvals.step_roles import role_pool_task_clause
@@ -783,16 +782,11 @@ class ApprovalEngineService:
         return entity_display_name(str(req.entity_type), payload, int(req.entity_id))
 
     def _notify_creator_and_peers(self, *, creator_user_id: int, event_code: str, payload: dict[str, Any]) -> None:
-        """
-        Send the same email to:
-        - creator (mandatory)
-        - all active users that share at least one RBAC role with creator
-        """
+        """Email the creator and same-role peers. SMTP runs after this call so reject/resubmit stay fast."""
         creator = self._db.get(User, int(creator_user_id))
         if creator is None:
             return
 
-        # Find creator role ids.
         role_ids = {
             int(rid)
             for rid in self._db.execute(
@@ -806,21 +800,22 @@ class ApprovalEngineService:
             ).scalars().all()
             user_ids |= {int(uid) for uid in peer_ids if uid is not None}
 
-        # Load active users with email.
-        rows = self._db.scalars(
-            select(User).where(User.id.in_(user_ids), User.is_active.is_(True))
-        ).all()
-        for u in rows:
-            if not u.email:
-                continue
-            EmailNotificationService(self._db).trigger_event(
-                event_code=event_code,
-                payload={
-                    "user_name": u.full_name,
-                    "email": u.email,
-                    **payload,
-                },
-            )
+        recipients = [
+            (str(u.email), u.full_name or u.email)
+            for u in self._db.scalars(
+                select(User).where(User.id.in_(user_ids), User.is_active.is_(True))
+            ).all()
+            if u.email
+        ]
+        if not recipients:
+            return
+
+        enqueue_trigger_events(
+            [
+                (event_code, {"user_name": name, "email": email, **payload})
+                for email, name in recipients
+            ]
+        )
 
     @staticmethod
     def _build_user_creation_payload(user: User) -> dict[str, Any]:
@@ -1693,10 +1688,7 @@ class ApprovalEngineService:
                 except Exception:
                     pass
 
-                EmailNotificationService(self._db).trigger_event(
-                    event_code="USER_CREATED",
-                    payload=payload,
-                )
+                enqueue_trigger_events([("USER_CREATED", payload)])
             # Avoid sending a second MFA email when the setup link was already included above.
             if not (isinstance(payload, dict) and payload.get("setup_link")):
                 maybe_send_mfa_setup_for_user(self._db, user)

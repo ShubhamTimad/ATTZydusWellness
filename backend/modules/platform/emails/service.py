@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -71,6 +72,29 @@ class EmailSender:
                 return
 
         send_via_smtp(cfg, to_email=to_email, subject=subject, body=body)
+
+
+def enqueue_trigger_events(events: list[tuple[str, dict[str, Any]]]) -> None:
+    """Send emails off the request thread so SMTP timeouts do not hold the action."""
+    copied = [(code, dict(payload)) for code, payload in events if code and payload]
+    if not copied:
+        return
+
+    def _send() -> None:
+        from db.session import SessionLocal
+
+        db = SessionLocal()
+        try:
+            svc = EmailNotificationService(db)
+            for code, payload in copied:
+                try:
+                    svc.trigger_event(event_code=code, payload=payload)
+                except Exception:
+                    pass
+        finally:
+            db.close()
+
+    threading.Thread(target=_send, name="email-event", daemon=True).start()
 
 
 class EmailNotificationService:

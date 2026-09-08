@@ -387,7 +387,7 @@ export const ASSET_EXPORT_FIELD_LABELS: Record<string, string> = {
   asset_custodian_code: ASSET_FIELD_LABELS.asset_custodian_id,
   tag_color_code: ASSET_FIELD_LABELS.tag_color_id,
   rfid_code: "RFID Tag",
-  plant_name: "Plant",
+  plant_name: "Plant Name",
   cost_center: "Cost Center",
   life_span: "Useful life",
   gross_block: "APC-IGAAP",

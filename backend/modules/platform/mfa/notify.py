@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from modules.platform.approvals.model import ApprovalRequest
-from modules.platform.emails.service import EmailNotificationService
 from modules.platform.mfa.service import MfaService
 from modules.platform.users.model import User
 
@@ -58,13 +57,19 @@ def trigger_mfa_setup_email(
     setup_link = create_mfa_setup_link(db, user=user)
     if not setup_link:
         return
-    EmailNotificationService(db).trigger_event(
-        event_code=event_code,
-        payload={
-            "user_name": user.full_name,
-            "email": user.email,
-            "setup_link": setup_link,
-        },
+    from modules.platform.emails.service import enqueue_trigger_events
+
+    enqueue_trigger_events(
+        [
+            (
+                event_code,
+                {
+                    "user_name": user.full_name,
+                    "email": user.email,
+                    "setup_link": setup_link,
+                },
+            )
+        ]
     )
 
 
