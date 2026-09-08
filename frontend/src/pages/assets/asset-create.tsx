@@ -134,22 +134,26 @@ const EMPTY_FORM: CreateForm = {
   capitalization_form_id: "",
 }
 
+const INVALID_FIELD_CLASS =
+  "border-destructive ring-3 ring-destructive/20 focus-visible:border-destructive focus-visible:ring-destructive/20"
+
 function validateCreateForm(
   form: CreateForm,
   isRequired: (key: string) => boolean,
-  getLabel: (key: string, fallback?: string) => string,
-): string | null {
-  const checks: { key: string; ok: boolean }[] = [
+): string[] {
+  const checks: { key: string; ok: boolean; always?: boolean }[] = [
     { key: "asset_name", ok: Boolean(form.asset_name.trim()) },
     { key: "combined_asset_number", ok: Boolean(form.combined_asset_number.trim()) },
     { key: "asset_category_id", ok: Boolean(form.asset_category_id) },
     { key: "plant_id", ok: Boolean(form.plant_id) },
+    { key: "plant_code", ok: Boolean(form.plant_id), always: true },
     { key: "cost_center", ok: Boolean(form.cost_center.trim()) },
+    { key: "cost_center_name", ok: Boolean(form.cost_center.trim()), always: true },
     { key: "profit_center", ok: Boolean(form.profit_center.trim()) },
+    { key: "functional_location", ok: Boolean(form.functional_location.trim()) },
+    { key: "actual_location", ok: Boolean(form.actual_location.trim()) },
   ]
-  const missing = checks.filter((c) => isRequired(c.key) && !c.ok)
-  if (missing.length === 0) return null
-  return `${getLabel(missing[0]!.key)} is required.`
+  return checks.filter((c) => (c.always || isRequired(c.key)) && !c.ok).map((c) => c.key)
 }
 
 function strOrNull(v: string): string | null {
@@ -224,22 +228,34 @@ function FormField({
   id,
   labelText,
   required,
+  invalid,
   className,
   children,
 }: {
   id?: string
   labelText: string
   required?: boolean
+  invalid?: boolean
   className?: string
   children: React.ReactNode
 }) {
+  const control = React.isValidElement(children)
+    ? React.cloneElement(children as React.ReactElement<{ "aria-invalid"?: boolean; className?: string }>, {
+        "aria-invalid": invalid || undefined,
+        className: cn(
+          (children.props as { className?: string }).className,
+          invalid && INVALID_FIELD_CLASS,
+        ),
+      })
+    : children
+
   return (
-    <div className={cn("app-form-field", className)}>
-      <Label htmlFor={id} className="app-form-label uppercase">
+    <div className={cn("app-form-field", className)} data-invalid={invalid || undefined}>
+      <Label htmlFor={id} className={cn("app-form-label uppercase", invalid && "text-destructive")}>
         {labelText}
         {required ? <RequiredFieldMark /> : null}
       </Label>
-      {children}
+      {control}
     </div>
   )
 }
@@ -249,6 +265,7 @@ export function AssetCreatePage() {
   const [form, setForm] = React.useState<CreateForm>(EMPTY_FORM)
   const [creating, setCreating] = React.useState(false)
   const [imageFile, setImageFile] = React.useState<File | null>(null)
+  const [invalidKeys, setInvalidKeys] = React.useState<string[]>([])
   const fc = useAssetFieldConfig()
   const canViewCapex = hasPermission("capitalization.view")
 
@@ -261,7 +278,34 @@ export function AssetCreatePage() {
 
   const selectedPlant = masters.plants.find((p) => String(p.id) === form.plant_id)
 
-  const patch = (patch: Partial<CreateForm>) => setForm((f) => ({ ...f, ...patch }))
+  const patch = (next: Partial<CreateForm>) => {
+    setForm((f) => ({ ...f, ...next }))
+    if (invalidKeys.length === 0) return
+    const cleared = new Set<string>()
+    if ("asset_name" in next && next.asset_name?.trim()) cleared.add("asset_name")
+    if ("combined_asset_number" in next && next.combined_asset_number?.trim()) {
+      cleared.add("combined_asset_number")
+    }
+    if ("asset_category_id" in next && next.asset_category_id) cleared.add("asset_category_id")
+    if ("plant_id" in next && next.plant_id) {
+      cleared.add("plant_id")
+      cleared.add("plant_code")
+    }
+    if ("cost_center" in next && next.cost_center?.trim()) {
+      cleared.add("cost_center")
+      cleared.add("cost_center_name")
+    }
+    if ("profit_center" in next && next.profit_center?.trim()) cleared.add("profit_center")
+    if ("functional_location" in next && next.functional_location?.trim()) {
+      cleared.add("functional_location")
+    }
+    if ("actual_location" in next && next.actual_location?.trim()) cleared.add("actual_location")
+    if (cleared.size > 0) {
+      setInvalidKeys((keys) => keys.filter((key) => !cleared.has(key)))
+    }
+  }
+
+  const invalid = (key: string) => invalidKeys.includes(key)
 
   const field = (fieldKey: string, node: React.ReactNode) => (fc.isVisible(fieldKey) ? node : null)
 
@@ -298,11 +342,17 @@ export function AssetCreatePage() {
   }, [masters.plants, form.plant_id])
 
   async function createAsset() {
-    const validationError = validateCreateForm(form, fc.isRequired, fc.getLabel)
-    if (validationError) {
-      toast.error(validationError)
+    const missing = validateCreateForm(form, fc.isRequired).filter((key) => {
+      if (key === "cost_center_name") return fc.isVisible("cost_center_name")
+      return true
+    })
+    if (missing.length > 0) {
+      setInvalidKeys(missing)
+      toast.error(`${fc.getLabel(missing[0]!)} is required.`)
+      document.getElementById(missing[0]!)?.scrollIntoView({ behavior: "smooth", block: "center" })
       return
     }
+    setInvalidKeys([])
     setCreating(true)
     try {
       const created = await postJson<AssetDetail>("/admin/assets", buildCreatePayload(form))
@@ -381,6 +431,7 @@ export function AssetCreatePage() {
                 id="asset_name"
                 labelText={fc.getLabel("asset_name", "Asset Name")}
                 required={fc.isRequired("asset_name")}
+                invalid={invalid("asset_name")}
                 className="sm:col-span-2 lg:col-span-3"
               >
                 <Input
@@ -397,12 +448,13 @@ export function AssetCreatePage() {
                 id="asset_code"
                 labelText={fc.getLabel("asset_code", "Asset Number")}
                 required={fc.isRequired("asset_code")}
+                invalid={invalid("asset_code")}
               >
                 <Input
                   id="asset_code"
                   value={form.asset_code}
                   onChange={(e) => patch({ asset_code: sanitizeAssetNumberInput(e.target.value) })}
-                  className="font-mono uppercase"
+                  className="uppercase"
                 />
               </FormField>,
             )}
@@ -419,7 +471,6 @@ export function AssetCreatePage() {
                       ...(rfid.trim() ? {} : { tag_color_id: "" }),
                     })
                   }}
-                  className="font-mono"
                 />
               </FormField>,
             )}
@@ -429,6 +480,7 @@ export function AssetCreatePage() {
                 id="combined_asset_number"
                 labelText={fc.getLabel("combined_asset_number", "Combined Asset No")}
                 required={fc.isRequired("combined_asset_number")}
+                invalid={invalid("combined_asset_number")}
               >
                 <Input
                   id="combined_asset_number"
@@ -436,7 +488,7 @@ export function AssetCreatePage() {
                   onChange={(e) =>
                     patch({ combined_asset_number: sanitizeAssetNumberInput(e.target.value) })
                   }
-                  className="font-mono uppercase"
+                  className="uppercase"
                 />
               </FormField>,
             )}
@@ -456,6 +508,7 @@ export function AssetCreatePage() {
                 id="asset_category_id"
                 labelText={fc.getLabel("asset_category_id", "Asset Category")}
                 required={fc.isRequired("asset_category_id")}
+                invalid={invalid("asset_category_id")}
               >
                 <select
                   id="asset_category_id"
@@ -478,6 +531,7 @@ export function AssetCreatePage() {
                 id="asset_class_id"
                 labelText={fc.getLabel("asset_class_id", "Asset Class")}
                 required={fc.isRequired("asset_class_id") || fc.isRequired("asset_class")}
+                invalid={invalid("asset_class_id") || invalid("asset_class")}
               >
                 <select
                   id="asset_class_id"
@@ -600,7 +654,7 @@ export function AssetCreatePage() {
 
         <div className="grid gap-[var(--app-grid-gap)] lg:grid-cols-2">
           <AdminPanel
-            className="flex h-full flex-col"
+            className="order-2 flex h-full flex-col"
             title="FINANCIAL INFORMATION"
             // description="Cost, capitalization, and life span"
             headerActions={<DollarSign className="size-4 text-primary" aria-hidden />}
@@ -613,6 +667,7 @@ export function AssetCreatePage() {
                   id="cost_center"
                   labelText={fc.getLabel("cost_center", "Cost Center Code")}
                   required={fc.isRequired("cost_center")}
+                  invalid={invalid("cost_center")}
                 >
                   <select
                     id="cost_center"
@@ -643,6 +698,8 @@ export function AssetCreatePage() {
                 <FormField
                   id="cost_center_name"
                   labelText={fc.getLabel("cost_center_name", "Cost Center Name")}
+                  required
+                  invalid={invalid("cost_center_name")}
                 >
                   <select
                     id="cost_center_name"
@@ -729,6 +786,7 @@ export function AssetCreatePage() {
                   id="profit_center"
                   labelText={fc.getLabel("profit_center", "Profit Center")}
                   required={fc.isRequired("profit_center")}
+                  invalid={invalid("profit_center")}
                 >
                   <select
                     id="profit_center"
@@ -831,7 +889,7 @@ export function AssetCreatePage() {
           </AdminPanel>
 
           <AdminPanel
-            className="flex h-full flex-col"
+            className="order-1 flex h-full flex-col"
             title="LOCATION INFORMATION"
             // description="Select plant first to load cost centers and locations"
             headerActions={<MapPin className="size-4 text-primary" aria-hidden />}
@@ -842,6 +900,7 @@ export function AssetCreatePage() {
                 id="plant_id"
                 labelText={fc.getLabel("plant_id", "Plant Name")}
                 required={fc.isRequired("plant_id")}
+                invalid={invalid("plant_id")}
               >
                 <select
                   id="plant_id"
@@ -866,22 +925,25 @@ export function AssetCreatePage() {
                   ))}
                 </select>
               </FormField>
-              {selectedPlant ? (
-                <FormField labelText={fc.getLabel("plant_code", "Plant Code")}>
-                  <Input
-                    readOnly
-                    disabled
-                    className="bg-muted/40 font-mono"
-                    value={selectedPlant.code}
-                  />
-                </FormField>
-              ) : (
-                <div className="hidden sm:block" aria-hidden />
-              )}
+              <FormField
+                id="plant_code"
+                labelText={fc.getLabel("plant_code", "Plant Code")}
+                required
+                invalid={invalid("plant_code")}
+              >
+                <Input
+                  id="plant_code"
+                  readOnly
+                  disabled
+                  className="bg-muted/40"
+                  value={selectedPlant?.code ?? ""}
+                />
+              </FormField>
               <FormField
                 id="functional_location"
                 labelText={fc.getLabel("functional_location", "Actual Location 1")}
                 required={fc.isRequired("functional_location")}
+                invalid={invalid("functional_location")}
               >
                 <select
                   id="functional_location"
@@ -906,6 +968,7 @@ export function AssetCreatePage() {
                 id="actual_location"
                 labelText={fc.getLabel("actual_location", "Actual Location 2")}
                 required={fc.isRequired("actual_location")}
+                invalid={invalid("actual_location")}
               >
                 <select
                   id="actual_location"

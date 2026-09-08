@@ -171,19 +171,27 @@ def assert_self_role_update_keeps_users_view(
     *,
     actor_user_id: int | None,
     target_user_id: int,
-    new_role_id: int,
+    new_role_ids: list[int],
 ) -> None:
     if actor_user_id is None or actor_user_id != target_user_id:
         return
-    role = db.scalar(
-        select(Role).where(Role.id == new_role_id).options(selectinload(Role.permissions))
+    if not new_role_ids:
+        raise RbacSafetyError(
+            "You cannot remove every role from your own account."
+        )
+    roles = list(
+        db.scalars(
+            select(Role)
+            .where(Role.id.in_([int(rid) for rid in new_role_ids]))
+            .options(selectinload(Role.permissions))
+        ).all()
     )
-    if role is None:
-        return
-    codes = {p.code for p in role.permissions}
+    codes: set[str] = set()
+    for role in roles:
+        codes |= {p.code for p in role.permissions}
     if not codes.intersection(_permission_code_variants("users.view")):
         raise RbacSafetyError(
-            "You cannot assign yourself a role that removes users.view access."
+            "You cannot assign yourself roles that remove users.view access."
         )
 
 

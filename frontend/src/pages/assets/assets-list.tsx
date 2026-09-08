@@ -1470,7 +1470,7 @@ export function AssetsListPage() {
     const ids = decisionEligibleRows.map((r) => r.id)
     const comment = (payload.comment || "").trim()
     if (!comment) {
-      toast.error("Reason is required.")
+      toast.error(bulkDecisionMode === "approve" ? "Comment is required." : "Reason is required.")
       return
     }
     if (ids.length === 0) return
@@ -2747,10 +2747,11 @@ export function AssetsListPage() {
         requireComment
         title={
           bulkDecisionMode === "approve"
-            ? `Approve ${decisionEligibleRows.length} Asset${decisionEligibleRows.length === 1 ? "" : "s"}`
-            : `Reject ${decisionEligibleRows.length} Asset${decisionEligibleRows.length === 1 ? "" : "s"}`
+            ? `Approve  Asset${decisionEligibleRows.length === 1 ? "" : "s"}`
+            : `Reject Asset${decisionEligibleRows.length === 1 ? "" : "s"}`
         }
         confirmLabel={bulkDecisionMode === "approve" ? "Approve" : "Reject"}
+        fieldLabel={bulkDecisionMode === "approve" ? "Comment" : undefined}
         needsNextAssignee={false}
         onConfirm={confirmBulkDecision}
       />

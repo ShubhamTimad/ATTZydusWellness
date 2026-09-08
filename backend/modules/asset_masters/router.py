@@ -20,6 +20,7 @@ from modules.asset_masters.schema import (
     CostCenterCreate,
     CostCenterPublic,
     CostCenterUpdate,
+    CostCenterCustodianAssignmentPublic,
     CostCenterCustodiansPublic,
     CostCenterCustodiansReplaceRequest,
     CostCenterCustodianUserPublic,
@@ -397,6 +398,22 @@ def delete_cost_center(
         svc.delete_cost_center(row_id)
     except (NotFoundError, DuplicateMasterCodeError, MasterInUseError) as exc:
         _raise_master_errors(exc)
+
+
+@router.get(
+    "/cost-center-custodians",
+    response_model=list[CostCenterCustodianAssignmentPublic],
+)
+def list_cost_center_custodian_assignments(
+    svc: Annotated[AssetMastersService, Depends(get_svc)],
+    _: Annotated[object, Depends(_MASTER_READ)],
+    plant_id: int | None = Query(None),
+    cost_center_id: int | None = Query(None),
+) -> list[CostCenterCustodianAssignmentPublic]:
+    return svc.list_cost_center_custodian_assignments(
+        plant_id=plant_id,
+        cost_center_id=cost_center_id,
+    )
 
 
 @router.get(

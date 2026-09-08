@@ -10,7 +10,6 @@ import {
   AdminBackLink,
   AdminPanel,
   AdminPrimaryButton,
-  adminSelectClass,
   adminSwitchRowClass,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -60,7 +59,7 @@ const createUserSchema = z.object({
   username: z.string().min(3, "Username is required").max(64),
   phone: phoneFieldSchema,
   email: z.string().email("Enter a valid email"),
-  role_id: z.string().min(1, "Role is required"),
+  role_ids: z.array(z.string()).min(1, "Select at least one role"),
   org_unit_ids: z.array(z.string()).min(1, "Select at least one plant"),
   department_ids: z.array(z.string()),
   cost_center_ids: z.array(z.string()),
@@ -86,7 +85,7 @@ export function UserCreatePage() {
       username: "",
       phone: "",
       email: "",
-      role_id: "",
+      role_ids: [],
       org_unit_ids: [],
       department_ids: [],
       cost_center_ids: [],
@@ -99,10 +98,11 @@ export function UserCreatePage() {
 
   React.useEffect(() => {
     if (!roles) return
-    const rid = form.getValues("role_id")
-    if (!rid) return
-    if (!rolesForPlants(roles, plantIds).some((r) => String(r.id) === rid)) {
-      form.setValue("role_id", "")
+    const allowed = new Set(rolesForPlants(roles, plantIds).map((r) => String(r.id)))
+    const current = form.getValues("role_ids")
+    const next = current.filter((id) => allowed.has(id))
+    if (next.length !== current.length) {
+      form.setValue("role_ids", next)
     }
   }, [plantIds, roles, form])
 
@@ -173,10 +173,10 @@ export function UserCreatePage() {
     toast.loading("Creating user…", { id: "create-user" })
     setError(null)
     try {
-      const roleId = Number(values.role_id)
+      const roleIds = values.role_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
       const orgUnitIds = values.org_unit_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
-      if (!Number.isFinite(roleId) || roleId <= 0) {
-        toast.error("Role is required", { id: "create-user" })
+      if (roleIds.length === 0) {
+        toast.error("Select at least one role", { id: "create-user" })
         return
       }
       if (orgUnitIds.length === 0) {
@@ -188,7 +188,7 @@ export function UserCreatePage() {
         username: values.username.trim(),
         phone: values.phone.trim(),
         email: values.email.trim(),
-        role_id: roleId,
+        role_ids: roleIds,
         org_unit_ids: orgUnitIds,
         department_ids: values.department_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0),
         cost_center_ids: values.cost_center_ids
@@ -217,7 +217,7 @@ export function UserCreatePage() {
 
         <AdminPanel
           title="New user"
-          description="Name, contact, at least one plant, and a role are required. Department is optional."
+          description="Name, contact, at least one plant, and at least one role are required. Department is optional."
           contentClassName="space-y-6 px-5 py-5"
           footer={
             <div className="flex justify-end gap-2">
@@ -275,9 +275,9 @@ export function UserCreatePage() {
             <section className="space-y-4">
               <div>
                 <h4 className="text-sm font-semibold">Assignment</h4>
-                <p className="mt-1 text-xs text-muted-foreground">
+                {/* <p className="mt-1 text-xs text-muted-foreground">
                   Plant is required. Department can be skipped if the user only needs a plant and cost center.
-                </p>
+                </p> */}
               </div>
               <div className="space-y-1.5">
                 <Label>Plants</Label>
@@ -324,17 +324,15 @@ export function UserCreatePage() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label>Role</Label>
-                <select className={adminSelectClass} {...form.register("role_id")}>
-                  <option value="">Select a role…</option>
-                  {rolesForPlants(roles, plantIds).map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-                {form.formState.errors.role_id?.message ? (
-                  <p className="text-xs text-destructive">{form.formState.errors.role_id.message}</p>
+                <Label>Roles</Label>
+                <MultiCheckList
+                  options={rolesForPlants(roles, plantIds).map((r) => ({ id: r.id, label: r.name }))}
+                  values={form.watch("role_ids")}
+                  onChange={(next) => form.setValue("role_ids", next, { shouldDirty: true, shouldValidate: true })}
+                  emptyLabel="No roles available."
+                />
+                {form.formState.errors.role_ids?.message ? (
+                  <p className="text-xs text-destructive">{form.formState.errors.role_ids.message}</p>
                 ) : null}
               </div>
             </section>

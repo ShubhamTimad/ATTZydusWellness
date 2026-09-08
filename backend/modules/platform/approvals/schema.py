@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 ApprovalEntityType = Literal["user_creation", "asset_creation", "asset_import"]
@@ -28,6 +28,7 @@ class ApprovalWorkflowUpdate(BaseModel):
 
 class ApprovalStepUpdate(BaseModel):
     approver_role_id: int | None = Field(default=None, ge=1)
+    approver_role_ids: list[int] | None = None
     required_approvals: int | None = Field(default=None, ge=1)
     step_kind: ApprovalStepKind | None = None
     # null / omit / "" → clear (all role users). "source" | "destination" → CC filter.
@@ -47,10 +48,22 @@ class ApprovalWorkflowPublic(BaseModel):
 
 class ApprovalStepCreate(BaseModel):
     step_order: int = Field(ge=1)
-    approver_role_id: int = Field(ge=1)
+    approver_role_id: int | None = Field(default=None, ge=1)
+    approver_role_ids: list[int] = Field(default_factory=list)
     required_approvals: int = Field(default=1, ge=1)
     step_kind: ApprovalStepKind = "approve"
     org_scope: ApprovalOrgScope | None = None
+
+    @model_validator(mode="after")
+    def _require_roles(self) -> "ApprovalStepCreate":
+        ids = list(self.approver_role_ids)
+        if self.approver_role_id is not None and self.approver_role_id not in ids:
+            ids.insert(0, self.approver_role_id)
+        if not ids:
+            raise ValueError("At least one role is required")
+        self.approver_role_ids = ids
+        self.approver_role_id = ids[0]
+        return self
 
 
 class ApprovalStepPublic(BaseModel):
@@ -60,6 +73,7 @@ class ApprovalStepPublic(BaseModel):
     workflow_id: int
     step_order: int
     approver_role_id: int
+    approver_role_ids: list[int] = Field(default_factory=list)
     required_approvals: int
     step_kind: ApprovalStepKind = "approve"
     org_scope: ApprovalOrgScope | None = None

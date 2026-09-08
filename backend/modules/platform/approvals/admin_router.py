@@ -93,7 +93,8 @@ def add_step(
         step = svc.add_step(
             workflow_id=workflow_id,
             step_order=payload.step_order,
-            approver_role_id=payload.approver_role_id,
+            approver_role_id=int(payload.approver_role_id or payload.approver_role_ids[0]),
+            approver_role_ids=list(payload.approver_role_ids),
             required_approvals=payload.required_approvals,
             step_kind=payload.step_kind,
             org_scope=payload.org_scope,
@@ -118,6 +119,7 @@ def update_step(
     try:
         kwargs: dict = {
             "approver_role_id": payload.approver_role_id,
+            "approver_role_ids": payload.approver_role_ids if "approver_role_ids" in fields_set else None,
             "required_approvals": payload.required_approvals,
             "step_kind": payload.step_kind,
         }

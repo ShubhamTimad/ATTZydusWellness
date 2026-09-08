@@ -43,6 +43,7 @@ type UserPublic = {
   is_superuser: boolean
   is_locked?: boolean
   role: { id: number; name: string } | null
+  roles?: { id: number; name: string }[]
   org_units?: { id: number; name: string; type: string; code?: string | null }[]
   departments?: { id: number; name: string; type: string; code?: string | null }[]
   cost_centers?: { id: number; code: string; name: string }[]
@@ -309,7 +310,7 @@ export function UsersPage() {
             <AdminTableHeaderRow>
               <AdminTableHeadCell>Name</AdminTableHeadCell>
               <AdminTableHeadCell>Phone</AdminTableHeadCell>
-              <AdminTableHeadCell>Role</AdminTableHeadCell>
+              <AdminTableHeadCell>Roles</AdminTableHeadCell>
               <AdminTableHeadCell>Plant</AdminTableHeadCell>
               <AdminTableHeadCell>Department</AdminTableHeadCell>
               <AdminTableHeadCell>Cost center</AdminTableHeadCell>
@@ -444,7 +445,7 @@ export function UsersPage() {
                     />
                   </AdminTableCell>
                   <AdminTableCell className="text-muted-foreground">{u.phone ?? "—"}</AdminTableCell>
-                  <AdminTableCell>{u.role?.name ?? "—"}</AdminTableCell>
+                  <AdminTableCell>{joinNames(u.roles, u.role?.name ?? null)}</AdminTableCell>
                   <AdminTableCell>
                     {joinNames(
                       u.org_units,

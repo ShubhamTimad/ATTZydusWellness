@@ -36,6 +36,7 @@ type UserPublic = {
   locked_at?: string | null
   mfa_setup_completed?: boolean
   role: { id: number; name: string } | null
+  roles?: { id: number; name: string }[]
   org_units?: { id: number; name: string; type: string; code?: string | null }[]
   departments?: { id: number; name: string; type: string; code?: string | null }[]
   cost_centers?: { id: number; code: string; name: string }[]
@@ -333,7 +334,10 @@ export function UserViewPage() {
                 <AdminDetailGrid>
                   <AdminDetailField label="Email" value={user.email ?? "—"} />
                   <AdminDetailField label="Phone" value={user.phone ?? "—"} />
-                  <AdminDetailField label="Role" value={user.role?.name ?? "—"} />
+                  <AdminDetailField
+                    label="Roles"
+                    value={<OrgPills items={user.roles} fallback={user.role} />}
+                  />
                   <AdminDetailField label="Username" value={user.username} />
                 </AdminDetailGrid>
               </div>

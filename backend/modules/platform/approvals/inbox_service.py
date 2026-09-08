@@ -129,13 +129,6 @@ def _batch_users(db: Session, user_ids: set[int]) -> dict[int, User]:
     return {u.id: u for u in rows}
 
 
-def _batch_roles(db: Session, role_ids: set[int]) -> dict[int, Role]:
-    if not role_ids:
-        return {}
-    rows = db.scalars(select(Role).where(Role.id.in_(role_ids))).all()
-    return {r.id: r for r in rows}
-
-
 def _viewer_can_access_request(db: Session, *, request_id: int, viewer_id: int) -> bool:
     viewer = db.get(User, viewer_id)
     if viewer is None:
@@ -203,16 +196,12 @@ class ApprovalInboxService:
         tasks = dedupe_approval_inbox_rows(tasks)
 
         user_ids: set[int] = set()
-        role_ids: set[int] = set()
         for t in tasks:
             req = t.request
             if req and req.created_by is not None:
                 user_ids.add(int(req.created_by))
-            if t.step is not None:
-                role_ids.add(int(t.step.approver_role_id))
 
         users = _batch_users(self._db, user_ids)
-        roles = _batch_roles(self._db, role_ids)
 
         out: list[dict[str, Any]] = []
         for t in tasks:
@@ -224,8 +213,10 @@ class ApprovalInboxService:
             total = len(steps)
             step = t.step
             step_order = int(step.step_order) if step is not None else 0
-            role = roles.get(int(step.approver_role_id)) if step is not None else None
-            step_name = f"Level {step_order}: {role.name}" if role is not None else f"Level {step_order}"
+            from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+            role_label = role_names_label(self._db, step_role_ids(step)) if step is not None else None
+            step_name = f"Level {step_order}: {role_label}" if role_label else f"Level {step_order}"
             creator = users.get(int(req.created_by)) if req.created_by is not None else None
             creator_label = None
             if creator is not None:
@@ -279,27 +270,24 @@ class ApprovalInboxService:
         )
         if step_row is None and steps:
             step_row = steps[0]
-        role_ids: set[int] = set()
         user_ids: set[int] = set()
-        for st in steps:
-            role_ids.add(int(st.approver_role_id))
         for t in req.tasks:
             if t.assigned_user_id is not None:
                 user_ids.add(int(t.assigned_user_id))
             for act in t.actions:
                 user_ids.add(int(act.user_id))
 
-        roles = _batch_roles(self._db, role_ids)
         users = _batch_users(self._db, user_ids)
 
         # Per-step breakdown
         step_rows_by_id = {int(s.id): s for s in steps}
         by_step_order: dict[int, dict[str, Any]] = {}
         for st in steps:
-            role = roles.get(int(st.approver_role_id))
+            from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
             by_step_order[int(st.step_order)] = {
                 "step_order": int(st.step_order),
-                "role_name": role.name if role is not None else None,
+                "role_name": role_names_label(self._db, step_role_ids(st)),
                 "required_approvals": int(st.required_approvals),
                 "approved_by": [],
                 "pending": [],

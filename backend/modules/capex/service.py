@@ -156,7 +156,7 @@ _FIELD_LABELS: dict[str, str] = {
 
 _AUDIT_LABELS: dict[str, str] = {
     "created": "Form Created",
-    "updated": "Form Ppdated",
+    "updated": "Form Updated",
     "submitted": "Submitted for Approval",
     "resubmitted": "Resubmitted for approval",
     "reassigned": "Approver Reassigned",
@@ -340,9 +340,11 @@ class CapexFormService:
                 current_role_id = int(step.approver_role_id)
                 current_kind = str(getattr(step, "step_kind", None) or "approve").strip().lower() or "approve"
                 current_order = int(step.step_order)
+                from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+                current_role = role_names_label(self._db, step_role_ids(step))
                 role = self._db.get(Role, current_role_id)
                 if role is not None:
-                    current_role = role.name
                     current_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
 
         is_final = True
@@ -369,6 +371,8 @@ class CapexFormService:
                         None,
                     )
                     if nxt_row is not None:
+                        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
                         next_role_id = int(nxt_row.approver_role_id)
                         next_kind = (
                             str(getattr(nxt_row, "step_kind", None) or "approve").strip().lower()
@@ -378,9 +382,9 @@ class CapexFormService:
                             current_role_id=current_role_id,
                             next_role_id=next_role_id,
                         )
+                        next_role = role_names_label(self._db, step_role_ids(nxt_row))
                         role = self._db.get(Role, next_role_id)
                         if role is not None:
-                            next_role = role.name
                             next_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
                         if not needs_next:
                             next_role_id = None
@@ -805,12 +809,22 @@ class CapexFormService:
         self, *, role_id: int, cost_center_id: int | None = None
     ) -> CapexAssigneeListResponse:
         """Users in a workflow step role — keyed by role id so renames do not break the picker."""
-        role = self._db.get(Role, int(role_id))
+        from modules.platform.approvals.step_roles import picker_role_ids, role_names_label
+
+        role_ids = picker_role_ids(self._db, int(role_id))
+        role = self._db.get(Role, int(role_ids[0]))
         if role is None:
-            raise NotFoundError("Role", role_id)
-        users = _users_in_role(self._db, int(role.id), cost_center_id=cost_center_id)
+            raise NotFoundError("Role", role_ids[0])
+        users: list[User] = []
+        seen: set[int] = set()
+        for rid in role_ids:
+            for user in _users_in_role(self._db, int(rid), cost_center_id=cost_center_id):
+                if int(user.id) in seen:
+                    continue
+                seen.add(int(user.id))
+                users.append(user)
         return CapexAssigneeListResponse(
-            role_name=str(role.name),
+            role_name=role_names_label(self._db, role_ids),
             items=[
                 CapexAssigneeOption(
                     id=int(u.id),
@@ -830,10 +844,20 @@ class CapexFormService:
             raise ConflictError(
                 "No active CapEx approval workflow is configured. Contact an administrator."
             )
-        role = _first_step_role(self._db, wf)
-        users = _users_in_role(self._db, int(role.id), cost_center_id=cost_center_id)
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+        first = sorted(wf.steps, key=lambda s: int(s.step_order))[0]
+        role_ids = step_role_ids(first)
+        users: list[User] = []
+        seen: set[int] = set()
+        for rid in role_ids:
+            for user in _users_in_role(self._db, int(rid), cost_center_id=cost_center_id):
+                if int(user.id) in seen:
+                    continue
+                seen.add(int(user.id))
+                users.append(user)
         return CapexAssigneeListResponse(
-            role_name=str(role.name),
+            role_name=role_names_label(self._db, role_ids),
             items=[
                 CapexAssigneeOption(
                     id=int(u.id),
@@ -1074,11 +1098,19 @@ class CapexFormService:
         ):
             raise ConflictError("Select a different approver.")
 
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
         engine = ApprovalEngineService(self._db)
-        role_id = int(pending.step.approver_role_id)
-        role = self._db.get(Role, role_id)
-        role_name = role.name if role is not None else "Approvers"
-        role_users = _users_in_role(self._db, role_id, cost_center_id=form.cost_center_id)
+        role_ids = step_role_ids(pending.step)
+        role_name = role_names_label(self._db, role_ids)
+        role_users: list[User] = []
+        seen: set[int] = set()
+        for rid in role_ids:
+            for user in _users_in_role(self._db, int(rid), cost_center_id=form.cost_center_id):
+                if int(user.id) in seen:
+                    continue
+                seen.add(int(user.id))
+                role_users.append(user)
         if not any(int(u.id) == int(assignee_user_id) for u in role_users):
             scope = " for this cost center" if form.cost_center_id is not None else ""
             raise ConflictError(

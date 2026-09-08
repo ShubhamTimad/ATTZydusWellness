@@ -90,13 +90,14 @@ def first_approval_step(workflow: ApprovalWorkflow) -> ApprovalStep:
 
 
 def physical_same_role_close(current: ApprovalStep | None, nxt: ApprovalStep | None) -> bool:
-    """True when the next Physical-order step is Close for the same role — no extra picker."""
+    """True when the next Physical-order step is Close for the same roles — no extra picker."""
     if current is None or nxt is None:
         return False
-    return (
-        _step_kind(nxt) == "close"
-        and int(nxt.approver_role_id) == int(current.approver_role_id)
-    )
+    if _step_kind(nxt) != "close":
+        return False
+    from modules.platform.approvals.step_roles import step_role_ids
+
+    return set(step_role_ids(current)) == set(step_role_ids(nxt))
 
 
 class ApprovalWorkflowService:
@@ -104,7 +105,9 @@ class ApprovalWorkflowService:
         self._db = db
 
     def list_workflows(self) -> list[ApprovalWorkflow]:
-        stmt = select(ApprovalWorkflow).options(selectinload(ApprovalWorkflow.steps)).order_by(
+        stmt = select(ApprovalWorkflow).options(
+            selectinload(ApprovalWorkflow.steps).selectinload(ApprovalStep.approver_roles)
+        ).order_by(
             ApprovalWorkflow.created_at.desc()
         )
         return list(self._db.scalars(stmt).unique().all())
@@ -113,7 +116,7 @@ class ApprovalWorkflowService:
         wf = self._db.scalar(
             select(ApprovalWorkflow)
             .where(ApprovalWorkflow.id == workflow_id)
-            .options(selectinload(ApprovalWorkflow.steps))
+            .options(selectinload(ApprovalWorkflow.steps).selectinload(ApprovalStep.approver_roles))
         )
         if wf is None:
             raise NotFoundError("ApprovalWorkflow", workflow_id)
@@ -155,15 +158,20 @@ class ApprovalWorkflowService:
         required_approvals: int,
         step_kind: str = "approve",
         org_scope: str | None = None,
+        approver_role_ids: list[int] | None = None,
     ) -> ApprovalStep:
         from modules.platform.approvals.org_scope import normalize_org_scope
+        from modules.platform.approvals.step_roles import replace_step_roles
 
         wf = self.get_workflow(workflow_id)
         if wf.is_active:
             raise ConflictError("Deactivate the workflow before adding or changing levels.")
-        role = self._db.get(Role, approver_role_id)
+        role_ids = list(approver_role_ids or [])
+        if approver_role_id not in role_ids:
+            role_ids.insert(0, approver_role_id)
+        role = self._db.get(Role, role_ids[0])
         if role is None:
-            raise NotFoundError("Role", approver_role_id)
+            raise NotFoundError("Role", role_ids[0])
         if step_order < 1:
             raise ConflictError("step_order must be >= 1.")
         if required_approvals < 1:
@@ -180,12 +188,14 @@ class ApprovalWorkflowService:
         step = ApprovalStep(
             workflow_id=workflow_id,
             step_order=step_order,
-            approver_role_id=approver_role_id,
+            approver_role_id=role_ids[0],
             required_approvals=required_approvals,
             step_kind=kind,
             org_scope=scope,
         )
         self._db.add(step)
+        self._db.flush()
+        replace_step_roles(self._db, step, role_ids)
         self._db.commit()
         return step
 
@@ -214,8 +224,10 @@ class ApprovalWorkflowService:
         required_approvals: int | None = None,
         step_kind: str | None = None,
         org_scope: str | None | object = ...,
+        approver_role_ids: list[int] | None = None,
     ) -> ApprovalStep:
         from modules.platform.approvals.org_scope import normalize_org_scope
+        from modules.platform.approvals.step_roles import replace_step_roles
 
         step = self._db.get(ApprovalStep, step_id)
         if step is None:
@@ -223,11 +235,10 @@ class ApprovalWorkflowService:
         wf = self.get_workflow(int(step.workflow_id))
         if wf.is_active:
             raise ConflictError("Deactivate the workflow before editing levels.")
-        if approver_role_id is not None:
-            role = self._db.get(Role, approver_role_id)
-            if role is None:
-                raise NotFoundError("Role", approver_role_id)
-            step.approver_role_id = approver_role_id
+        if approver_role_ids is not None:
+            replace_step_roles(self._db, step, approver_role_ids)
+        elif approver_role_id is not None:
+            replace_step_roles(self._db, step, [approver_role_id])
         if required_approvals is not None:
             if required_approvals < 1:
                 raise ConflictError("required_approvals must be >= 1.")
@@ -381,25 +392,28 @@ class ApprovalEngineService:
         assigned_user_id: int | None = None,
     ) -> None:
         # Role task (default) or explicit user handoff when assigned_user_id is set.
-        role = self._db.get(Role, step.approver_role_id)
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids, users_in_any_role
+
+        role_ids = step_role_ids(step)
+        role = self._db.get(Role, role_ids[0])
         if role is None:
-            raise NotFoundError("Role", step.approver_role_id)
-        role_users = self._users_for_role(step.approver_role_id)
+            raise NotFoundError("Role", role_ids[0])
+        role_users = users_in_any_role(self._db, role_ids)
+        role_label = role_names_label(self._db, role_ids)
         if not role_users:
             raise ConflictError("No active approvers found for the configured approver role.")
 
         assignee_user_id: int | None = None
-        assignee_role_id: int | None = int(step.approver_role_id)
+        assignee_role_id: int | None = int(role_ids[0])
         if assigned_user_id is not None:
             uid = int(assigned_user_id)
             if not any(int(u.id) == uid for u in role_users):
                 raise ConflictError(
-                    f"Selected user is not an active member of role {role.name!r}."
+                    f"Selected user is not an active member of role {role_label!r}."
                 )
             from modules.platform.approvals.org_scope import (
                 cost_center_id_for_step,
                 user_matches_cost_center,
-                users_in_role,
             )
 
             try:
@@ -412,7 +426,7 @@ class ApprovalEngineService:
             except ConflictError:
                 raise
             if cc_id is not None:
-                scoped = users_in_role(self._db, int(step.approver_role_id))
+                scoped = users_in_any_role(self._db, role_ids)
                 match = next((u for u in scoped if int(u.id) == uid), None)
                 if match is None or not user_matches_cost_center(match, cc_id):
                     raise ConflictError(
@@ -464,7 +478,10 @@ class ApprovalEngineService:
             if u is not None and u.is_active:
                 recipients = [u]
         elif task.assigned_role_id is not None:
-            recipients = self._users_for_role(int(task.assigned_role_id))
+            from modules.platform.approvals.step_roles import step_role_ids, users_in_any_role
+
+            role_ids = step_role_ids(task.step) if task.step is not None else [int(task.assigned_role_id)]
+            recipients = users_in_any_role(self._db, role_ids)
         for user in recipients:
             if not user.email:
                 continue
@@ -483,11 +500,13 @@ class ApprovalEngineService:
                 pass
 
     def list_my_tasks(self, *, user_id: int) -> list[ApprovalTask]:
+        from modules.platform.approvals.step_roles import role_pool_task_clause
+
         role_ids = self._role_ids_for_user(user_id)
         stmt = select(ApprovalTask).where(
             or_(
                 ApprovalTask.assigned_user_id == user_id,
-                and_(ApprovalTask.assigned_role_id.is_not(None), ApprovalTask.assigned_role_id.in_(role_ids)),
+                role_pool_task_clause(role_ids),
             )
         ).order_by(ApprovalTask.id.desc())
         return list(self._db.scalars(stmt).all())
@@ -839,7 +858,9 @@ class ApprovalEngineService:
             if task.status != "pending":
                 raise ApprovalError("This task has already been acted on.")
         elif is_role_task:
-            if int(task.assigned_role_id) not in role_ids:
+            from modules.platform.approvals.step_roles import user_matches_role_task
+
+            if not user_matches_role_task(self._db, task, role_ids):
                 raise ApprovalError("This task is not assigned to your role.")
             # For role/group tasks we allow multiple actors until the step threshold is met,
             # but we prevent duplicate actions from the same user.

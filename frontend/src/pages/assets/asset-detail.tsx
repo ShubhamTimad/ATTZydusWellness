@@ -134,7 +134,7 @@ function SummaryStrip({ items }: { items: SummaryItem[] }) {
             <p
               className={cn(
                 "mt-0.5 truncate text-sm font-normal text-foreground",
-                item.mono && "font-mono text-xs",
+                item.mono && "font-normal",
               )}
               title={typeof item.value === "string" ? item.value : undefined}
             >
@@ -1068,7 +1068,7 @@ export function AssetDetailPage() {
             editing && fieldConfig.isVisible("plant_code") ? (
               <div className="space-y-1.5">
                 <Label className="app-form-label">Plant Code</Label>
-                <Input value={a.plant_code ?? ""} readOnly className="font-mono" />
+                <Input value={a.plant_code ?? ""} readOnly />
               </div>
             ) : null
           }

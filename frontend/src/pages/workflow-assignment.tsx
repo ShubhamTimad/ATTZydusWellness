@@ -2,7 +2,13 @@ import * as React from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Pencil, Plus, Trash2, X } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Dialog,
   DialogContent,
@@ -41,6 +47,7 @@ type StepRow = {
   workflow_id: number
   step_order: number
   approver_role_id: number
+  approver_role_ids?: number[]
   required_approvals: number
   step_kind?: string
   /** null / omit = all users in role; source | destination = filter by order CC */
@@ -137,8 +144,72 @@ function EntityTypeSelect({
   )
 }
 
-function roleName(roles: RoleListItem[], roleId: number): string {
-  return roles.find((x) => x.id === roleId)?.name ?? `Role #${roleId}`
+function stepRoleIds(step: { approver_role_id: number; approver_role_ids?: number[] }): number[] {
+  const ids = (step.approver_role_ids ?? []).filter((id) => id > 0)
+  if (ids.length > 0) return ids
+  return step.approver_role_id ? [step.approver_role_id] : []
+}
+
+function roleNames(roles: RoleListItem[], roleIds: number[]): string {
+  if (roleIds.length === 0) return "—"
+  return roleIds.map((id) => roles.find((x) => x.id === id)?.name ?? `Role #${id}`).join(", ")
+}
+
+function RoleChipPicker({
+  roles,
+  values,
+  onChange,
+}: {
+  roles: RoleListItem[]
+  values: string[]
+  onChange: (next: string[]) => void
+}) {
+  const selected = new Set(values)
+  const chosen = roles.filter((role) => selected.has(String(role.id)))
+  const remaining = roles.filter((role) => !selected.has(String(role.id)))
+
+  return (
+    <div className="flex min-h-9 flex-wrap items-center gap-1.5">
+      {chosen.map((role) => (
+        <span
+          key={role.id}
+          className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/40 pl-2 pr-1 text-xs font-medium"
+        >
+          {role.name}
+          <button
+            type="button"
+            className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
+            aria-label={`Remove ${role.name}`}
+            onClick={() => onChange(values.filter((id) => id !== String(role.id)))}
+          >
+            <X className="size-3" aria-hidden />
+          </button>
+        </span>
+      ))}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button type="button" variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs">
+            <Plus className="size-3" aria-hidden />
+            Role
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="max-h-64 w-52 overflow-y-auto">
+          {remaining.length === 0 ? (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">No more roles.</div>
+          ) : (
+            remaining.map((role) => (
+              <DropdownMenuItem
+                key={role.id}
+                onSelect={() => onChange([...values, String(role.id)])}
+              >
+                {role.name}
+              </DropdownMenuItem>
+            ))
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
 }
 
 function stepsSummary(wf: WorkflowDetail, roles: RoleListItem[]): string {
@@ -148,7 +219,7 @@ function stepsSummary(wf: WorkflowDetail, roles: RoleListItem[]): string {
     .map((s) => {
       const kind = (s.step_kind || "approve").toLowerCase()
       const suffix = kind !== "approve" ? ` (${kind})` : ""
-      return `L${s.step_order} ${roleName(roles, s.approver_role_id)}${suffix}`
+      return `L${s.step_order} ${roleNames(roles, stepRoleIds(s))}${suffix}`
     })
     .join(" → ")
 }
@@ -164,7 +235,7 @@ export function WorkflowAssignmentPage() {
   const [newEntityType, setNewEntityType] = React.useState("user_creation")
   const [editName, setEditName] = React.useState("")
   const [editEntityType, setEditEntityType] = React.useState("")
-  const [newRoleId, setNewRoleId] = React.useState("")
+  const [newRoleIds, setNewRoleIds] = React.useState<string[]>([])
   const [newRequired, setNewRequired] = React.useState("1")
   const [newStepKind, setNewStepKind] = React.useState("approve")
   const [newOrgScope, setNewOrgScope] = React.useState("")
@@ -297,27 +368,27 @@ export function WorkflowAssignmentPage() {
 
   async function onAddStep() {
     const wid = Number(selectedId)
-    const rid = Number(newRoleId)
+    const roleIds = newRoleIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)
     const req = Number(newRequired)
     if (!canEditSteps) {
       toast.error("Deactivate the workflow to add levels.")
       return
     }
-    if (!Number.isFinite(rid) || rid < 1) {
-      toast.error("Select an approver role.")
+    if (roleIds.length === 0) {
+      toast.error("Select at least one approver role.")
       return
     }
     setAddingStep(true)
     try {
       await postJson(`/admin/approval-workflows/${wid}/steps`, {
         step_order: nextStepOrder,
-        approver_role_id: rid,
+        approver_role_ids: roleIds,
         required_approvals: req >= 1 ? req : 1,
         step_kind: newStepKind || "approve",
         org_scope: newOrgScope || null,
       })
       toast.success("Level added.")
-      setNewRoleId("")
+      setNewRoleIds([])
       setNewRequired("1")
       setNewStepKind("approve")
       setNewOrgScope("")
@@ -331,17 +402,22 @@ export function WorkflowAssignmentPage() {
 
   async function onSaveStep(
     step: StepRow,
-    roleId: string,
+    roleIds: string[],
     required: string,
     kind: string,
     orgScope: string,
   ) {
     if (!canEditSteps) return
+    const ids = roleIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+    if (ids.length === 0) {
+      toast.error("Select at least one approver role.")
+      return
+    }
     const wid = Number(selectedId)
     setStepSavingId(step.id)
     try {
       await patchJson(`/admin/approval-workflows/${wid}/steps/${step.id}`, {
-        approver_role_id: Number(roleId),
+        approver_role_ids: ids,
         required_approvals: Math.max(1, Number(required) || 1),
         step_kind: kind || "approve",
         org_scope: orgScope || null,
@@ -483,15 +559,15 @@ export function WorkflowAssignmentPage() {
 
             <p className="text-sm font-medium">Approval levels</p>
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="min-w-[56rem]">
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-16">Level</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead className="w-32">Kind</TableHead>
-                    <TableHead className="w-40">Org scope</TableHead>
-                    <TableHead className="w-28">Required</TableHead>
-                    {canEditSteps ? <TableHead className="w-32 text-right">Actions</TableHead> : null}
+                    <TableHead>Roles</TableHead>
+                    <TableHead className="w-52">Kind</TableHead>
+                    <TableHead className="w-52">Org scope</TableHead>
+                    <TableHead className="w-24">Required</TableHead>
+                    {canEditSteps ? <TableHead className="w-36 text-right">Actions</TableHead> : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -504,8 +580,8 @@ export function WorkflowAssignmentPage() {
                         roles={roles}
                         canEdit={canEditSteps}
                         saving={stepSavingId === s.id}
-                        onSave={(roleId, req, kind, orgScope) =>
-                          void onSaveStep(s, roleId, req, kind, orgScope)
+                        onSave={(roleIds, req, kind, orgScope) =>
+                          void onSaveStep(s, roleIds, req, kind, orgScope)
                         }
                         onDelete={() => void onDeleteStep(s.id)}
                       />
@@ -526,22 +602,11 @@ export function WorkflowAssignmentPage() {
 
             {canEditSteps ? (
               <div className="flex flex-wrap gap-2 items-end rounded-md border p-3">
-                <div className="min-w-[160px] flex-1 space-y-1.5">
-                  <Label>Approver role</Label>
-                  <select
-                    className={adminSelectClass}
-                    value={newRoleId}
-                    onChange={(e) => setNewRoleId(e.target.value)}
-                  >
-                    <option value="">Role…</option>
-                    {roles.map((r) => (
-                      <option key={r.id} value={String(r.id)}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
+                <div className="min-w-[220px] flex-1 space-y-1.5">
+                  <Label>Approver roles</Label>
+                  <RoleChipPicker roles={roles} values={newRoleIds} onChange={setNewRoleIds} />
                 </div>
-                <div className="w-36 space-y-1.5">
+                <div className="w-52 shrink-0 space-y-1.5">
                   <Label>Kind</Label>
                   <select
                     className={adminSelectClass}
@@ -555,7 +620,7 @@ export function WorkflowAssignmentPage() {
                     ))}
                   </select>
                 </div>
-                <div className="w-44 space-y-1.5">
+                <div className="w-52 shrink-0 space-y-1.5">
                   <Label>Org scope</Label>
                   <select
                     className={adminSelectClass}
@@ -739,28 +804,39 @@ function StepEditRow({
   roles: RoleListItem[]
   canEdit: boolean
   saving: boolean
-  onSave: (roleId: string, required: string, kind: string, orgScope: string) => void
+  onSave: (roleIds: string[], required: string, kind: string, orgScope: string) => void
   onDelete: () => void
 }) {
-  const [roleId, setRoleId] = React.useState(String(step.approver_role_id))
+  const [roleIds, setRoleIds] = React.useState(stepRoleIds(step).map(String))
   const [required, setRequired] = React.useState(String(step.required_approvals))
   const [kind, setKind] = React.useState(step.step_kind || "approve")
   const [orgScope, setOrgScope] = React.useState(step.org_scope || "")
 
   React.useEffect(() => {
-    setRoleId(String(step.approver_role_id))
+    setRoleIds(stepRoleIds(step).map(String))
     setRequired(String(step.required_approvals))
     setKind(step.step_kind || "approve")
     setOrgScope(step.org_scope || "")
-  }, [step.id, step.approver_role_id, step.required_approvals, step.step_kind, step.org_scope])
+  }, [step.id, step.approver_role_id, step.approver_role_ids, step.required_approvals, step.step_kind, step.org_scope])
 
   if (!canEdit) {
     return (
       <TableRow>
         <TableCell>{step.step_order}</TableCell>
-        <TableCell>{roleName(roles, step.approver_role_id)}</TableCell>
-        <TableCell>{stepKindLabel(step.step_kind)}</TableCell>
-        <TableCell>{orgScopeLabel(step.org_scope)}</TableCell>
+        <TableCell>
+          <div className="flex flex-wrap gap-1">
+            {stepRoleIds(step).map((id) => (
+              <span
+                key={id}
+                className="inline-flex h-7 items-center rounded-md border border-border bg-muted/40 px-2 text-xs font-medium"
+              >
+                {roles.find((r) => r.id === id)?.name ?? `Role #${id}`}
+              </span>
+            ))}
+          </div>
+        </TableCell>
+        <TableCell className="w-52 whitespace-nowrap">{stepKindLabel(step.step_kind)}</TableCell>
+        <TableCell className="w-52 whitespace-nowrap">{orgScopeLabel(step.org_scope)}</TableCell>
         <TableCell>{step.required_approvals}</TableCell>
       </TableRow>
     )
@@ -769,22 +845,12 @@ function StepEditRow({
   return (
     <TableRow>
       <TableCell>{step.step_order}</TableCell>
-      <TableCell>
-        <select
-          className={cn(adminSelectClass, "h-9")}
-          value={roleId}
-          onChange={(e) => setRoleId(e.target.value)}
-        >
-          {roles.map((r) => (
-            <option key={r.id} value={String(r.id)}>
-              {r.name}
-            </option>
-          ))}
-        </select>
+      <TableCell className="min-w-[16rem] align-middle">
+        <RoleChipPicker roles={roles} values={roleIds} onChange={setRoleIds} />
       </TableCell>
-      <TableCell>
+      <TableCell className="w-52">
         <select
-          className={cn(adminSelectClass, "h-9")}
+          className={cn(adminSelectClass, "h-9 min-w-52")}
           value={kind}
           onChange={(e) => setKind(e.target.value)}
         >
@@ -795,9 +861,9 @@ function StepEditRow({
           ))}
         </select>
       </TableCell>
-      <TableCell>
+      <TableCell className="w-52">
         <select
-          className={cn(adminSelectClass, "h-9")}
+          className={cn(adminSelectClass, "h-9 min-w-52")}
           value={orgScope}
           onChange={(e) => setOrgScope(e.target.value)}
         >
@@ -823,7 +889,7 @@ function StepEditRow({
           size="sm"
           variant="outline"
           disabled={saving}
-          onClick={() => onSave(roleId, required, kind, orgScope)}
+          onClick={() => onSave(roleIds, required, kind, orgScope)}
         >
           {saving ? "…" : "Save"}
         </Button>

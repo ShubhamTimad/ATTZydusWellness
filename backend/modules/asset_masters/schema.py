@@ -389,5 +389,19 @@ class CostCenterCustodiansPublic(BaseModel):
     items: list[CostCenterCustodianUserPublic]
 
 
+class CostCenterCustodianAssignmentPublic(BaseModel):
+    id: int
+    user_id: int
+    full_name: str
+    email: str | None = None
+    username: str | None = None
+    cost_center_id: int
+    cost_center_code: str
+    cost_center_name: str
+    plant_id: int
+    plant_code: str | None = None
+    plant_name: str | None = None
+
+
 class CostCenterCustodiansReplaceRequest(BaseModel):
     user_ids: list[int] = Field(default_factory=list)

@@ -488,7 +488,7 @@ export function RolesPage() {
                 disabled={!selectedRoleId || !hasDirty}
                 variant={hasDirty ? "default" : "outline"}
               >
-                {hasDirty ? "Save Changes" : "Save"}
+                {hasDirty ? "Save" : "Save"}
               </AdminPrimaryButton>
             ) : null}
           </>
@@ -972,7 +972,7 @@ export function RolesPage() {
                 disabled={savingDetails}
                 onClick={() => void saveRoleDetails()}
               >
-                {savingDetails ? "Saving…" : "Save Changes"}
+                {savingDetails ? "Saving…" : "Save"}
               </AdminPrimaryButton>
             </div>
           </div>

@@ -50,6 +50,13 @@ user_cost_center = Table(
     ),
 )
 
+approval_step_roles = Table(
+    "approval_step_roles",
+    Base.metadata,
+    Column("step_id", Integer, ForeignKey("approval_steps.id", ondelete="CASCADE"), primary_key=True),
+    Column("role_id", Integer, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
+)
+
 role_org_unit = Table(
     "role_org_units",
     Base.metadata,

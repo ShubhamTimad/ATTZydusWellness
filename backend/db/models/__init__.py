@@ -18,6 +18,7 @@ from modules.platform.approvals.model import (
 from modules.platform.rbac_audit.model import RbacAuditLog
 from modules.platform.rbac_versioning.model import RbacCompanyPermissionVersion, RbacUserPermissionVersion
 from modules.rbac_association import (
+    approval_step_roles,
     role_org_unit,
     role_permission,
     user_cost_center,

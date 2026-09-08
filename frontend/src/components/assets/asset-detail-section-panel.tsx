@@ -310,7 +310,6 @@ export function AssetDetailSectionPanel({
           {keys.map((k, index) => {
             const raw = fieldValue(k)
             const isCount = k === "inventory_count" || k === "physical_count"
-            const mono = k === "asset_code" || k === "combined_asset_number" || k === "rfid_code"
             const multiline = textareaKeys.has(k)
             const display = displayValue(k, raw)
             return (
@@ -322,7 +321,6 @@ export function AssetDetailSectionPanel({
                   <div
                     className={cn(
                       "mt-1 text-base font-normal leading-snug break-words text-foreground",
-                      mono && "font-mono text-xs",
                       isCount && "tabular-nums",
                       multiline && "whitespace-pre-wrap",
                       highlightMismatch && isCount && k === "physical_count" && "text-primary",
@@ -408,7 +406,6 @@ function EditFieldCell({
               : k === "cost_center_name" && hasSelect
                 ? String(asset.financial?.cost_center ?? "")
                 : String(rawVal ?? "")
-  const mono = k === "asset_code" || k === "combined_asset_number" || k === "rfid_code"
   const multiline = textareaKeys.has(k)
   const fullWidth = k === "asset_name"
 
@@ -496,7 +493,7 @@ function EditFieldCell({
         />
       ) : (
         <Input
-          className={cn(mono && "font-mono", isAssetNumberField(k) && "uppercase")}
+          className={cn(isAssetNumberField(k) && "uppercase")}
           value={val}
           onChange={(e) =>
             onSection(

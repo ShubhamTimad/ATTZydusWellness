@@ -488,12 +488,17 @@ class TransferOrderService:
         user = self._db.get(User, user_id)
         if user is None or not user.is_active:
             raise NotFoundError("User", user_id)
-        role = self._db.get(Role, int(role_id))
+        from modules.platform.approvals.step_roles import picker_role_ids, role_names_label, users_in_any_role
+
+        role_ids = picker_role_ids(self._db, int(role_id))
+        role = self._db.get(Role, int(role_ids[0]))
         if role is None:
-            raise NotFoundError("Role", role_id)
-        pool_ids = {int(u.id) for u in _users_in_role(self._db, int(role.id))}
+            raise NotFoundError("Role", role_ids[0])
+        pool_ids = {int(u.id) for u in users_in_any_role(self._db, role_ids)}
         if int(user_id) not in pool_ids and not user.is_superuser:
-            raise ConflictError(f"Selected user is not in the {role.name!r} role.")
+            raise ConflictError(
+                f"Selected user is not in the {role_names_label(self._db, role_ids)!r} role."
+            )
         return user
 
     def _workflow_step_role_id(
@@ -564,10 +569,13 @@ class TransferOrderService:
             resolve_scoped_cost_center_id,
         )
 
-        role = self._db.get(Role, int(role_id))
+        from modules.platform.approvals.step_roles import picker_role_ids, users_in_any_role
+
+        role_ids = picker_role_ids(self._db, int(role_id), step)
+        role = self._db.get(Role, int(role_ids[0]))
         if role is None:
-            raise NotFoundError("Role", role_id)
-        users = _users_in_role(self._db, int(role.id))
+            raise NotFoundError("Role", role_ids[0])
+        users = users_in_any_role(self._db, role_ids)
         if order is not None and step is not None:
             cc_id = resolve_scoped_cost_center_id(
                 getattr(step, "org_scope", None),
@@ -607,9 +615,11 @@ class TransferOrderService:
             raise ConflictError(
                 "No approver role is configured for the next step of this transfer workflow."
             )
+        from modules.platform.approvals.step_roles import picker_role_ids, role_names_label
+
         role, users = self._assignee_pool(role_id=rid, order=order, step=step)
         return TransferAssigneeListResponse(
-            role_name=str(role.name),
+            role_name=role_names_label(self._db, picker_role_ids(self._db, rid, step)),
             items=[
                 TransferAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
                 for u in users
@@ -633,11 +643,13 @@ class TransferOrderService:
                     "No active transfer approval workflow is configured. Contact an administrator."
                 )
             step = sorted(wf.steps, key=lambda s: int(s.step_order))[0]
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
         role, users = self._assignee_pool(
             role_id=int(step.approver_role_id), order=order, step=step
         )
         return TransferAssigneeListResponse(
-            role_name=str(role.name),
+            role_name=role_names_label(self._db, step_role_ids(step)),
             items=[
                 TransferAssigneeOption(id=int(u.id), full_name=u.full_name, email=u.email)
                 for u in users
@@ -1375,12 +1387,14 @@ class TransferOrderService:
                 "No active transfer approval workflow is configured. Contact an administrator."
             )
         first_step = sorted(wf.steps, key=lambda s: int(s.step_order))[0]
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
         first_role, pool = self._assignee_pool(
             role_id=int(first_step.approver_role_id), order=order, step=first_step
         )
         if not any(int(u.id) == int(assigned_to) for u in pool):
             raise ConflictError(
-                f"Selected user is not an active member of role {first_role.name!r} "
+                f"Selected user is not an active member of role {role_names_label(self._db, step_role_ids(first_step))!r} "
                 "for this step's cost center scope."
             )
 
@@ -2166,9 +2180,11 @@ class TransferOrderService:
                 current_assignee_id = int(pending_task.assigned_user_id)
                 current_assignee_name = _user_display_name(self._db, current_assignee_id)
             if pending_task.step is not None:
+                from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+                current_role = role_names_label(self._db, step_role_ids(pending_task.step))
                 role = self._db.get(Role, int(pending_task.step.approver_role_id))
                 if role is not None:
-                    current_role = role.name
                     current_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
                 current_kind = str(getattr(pending_task.step, "step_kind", None) or "approve")
 
@@ -2202,10 +2218,12 @@ class TransferOrderService:
                         None,
                     )
                     if nxt_row is not None:
+                        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
                         next_role_id = int(nxt_row.approver_role_id)
+                        next_role = role_names_label(self._db, step_role_ids(nxt_row))
                         role = self._db.get(Role, next_role_id)
                         if role is not None:
-                            next_role = role.name
                             next_level = ROLE_TO_ASSIGNEE_LEVEL.get(role.name)
                         next_kind = str(getattr(nxt_row, "step_kind", None) or "approve")
                         needs_next = transfer_needs_next_assignee(
