@@ -6,7 +6,10 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from core.permissions import get_flat_permission_codes_for_user
-from modules.asset_masters.location_lookup import resolve_plant_location_names
+from modules.asset_masters.location_lookup import (
+    resolve_plant_location_names,
+    rewrite_audit_master_codes,
+)
 from modules.asset_masters.model import (
     ActualLocationMaster,
     CostCenterAssetCustodian,
@@ -455,7 +458,13 @@ def _disposal_list_sort_expr(sort_by: str):
     return AssetDisposalOrder.created_at
 
 
-def _audit_payload_for_api(db: Session, value: dict | None) -> dict | None:
+def _audit_payload_for_api(
+    db: Session,
+    value: dict | None,
+    *,
+    plant_id: int | None = None,
+    cache: dict | None = None,
+) -> dict | None:
     """Human-readable audit fields for the UI (status labels, assignee names)."""
     if not value:
         return value
@@ -475,7 +484,7 @@ def _audit_payload_for_api(db: Session, value: dict | None) -> dict | None:
                 if name:
                     out[name_key] = name
             out.pop(key, None)
-    return out
+    return rewrite_audit_master_codes(db, out, plant_id=plant_id, cache=cache)
 
 
 class DisposalOrderService:
@@ -2270,7 +2279,8 @@ class DisposalOrderService:
         return None
 
     def list_audit(self, order_id: int) -> list[DisposalOrderAuditPublic]:
-        if self._db.get(AssetDisposalOrder, order_id) is None:
+        order = self._db.get(AssetDisposalOrder, order_id)
+        if order is None:
             raise NotFoundError("Disposal order", order_id)
         rows = list(
             self._db.scalars(
@@ -2280,6 +2290,8 @@ class DisposalOrderService:
                 .order_by(AssetDisposalOrderAudit.id.desc())
             ).all()
         )
+        plant_id = int(order.plant_id)
+        audit_name_cache: dict = {}
         return [
             DisposalOrderAuditPublic(
                 id=int(a.id),
@@ -2287,8 +2299,12 @@ class DisposalOrderService:
                 actor_name=(
                     (a.actor.full_name or a.actor.email) if a.actor is not None else "System"
                 ),
-                old_value=_audit_payload_for_api(self._db, a.old_value),
-                new_value=_audit_payload_for_api(self._db, a.new_value),
+                old_value=_audit_payload_for_api(
+                    self._db, a.old_value, plant_id=plant_id, cache=audit_name_cache
+                ),
+                new_value=_audit_payload_for_api(
+                    self._db, a.new_value, plant_id=plant_id, cache=audit_name_cache
+                ),
                 created_at=a.created_at,
             )
             for a in rows

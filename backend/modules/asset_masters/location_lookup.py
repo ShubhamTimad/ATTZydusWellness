@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from modules.asset_masters.model import ActualLocationMaster, FunctionalLocationMaster
+from modules.asset_masters.model import (
+    ActualLocationMaster,
+    CostCenterMaster,
+    FunctionalLocationMaster,
+    ProfitCenterMaster,
+)
+
+_FL_KEYS = ("to_functional_location", "functional_location", "from_functional_location")
+_AL_KEYS = ("to_actual_location", "actual_location", "from_actual_location")
+_CC_KEYS = ("to_cost_center", "cost_center", "from_cost_center")
 
 
 def location_display_name(
@@ -59,3 +70,141 @@ def resolve_plant_location_names(
     if al is None:
         return fl_name, al_code
     return fl_name, location_display_name(al.name, al.code, al.description)
+
+
+def resolve_cost_center_name(
+    db: Session,
+    *,
+    plant_id: int,
+    code: str | None,
+) -> str | None:
+    cc_code = (code or "").strip()
+    if not cc_code:
+        return None
+    row = db.scalar(
+        select(CostCenterMaster).where(
+            CostCenterMaster.plant_id == int(plant_id),
+            CostCenterMaster.code.ilike(cc_code),
+        )
+    )
+    if row is None:
+        return cc_code
+    return location_display_name(row.name, row.code, row.description) or cc_code
+
+
+def plant_code_display_map(db: Session, plant_id: int) -> dict[str, str]:
+    """Case-folded master code → display name for FL / AL / CC / PC in this plant."""
+    labels: dict[str, str] = {}
+    fl_rows = list(
+        db.scalars(
+            select(FunctionalLocationMaster).where(
+                FunctionalLocationMaster.plant_id == int(plant_id)
+            )
+        ).all()
+    )
+    fl_by_id = {int(r.id): r for r in fl_rows}
+    for row in fl_rows:
+        name = location_display_name(row.name, row.code, row.description)
+        if name:
+            labels[row.code.strip().casefold()] = name
+    if fl_by_id:
+        for row in db.scalars(
+            select(ActualLocationMaster).where(
+                ActualLocationMaster.functional_location_id.in_(list(fl_by_id))
+            )
+        ).all():
+            name = location_display_name(row.name, row.code, row.description)
+            if name:
+                labels[row.code.strip().casefold()] = name
+    cc_rows = list(
+        db.scalars(
+            select(CostCenterMaster).where(CostCenterMaster.plant_id == int(plant_id))
+        ).all()
+    )
+    cc_ids = [int(r.id) for r in cc_rows]
+    for row in cc_rows:
+        name = location_display_name(row.name, row.code, row.description)
+        if name:
+            labels[row.code.strip().casefold()] = name
+    if cc_ids:
+        for row in db.scalars(
+            select(ProfitCenterMaster).where(ProfitCenterMaster.cost_center_id.in_(cc_ids))
+        ).all():
+            name = location_display_name(row.name, row.code, row.description)
+            if name:
+                labels[row.code.strip().casefold()] = name
+    return labels
+
+
+def rewrite_audit_master_codes(
+    db: Session,
+    payload: dict[str, Any] | None,
+    *,
+    plant_id: int | None,
+    cache: dict[tuple, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Replace stored location / cost-center codes with display names for the audit UI."""
+    if not payload:
+        return payload
+    out = dict(payload)
+    if not plant_id:
+        return out
+    store = cache if cache is not None else {}
+
+    def loc_names(fl: str | None, al: str | None) -> tuple[str | None, str | None]:
+        key = ("loc", int(plant_id), (fl or "").strip().casefold(), (al or "").strip().casefold())
+        if key not in store:
+            store[key] = resolve_plant_location_names(
+                db,
+                plant_id=int(plant_id),
+                functional_location_code=fl,
+                actual_location_code=al,
+            )
+        return store[key]
+
+    def cc_name(code: Any) -> Any:
+        if not isinstance(code, str) or not code.strip():
+            return code
+        key = ("cc", int(plant_id), code.strip().casefold())
+        if key not in store:
+            store[key] = resolve_cost_center_name(db, plant_id=int(plant_id), code=code)
+        return store[key] or code
+
+    def rewrite_row(row: dict[str, Any]) -> dict[str, Any]:
+        rewritten = dict(row)
+        for fl_key in _FL_KEYS:
+            fl_code = row.get(fl_key)
+            if not isinstance(fl_code, str) or not fl_code.strip():
+                continue
+            al_key = fl_key.replace("functional_location", "actual_location")
+            al_code = row.get(al_key) if isinstance(row.get(al_key), str) else None
+            fl_n, al_n = loc_names(fl_code, al_code)
+            if fl_n:
+                rewritten[fl_key] = fl_n
+            if al_n and al_key in rewritten:
+                rewritten[al_key] = al_n
+        for al_key in _AL_KEYS:
+            al_code = row.get(al_key)
+            if not isinstance(al_code, str) or not al_code.strip():
+                continue
+            if al_key in rewritten and rewritten.get(al_key) != al_code:
+                continue
+            fl_key = al_key.replace("actual_location", "functional_location")
+            fl_code = row.get(fl_key) if isinstance(row.get(fl_key), str) else None
+            if not fl_code:
+                continue
+            _, al_n = loc_names(fl_code, al_code)
+            if al_n:
+                rewritten[al_key] = al_n
+        for cc_key in _CC_KEYS:
+            if cc_key in rewritten:
+                rewritten[cc_key] = cc_name(row.get(cc_key))
+        return rewritten
+
+    out = rewrite_row(out)
+    items = out.get("item_locations")
+    if isinstance(items, list):
+        out["item_locations"] = [
+            rewrite_row(row) if isinstance(row, dict) else row for row in items
+        ]
+    return out

@@ -1454,8 +1454,8 @@ export function AssetsListPage() {
       if (res.processed_count > 0) {
         toast.success(
           bulkDecisionMode === "approve"
-            ? `${res.processed_count} approved.`
-            : `${res.processed_count} rejected.`,
+            ? `Approved.`
+            : `Rejected.`,
         )
         setBulkDecisionOpen(false)
         clearSelection()

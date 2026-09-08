@@ -64,24 +64,10 @@ function SummaryField({
         !tone && "bg-muted/35",
       )}
     >
-      <p
-        className={cn(
-          "text-[10px] font-medium uppercase tracking-[0.06em]",
-          tone === "warning" && "text-amber-800/80 dark:text-amber-200/80",
-          tone === "success" && "text-emerald-800/80 dark:text-emerald-200/80",
-          !tone && "text-muted-foreground",
-        )}
-      >
+      <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-black">
         {label}
       </p>
-      <div
-        className={cn(
-          "mt-0.5 min-w-0 text-sm font-semibold tabular-nums leading-snug",
-          tone === "warning" && "text-amber-950 dark:text-amber-50",
-          tone === "success" && "text-emerald-950 dark:text-emerald-50",
-          !tone && "text-foreground",
-        )}
-      >
+      <div className="mt-0.5 min-w-0 text-sm font-normal tabular-nums leading-snug text-black">
         {value}
       </div>
     </div>
@@ -874,7 +860,7 @@ export function TransferOrderDetailPage() {
                   draftEditable ? (
                     <select
                       id="to_cc"
-                      className={adminSelectClass}
+                      className={cn(adminSelectClass, "text-black")}
                       value={toCostCenterId}
                       onChange={(e) => {
                         setToCostCenterId(e.target.value)

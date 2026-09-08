@@ -998,20 +998,12 @@ export function AssetDetailPage() {
                         </p>
                         <p className="mt-1 text-base font-normal leading-snug break-words text-foreground">
                           {a.capitalization_form_id && a.capitalization_form_number ? (
-                            <>
-                              <Link
-                                className="font-medium text-primary hover:underline"
-                                to={`/dashboard/capitalization/${a.capitalization_form_id}`}
-                              >
-                                {a.capitalization_form_number}
-                              </Link>
-                              {a.capitalization_form_asset_name ? (
-                                <span className="text-muted-foreground">
-                                  {" "}
-                                  — {a.capitalization_form_asset_name}
-                                </span>
-                              ) : null}
-                            </>
+                            <Link
+                              className="font-medium text-primary hover:underline"
+                              to={`/dashboard/capitalization/${a.capitalization_form_id}`}
+                            >
+                              {a.capitalization_form_number}
+                            </Link>
                           ) : (
                             "—"
                           )}

@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
+import { AuditDetailLine, AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import { transferStatusLabel, type TransferOrderAudit } from "@/lib/transfer-types"
 
 function text(value: unknown, assetCodeById?: Map<number, string>): string | null {
@@ -264,12 +264,7 @@ function activityForEvent(
         {transferAuditHeadline(ev)}
       </p>
       {details.map((line, i) => (
-        <p
-          key={`${i}-${line}`}
-          className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground"
-        >
-          {line}
-        </p>
+        <AuditDetailLine key={`${i}-${line}`} line={line} />
       ))}
     </div>
   )

@@ -61,11 +61,10 @@ export function AuthFormShell({
 
         <div className="mt-8 space-y-1.5 border-t border-neutral-200 pt-5 text-center">
           {footer ? <div className="text-[13px] text-neutral-600">{footer}</div> : null}
-          {version ? (
-            <p className="text-xs tabular-nums tracking-wide text-neutral-500">
-              Version {version}
-            </p>
-          ) : null}
+          {/* Reserved so the form does not jump when the version request returns. */}
+          <p className="h-4 text-xs tabular-nums tracking-wide text-neutral-500">
+            {version ? `Version ${version}` : null}
+          </p>
           <p className="text-xs text-neutral-500">
             {/* © {new Date().getFullYear()} Takeda */}
             {/* {version ? <span className="ml-1 tabular-nums">· v{version}</span> : null} */}
@@ -110,18 +109,14 @@ export function AuthFormShell({
 
         <div className="flex flex-1 flex-col justify-center space-y-5">{children}</div>
 
-        {version || footer ? (
-          <div className="mt-8 space-y-3 border-t border-border/50 pt-5">
-            {footer ? (
-              <div className="text-center text-sm text-muted-foreground">{footer}</div>
-            ) : null}
-            {version ? (
-              <p className="text-center text-[11px] tabular-nums tracking-wide text-muted-foreground/80">
-                Version {version}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="mt-8 space-y-3 border-t border-border/50 pt-5">
+          {footer ? (
+            <div className="text-center text-sm text-muted-foreground">{footer}</div>
+          ) : null}
+          <p className="h-4 text-center text-[11px] tabular-nums tracking-wide text-muted-foreground/80">
+            {version ? `Version ${version}` : null}
+          </p>
+        </div>
       </div>
     </div>
   )

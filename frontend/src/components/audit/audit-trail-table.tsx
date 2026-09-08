@@ -11,6 +11,26 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { formatAppWhenParts } from "@/lib/dates"
 import { cn } from "@/lib/utils"
 
+/** "Key: value" line — key black and bold, value black. Lines without a colon stay black. */
+export function AuditDetailLine({ line }: { line: string }) {
+  const match = line.match(/^(\s*)([^:\n]+?):\s*([\s\S]*)$/)
+  if (!match) {
+    return (
+      <p className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-black">
+        {line}
+      </p>
+    )
+  }
+  const [, indent, key, value] = match
+  return (
+    <p className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-black">
+      {indent}
+      <span className="font-bold text-black">{key}:</span>
+      {value ? <> {value}</> : null}
+    </p>
+  )
+}
+
 export type AuditTrailRow = {
   id: string
   at: string

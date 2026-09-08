@@ -54,6 +54,7 @@ from modules.assets.audit_helpers import (
     diff_snapshots,
     format_asset_order_audit_lines,
     format_changes_detail,
+    format_rfid_audit_lines,
     snapshot_asset,
 )
 from modules.assets.audit_log import log_asset_event
@@ -78,7 +79,7 @@ from modules.assets.import_validation import (
     build_preview_response,
     rows_from_raw_dicts,
 )
-from modules.asset_masters.location_lookup import location_display_name
+from modules.asset_masters.location_lookup import location_display_name, plant_code_display_map
 from modules.asset_masters.model import (
     ActualLocationMaster,
     AssetClassMaster,
@@ -3512,9 +3513,31 @@ class AssetMasterService:
         user_labels = {uid: actor_display(users_by_id.get(uid), uid) for uid in lookup_ids}
 
         plants = list(self._db.scalars(select(OrgUnit).where(OrgUnit.type == "PLANT")).all())
-        plant_labels = {int(p.id): f"{p.code} — {p.name}" for p in plants}
+        plant_labels = {
+            int(p.id): location_display_name(p.name, p.code) or str(p.id) for p in plants
+        }
         categories = list(self._db.scalars(select(AssetCategory)).all())
-        category_labels = {int(c.id): f"{c.code} — {c.name}" for c in categories}
+        category_labels = {
+            int(c.id): location_display_name(c.name, c.code, c.description) or str(c.id)
+            for c in categories
+        }
+        plant_id = int(asset.location.plant_id) if asset.location and asset.location.plant_id else None
+        code_labels = plant_code_display_map(self._db, plant_id) if plant_id else {}
+        tag_rows = list(self._db.scalars(select(TagColorMaster)).all())
+        condition_rows = list(self._db.scalars(select(AssetConditionMaster)).all())
+        class_rows = list(self._db.scalars(select(AssetClassMaster)).all())
+        id_labels = {
+            "tag_color_id": {
+                int(t.id): location_display_name(t.name, t.code) or str(t.id) for t in tag_rows
+            },
+            "asset_condition_id": {
+                int(c.id): location_display_name(c.name, c.code) or str(c.id)
+                for c in condition_rows
+            },
+            "asset_class_id": {
+                int(c.id): location_display_name(c.name, c.code) or str(c.id) for c in class_rows
+            },
+        }
 
         out: list[AssetAuditEventPublic] = []
         for ev in events:
@@ -3533,6 +3556,17 @@ class AssetMasterService:
                         plant_labels=plant_labels,
                         category_labels=category_labels,
                         user_labels=user_labels,
+                        code_labels=code_labels,
+                        id_labels=id_labels,
+                    )
+                ]
+            elif ev.action in ("rfid_updated", "rfid_attached"):
+                change_rows = [
+                    AssetAuditChangeLine(**line)
+                    for line in format_rfid_audit_lines(
+                        old_value=ov,
+                        new_value=nv,
+                        id_labels=id_labels,
                     )
                 ]
             elif ev.action == "reassigned":
@@ -3577,6 +3611,8 @@ class AssetMasterService:
                 plant_labels=plant_labels,
                 category_labels=category_labels,
                 user_labels=user_labels,
+                code_labels=code_labels,
+                id_labels=id_labels,
             )
             out.append(
                 AssetAuditEventPublic(

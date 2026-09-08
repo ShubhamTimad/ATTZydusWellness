@@ -10,6 +10,9 @@ from modules.platform.users.model import User
 
 AUDIT_FIELD_LABELS: dict[str, str] = {
     **ASSET_FIELD_LABELS,
+    "asset_class": "Asset Class",
+    "asset_class_id": "Asset Class",
+    "asset_class_code": "Asset Class",
     "tag_color_id": "Tag color",
     "asset_custodian_id": "Asset custodian",
     "asset_condition_id": "Asset condition",
@@ -135,6 +138,34 @@ def diff_snapshots(
     return changes
 
 
+_CODE_FIELDS = frozenset(
+    {
+        "functional_location",
+        "actual_location",
+        "cost_center",
+        "profit_center",
+    }
+)
+_ID_LABEL_FIELDS = frozenset(
+    {
+        "tag_color_id",
+        "asset_condition_id",
+        "asset_class_id",
+    }
+)
+# Name snapshot already exists — don't also print the raw id.
+_SKIP_ID_WHEN_NAME = {"asset_class_id": "asset_class"}
+
+
+def _lookup_id_label(labels: dict[int, str] | None, value: Any) -> str | None:
+    if labels is None:
+        return None
+    try:
+        return labels.get(int(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _display_value(
     key: str,
     value: Any,
@@ -142,24 +173,31 @@ def _display_value(
     plant_labels: dict[int, str] | None = None,
     category_labels: dict[int, str] | None = None,
     user_labels: dict[int, str] | None = None,
+    code_labels: dict[str, str] | None = None,
+    id_labels: dict[str, dict[int, str]] | None = None,
 ) -> str:
     if value is None or value == "":
         return "—"
     if key == "plant_id" and plant_labels is not None:
-        try:
-            return plant_labels.get(int(value), str(value))
-        except (TypeError, ValueError):
-            pass
+        named = _lookup_id_label(plant_labels, value)
+        if named:
+            return named
     if key == "asset_category_id" and category_labels is not None:
-        try:
-            return category_labels.get(int(value), str(value))
-        except (TypeError, ValueError):
-            pass
+        named = _lookup_id_label(category_labels, value)
+        if named:
+            return named
     if key == "asset_custodian_id" and user_labels is not None:
-        try:
-            return user_labels.get(int(value), str(value))
-        except (TypeError, ValueError):
-            pass
+        named = _lookup_id_label(user_labels, value)
+        if named:
+            return named
+    if key in _ID_LABEL_FIELDS and id_labels is not None:
+        named = _lookup_id_label(id_labels.get(key), value)
+        if named:
+            return named
+    if key in _CODE_FIELDS and code_labels is not None:
+        named = code_labels.get(str(value).strip().casefold())
+        if named:
+            return named
     text = str(value)
     if len(text) > 120:
         return text[:117] + "…"
@@ -172,9 +210,14 @@ def format_changes_detail(
     plant_labels: dict[int, str] | None = None,
     category_labels: dict[int, str] | None = None,
     user_labels: dict[int, str] | None = None,
+    code_labels: dict[str, str] | None = None,
+    id_labels: dict[str, dict[int, str]] | None = None,
 ) -> list[dict[str, str]]:
+    skip = {id_key for id_key, name_key in _SKIP_ID_WHEN_NAME.items() if name_key in changes}
     lines: list[dict[str, str]] = []
     for key in sorted(changes.keys(), key=lambda k: AUDIT_FIELD_LABELS.get(k, k)):
+        if key in skip:
+            continue
         delta = changes[key]
         if not isinstance(delta, dict):
             continue
@@ -188,6 +231,8 @@ def format_changes_detail(
                     plant_labels=plant_labels,
                     category_labels=category_labels,
                     user_labels=user_labels,
+                    code_labels=code_labels,
+                    id_labels=id_labels,
                 ),
                 "to_value": _display_value(
                     key,
@@ -195,6 +240,8 @@ def format_changes_detail(
                     plant_labels=plant_labels,
                     category_labels=category_labels,
                     user_labels=user_labels,
+                    code_labels=code_labels,
+                    id_labels=id_labels,
                 ),
             }
         )
@@ -321,6 +368,27 @@ def compact_order_audit_text(
     return f"{prefix}{action.replace('_', ' ')}".lstrip(" · ")
 
 
+def format_rfid_audit_lines(
+    *,
+    old_value: dict[str, Any] | None = None,
+    new_value: dict[str, Any] | None = None,
+    id_labels: dict[str, dict[int, str]] | None = None,
+) -> list[dict[str, str]]:
+    """RFID attach/update: show the code that was attached, or from → to on replace."""
+    ov = old_value or {}
+    nv = new_value or {}
+    changes: dict[str, dict[str, Any]] = {}
+    old_rfid = ov.get("rfid_code")
+    new_rfid = nv.get("rfid_code")
+    if old_rfid != new_rfid or new_rfid:
+        changes["rfid_code"] = {"from": old_rfid, "to": new_rfid}
+    if ov.get("tag_color_id") != nv.get("tag_color_id") and (
+        "tag_color_id" in ov or "tag_color_id" in nv
+    ):
+        changes["tag_color_id"] = {"from": ov.get("tag_color_id"), "to": nv.get("tag_color_id")}
+    return format_changes_detail(changes, id_labels=id_labels)
+
+
 def format_asset_order_audit_lines(
     action: str,
     *,
@@ -409,6 +477,8 @@ def build_audit_summary(
     plant_labels: dict[int, str] | None = None,
     category_labels: dict[int, str] | None = None,
     user_labels: dict[int, str] | None = None,
+    code_labels: dict[str, str] | None = None,
+    id_labels: dict[str, dict[int, str]] | None = None,
 ) -> str:
     nv = new_value or {}
     ov = old_value or {}
@@ -431,6 +501,8 @@ def build_audit_summary(
                 plant_labels=plant_labels,
                 category_labels=category_labels,
                 user_labels=user_labels,
+                code_labels=code_labels,
+                id_labels=id_labels,
             )
             if detail_lines:
                 body = "\n".join(
@@ -469,10 +541,17 @@ def build_audit_summary(
         return f"Reassigned by {actor_name} to {to_name}"
     if action == "deleted":
         return f"Deleted by {actor_name}"
-    if action == "rfid_updated":
-        return f"RFID Updated by {actor_name}"
-    if action == "rfid_attached":
-        return f"RFID Attached by {actor_name}"
+    if action in ("rfid_updated", "rfid_attached"):
+        verb = "RFID Updated" if action == "rfid_updated" else "RFID Attached"
+        detail_lines = format_rfid_audit_lines(
+            old_value=ov, new_value=nv, id_labels=id_labels
+        )
+        if detail_lines:
+            body = "\n".join(
+                f"{d['field_label']}: {d['from_value']} → {d['to_value']}" for d in detail_lines
+            )
+            return f"{verb} by {actor_name}:\n{body}"
+        return f"{verb} by {actor_name}"
     if action in ASSET_AUDIT_VISIBLE_ORDER_ACTIONS:
         text = compact_order_audit_text(action, old_value=old_value, new_value=nv)
         return f"{text} · {actor_name}" if text else f"Physical order · {actor_name}"

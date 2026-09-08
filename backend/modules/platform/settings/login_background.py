@@ -14,7 +14,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from modules.platform.settings.lookup import clear_setting_cache, get_setting
 
 SETTING_KEY = "branding.login_background"
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 # Full-bleed login photo; 2560 covers retina 1080p without keeping multi-MB originals.
 MAX_EDGE_PX = 2560
 JPEG_QUALITY = 80
@@ -33,7 +33,7 @@ def validate_login_background(data: bytes) -> str:
     if not data:
         raise InvalidLoginBackgroundError("Select an image to upload.")
     if len(data) > MAX_UPLOAD_BYTES:
-        raise InvalidLoginBackgroundError("Image must be 20 MB or smaller.")
+        raise InvalidLoginBackgroundError("Image must be 5 MB or smaller.")
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if data.startswith(b"\xff\xd8\xff"):
@@ -123,11 +123,12 @@ def get_login_background_served() -> tuple[bytes, str, str] | None:
     """Return (bytes, content_type, version) of the image we actually send to browsers."""
     global _served, _served_ready
     with _lock:
-        if _served_ready:
+        # Do not cache a miss — a first 404 must not hide a background saved later.
+        if _served_ready and _served is not None:
             return _served
         served = _load_served()
         _served = served
-        _served_ready = True
+        _served_ready = served is not None
         return served
 
 

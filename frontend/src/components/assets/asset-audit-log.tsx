@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
+import { AuditDetailLine, AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 
 export type AssetAuditLogRow = {
   id: string
@@ -163,12 +163,7 @@ function activityForRow(row: AssetAuditLogRow): React.ReactNode {
         )}
       </p>
       {details.map((line) => (
-        <p
-          key={line}
-          className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground"
-        >
-          {line}
-        </p>
+        <AuditDetailLine key={line} line={line} />
       ))}
     </div>
   )

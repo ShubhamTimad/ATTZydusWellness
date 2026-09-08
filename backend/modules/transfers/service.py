@@ -5,7 +5,10 @@ from datetime import date, datetime, timezone
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
-from modules.asset_masters.location_lookup import resolve_plant_location_names
+from modules.asset_masters.location_lookup import (
+    resolve_plant_location_names,
+    rewrite_audit_master_codes,
+)
 from modules.asset_masters.model import CostCenterAssetCustodian, CostCenterMaster
 from modules.assets.lifecycle import (
     LIFECYCLE_ACTIVE,
@@ -392,7 +395,13 @@ def _transfer_list_sort_expr(sort_by: str):
     return AssetTransferOrder.created_at
 
 
-def _audit_payload_for_api(db: Session, value: dict | None) -> dict | None:
+def _audit_payload_for_api(
+    db: Session,
+    value: dict | None,
+    *,
+    plant_id: int | None = None,
+    cache: dict | None = None,
+) -> dict | None:
     """Human-readable audit fields for the UI (status labels, assignee names)."""
     if not value:
         return value
@@ -413,7 +422,7 @@ def _audit_payload_for_api(db: Session, value: dict | None) -> dict | None:
                 if name:
                     out[name_key] = name
             out.pop(key, None)
-    return out
+    return rewrite_audit_master_codes(db, out, plant_id=plant_id, cache=cache)
 
 
 def sync_open_transfer_asset_lifecycles(db: Session) -> int:
@@ -2285,6 +2294,7 @@ class TransferOrderService:
             actual_location_code=order.to_actual_location,
         )
         from_name_cache: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+        audit_name_cache: dict = {}
 
         def _from_names(fl: str | None, al: str | None) -> tuple[str | None, str | None]:
             key = ((fl or "").strip(), (al or "").strip())
@@ -2374,8 +2384,12 @@ class TransferOrderService:
                         if a.actor_user_id and int(a.actor_user_id) in actors
                         else None
                     ),
-                    old_value=_audit_payload_for_api(self._db, a.old_value),
-                    new_value=_audit_payload_for_api(self._db, a.new_value),
+                    old_value=_audit_payload_for_api(
+                        self._db, a.old_value, plant_id=int(order.plant_id), cache=audit_name_cache
+                    ),
+                    new_value=_audit_payload_for_api(
+                        self._db, a.new_value, plant_id=int(order.plant_id), cache=audit_name_cache
+                    ),
                     created_at=a.created_at,
                 )
                 for a in audits

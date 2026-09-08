@@ -1,15 +1,15 @@
 import * as React from "react"
 
-import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
+import { AuditDetailLine, AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import type { CapexAuditEvent } from "@/lib/capex-types"
 
 function activityForEvent(ev: CapexAuditEvent): React.ReactNode {
   return (
     <div className="space-y-1">
       <p className="font-medium">{ev.label}</p>
-      {ev.detail ? (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">{ev.detail}</p>
-      ) : null}
+      {ev.detail
+        ? ev.detail.split("\n").map((line, i) => <AuditDetailLine key={`${i}-${line}`} line={line} />)
+        : null}
       {ev.changes.length > 0 ? (
         <dl className="mt-0.5 space-y-0.5 rounded-md border border-border/40 bg-muted/15 px-2.5 py-1.5">
           {ev.changes.map((c) => (
@@ -17,13 +17,13 @@ function activityForEvent(ev: CapexAuditEvent): React.ReactNode {
               key={c.field}
               className="grid grid-cols-1 gap-0.5 text-[11px] leading-relaxed sm:grid-cols-[minmax(0,12.5rem)_minmax(0,1fr)] sm:items-baseline sm:gap-x-3"
             >
-              <dt className="break-words text-muted-foreground">{c.field}</dt>
-              <dd className="min-w-0 break-words tabular-nums text-foreground">
+              <dt className="break-words font-bold text-black">{c.field}</dt>
+              <dd className="min-w-0 break-words tabular-nums text-black">
                 <span>{c.from_value ?? "—"}</span>
-                <span className="mx-1 text-muted-foreground" aria-hidden>
+                <span className="mx-1" aria-hidden>
                   →
                 </span>
-                <span className="font-medium">{c.to_value ?? "—"}</span>
+                <span>{c.to_value ?? "—"}</span>
               </dd>
             </div>
           ))}

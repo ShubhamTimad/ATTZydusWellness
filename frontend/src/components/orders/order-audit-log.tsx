@@ -1,7 +1,7 @@
 import * as React from "react"
 import { ChevronDown, ListTree } from "lucide-react"
 
-import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
+import { AuditDetailLine, AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import { Button } from "@/components/ui/button"
 import { formatAppDateTime as formatDt } from "@/lib/dates"
 import type { PhysicalOrderAudit } from "@/lib/orders-types"
@@ -63,20 +63,14 @@ function ActivityCell({
         ) : null}
       </div>
 
-      {nextLine && ev.action !== "order_created" ? (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          <span className="text-foreground">{nextLine}</span>
-        </p>
-      ) : null}
+      {nextLine && ev.action !== "order_created" ? <AuditDetailLine line={nextLine} /> : null}
 
-      {restDetail ? (
-        <p className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
-          {restDetail}
-        </p>
-      ) : null}
+      {restDetail
+        ? restDetail.split("\n").map((line, i) => <AuditDetailLine key={`${i}-${line}`} line={line} />)
+        : null}
 
       {showVerifiedToggle && !expanded ? (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[11px] text-black">
           {verifiedAssets.length} Asset{verifiedAssets.length === 1 ? "" : "s"} Verified — click{" "}
           <ListTree className="mb-0.5 inline size-3.5" aria-hidden /> to view
         </p>
@@ -92,18 +86,20 @@ function ActivityCell({
               <div className="min-w-0">
                 <span className="font-mono font-medium text-foreground">{asset.asset_code}</span>
                 {asset.asset_name ? (
-                  <span className="text-muted-foreground"> · {asset.asset_name}</span>
+                  <span className="text-black"> · {asset.asset_name}</span>
                 ) : null}
                 {asset.rfid_code ? (
-                  <p className="font-mono text-[10px] text-muted-foreground">RFID {asset.rfid_code}</p>
+                  <p className="font-mono text-[10px] text-black">
+                    <span className="font-bold text-black">RFID:</span> {asset.rfid_code}
+                  </p>
                 ) : null}
                 {asset.remark?.trim() ? (
-                  <p className="break-all whitespace-pre-wrap text-[10px] text-muted-foreground">
-                    Remark: {asset.remark}
+                  <p className="break-all whitespace-pre-wrap text-[10px] text-black">
+                    <span className="font-bold text-black">Remark:</span> {asset.remark}
                   </p>
                 ) : null}
               </div>
-              <div className="shrink-0 text-right text-muted-foreground">
+              <div className="shrink-0 text-right text-black">
                 {asset.verified_at ? <div>{formatDt(asset.verified_at)}</div> : null}
                 {asset.verified_by_name ? <div>{asset.verified_by_name}</div> : null}
               </div>

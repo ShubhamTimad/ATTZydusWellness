@@ -723,7 +723,7 @@ export function SettingsPage() {
 
           <AdminPanel
             title="Login background"
-            description="Optional full-page background image on the login screen. PNG, JPEG, or WebP. Large photos are resized automatically. When unset, the default marketing layout is used."
+            description="Optional full-page background image on the login screen. PNG, JPEG, or WebP · max 5 MB. Large photos are resized automatically. When unset, the default marketing layout is used."
             contentClassName="space-y-4 px-5 py-5"
           >
             {loginBgMeta ? (
@@ -750,6 +750,10 @@ export function SettingsPage() {
                     const file = e.target.files?.[0]
                     e.target.value = ""
                     if (!file || !canWriteSettings) return
+                    if (file.size > 5 * 1024 * 1024) {
+                      toast.error("Image must be 5 MB or smaller.")
+                      return
+                    }
                     setLoginBgBusy(true)
                     toast.loading("Uploading…", { id: "login-bg-upload" })
                     try {

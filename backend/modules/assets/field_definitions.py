@@ -31,7 +31,7 @@ def normalize_asset_number_field(value: str | None) -> str | None:
 IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
     "asset_name": ["asset name", "asset_name"],
     "asset_class_code": [
-        "asset class",
+        "Asset class",
         "asset class code",
         "asset_class",
         "asset_class_code",

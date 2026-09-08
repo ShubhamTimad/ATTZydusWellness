@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
+import { AuditDetailLine, AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 
 export type UserTimelineEvent = {
   type: string
@@ -48,13 +48,13 @@ function DeltaLines({
           key={key}
           className="grid grid-cols-[minmax(6.5rem,7.5rem)_1fr] items-baseline gap-x-2 text-[11px] leading-relaxed"
         >
-          <dt className="text-muted-foreground">{fieldLabel(key)}</dt>
-          <dd className="tabular-nums text-foreground">
+          <dt className="font-bold text-black">{fieldLabel(key)}</dt>
+          <dd className="tabular-nums text-black">
             <span>{String(value?.from ?? "—")}</span>
-            <span className="mx-1 text-muted-foreground" aria-hidden>
+            <span className="mx-1" aria-hidden>
               →
             </span>
-            <span className="font-medium">{String(value?.to ?? "—")}</span>
+            <span>{String(value?.to ?? "—")}</span>
           </dd>
         </div>
       ))}
@@ -77,10 +77,10 @@ function activityForEvent(ev: UserTimelineEvent): React.ReactNode {
       <div className="space-y-1">
         <p className="font-medium">User created</p>
         {roleName || plantName || awaiting ? (
-          <div className="space-y-0.5 text-[11px] text-muted-foreground">
-            {roleName ? <p>Role: {roleName}</p> : null}
-            {plantName ? <p>Plant: {plantName}</p> : null}
-            {awaiting ? <p>Awaiting Approval from {awaiting}</p> : null}
+          <div className="space-y-0.5">
+            {roleName ? <AuditDetailLine line={`Role: ${roleName}`} /> : null}
+            {plantName ? <AuditDetailLine line={`Plant: ${plantName}`} /> : null}
+            {awaiting ? <AuditDetailLine line={`Awaiting Approval from ${awaiting}`} /> : null}
           </div>
         ) : null}
       </div>
@@ -104,10 +104,8 @@ function activityForEvent(ev: UserTimelineEvent): React.ReactNode {
           <p className="font-medium">
             {ev.step != null ? `Step ${ev.step} · Awaiting Approval` : "Awaiting Approval"}
           </p>
-          <p className="text-[11px] text-muted-foreground">
-            {assignees}
-            {role ? ` · Role: ${role}` : ""}
-          </p>
+          <AuditDetailLine line={assignees} />
+          {role ? <AuditDetailLine line={`Role: ${role}`} /> : null}
         </div>
       )
     }
@@ -122,7 +120,7 @@ function activityForEvent(ev: UserTimelineEvent): React.ReactNode {
           {ev.step != null ? `Step ${ev.step} · ${actionLabel}` : actionLabel}
         </p>
         {comment ? (
-          <p className="whitespace-pre-wrap text-[11px] text-muted-foreground">Note: {comment}</p>
+          <AuditDetailLine line={`Note: ${comment}`} />
         ) : null}
       </div>
     )

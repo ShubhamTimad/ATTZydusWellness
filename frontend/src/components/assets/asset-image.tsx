@@ -51,7 +51,7 @@ export function AssetImage({
           type="button"
           className="flex h-20 w-28 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/20 transition hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           disabled={!src}
-          aria-label={src ? "Open asset image" : "No asset image"}
+          aria-label={src ? "Open asset image" : "No Asset Image"}
           onClick={() => src && setPreviewOpen(true)}
         >
           {src ? (

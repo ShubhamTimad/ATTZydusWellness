@@ -519,7 +519,7 @@ export function ApprovalWorkflowTimeline({
                                     {a.actor_display_name}
                                     {isYou ? <span className="text-emerald-700/80">(You)</span> : null}
                                     <span className="rounded-sm bg-white/80 px-1.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-200">
-                                      approved
+                                      Approved
                                     </span>
                                   </span>
                                   <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">

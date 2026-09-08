@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
+import { AuditDetailLine, AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import { disposalStatusLabel, type DisposalOrderAudit } from "@/lib/disposal-types"
 
 function text(value: unknown): string | null {
@@ -218,12 +218,7 @@ function activityForEvent(ev: DisposalOrderAudit): React.ReactNode {
         {disposalAuditHeadline(ev)}
       </p>
       {details.map((line, i) => (
-        <p
-          key={`${i}-${line}`}
-          className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground"
-        >
-          {line}
-        </p>
+        <AuditDetailLine key={`${i}-${line}`} line={line} />
       ))}
     </div>
   )

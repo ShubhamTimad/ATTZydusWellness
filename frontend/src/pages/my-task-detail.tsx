@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { AssetMasterDetailDialog } from "@/components/assets/asset-master-detail-dialog"
 import { ApprovalWorkflowTimeline, type TaskApprovalStepLine } from "@/components/approval-workflow-timeline"
-import { AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
+import { AuditDetailLine, AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import { formatAppDateTime as formatDateTime } from "@/lib/dates"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
@@ -288,7 +288,7 @@ export function MyTaskDetailPage() {
           <div className="space-y-1">
             <p className="font-medium">{taskAuditTitle(ev)}</p>
             {comment ? (
-              <p className="whitespace-pre-wrap text-[11px] text-muted-foreground">{comment}</p>
+              <AuditDetailLine line={comment} />
             ) : null}
           </div>
         ),
