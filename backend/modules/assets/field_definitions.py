@@ -462,7 +462,7 @@ ASSET_EXPORT_FIELDS: list[str] = [
 
 ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
     **ASSET_FIELD_LABELS,
-    "category_code": "Asset Category / Group",
+    "category_code": "Asset Category",
     "plant_code": "Plant Code",
     "plant_name": "Plant Name",
     "category_name": "Category description",
@@ -477,7 +477,7 @@ ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
     "physical_order_id": "Physical Order ID",
     "physical_order_status": "Order Status",
     "current_apc_igaap": "Current APC-IGAAP",
-    "rfid_code": "RFID Tag",
+    "rfid_code": "RFID Code",
     "asset_condition_code": "Physical Condition Of Assets",
     "life_span": "Useful life",
     "gross_block": "APC-IGAAP",

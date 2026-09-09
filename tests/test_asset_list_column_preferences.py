@@ -45,8 +45,8 @@ def test_columns_are_deduplicated_validated_and_saved() -> None:
     user = SimpleNamespace(asset_list_columns=None)
     db = _FakeDb(user)
     svc = AssetMasterService(db)  # type: ignore[arg-type]
-    saved = svc.update_asset_list_columns(1, ["plant", "asset_name", "plant"])
-    assert saved == ["plant", "asset_name"]
+    saved = svc.update_asset_list_columns(1, ["plant_code", "asset_name", "plant_name", "plant_code"])
+    assert saved == ["plant_code", "asset_name", "plant_name"]
     assert user.asset_list_columns == saved
     assert db.committed
     assert set(saved) <= ASSET_LIST_COLUMN_KEYS

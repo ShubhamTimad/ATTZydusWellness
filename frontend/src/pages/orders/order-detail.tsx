@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { useLocation, useNavigate, useParams } from "react-router-dom"
 import {
   ListFilter,
   Loader2,
@@ -29,6 +29,7 @@ import {
   AdminTableEmptyRow,
   AdminTablePagination,
 } from "@/components/layout/list-page-ui"
+import { releaseAssetMasterSelectionUnlessReturn } from "@/lib/asset-master-selection"
 import { OrderAuditLog } from "@/components/orders/order-audit-log"
 import { OrderLifecycleStepper } from "@/components/orders/order-lifecycle-stepper"
 import { Button } from "@/components/ui/button"
@@ -45,7 +46,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
-import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
 import { invalidateAssetLists, invalidateOrderLists } from "@/lib/query-client"
 import {
   orderStatusLabel,
@@ -214,6 +215,11 @@ const orderPanelPad = "px-[var(--app-card-padding)]"
 export function OrderDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const backToAssets = Boolean((useLocation().state as { fromAssets?: boolean } | null)?.fromAssets)
+  React.useEffect(() => {
+    if (!backToAssets) return
+    return () => releaseAssetMasterSelectionUnlessReturn()
+  }, [backToAssets])
   const [order, setOrder] = React.useState<PhysicalOrderDetail | null>(null)
   const [currentUserId, setCurrentUserId] = React.useState<number | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -744,40 +750,6 @@ export function OrderDetailPage() {
           >
             {orderStatusLabel(order.status)}
           </AdminPillBadge>
-          {order.can_delete ? (
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              className="h-9"
-              disabled={busy}
-              onClick={async () => {
-                const ok = await confirmAsk({
-                  title: "Delete Draft Order?",
-                  description: "Delete this draft order? This action cannot be undone.",
-                  confirmLabel: "Delete",
-                  destructive: true,
-                })
-                if (!ok) return
-                setBusy(true)
-                try {
-                  await deleteJson(`/admin/physical-orders/${order.id}`)
-                  toast.success("Draft physical order deleted.")
-                  void invalidateOrderLists()
-                  void invalidateAssetLists()
-                  navigate("/dashboard/orders")
-                } catch (e) {
-                  toast.error(
-                    e instanceof ApiError ? e.message : "Could not delete physical order",
-                  )
-                } finally {
-                  setBusy(false)
-                }
-              }}
-            >
-              Delete Draft
-            </Button>
-          ) : null}
           {order.can_archive ? (
             <Button
               type="button"
@@ -789,7 +761,7 @@ export function OrderDetailPage() {
                 const ok = await confirmAsk({
                   title: "Archive Physical Order?",
                   description:
-                    "Archive this physical order",
+                    "Archive this physical order? It will be cancelled and kept in the audit trail.",
                   confirmLabel: "Archive",
                 })
                 if (!ok) return
@@ -974,7 +946,9 @@ export function OrderDetailPage() {
               Close
             </AdminPrimaryButton>
           ) : null}
-          <AdminBackLink to="/dashboard/orders">Order</AdminBackLink>
+          <AdminBackLink to={backToAssets ? "/dashboard/assets" : "/dashboard/orders"}>
+            {backToAssets ? "Asset Master" : "Order"}
+          </AdminBackLink>
         </div>
       }
     >

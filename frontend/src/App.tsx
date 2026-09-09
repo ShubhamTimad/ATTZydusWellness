@@ -26,7 +26,7 @@ import { MfaSetupPage } from "@/pages/mfa-setup"
 import { SsoCallbackPage } from "@/pages/sso-callback"
 import { AssetCreatePage, AssetDetailPage, AssetImportPage, AssetsListPage } from "@/pages/assets"
 import { MastersPage } from "@/pages/masters/masters-page"
-import { OrderDetailPage, OrdersListPage } from "@/pages/orders"
+import { OrderDetailPage, OrdersListPage, PhysicalOrderCreatePage } from "@/pages/orders"
 import {
   TransferOrderCreatePage,
   TransferOrderDetailPage,
@@ -164,6 +164,14 @@ function App() {
             }
           >
             <Route index element={<OrdersListPage />} />
+            <Route
+              path="new"
+              element={
+                <RequirePermission code="order.create">
+                  <PhysicalOrderCreatePage />
+                </RequirePermission>
+              }
+            />
             <Route path=":id" element={<OrderDetailPage />} />
           </Route>
 

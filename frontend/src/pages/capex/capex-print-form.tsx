@@ -40,27 +40,33 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;")
 }
 
-function formatPrintDate(iso: string | null | undefined): string {
-  if (!iso) return ""
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-    const [y, m, d] = iso.split("-")
-    return `${d}.${m}.${y}`
+function formatPrintDate(value: string | Date | null | undefined): string {
+  if (value == null || value === "") return ""
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [y, m, d] = value.split("-")
+    return `${d}/${m}/${y}`
   }
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return typeof value === "string" ? value : ""
   const dd = String(d.getDate()).padStart(2, "0")
   const mm = String(d.getMonth() + 1).padStart(2, "0")
-  const yyyy = d.getFullYear()
-  return `${dd}.${mm}.${yyyy}`
+  return `${dd}/${mm}/${d.getFullYear()}`
 }
 
 function formatPrintDateTime(d = new Date()): string {
-  const dd = String(d.getDate()).padStart(2, "0")
-  const mm = String(d.getMonth() + 1).padStart(2, "0")
-  const yyyy = d.getFullYear()
-  const hh = String(d.getHours()).padStart(2, "0")
-  const mi = String(d.getMinutes()).padStart(2, "0")
-  return `${dd}.${mm}.${yyyy} ${hh}:${mi}`
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  })
+  return `${formatPrintDate(d)} ${time}`
+}
+
+function costCenterDetail(detail: CapexFormDetail): string {
+  const code = (detail.cost_center_code ?? "").trim()
+  const name = (detail.cost_center_name ?? "").trim()
+  if (code && name) return `${code} — ${name}`
+  return code || name || "—"
 }
 
 function stepsForPrint(detail: CapexFormDetail): CapexApprovalStepLine[] {
@@ -117,20 +123,25 @@ function formRows(detail: CapexFormDetail) {
     { no: 3, particular: "Asset Specifications", detail: dash(detail.asset_specifications) },
     { no: 4, particular: "Party Name", detail: dash(detail.party_name) },
     { no: 5, particular: "Department", detail: dash(detail.department) },
-    { no: 6, particular: "Location of Installation", detail: dash(detail.installation_location) },
-    { no: 7, particular: "Department Head Name", detail: dash(detail.department_head) },
+    { no: 6, particular: "Cost Center", detail: costCenterDetail(detail) },
+    { no: 7, particular: "Location of Installation", detail: dash(detail.installation_location) },
+    { no: 8, particular: "Department Head Name", detail: dash(detail.department_head) },
     {
-      no: 8,
+      no: 9,
       particular: "Comment on the Functioning of Asset",
       detail: dash(detail.functioning_comment),
     },
     {
-      no: 9,
+      no: 10,
       particular: "Date of Installation",
       detail: detail.installation_date ? formatPrintDate(detail.installation_date) : "—",
     },
-    { no: 10, particular: "AUC Code", detail: dash(detail.auc_code) },
-    { no: 11, particular: "Useful Life of Asset", detail: dash(detail.useful_life) },
+    { no: 11, particular: "AUC Code", detail: dash(detail.auc_code) },
+    {
+      no: 12,
+      particular: "Useful Life of Asset (Years)",
+      detail: dash((detail.useful_life ?? "").replace(/\D/g, "") || detail.useful_life),
+    },
   ]
 }
 
@@ -346,12 +357,12 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
             <img src="${escapeHtml(logoUrl)}" alt="" />
           </div>
           <div class="brand-text">
-            <div class="title">Asset Capitalisation Form</div>
+            <div class="title">Asset Capitalization Form</div>
             <div class="sub">${escapeHtml(detail.form_number)} · ${status}</div>
           </div>
         </div>
         <div class="meta">
-          <div>Generated: <strong>${escapeHtml(printedAt)}</strong></div>
+          <div>Generated At: <strong>${escapeHtml(printedAt)}</strong></div>
         </div>
       </div>
     </header>

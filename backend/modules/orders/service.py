@@ -87,8 +87,7 @@ def _now_utc() -> datetime:
 
 
 _EDITABLE_PHYSICAL_STATUSES = frozenset({ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED})
-_ARCHIVABLE_PHYSICAL_STATUSES = frozenset({ORDER_STATUS_DRAFT})
-_PLAIN_PHYSICAL_DRAFT_AUDIT = frozenset({"order_created", "assignment_changed"})
+_ARCHIVABLE_PHYSICAL_STATUSES = frozenset({ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED})
 
 
 def _physical_list_sort_expr(sort_by: str):
@@ -139,22 +138,6 @@ def _physical_list_sort_expr(sort_by: str):
             .scalar_subquery()
         )
     return PhysicalOrder.created_at
-
-
-def _is_plain_physical_draft(db: Session, order: PhysicalOrder) -> bool:
-    if order.status != ORDER_STATUS_DRAFT:
-        return False
-    if order.approval_request_id is not None:
-        return False
-    extra = db.scalar(
-        select(PhysicalOrderAudit.id)
-        .where(
-            PhysicalOrderAudit.order_id == int(order.id),
-            PhysicalOrderAudit.action.not_in(_PLAIN_PHYSICAL_DRAFT_AUDIT),
-        )
-        .limit(1)
-    )
-    return extra is None
 
 
 def _actor_may_discard_physical(order: PhysicalOrder, *, actor_user_id: int, db: Session) -> bool:
@@ -776,6 +759,10 @@ class PhysicalOrderService:
     @staticmethod
     def _run_after_commit(task: Callable[[], None]) -> None:
         threading.Thread(target=task, daemon=True).start()
+
+    def peek_next_order_number(self) -> str:
+        """Preview only — no row is inserted, so an unsaved preview does not consume the number."""
+        return self._next_order_number()
 
     def _next_order_number(self) -> str:
         year = datetime.now(timezone.utc).year
@@ -2388,10 +2375,9 @@ class PhysicalOrderService:
             audit=audit,
             progress=progress,
             approval_notice=self._build_approval_notice(order),
-            can_delete=_is_plain_physical_draft(self._db, order) and (is_creator or is_super),
+            can_delete=False,
             can_archive=(
                 order.status in _ARCHIVABLE_PHYSICAL_STATUSES
-                and not _is_plain_physical_draft(self._db, order)
                 and (is_creator or is_super)
             ),
             can_unarchive=(
@@ -2407,25 +2393,12 @@ class PhysicalOrderService:
         )
 
     def delete_draft_order(self, order_id: int, *, actor_user_id: int) -> None:
-        order = self._load_order(order_id, viewer_user_id=actor_user_id)
-        if not _is_plain_physical_draft(self._db, order):
-            raise ConflictError(
-                "Only a plain draft physical order (no submit, approve, or reject history) "
-                "can be deleted. Archive it instead to keep the audit trail."
-            )
-        if not _actor_may_discard_physical(order, actor_user_id=actor_user_id, db=self._db):
-            raise ConflictError("Only the draft creator can delete this physical order.")
-        self._db.delete(order)
-        self._db.commit()
+        raise ConflictError("Physical verification orders cannot be deleted. Archive the order instead.")
 
     def archive_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status not in _ARCHIVABLE_PHYSICAL_STATUSES:
-            raise ConflictError("Only draft physical orders can be archived.")
-        if _is_plain_physical_draft(self._db, order):
-            raise ConflictError(
-                "This is a plain draft with no approval history — delete it instead of archiving."
-            )
+            raise ConflictError("Only draft or rejected physical orders can be archived.")
         if not _actor_may_discard_physical(order, actor_user_id=actor_user_id, db=self._db):
             raise ConflictError("Only the order creator can archive this physical order.")
 

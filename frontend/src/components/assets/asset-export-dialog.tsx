@@ -262,7 +262,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label>Category</Label>
+              <Label>Asset Category</Label>
               <select
                 className={adminSelectClass}
                 value={exportFilters.category_id}
@@ -359,7 +359,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
             ) : null}
           </div>
 
-          {!isRegister && selectedAssetIds.length > 0 ? (
+          {/* {!isRegister && selectedAssetIds.length > 0 ? (
             <label className="flex cursor-pointer items-center gap-2 text-sm">
               <Checkbox
                 checked={selectedOnly}
@@ -367,7 +367,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
               />
               Export selected rows only ({selectedAssetIds.length})
             </label>
-          ) : null}
+          ) : null} */}
 
           {!isPdf ? (
           <div className="space-y-2">

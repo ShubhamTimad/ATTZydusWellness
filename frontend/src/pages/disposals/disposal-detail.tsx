@@ -1,6 +1,6 @@
 import * as React from "react"
 import { Search, Trash2 } from "lucide-react"
-import { useNavigate, useParams } from "react-router-dom"
+import { useLocation, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
 
@@ -21,6 +21,7 @@ import {
   adminTextareaClass,
 } from "@/components/layout/admin-ui"
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
+import { releaseAssetMasterSelectionUnlessReturn } from "@/lib/asset-master-selection"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Switch } from "@/components/ui/switch"
@@ -141,6 +142,11 @@ function itemsToEditAssets(items: DisposalOrderItem[]): DisposalOrderItem[] {
 export function DisposalOrderDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const backToAssets = Boolean((useLocation().state as { fromAssets?: boolean } | null)?.fromAssets)
+  React.useEffect(() => {
+    if (!backToAssets) return
+    return () => releaseAssetMasterSelectionUnlessReturn()
+  }, [backToAssets])
   const orderId = Number(id)
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [order, setOrder] = React.useState<DisposalOrderDetail | null>(null)
@@ -895,7 +901,9 @@ export function DisposalOrderDetailPage() {
               Approve
             </AdminPrimaryButton>
           ) : null}
-          <AdminBackLink to="/dashboard/disposal-orders">Disposal Orders</AdminBackLink>
+          <AdminBackLink to={backToAssets ? "/dashboard/assets" : "/dashboard/disposal-orders"}>
+            {backToAssets ? "Asset Master" : "Disposal Orders"}
+          </AdminBackLink>
         </div>
       }
     >

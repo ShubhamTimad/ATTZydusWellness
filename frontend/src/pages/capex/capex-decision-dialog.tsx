@@ -111,7 +111,7 @@ export function CapexDecisionDialog({
       return
     }
     if (showNextPicker && !selectedId) {
-      toast.error(`Select a ${nextStepRoleName ?? "next approver"}.`)
+      toast.error(`Select "${nextStepRoleName ?? "Next Approver"}".`)
       return
     }
     await onConfirm({
@@ -132,7 +132,7 @@ export function CapexDecisionDialog({
           {showNextPicker ? (
             <div className="app-form-field">
               <Label htmlFor="capex_decision_next" className="app-form-label">
-                Next Approver · {nextStepRoleName ?? "Next Step"}
+                Select {nextStepRoleName ?? "Next Approver"}
                 <RequiredFieldMark />
               </Label>
               <select

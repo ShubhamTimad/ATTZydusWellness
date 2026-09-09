@@ -305,10 +305,18 @@ export function AdminDetailField({
   )
 }
 
-export function AdminBackLink({ to, children = "Back" }: { to: string; children?: React.ReactNode }) {
+export function AdminBackLink({
+  to,
+  children = "Back",
+  onClick,
+}: {
+  to: string
+  children?: React.ReactNode
+  onClick?: () => void
+}) {
   return (
     <Button asChild variant="outline" size="sm">
-      <Link to={to}>
+      <Link to={to} onClick={onClick}>
         <ArrowLeft className="size-4" aria-hidden />
         {children}
       </Link>

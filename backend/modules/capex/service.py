@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,6 +14,7 @@ from modules.capex.constants import (
     ENTITY_TYPE,
     ENTITY_TYPE_WITH_ENGINEERING,
     ROLE_CENTRAL_FINANCE,
+    ROLE_COST_CENTER_USER,
     ROLE_ENGINEERING,
     ROLE_HOD,
     STATUS_APPROVED,
@@ -23,6 +25,7 @@ from modules.capex.constants import (
     STATUS_REJECTED,
     SUBMITTABLE_STATUSES,
     capex_needs_next_assignee,
+    status_codes_matching_search,
 )
 from modules.asset_masters.model import CostCenterMaster
 from modules.capex.audit import log_capex_event
@@ -685,12 +688,18 @@ class CapexFormService:
 
         if search and search.strip():
             q = _like(search)
-            search_clause = or_(
+            search_parts = [
                 CapitalizationForm.form_number.ilike(q),
                 CapitalizationForm.asset_name.ilike(q),
                 CapitalizationForm.department.ilike(q),
-                CapitalizationForm.creator.has(User.full_name.ilike(q)),
-            )
+                CapitalizationForm.creator.has(
+                    or_(User.full_name.ilike(q), User.username.ilike(q))
+                ),
+            ]
+            status_codes = status_codes_matching_search(search)
+            if status_codes:
+                search_parts.append(CapitalizationForm.status.in_(status_codes))
+            search_clause = or_(*search_parts)
             stmt = stmt.where(search_clause)
             count_stmt = count_stmt.where(search_clause)
 
@@ -1440,8 +1449,8 @@ class CapexFormService:
                 if nxt_role or nxt:
                     parts.append(f"Next: {nxt_role or nxt}")
                 if nv.get("comment"):
-                    parts.append(f"Note: {nv['comment']}")
-                detail = " · ".join(parts) if parts else None
+                    parts.append(f"Comment: {nv['comment']}")
+                detail = "\n".join(parts) if parts else None
             elif ev.action == "rejected":
                 if nv.get("comment"):
                     detail = f"Reason: {nv['comment']}"
@@ -1453,7 +1462,7 @@ class CapexFormService:
                 if role:
                     label = f"Approved · {role}"
                 if nv.get("comment"):
-                    detail = f"Note: {nv['comment']}"
+                    detail = f"Comment: {nv['comment']}"
             elif ev.action == "linked_to_asset":
                 code = nv.get("asset_code") or (f"#{nv['asset_id']}" if nv.get("asset_id") else None)
                 if code:
@@ -1483,6 +1492,67 @@ def _strip_or_none(value: str | None) -> str | None:
     return s or None
 
 
+def _capitalization_form_link(form_id: int) -> str:
+    base = (
+        os.environ.get("FRONTEND_APP_URL") or os.environ.get("FRONTEND_ORIGIN") or "http://localhost:5173"
+    ).rstrip("/")
+    return f"{base}/dashboard/capitalization/{int(form_id)}"
+
+
+def approval_success_recipients(
+    *,
+    creator: User | None,
+    cost_center_users: list[User],
+) -> list[User]:
+    """Submitter plus Cost Center Users covering the form's cost center, de-duplicated."""
+    seen: set[int] = set()
+    out: list[User] = []
+    for user in (creator, *cost_center_users):
+        if user is None or user.id is None:
+            continue
+        uid = int(user.id)
+        if uid in seen or not bool(user.is_active) or not (user.email or "").strip():
+            continue
+        seen.add(uid)
+        out.append(user)
+    return out
+
+
+def notify_capitalization_approved(db: Session, form: CapitalizationForm) -> None:
+    creator = db.get(User, int(form.created_by)) if form.created_by is not None else None
+    cc_users: list[User] = []
+    if form.cost_center_id is not None:
+        role = db.scalar(select(Role).where(Role.name == ROLE_COST_CENTER_USER))
+        if role is not None:
+            cc_users = _users_in_role(db, int(role.id), cost_center_id=form.cost_center_id)
+    recipients = approval_success_recipients(creator=creator, cost_center_users=cc_users)
+    if not recipients:
+        return
+    cc = form.cost_center
+    if cc is None and form.cost_center_id is not None:
+        cc = db.get(CostCenterMaster, int(form.cost_center_id))
+    cost_center = _cost_center_label(cc, form.cost_center_id)
+    form_link = _capitalization_form_link(int(form.id))
+    from modules.platform.emails.service import enqueue_trigger_events
+
+    enqueue_trigger_events(
+        [
+            (
+                "CAPITALIZATION_APPROVED",
+                {
+                    "user_name": user.full_name or user.email,
+                    "email": user.email,
+                    "form_number": form.form_number,
+                    "asset_name": form.asset_name,
+                    "cost_center": cost_center,
+                    "form_link": form_link,
+                },
+            )
+            for user in recipients
+        ]
+    )
+
+
 def finalize_capex_approval(
     db: Session,
     *,
@@ -1507,6 +1577,11 @@ def finalize_capex_approval(
         },
     )
     db.commit()
+    try:
+        notify_capitalization_approved(db, form)
+    except Exception:
+        # Approval is already committed; a mail failure must not undo it.
+        pass
 
 
 def reject_capex_approval(

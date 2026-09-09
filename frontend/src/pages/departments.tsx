@@ -225,7 +225,7 @@ export function DepartmentsPage() {
         canCreate ? (
           <AdminPrimaryButton type="button" onClick={() => setCreateOpen(true)}>
             <Plus className="size-4" aria-hidden />
-            Create department
+            Create Department
           </AdminPrimaryButton>
         ) : undefined
       }
@@ -239,7 +239,7 @@ export function DepartmentsPage() {
 
       <AdminDataTable
         className="min-h-0 flex-1"
-        title="All departments"
+        title="All Departments"
         footer={
           <AdminTablePagination
             page={Math.min(page, totalPages)}
@@ -267,7 +267,7 @@ export function DepartmentsPage() {
             {departments === null ? (
               <AdminTableLoadingRow colSpan={3 + actionColSpan} label="Loading departments" />
             ) : departments.length === 0 ? (
-              <AdminTableEmptyRow colSpan={3 + actionColSpan}>No departments found.</AdminTableEmptyRow>
+              <AdminTableEmptyRow colSpan={3 + actionColSpan}>No Departments Found.</AdminTableEmptyRow>
             ) : (
               departments.map((d) => {
                   const plant = d.parent_id != null ? plantById.get(d.parent_id) : undefined
@@ -340,7 +340,7 @@ export function DepartmentsPage() {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="dept-code-create">Department code *</Label>
+              <Label htmlFor="dept-code-create">Department Code *</Label>
               <Input
                 id="dept-code-create"
                 value={createCode}
@@ -350,7 +350,7 @@ export function DepartmentsPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="dept-name-create">Department name *</Label>
+              <Label htmlFor="dept-name-create">Department Name *</Label>
               <Input
                 id="dept-name-create"
                 value={createName}
@@ -364,7 +364,7 @@ export function DepartmentsPage() {
                 Cancel
               </Button>
               <AdminPrimaryButton type="button" disabled={creating} onClick={() => void createDepartment()}>
-                {creating ? "Creating…" : "Create department"}
+                {creating ? "Creating…" : "Create Department"}
               </AdminPrimaryButton>
             </div>
           </div>

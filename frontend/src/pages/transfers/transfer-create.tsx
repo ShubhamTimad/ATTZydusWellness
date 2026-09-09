@@ -42,6 +42,11 @@ import {
   plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
+import {
+  asAssetListItem,
+  clearAssetMasterSelection,
+  writeAssetMasterSelection,
+} from "@/lib/asset-master-selection"
 import { currentUserId, isSuperuser, persistAuthFromMe } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
@@ -139,6 +144,7 @@ export function TransferOrderCreatePage() {
     ]
   }, [searchParams])
   const fromAssets = presetAssetIds.length > 0
+  const [handoffReady, setHandoffReady] = React.useState(false)
 
   const [plantId, setPlantId] = React.useState<number | null>(() => {
     const raw = searchParams.get("plant_id")
@@ -318,6 +324,7 @@ export function TransferOrderCreatePage() {
             ? custodied.filter((a) => (a.cost_center ?? "").trim() === primaryCc)
             : custodied
           setAssets(rows)
+          setHandoffReady(true)
           const plants = [
             ...new Set(rows.map((a) => a.plant_id).filter((id): id is number => id != null)),
           ]
@@ -333,10 +340,56 @@ export function TransferOrderCreatePage() {
     } catch {
       /* ignore */
     }
+    if (viewerId == null && !isSuperuser()) return
     setAssets([])
+    setHandoffReady(true)
   }, [fromAssets, presetAssetIds, plantId, viewerId])
 
-  // Browseable catalog of custodiated assets for the plant (+ filters).
+  const assetsRef = React.useRef(assets)
+  assetsRef.current = assets
+  const catalogRef = React.useRef(catalogItems)
+  catalogRef.current = catalogItems
+  React.useEffect(() => {
+    if (!fromAssets) return
+    return () => {
+      const rows = assetsRef.current
+      window.setTimeout(() => {
+        const path = window.location.pathname
+        if (path.includes("/transfer-orders/new")) return
+        if (path === "/dashboard/assets") {
+          if (rows.length === 0) return
+          writeAssetMasterSelection(
+            rows.map((row) => {
+              const catalog = catalogRef.current.find((item) => item.id === row.id)
+              return asAssetListItem({
+                ...(catalog ?? {}),
+                ...row,
+                rfid_code: catalog?.rfid_code ?? null,
+              })
+            }),
+          )
+          return
+        }
+        clearAssetMasterSelection()
+      }, 0)
+    }
+  }, [fromAssets])
+
+  React.useEffect(() => {
+    if (!fromAssets || !handoffReady) return
+    writeAssetMasterSelection(
+      assets.map((row) => {
+        const catalog = catalogItems.find((item) => item.id === row.id)
+        return asAssetListItem({
+          ...(catalog ?? {}),
+          ...row,
+          rfid_code: catalog?.rfid_code ?? null,
+        })
+      }),
+    )
+  }, [assets, catalogItems, fromAssets, handoffReady])
+
+  // Browseable catalog when creating a transfer outside Asset Master.
   React.useEffect(() => {
     if (fromAssets || plantId == null) {
       setCatalogItems([])
@@ -383,6 +436,7 @@ export function TransferOrderCreatePage() {
   }, [assetSearch, fromCostCenterCode, fromFunctionalLocation, plantId, fromAssets, viewerId])
 
   function toggleAsset(row: AssetListItem) {
+    if (fromAssets) return
     if (selectedIds.has(row.id)) {
       removeAsset(row.id)
       return
@@ -430,6 +484,7 @@ export function TransferOrderCreatePage() {
   }
 
   function removeAsset(id: number) {
+    if (fromAssets) return
     setAssets((prev) => prev.filter((a) => a.id !== id))
   }
 
@@ -569,7 +624,10 @@ export function TransferOrderCreatePage() {
           : `Draft ${order.order_number} saved.`,
       )
       void invalidateTransferLists()
-      navigate(`/dashboard/transfer-orders/${order.id}`, { replace: true })
+      navigate(`/dashboard/transfer-orders/${order.id}`, {
+        replace: true,
+        state: fromAssets ? { fromAssets: true } : undefined,
+      })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to create transfer order.")
     } finally {
@@ -584,6 +642,21 @@ export function TransferOrderCreatePage() {
           return p ? plantLabel(p) : (assets[0]?.plant_name ?? String(plantId))
         })()
       : ""
+
+  function persistAssetMasterSelection() {
+    if (!fromAssets) return
+    writeAssetMasterSelection(
+      assets.map((row) => {
+        const catalog = catalogItems.find((item) => item.id === row.id)
+        return asAssetListItem({
+          ...(catalog ?? {}),
+          ...row,
+          rfid_code: catalog?.rfid_code ?? null,
+        })
+      }),
+      {},
+    )
+  }
 
   function loc1Display(code: string | null | undefined, description?: string | null): string {
     const c = (code ?? "").trim()
@@ -607,7 +680,14 @@ export function TransferOrderCreatePage() {
       dense
       description=""
       className="w-full pb-6"
-      actions={<AdminBackLink to="/dashboard/transfer-orders">Transfer Orders</AdminBackLink>}
+      actions={
+        <AdminBackLink
+          to={fromAssets ? "/dashboard/assets" : "/dashboard/transfer-orders"}
+          onClick={persistAssetMasterSelection}
+        >
+          {fromAssets ? "Asset Master" : "Transfer Orders"}
+        </AdminBackLink>
+      }
     >
       <form
         className="space-y-[var(--app-grid-gap)]"
@@ -617,7 +697,7 @@ export function TransferOrderCreatePage() {
         }}
       >
         <AdminPanel
-            title={`Select Asset `}
+            title={`Selected Asset `}
             // description={
             //   fromAssets
             //     ? "Assets where you are the asset custodian (from Asset Master)."
@@ -732,10 +812,10 @@ export function TransferOrderCreatePage() {
                       </AdminTableHeadCell>
                     ) : null}
                     <AdminTableHeadCell>Asset</AdminTableHeadCell>
-                    <AdminTableHeadCell>From Cost Center</AdminTableHeadCell>
+                    <AdminTableHeadCell>Source Cost Center</AdminTableHeadCell>
                     <AdminTableHeadCell>From Actual Location 1</AdminTableHeadCell>
                     <AdminTableHeadCell>From Actual Location 2</AdminTableHeadCell>
-                    <AdminTableHeadCell>Custodian</AdminTableHeadCell>
+                    <AdminTableHeadCell>Asset Custodian</AdminTableHeadCell>
                   </AdminTableHeaderRow>
                 </TableHeader>
                 <TableBody>
@@ -771,10 +851,8 @@ export function TransferOrderCreatePage() {
                               </div>
                             </AdminTableCell>
                             <AdminTableCell>
-                              <div className="font-medium">{a.asset_code}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {a.asset_name || "—"}
-                              </div>
+                              <div className="font-medium">{a.asset_name || "—"}</div>
+                              <div className="text-xs text-muted-foreground">{a.asset_code}</div>
                             </AdminTableCell>
                             <AdminTableCell>
                               {formatCostCenterWithCode(
@@ -804,33 +882,35 @@ export function TransferOrderCreatePage() {
                   ) : assets.length === 0 ? (
                     <AdminTableEmptyRow colSpan={5}>No Assets selected</AdminTableEmptyRow>
                   ) : (
-                    assets.map((a) => (
-                      <AdminTableBodyRow key={a.id} interactive={false}>
-                        <AdminTableCell>
-                          <div className="font-medium">{a.asset_code}</div>
-                          <div className="text-xs text-muted-foreground">{a.asset_name || "—"}</div>
-                        </AdminTableCell>
-                        <AdminTableCell>
-                          {formatCostCenterWithCode(
-                            a.cost_center,
-                            masters.costCenters,
-                            a.cost_center_description,
-                          )}
-                        </AdminTableCell>
-                        <AdminTableCell>
-                          {loc1Display(
-                            a.functional_location,
-                            a.functional_location_description,
-                          )}
-                        </AdminTableCell>
-                        <AdminTableCell>
-                          {loc2Display(a.actual_location, a.actual_location_description)}
-                        </AdminTableCell>
-                        <AdminTableCell className="min-w-[12rem]">
-                          {destCustodianSelect(a.id, a.dest_custodian_id)}
-                        </AdminTableCell>
-                      </AdminTableBodyRow>
-                    ))
+                    <>
+                      {assets.map((a) => (
+                        <AdminTableBodyRow key={a.id} interactive={false}>
+                          <AdminTableCell>
+                            <div className="font-medium">{a.asset_name || "—"}</div>
+                            <div className="text-xs text-muted-foreground">{a.asset_code}</div>
+                          </AdminTableCell>
+                          <AdminTableCell>
+                            {formatCostCenterWithCode(
+                              a.cost_center,
+                              masters.costCenters,
+                              a.cost_center_description,
+                            )}
+                          </AdminTableCell>
+                          <AdminTableCell>
+                            {loc1Display(
+                              a.functional_location,
+                              a.functional_location_description,
+                            )}
+                          </AdminTableCell>
+                          <AdminTableCell>
+                            {loc2Display(a.actual_location, a.actual_location_description)}
+                          </AdminTableCell>
+                          <AdminTableCell className="min-w-[12rem]">
+                            {destCustodianSelect(a.id, a.dest_custodian_id)}
+                          </AdminTableCell>
+                        </AdminTableBodyRow>
+                      ))}
+                    </>
                   )}
                 </TableBody>
               </Table>
@@ -843,7 +923,10 @@ export function TransferOrderCreatePage() {
             variant="outline"
             className="h-9 shadow-sm"
             disabled={busy}
-            onClick={() => navigate("/dashboard/transfer-orders")}
+            onClick={() => {
+              persistAssetMasterSelection()
+              navigate(fromAssets ? "/dashboard/assets" : "/dashboard/transfer-orders")
+            }}
           >
             Cancel
           </Button>

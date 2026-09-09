@@ -65,6 +65,7 @@ const EVENT_CODES = [
   "ORDER_REJECTED",
   "ORDER_COMPLETED",
   "ORDER_RETURNED_FOR_EXECUTION",
+  "CAPITALIZATION_APPROVED",
 ] as const
 
 export function EmailTemplatesPage() {

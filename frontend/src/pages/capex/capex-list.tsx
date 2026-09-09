@@ -204,7 +204,7 @@ export function CapexListPage() {
                   id="capex-search"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search by Form No., Asset Name, Department, Status or Created By"
+                  placeholder="Search by Form No, Asset Name, Department, Status or Created By"
                   className="w-full pl-9"
                   aria-label="Search capitalization forms"
                 />
@@ -287,7 +287,7 @@ export function CapexListPage() {
                       onSort={toggleColumnSort}
                     />
                     <SortableColumnHeader
-                      label="Dept"
+                      label="Department"
                       columnKey="department"
                       sortBy={sortBy}
                       sortDir={sortDir}
@@ -379,7 +379,7 @@ export function CapexListPage() {
                     <AdminTableLoadingRow colSpan={5} label="Loading forms" />
                   ) : items.length === 0 ? (
                     <AdminTableEmptyRow colSpan={5}>
-                      No forms are currently pending for approval.
+                      No Data Found.
                     </AdminTableEmptyRow>
                   ) : (
                     items.map((row) => (

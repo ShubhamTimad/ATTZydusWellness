@@ -30,12 +30,14 @@ import {
   type CapexFormDetail,
   type CapexFormWritePayload,
 } from "@/lib/capex-types"
+import { blockNonNegativeNumberKeys, sanitizeNonNegativeNumericInput } from "@/lib/asset-master-fields"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
 
 import { CapexAssigneePickerDialog } from "./capex-assignee-picker-dialog"
 import { CapexAuditLog } from "./capex-audit-log"
 import { CapexCostCenterSelect } from "./capex-cost-center-select"
+import { CapexDepartmentHeadField } from "./capex-department-head-field"
 import { CapexDecisionDialog } from "./capex-decision-dialog"
 import { printCapexForm } from "./capex-print-form"
 import { CapexProcessFlow } from "./capex-process-flow"
@@ -76,7 +78,7 @@ function detailToForm(d: CapexFormDetail): CapexFormWritePayload {
     functioning_comment: d.functioning_comment ?? "",
     installation_date: d.installation_date ?? "",
     auc_code: d.auc_code ?? "",
-    useful_life: d.useful_life ?? "",
+    useful_life: (d.useful_life ?? "").replace(/\D/g, ""),
     requires_engineering: d.requires_engineering,
     cost_center_id: d.cost_center_id,
   }
@@ -122,18 +124,18 @@ export function CapexDetailPage() {
   const [auditEvents, setAuditEvents] = React.useState<CapexAuditEvent[] | null>(null)
   const [auditLoading, setAuditLoading] = React.useState(false)
 
-  const loadAudit = React.useCallback(async () => {
+  const loadAudit = React.useCallback(async (opts?: { silent?: boolean }) => {
     if (!Number.isFinite(formId)) return
-    setAuditLoading(true)
+    if (!opts?.silent) setAuditLoading(true)
     try {
       const rows = await getJson<CapexAuditEvent[]>(
         `/admin/capitalization-forms/${formId}/audit`,
       )
       setAuditEvents(rows)
     } catch {
-      setAuditEvents([])
+      if (!opts?.silent) setAuditEvents([])
     } finally {
-      setAuditLoading(false)
+      if (!opts?.silent) setAuditLoading(false)
     }
   }, [formId])
 
@@ -205,6 +207,7 @@ export function CapexDetailPage() {
       setDetail(updated)
       setForm(detailToForm(updated))
       toast.success("Form updated.")
+      await loadAudit({ silent: true })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Update failed.")
     } finally {
@@ -312,8 +315,9 @@ export function CapexDetailPage() {
     <AdminPage
       fullWidth
       dense
+      viewportFill
       description={detail.form_number}
-      className="w-full pb-6"
+      className="w-full gap-3 pb-6"
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <AdminPillBadge
@@ -406,10 +410,14 @@ export function CapexDetailPage() {
                 if (!ok) return
                 setSaving(true)
                 try {
-                  setDetail(
-                    await postJson(`/admin/capitalization-forms/${detail.id}/unarchive`, {}),
+                  const restored = await postJson<CapexFormDetail>(
+                    `/admin/capitalization-forms/${detail.id}/unarchive`,
+                    {},
                   )
+                  setDetail(restored)
+                  setForm(detailToForm(restored))
                   toast.success("Capitalization form unarchived.")
+                  await loadAudit({ silent: true })
                 } catch (e) {
                   toast.error(
                     e instanceof ApiError ? e.message : "Could not unarchive capitalization form",
@@ -496,7 +504,7 @@ export function CapexDetailPage() {
         </div>
       }
     >
-      <div className="space-y-[var(--app-grid-gap)]">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <AdminPanel className="shrink-0 overflow-hidden p-0">
           <div className="border-b border-border/60 bg-muted/15 px-4 py-3 sm:px-5">
             <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-black">
@@ -508,6 +516,7 @@ export function CapexDetailPage() {
 
         <AdminPanel
           title="Asset Capitalization Detail"
+          className="shrink-0"
           // description="Request creation and capitalization of a new asset."
           headerActions={<FileText className="size-4 text-muted-foreground" aria-hidden />}
           contentClassName="px-5 py-5"
@@ -572,7 +581,7 @@ export function CapexDetailPage() {
                     ? `${detail.cost_center_code} — ${detail.cost_center_name ?? ""}`.trim()
                     : null
                 }
-                onChange={(next) => patch({ cost_center_id: next })}
+                onChange={(next) => patch({ cost_center_id: next, department_head: "" })}
               />
             </FormField>
             <FormField id="installation_location" labelText="Location of Installation">
@@ -586,12 +595,11 @@ export function CapexDetailPage() {
               />
             </FormField>
             <FormField id="department_head" labelText="Department Head Name">
-              <AutoGrowTextarea
-                id="department_head"
+              <CapexDepartmentHeadField
+                key={form.cost_center_id ?? "none"}
+                costCenterId={form.cost_center_id ?? null}
                 value={form.department_head ?? ""}
                 disabled={readOnly}
-                minRows={1}
-                className="min-h-9"
                 onChange={(next) => patch({ department_head: next })}
               />
             </FormField>
@@ -614,14 +622,20 @@ export function CapexDetailPage() {
                 onChange={(next) => patch({ auc_code: next })}
               />
             </FormField>
-            <FormField id="useful_life" labelText="Useful Life of Asset">
-              <AutoGrowTextarea
+            <FormField id="useful_life" labelText="Useful Life of Asset (Years)">
+              <Input
                 id="useful_life"
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                className="h-9 w-full tabular-nums"
                 value={form.useful_life ?? ""}
                 disabled={readOnly}
-                minRows={1}
-                className="min-h-9"
-                onChange={(next) => patch({ useful_life: next })}
+                onKeyDown={blockNonNegativeNumberKeys}
+                onChange={(e) =>
+                  patch({ useful_life: sanitizeNonNegativeNumericInput(e.target.value, true) })
+                }
               />
             </FormField>
             {hasPermission("capitalization.submit_with_engineering") || form.requires_engineering ? (
@@ -661,6 +675,7 @@ export function CapexDetailPage() {
           <AdminPanel
             title="Linked asset"
             description="This form has been used to create an asset."
+            className="shrink-0"
             headerActions={<Link2 className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
           >

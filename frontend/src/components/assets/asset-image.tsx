@@ -88,7 +88,7 @@ export function AssetImage({
                 {src ? "Replace Image" : "Upload Image"}
               </Button>
               {src && onRemove ? (
-                <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onRemove}>
+                <Button type="button" variant="outline" size="sm" disabled={busy} onClick={onRemove}>
                   <Trash2 className="size-4" aria-hidden />
                   Remove
                 </Button>

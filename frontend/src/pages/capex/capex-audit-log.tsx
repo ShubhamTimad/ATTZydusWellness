@@ -5,7 +5,18 @@ import type { CapexAuditEvent } from "@/lib/capex-types"
 
 function detailLines(ev: CapexAuditEvent): string[] {
   const lines: string[] = []
-  if (ev.detail?.trim()) lines.push(...ev.detail.split("\n").filter((line) => line.trim()))
+  if (ev.detail?.trim()) {
+    for (const raw of ev.detail.split("\n")) {
+      const line = raw.trim()
+      if (!line) continue
+      const shown = line.replace(/\bNote:/g, "Comment:")
+      if (shown.includes("Next:") && shown.includes("Comment:")) {
+        lines.push(...shown.split(" · ").map((part) => part.trim()).filter(Boolean))
+      } else {
+        lines.push(shown)
+      }
+    }
+  }
   for (const c of ev.changes) {
     const from = (c.from_value || "").trim()
     const to = (c.to_value || "").trim()

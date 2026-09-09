@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { useLocation, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
 
@@ -17,6 +17,7 @@ import {
   adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
+import { releaseAssetMasterSelectionUnlessReturn } from "@/lib/asset-master-selection"
 import { Button } from "@/components/ui/button"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
@@ -86,6 +87,11 @@ const tableSelectCellClass = "min-w-0 overflow-hidden whitespace-normal px-4 py-
 export function TransferOrderDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const backToAssets = Boolean((useLocation().state as { fromAssets?: boolean } | null)?.fromAssets)
+  React.useEffect(() => {
+    if (!backToAssets) return
+    return () => releaseAssetMasterSelectionUnlessReturn()
+  }, [backToAssets])
   const orderId = Number(id)
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [order, setOrder] = React.useState<TransferOrderDetail | null>(null)
@@ -820,7 +826,9 @@ export function TransferOrderDetailPage() {
               Close
             </AdminPrimaryButton>
           ) : null}
-          <AdminBackLink to="/dashboard/transfer-orders">Transfer orders</AdminBackLink>
+          <AdminBackLink to={backToAssets ? "/dashboard/assets" : "/dashboard/transfer-orders"}>
+            {backToAssets ? "Asset Master" : "Transfer orders"}
+          </AdminBackLink>
         </div>
       }
     >

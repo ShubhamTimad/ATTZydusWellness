@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { blockNonNegativeNumberKeys, sanitizeNonNegativeNumericInput } from "@/lib/asset-master-fields"
 import { ApiError, postJson } from "@/lib/api"
 import type { CapexFormDetail, CapexFormWritePayload } from "@/lib/capex-types"
 import { hasPermission } from "@/lib/permissions"
@@ -22,6 +23,7 @@ import { cn } from "@/lib/utils"
 
 import { CapexAssigneePickerDialog } from "./capex-assignee-picker-dialog"
 import { CapexCostCenterSelect } from "./capex-cost-center-select"
+import { CapexDepartmentHeadField } from "./capex-department-head-field"
 
 const EMPTY: CapexFormWritePayload = {
   asset_name: "",
@@ -238,7 +240,7 @@ export function CapexCreatePage() {
             <FormField id="cost_center_id" labelText="Cost Center">
               <CapexCostCenterSelect
                 value={form.cost_center_id}
-                onChange={(next) => patch({ cost_center_id: next })}
+                onChange={(next) => patch({ cost_center_id: next, department_head: "" })}
               />
             </FormField>
             <FormField id="installation_location" labelText="Location of Installation">
@@ -251,11 +253,10 @@ export function CapexCreatePage() {
               />
             </FormField>
             <FormField id="department_head" labelText="Department Head Name">
-              <AutoGrowTextarea
-                id="department_head"
+              <CapexDepartmentHeadField
+                key={form.cost_center_id ?? "none"}
+                costCenterId={form.cost_center_id ?? null}
                 value={form.department_head ?? ""}
-                minRows={1}
-                className="min-h-9"
                 onChange={(next) => patch({ department_head: next })}
               />
             </FormField>
@@ -276,14 +277,19 @@ export function CapexCreatePage() {
                 onChange={(next) => patch({ auc_code: next })}
               />
             </FormField>
-            <FormField id="useful_life" labelText="Useful Life of Asset">
-              <AutoGrowTextarea
+            <FormField id="useful_life" labelText="Useful Life of Asset (Years)">
+              <Input
                 id="useful_life"
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                className="h-9 w-full tabular-nums"
                 value={form.useful_life ?? ""}
-                minRows={1}
-                className="min-h-9"
-                onChange={(next) => patch({ useful_life: next })}
-                placeholder="e.g. 5 Years"
+                onKeyDown={blockNonNegativeNumberKeys}
+                onChange={(e) =>
+                  patch({ useful_life: sanitizeNonNegativeNumericInput(e.target.value, true) })
+                }
               />
             </FormField>
             {canSubmitWithEngineering ? (

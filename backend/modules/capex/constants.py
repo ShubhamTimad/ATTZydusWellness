@@ -28,7 +28,30 @@ STATUS_LABELS: dict[str, str] = {
     STATUS_CANCELLED: "Cancelled",
 }
 
+# Labels shown in the capitalization list. Search matches these, not only the stored codes.
+SEARCH_STATUS_LABELS: dict[str, str] = {
+    STATUS_DRAFT: "draft",
+    STATUS_PENDING_APPROVAL: "pending approval",
+    STATUS_APPROVED: "approved",
+    STATUS_REJECTED: "rejected",
+    STATUS_IN_REWORK: "rejected",
+    STATUS_CANCELLED: "archived",
+}
+
+
+def status_codes_matching_search(query: str) -> list[str]:
+    needle = " ".join((query or "").strip().lower().replace("_", " ").split())
+    if not needle:
+        return []
+    matched: list[str] = []
+    for code, label in SEARCH_STATUS_LABELS.items():
+        raw = code.replace("_", " ")
+        if needle in label or needle in raw:
+            matched.append(code)
+    return matched
+
 # Role names used for CapEx user-assignment pools (must match seeded roles).
+ROLE_COST_CENTER_USER = "Cost Center User"
 ROLE_HOD = "Department HOD"
 ROLE_ENGINEERING = "Engineering"
 ROLE_CENTRAL_FINANCE = "Central Finance"

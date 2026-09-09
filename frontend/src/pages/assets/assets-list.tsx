@@ -62,7 +62,6 @@ import { ApiError, deleteJson, downloadFile, getJson, postJson, putJson } from "
 import {
   assetListRootKey,
   invalidateAssetLists,
-  invalidateOrderLists,
   LIST_STALE_MS,
 } from "@/lib/query-client"
 import {
@@ -74,8 +73,13 @@ import {
   eligiblePhysicalOrderAssets,
   eligibleReactivateAssets,
   eligibleSubmitAssets,
-  selectedAssetsFromList,
 } from "@/lib/asset-actions"
+import {
+  asAssetListItem,
+  clearAssetMasterSelection,
+  takeAssetMasterSelection,
+  writeAssetMasterSelection,
+} from "@/lib/asset-master-selection"
 import type {
   AssetListResponse,
   AssetListItem,
@@ -109,7 +113,8 @@ import {
   isAssetPendingTransfer,
 } from "@/lib/asset-lifecycle"
 import { currentUserId, hasPermission, isSuperuser } from "@/lib/permissions"
-import type { PhysicalOrderDetail, ValidateAssetsResponse } from "@/lib/orders-types"
+import type { ValidateAssetsResponse } from "@/lib/orders-types"
+import { writePhysicalOrderPreview } from "@/pages/orders/order-create"
 import { orderStatusLabel } from "@/lib/orders-types"
 import { TRANSFER_IN_PROGRESS_MESSAGE } from "@/lib/transfer-types"
 import { formatAppDate } from "@/lib/dates"
@@ -140,7 +145,8 @@ export type AssetListColumnKey =
   | "asset_type"
   | "asset_condition"
   | "asset_custodian"
-  | "plant"
+  | "plant_code"
+  | "plant_name"
   | "cost_center"
   | "cost_center_name"
   | "functional_location"
@@ -158,21 +164,22 @@ export type AssetListColumnKey =
 type AssetListColumnDefinition = {
   key: AssetListColumnKey
   label: string
-  group: "Asset" | "Location & financial" | "Inventory"
+  group: "Asset information" | "Location & financial" | "Inventory"
 }
 
 const ASSET_LIST_COLUMNS: AssetListColumnDefinition[] = [
-  { key: "asset_code", label: "Asset Number", group: "Asset" },
-  { key: "combined_asset_number", label: "Combined Asset No", group: "Asset" },
-  { key: "asset_name", label: "Asset Name", group: "Asset" },
-  { key: "rfid_code", label: "RFID", group: "Asset" },
-  { key: "category_name", label: "Category", group: "Asset" },
-  { key: "sub_no", label: "Sub-No", group: "Asset" },
-  { key: "asset_class", label: "Asset Class", group: "Asset" },
-  { key: "asset_type", label: "Asset Type", group: "Asset" },
-  { key: "asset_condition", label: "Asset Physical Condition", group: "Asset" },
-  { key: "asset_custodian", label: "Asset Custodian", group: "Asset" },
-  { key: "plant", label: "Plant", group: "Location & financial" },
+  { key: "asset_code", label: "Asset Number", group: "Asset information" },
+  { key: "combined_asset_number", label: "Combined Asset No", group: "Asset information" },
+  { key: "asset_name", label: "Asset Name", group: "Asset information" },
+  { key: "rfid_code", label: "RFID Code", group: "Asset information" },
+  { key: "category_name", label: "Asset Category", group: "Asset information" },
+  { key: "sub_no", label: "Sub-No", group: "Asset information" },
+  { key: "asset_class", label: "Asset Class", group: "Asset information" },
+  { key: "asset_type", label: "Asset Type", group: "Asset information" },
+  { key: "asset_condition", label: "Asset Physical Condition", group: "Asset information" },
+  { key: "asset_custodian", label: "Asset Custodian", group: "Asset information" },
+  { key: "plant_code", label: "Plant Code", group: "Location & financial" },
+  { key: "plant_name", label: "Plant Name", group: "Location & financial" },
   { key: "cost_center", label: "Cost Center Code", group: "Location & financial" },
   { key: "cost_center_name", label: "Cost Center Name", group: "Location & financial" },
   { key: "functional_location", label: "Actual Location 1", group: "Location & financial" },
@@ -185,7 +192,7 @@ const ASSET_LIST_COLUMNS: AssetListColumnDefinition[] = [
   { key: "inventory_count", label: "Inventory Count", group: "Inventory" },
   { key: "physical_count", label: "Physical Count", group: "Inventory" },
   { key: "last_verification_date", label: "Last Verification", group: "Inventory" },
-  { key: "lifecycle_status", label: "Status", group: "Asset" },
+  { key: "lifecycle_status", label: "Status", group: "Asset information" },
 ]
 
 const ASSET_LIST_COLUMNS_CACHE_KEY = "asset.listColumns"
@@ -197,9 +204,10 @@ function readStoredAssetListColumns(): AssetListColumnKey[] | null {
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) return null
     const allowed = new Set(ASSET_LIST_COLUMNS.map((column) => column.key))
-    const columns = parsed.filter((key): key is AssetListColumnKey =>
-      allowed.has(key as AssetListColumnKey),
-    )
+    const columns = parsed.flatMap((key): AssetListColumnKey[] => {
+      if (key === "plant") return ["plant_code", "plant_name"]
+      return allowed.has(key as AssetListColumnKey) ? [key as AssetListColumnKey] : []
+    })
     return columns.length > 0 ? columns : null
   } catch {
     return null
@@ -366,8 +374,12 @@ function assetListCell(row: AssetListItem, key: AssetListColumnKey): React.React
       return row.asset_condition_name?.trim() || "—"
     case "asset_custodian":
       return row.asset_custodian_name?.trim() || "—"
-    case "plant":
-      return formatMasterLabel(row.plant_code, row.plant_name)
+    case "plant_code":
+      return (
+        <span className="font-mono text-xs text-foreground">{row.plant_code?.trim() || "—"}</span>
+      )
+    case "plant_name":
+      return row.plant_name?.trim() || "—"
     case "cost_center":
       return (
         <span className="font-mono text-xs text-foreground">{row.cost_center?.trim() || "—"}</span>
@@ -632,12 +644,45 @@ export function AssetsListPage() {
       })
       .finally(() => setDefaultCcReady(true))
   }, [draftFilters.plant_id, canViewAllAssets])
-  const [selected, setSelected] = React.useState<Set<number>>(new Set())
-  const [selectedHasRfid, setSelectedHasRfid] = React.useState<Map<number, boolean>>(new Map())
+  const [restoredSelection] = React.useState(() => takeAssetMasterSelection())
+  const [selected, setSelected] = React.useState<Set<number>>(
+    () => new Set((restoredSelection ?? []).map((row) => row.id)),
+  )
+  const [selectedHasRfid, setSelectedHasRfid] = React.useState<Map<number, boolean>>(
+    () =>
+      new Map(
+        (restoredSelection ?? []).map((row) => [row.id, Boolean(row.rfid_code?.trim())]),
+      ),
+  )
+  const [selectionCache, setSelectionCache] = React.useState<Map<number, AssetListItem>>(
+    () => new Map((restoredSelection ?? []).map((row) => [row.id, asAssetListItem(row)])),
+  )
+
+  function applyReturnedSelection(rows: AssetListItem[]) {
+    setSelected(new Set(rows.map((row) => row.id)))
+    setSelectedHasRfid(new Map(rows.map((row) => [row.id, Boolean(row.rfid_code?.trim())])))
+    setSelectionCache(new Map(rows.map((row) => [row.id, asAssetListItem(row)])))
+  }
+
+  React.useLayoutEffect(() => {
+    const rows = takeAssetMasterSelection()
+    if (!rows?.length) return
+    applyReturnedSelection(rows)
+  }, [])
+
+  // Keep the return selection for this visit. Drop it only after leaving Asset Master,
+  // so opening the page again from another screen starts with nothing selected.
+  React.useEffect(() => {
+    return () => {
+      window.setTimeout(() => {
+        if (window.location.pathname === "/dashboard/assets") return
+        clearAssetMasterSelection()
+      }, 0)
+    }
+  }, [])
   const [bulkActionBusy, setBulkActionBusy] = React.useState(false)
   const [orderValidateBusy, setOrderValidateBusy] = React.useState(false)
   const [orderWarningsOpen, setOrderWarningsOpen] = React.useState(false)
-  const [orderCreateBusy, setOrderCreateBusy] = React.useState(false)
   const [validationResult, setValidationResult] = React.useState<ValidateAssetsResponse | null>(null)
   const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
   const [rfidDialogIsUpdate, setRfidDialogIsUpdate] = React.useState(false)
@@ -721,7 +766,10 @@ export function AssetsListPage() {
     void getJson<AssetListColumnsPreference>("/admin/assets/list-columns")
       .then((preference) => {
         const allowed = new Set(ASSET_LIST_COLUMNS.map((column) => column.key))
-        const columns = preference.columns.filter((key) => allowed.has(key))
+        const columns = preference.columns.flatMap((key): AssetListColumnKey[] => {
+          if ((key as string) === "plant") return ["plant_code", "plant_name"]
+          return allowed.has(key) ? [key] : []
+        })
         if (columns.length > 0) {
           sessionStorage.setItem(ASSET_LIST_COLUMNS_CACHE_KEY, JSON.stringify(columns))
           setVisibleColumnKeys((prev) =>
@@ -980,18 +1028,18 @@ export function AssetsListPage() {
         </select>
       )
     }
-    if (key === "plant") {
+    if (key === "plant_code" || key === "plant_name") {
       return (
         <select
           className={cn(adminSelectClass, columnFilterControlClass)}
           value={filters.plant_id}
-          aria-label="Filter plant"
+          aria-label={key === "plant_code" ? "Filter plant code" : "Filter plant name"}
           onChange={(e) => setColumnPanelFilter("plant_id", e.target.value)}
         >
-          <option value="">Plant</option>
+          <option value="">{key === "plant_code" ? "Plant Code" : "Plant Name"}</option>
           {masters.plants.map((p) => (
             <option key={p.id} value={String(p.id)}>
-              {plantLabel(p)}
+              {key === "plant_code" ? p.code : p.name || p.code}
             </option>
           ))}
         </select>
@@ -1127,7 +1175,7 @@ export function AssetsListPage() {
       setVisibleColumnKeys(saved.columns)
       sessionStorage.setItem(ASSET_LIST_COLUMNS_CACHE_KEY, JSON.stringify(saved.columns))
       setColumnsOpen(false)
-      toast.success("Asset-list columns saved")
+      toast.success("Asset List Columns Saved")
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save column preferences")
     } finally {
@@ -1189,6 +1237,17 @@ export function AssetsListPage() {
   function clearSelection() {
     setSelected(new Set())
     setSelectedHasRfid(new Map())
+    setSelectionCache(new Map())
+  }
+
+  function rememberRow(row: AssetListItem | undefined, on: boolean) {
+    if (!row) return
+    setSelectionCache((prev) => {
+      const next = new Map(prev)
+      if (on) next.set(row.id, row)
+      else next.delete(row.id)
+      return next
+    })
   }
 
   function toggleRow(id: number, on: boolean) {
@@ -1205,6 +1264,7 @@ export function AssetsListPage() {
       else next.delete(id)
       return next
     })
+    rememberRow(row, on)
   }
 
   function toggleAll(on: boolean) {
@@ -1230,6 +1290,17 @@ export function AssetsListPage() {
       }
       return next
     })
+    setSelectionCache((prev) => {
+      const next = new Map(prev)
+      if (on) {
+        for (const row of data.items) {
+          if (canActOnAsset(row)) next.set(row.id, row)
+        }
+      } else {
+        for (const id of pageIds) next.delete(id)
+      }
+      return next
+    })
   }
 
   const items = data?.items ?? []
@@ -1237,10 +1308,15 @@ export function AssetsListPage() {
   const pageSelectedCount = actionableItems.filter((row) => selected.has(row.id)).length
   const allPageSelected = actionableItems.length > 0 && pageSelectedCount === actionableItems.length
   const somePageSelected = pageSelectedCount > 0 && !allPageSelected
-  const selectedRows = React.useMemo(
-    () => selectedAssetsFromList(items, selected),
-    [items, selected],
-  )
+  const selectedRows = React.useMemo(() => {
+    const byId = new Map(selectionCache)
+    for (const item of items) {
+      if (selected.has(item.id)) byId.set(item.id, item)
+    }
+    return [...selected]
+      .map((id) => byId.get(id))
+      .filter((row): row is AssetListItem => row != null)
+  }, [items, selected, selectionCache])
   const rfidTaggedCount = React.useMemo(() => {
     let count = 0
     for (const id of selected) {
@@ -1595,7 +1671,7 @@ export function AssetsListPage() {
     }
   }
 
-  async function createPhysicalOrderDraft(
+  function openPhysicalOrderPreview(
     assetIds: number[],
     resetVerificationAssetIds: number[] = [],
   ) {
@@ -1603,24 +1679,27 @@ export function AssetsListPage() {
       toast.error("No eligible assets selected.")
       return
     }
-    setOrderCreateBusy(true)
-    try {
-      const order = await postJson<PhysicalOrderDetail>("/admin/physical-orders", {
-        asset_ids: assetIds,
-        submit: false,
-        reset_verification_asset_ids: resetVerificationAssetIds,
-      })
-      toast.success("Physical Verification Order created as draft.")
-      void invalidateAssetLists()
-      void invalidateOrderLists()
-      setOrderWarningsOpen(false)
-      clearSelection()
-      navigate(`/dashboard/orders/${order.id}`)
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Failed to create order.")
-    } finally {
-      setOrderCreateBusy(false)
-    }
+    const idSet = new Set(assetIds)
+    const selection = selectedRows.filter((row) => idSet.has(row.id))
+    writePhysicalOrderPreview({
+      asset_ids: assetIds,
+      reset_verification_asset_ids: resetVerificationAssetIds,
+      selection,
+      assets: selection.map((row) => ({
+        id: row.id,
+        asset_code: row.asset_code,
+        asset_name: row.asset_name,
+        rfid_code: row.rfid_code,
+        cost_center: row.cost_center,
+        plant_name: row.plant_name,
+        inventory_count: row.inventory_count,
+        physical_count: row.physical_count,
+        last_verification_date: row.last_verification_date,
+      })),
+    })
+    writeAssetMasterSelection(selection)
+    setOrderWarningsOpen(false)
+    navigate("/dashboard/orders/new")
   }
 
   async function beginCreatePhysicalOrder() {
@@ -1640,7 +1719,7 @@ export function AssetsListPage() {
         toast.error("No eligible assets selected.")
         return
       }
-      await createPhysicalOrderDraft(res.eligible_asset_ids)
+      openPhysicalOrderPreview(res.eligible_asset_ids)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Validation failed.")
     } finally {
@@ -1721,8 +1800,10 @@ export function AssetsListPage() {
       } catch {
         /* ignore quota */
       }
+      writeAssetMasterSelection(transferEligibleRows)
       const q = new URLSearchParams({
         asset_ids: transferEligibleRows.map((r) => r.id).join(","),
+        from: "assets",
       })
       q.set("plant_id", String(plants[0]))
       navigate(`/dashboard/transfer-orders/new?${q}`)
@@ -1770,8 +1851,11 @@ export function AssetsListPage() {
               plant_id: r.plant_id,
               plant_name: r.plant_name,
               cost_center: r.cost_center,
+              cost_center_description: r.cost_center_description,
               functional_location: r.functional_location,
+              functional_location_description: r.functional_location_description,
               actual_location: r.actual_location,
+              actual_location_description: r.actual_location_description,
               asset_custodian_id: r.asset_custodian_id ?? null,
               approval_status: r.approval_status,
               lifecycle_status: r.lifecycle_status,
@@ -1781,8 +1865,10 @@ export function AssetsListPage() {
       } catch {
         /* ignore quota */
       }
+      writeAssetMasterSelection(transferEligibleRows)
       const q = new URLSearchParams({
         asset_ids: transferEligibleRows.map((r) => r.id).join(","),
+        from: "assets",
       })
       q.set("plant_id", String(plants[0]))
       navigate(`/dashboard/disposal-orders/new?${q}`)
@@ -1807,6 +1893,7 @@ export function AssetsListPage() {
     }
     if (actionId === "clear-selection") {
       clearSelection()
+      clearAssetMasterSelection()
     }
   }
 
@@ -1913,6 +2000,7 @@ export function AssetsListPage() {
               }
               setPage(1)
               clearSelection()
+              clearAssetMasterSelection()
             }}
             className="shrink-0"
           >
@@ -2507,12 +2595,9 @@ export function AssetsListPage() {
       </div>
 
       <Dialog open={columnsOpen} onOpenChange={setColumnsOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Choose Asset List Columns</DialogTitle>
-            {/* <DialogDescription>
-              Your selection is saved for your user account until you change it.
-            </DialogDescription> */}
           </DialogHeader>
           <div className="dialog-body max-h-[60vh] space-y-4 overflow-y-auto">
             <div className="flex flex-wrap justify-end gap-2">
@@ -2537,7 +2622,7 @@ export function AssetsListPage() {
                 Select All
               </Button>
             </div>
-            {(["Asset", "Location & financial", "Inventory"] as const).map((group) => (
+            {(["Asset information", "Location & financial", "Inventory"] as const).map((group) => (
               <div key={group} className="rounded-md border border-border/60 bg-muted/15 p-3">
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   {group}
@@ -2583,20 +2668,14 @@ export function AssetsListPage() {
 
       <Dialog
         open={orderWarningsOpen}
-        onOpenChange={(open) => {
-          if (orderCreateBusy) return
-          setOrderWarningsOpen(open)
-        }}
+        onOpenChange={setOrderWarningsOpen}
       >
-        <DialogContent className="max-w-md overflow-hidden p-0 sm:max-w-md">
+        <DialogContent className="max-w-md overflow-hidden p-0 sm:max-w-md" aria-describedby={undefined}>
           {validationResult ? (
             <>
               <div className="border-b px-6 py-4 pr-12">
                 <DialogHeader className="space-y-1">
                   <DialogTitle className="text-base font-semibold">Review Warning</DialogTitle>
-                  {/* <DialogDescription className="text-xs text-muted-foreground">
-                    Read these carefully before creating the order.
-                  </DialogDescription> */}
                 </DialogHeader>
               </div>
               <div className="dialog-body">
@@ -2666,7 +2745,6 @@ export function AssetsListPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={orderCreateBusy}
                   onClick={() => setOrderWarningsOpen(false)}
                 >
                   {hasBlockingOrderMismatch(validationResult) ? "Close" : "Cancel"}
@@ -2675,15 +2753,14 @@ export function AssetsListPage() {
                 validationResult.eligible_asset_ids.length > 0 ? (
                   <AdminPrimaryButton
                     type="button"
-                    disabled={orderCreateBusy}
                     onClick={() =>
-                      void createPhysicalOrderDraft(
+                      openPhysicalOrderPreview(
                         validationResult.eligible_asset_ids,
                         fyVerifiedEligibleIdsFrom(validationResult),
                       )
                     }
                   >
-                    {orderCreateBusy ? "Creating…" : "Create Order"}
+                    Continue
                   </AdminPrimaryButton>
                 ) : null}
               </DialogFooter>

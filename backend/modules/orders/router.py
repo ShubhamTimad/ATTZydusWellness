@@ -27,6 +27,7 @@ from modules.orders.schema import (
     SubmitPhysicalOrderRequest,
     UpdatePhysicalOrderRequest,
     ValidateAssetsRequest,
+    NextOrderNumberResponse,
     ValidateAssetsResponse,
 )
 from modules.assets.schema import AssetRemarkPublic, AssetRemarkUpdateRequest
@@ -38,6 +39,15 @@ router = APIRouter(prefix="/physical-orders", tags=["admin", "physical-orders"])
 
 def get_order_service(db: Session = Depends(get_db)) -> PhysicalOrderService:
     return PhysicalOrderService(db)
+
+
+@router.get("/next-number", response_model=NextOrderNumberResponse)
+def peek_next_order_number(
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.create"))],
+) -> NextOrderNumberResponse:
+    """Next order number if a draft were saved now. Does not reserve or consume it."""
+    return NextOrderNumberResponse(order_number=svc.peek_next_order_number())
 
 
 @router.post("/validate-assets", response_model=ValidateAssetsResponse)

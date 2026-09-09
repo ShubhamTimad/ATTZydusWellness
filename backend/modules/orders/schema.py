@@ -5,6 +5,10 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field
 
 
+class NextOrderNumberResponse(BaseModel):
+    order_number: str
+
+
 class ValidateAssetsRequest(BaseModel):
     asset_ids: list[int] = Field(..., min_length=1)
 

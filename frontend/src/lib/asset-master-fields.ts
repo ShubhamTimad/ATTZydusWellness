@@ -381,14 +381,14 @@ export const ASSET_EXPORT_FIELD_GROUPS: AssetExportFieldGroup[] = ASSET_VIEW_SEC
 
 export const ASSET_EXPORT_FIELD_LABELS: Record<string, string> = {
   ...ASSET_FIELD_LABELS,
-  category_code: "Asset Category / Group",
+  category_code: "Asset Category",
   asset_class_code: ASSET_FIELD_LABELS.asset_class_id,
   asset_condition_code: "Physical Condition Of Assets",
   asset_custodian_code: ASSET_FIELD_LABELS.asset_custodian_id,
   tag_color_code: ASSET_FIELD_LABELS.tag_color_id,
-  rfid_code: "RFID Tag",
+  rfid_code: "RFID Code",
   plant_name: "Plant Name",
-  cost_center: "Cost Center",
+  cost_center: "Cost Center Code",
   life_span: "Useful life",
   gross_block: "APC-IGAAP",
   current_apc_igaap: "Current APC-IGAAP",

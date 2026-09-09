@@ -283,7 +283,8 @@ DEFAULT_ASSET_LIST_COLUMNS = (
 ASSET_LIST_COLUMN_KEYS = frozenset(
     (
         *DEFAULT_ASSET_LIST_COLUMNS,
-        "plant",
+        "plant_code",
+        "plant_name",
         "cost_center_name",
         "actual_location",
         "last_verification_date",
@@ -355,9 +356,10 @@ def _asset_list_sort_expression(sort_by: str):
             .scalar_subquery()
         )
 
-    if key == "plant":
+    if key in ("plant", "plant_code", "plant_name"):
+        plant_col = OrgUnit.name if key == "plant_name" else OrgUnit.code
         return (
-            select(OrgUnit.code)
+            select(plant_col)
             .select_from(AssetLocationInformation)
             .join(OrgUnit, OrgUnit.id == AssetLocationInformation.plant_id)
             .where(AssetLocationInformation.asset_id == AssetMaster.id)
@@ -574,7 +576,13 @@ class AssetMasterService:
         if user is None:
             raise NotFoundError("User", user_id)
         saved = user.asset_list_columns or []
-        valid = [key for key in saved if key in ASSET_LIST_COLUMN_KEYS]
+        expanded: list[str] = []
+        for key in saved:
+            if key == "plant":
+                expanded.extend(["plant_code", "plant_name"])
+            else:
+                expanded.append(key)
+        valid = [key for key in expanded if key in ASSET_LIST_COLUMN_KEYS]
         return valid or list(DEFAULT_ASSET_LIST_COLUMNS)
 
     def update_asset_list_columns(self, user_id: int, columns: list[str]) -> list[str]:

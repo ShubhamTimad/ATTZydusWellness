@@ -24,6 +24,7 @@ import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
+import { clearAssetMasterSelection, writeAssetMasterSelection } from "@/lib/asset-master-selection"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import { invalidateDisposalLists } from "@/lib/query-client"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
@@ -32,7 +33,7 @@ import type { CostCenterMaster } from "@/lib/masters-types"
 import { hasPermission } from "@/lib/permissions"
 import {
   actualLocationLabel,
-  costCenterLabel,
+  formatCostCenterWithCode,
   functionalLocationLabel,
   plantLabel,
   useAssetMasterLookups,
@@ -84,7 +85,6 @@ export function DisposalOrderCreatePage() {
   const [assetSearch, setAssetSearch] = React.useState("")
   const [catalog, setCatalog] = React.useState<AssetListItem[]>([])
   const [catalogLoading, setCatalogLoading] = React.useState(false)
-  const [browseMore, setBrowseMore] = React.useState(false)
   const [requiresEngineering, setRequiresEngineering] = React.useState(false)
   const [remarks, setRemarks] = React.useState("")
   const [toCostCenterId, setToCostCenterId] = React.useState("")
@@ -96,34 +96,27 @@ export function DisposalOrderCreatePage() {
 
   const masters = useAssetMasterLookups(plantId)
 
-  function placeName(
-    code: string | null | undefined,
-    description: string | null | undefined,
-    masterName: string | null | undefined,
-  ): string {
-    const named = (masterName ?? "").trim()
-    const raw = (code ?? "").trim()
-    if (named && named.toLowerCase() !== raw.toLowerCase()) return named
+  function loc1Display(code: string | null | undefined, description?: string | null): string {
+    const c = (code ?? "").trim()
     const desc = (description ?? "").trim()
-    if (desc && desc.toLowerCase() !== raw.toLowerCase()) return desc
-    return "—"
+    const fl = c ? masters.functionalLocations.find((l) => (l.code ?? "").trim() === c) : undefined
+    if (fl) return functionalLocationLabel(fl)
+    return desc || c || "—"
+  }
+
+  function loc2Display(code: string | null | undefined, description?: string | null): string {
+    const c = (code ?? "").trim()
+    const desc = (description ?? "").trim()
+    const al = c ? masters.actualLocations.find((l) => (l.code ?? "").trim() === c) : undefined
+    if (al) return actualLocationLabel(al)
+    return desc || c || "—"
   }
 
   function assetPlaceLabels(a: AssetListItem) {
-    const ccCode = (a.cost_center ?? "").trim()
-    const flCode = (a.functional_location ?? "").trim()
-    const alCode = (a.actual_location ?? "").trim()
-    const cc = masters.costCenters.find((c) => (c.code ?? "").trim() === ccCode)
-    const fl = masters.functionalLocations.find((l) => (l.code ?? "").trim() === flCode)
-    const al = masters.actualLocations.find(
-      (l) =>
-        (l.code ?? "").trim() === alCode &&
-        (!fl || l.functional_location_id === fl.id || (l.functional_location_code ?? "").trim() === flCode),
-    )
     return {
-      costCenter: placeName(ccCode, a.cost_center_description, cc ? costCenterLabel(cc) : null),
-      loc1: placeName(flCode, a.functional_location_description, fl ? functionalLocationLabel(fl) : null),
-      loc2: placeName(alCode, a.actual_location_description, al ? actualLocationLabel(al) : null),
+      costCenter: formatCostCenterWithCode(a.cost_center, masters.costCenters, a.cost_center_description),
+      loc1: loc1Display(a.functional_location, a.functional_location_description),
+      loc2: loc2Display(a.actual_location, a.actual_location_description),
     }
   }
   const [scrapyardCostCenters, setScrapyardCostCenters] = React.useState<CostCenterMaster[]>([])
@@ -148,8 +141,9 @@ export function DisposalOrderCreatePage() {
     )
   }, [searchParams])
   const fromAssets = presetAssetIds.size > 0
-  const showCatalog = !fromAssets || browseMore
+  const showCatalog = !fromAssets
   const presetApplied = React.useRef(false)
+  const [handoffReady, setHandoffReady] = React.useState(false)
 
   // Assets handed over from Asset Master (sessionStorage + query params).
   React.useEffect(() => {
@@ -163,6 +157,7 @@ export function DisposalOrderCreatePage() {
         if (rows.length > 0) {
           presetApplied.current = true
           setSelected(rows)
+          setHandoffReady(true)
           const plants = [
             ...new Set(rows.map((a) => a.plant_id).filter((id): id is number => id != null)),
           ]
@@ -176,9 +171,64 @@ export function DisposalOrderCreatePage() {
     } catch {
       /* ignore */
     }
-    // No draft payload — open catalog so preset ids can still be resolved.
-    setBrowseMore(true)
-  }, [fromAssets, presetAssetIds])
+    if (plantId == null) return
+    let cancelled = false
+    const params = new URLSearchParams({
+      page: "1",
+      page_size: "100",
+      plant_id: String(plantId),
+      lifecycle_status: "active",
+      sort_by: "asset_code",
+      sort_dir: "asc",
+    })
+    void getJson<AssetListResponse>(`/admin/assets?${params}`)
+      .then((res) => {
+        if (cancelled || presetApplied.current) return
+        const rows = res.items.filter((a) => idSet.has(a.id) && isDisposable(a))
+        if (rows.length === 0) return
+        presetApplied.current = true
+        setSelected(rows)
+        setHandoffReady(true)
+        if (rows.length < idSet.size) {
+          toast.error("Some assets were skipped — only active, approved assets can be disposed.")
+        }
+      })
+      .catch(() => {
+        /* keep the locked selection empty until a retry */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [fromAssets, presetAssetIds, plantId])
+
+  const selectedRef = React.useRef(selected)
+  selectedRef.current = selected
+  React.useEffect(() => {
+    if (!fromAssets) return
+    return () => {
+      const rows = selectedRef.current
+      window.setTimeout(() => {
+        const path = window.location.pathname
+        if (path.includes("/disposal-orders/new")) return
+        if (path === "/dashboard/assets") {
+          if (rows.length === 0) return
+          writeAssetMasterSelection(rows)
+          return
+        }
+        clearAssetMasterSelection()
+      }, 0)
+    }
+  }, [fromAssets])
+
+  React.useEffect(() => {
+    if (!fromAssets || !handoffReady) return
+    writeAssetMasterSelection(selected)
+  }, [fromAssets, handoffReady, selected])
+
+  function persistAssetMasterSelection() {
+    if (!fromAssets) return
+    writeAssetMasterSelection(selected)
+  }
 
   // Default plant when the user only has one.
   React.useEffect(() => {
@@ -269,18 +319,6 @@ export function DisposalOrderCreatePage() {
     }
   }, [plantId, assetSearch, showCatalog])
 
-  // Fallback preselect from catalog when sessionStorage was empty.
-  React.useEffect(() => {
-    if (presetApplied.current || presetAssetIds.size === 0 || catalog.length === 0) return
-    const rows = catalog.filter((a) => presetAssetIds.has(a.id))
-    if (rows.length === 0) return
-    presetApplied.current = true
-    setSelected(rows)
-    if (rows.length < presetAssetIds.size) {
-      toast.error("Some assets were skipped — only active, approved assets can be disposed.")
-    }
-  }, [catalog, presetAssetIds])
-
   /** Sole custodian of the yard: every asset gets them, including ones picked later. */
   const soleCustodianId = custodianOptions.length === 1 ? custodianOptions[0]!.id : null
   function setSoleCustodian(userId: number) {
@@ -288,7 +326,11 @@ export function DisposalOrderCreatePage() {
   }
 
   function toggleAsset(row: AssetListItem) {
-    if (selectedIds.has(row.id)) return
+    if (fromAssets) return
+    if (selectedIds.has(row.id)) {
+      setSelected((prev) => prev.filter((a) => a.id !== row.id))
+      return
+    }
     if (!isDisposable(row)) {
       toast.error("Only active, approved assets can be disposed.")
       return
@@ -384,7 +426,10 @@ export function DisposalOrderCreatePage() {
       } catch {
         /* ignore */
       }
-      navigate(`/dashboard/disposal-orders/${order.id}`, { replace: true })
+      navigate(`/dashboard/disposal-orders/${order.id}`, {
+        replace: true,
+        state: fromAssets ? { fromAssets: true } : undefined,
+      })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to create Disposal Order.")
     } finally {
@@ -426,7 +471,14 @@ export function DisposalOrderCreatePage() {
       dense
       description=""
       className="w-full pb-6"
-      actions={<AdminBackLink to="/dashboard/disposal-orders">Disposal Order</AdminBackLink>}
+      actions={
+        <AdminBackLink
+          to={fromAssets ? "/dashboard/assets" : "/dashboard/disposal-orders"}
+          onClick={persistAssetMasterSelection}
+        >
+          {fromAssets ? "Asset Master" : "Disposal Order"}
+        </AdminBackLink>
+      }
     >
       <form
         className="space-y-[var(--app-grid-gap)]"
@@ -437,7 +489,7 @@ export function DisposalOrderCreatePage() {
       >
         <div className="grid gap-[var(--app-grid-gap)]">
           <AdminPanel
-            title={`Select Asset `}
+            title={fromAssets ? "Selected Asset" : "Select Asset"}
             // description="Active, approved assets from a single plant. Their current cost center becomes the order's From CC."
             headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"
@@ -458,7 +510,6 @@ export function DisposalOrderCreatePage() {
                     setPlantId(e.target.value ? Number(e.target.value) : null)
                     setSelected([])
                     setAssetSearch("")
-                    setBrowseMore(false)
                     setToCostCenterId("")
                     setItemCustodians({})
                     setCustodianOptions([])
@@ -527,9 +578,9 @@ export function DisposalOrderCreatePage() {
                               {a.asset_name || "—"}
                             </div>
                           </AdminTableCell>
-                          <AdminTableCell>{places.costCenter}</AdminTableCell>
-                          <AdminTableCell>{places.loc1}</AdminTableCell>
-                          <AdminTableCell>{places.loc2}</AdminTableCell>
+                          <AdminTableCell className="whitespace-normal">{places.costCenter}</AdminTableCell>
+                          <AdminTableCell className="whitespace-normal">{places.loc1}</AdminTableCell>
+                          <AdminTableCell className="whitespace-normal">{places.loc2}</AdminTableCell>
                           <AdminTableCell>{custodianSelect(a.id)}</AdminTableCell>
                         </AdminTableBodyRow>
                         )
@@ -539,14 +590,47 @@ export function DisposalOrderCreatePage() {
                     <AdminTableEmptyRow colSpan={6}>
                       Select a plant to list assets.
                     </AdminTableEmptyRow>
-                  ) : catalogLoading ? (
-                    <AdminTableLoadingRow colSpan={6} label="Loading assets" />
-                  ) : catalog.length === 0 ? (
-                    <AdminTableEmptyRow colSpan={6}>
-                      No active, approved assets match this search.
-                    </AdminTableEmptyRow>
                   ) : (
-                    catalog.map((a) => {
+                    <>
+                    {selected
+                      .filter((a) => !catalog.some((row) => row.id === a.id))
+                      .map((a) => {
+                        const places = assetPlaceLabels(a)
+                        return (
+                          <AdminTableBodyRow key={a.id} onClick={() => toggleAsset(a)}>
+                            <AdminTableCell className="align-middle">
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => e.stopPropagation()}
+                              >
+                                <Checkbox
+                                  checked
+                                  onCheckedChange={() => toggleAsset(a)}
+                                  aria-label={`Deselect ${a.asset_code}`}
+                                />
+                              </div>
+                            </AdminTableCell>
+                            <AdminTableCell>
+                              <div className="font-medium">{a.asset_code}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {a.asset_name || "—"}
+                              </div>
+                            </AdminTableCell>
+                            <AdminTableCell className="whitespace-normal">{places.costCenter}</AdminTableCell>
+                            <AdminTableCell className="whitespace-normal">{places.loc1}</AdminTableCell>
+                            <AdminTableCell className="whitespace-normal">{places.loc2}</AdminTableCell>
+                            <AdminTableCell>{custodianSelect(a.id)}</AdminTableCell>
+                          </AdminTableBodyRow>
+                        )
+                      })}
+                    {catalogLoading ? (
+                      <AdminTableLoadingRow colSpan={6} label="Loading assets" />
+                    ) : catalog.length === 0 && selected.length === 0 ? (
+                      <AdminTableEmptyRow colSpan={6}>
+                        No active, approved assets match this search.
+                      </AdminTableEmptyRow>
+                    ) : null}
+                    {catalog.map((a) => {
                       const checked = selectedIds.has(a.id)
                       const places = assetPlaceLabels(a)
                       return (
@@ -558,7 +642,6 @@ export function DisposalOrderCreatePage() {
                             >
                               <Checkbox
                                 checked={checked}
-                                disabled={checked}
                                 onCheckedChange={() => toggleAsset(a)}
                                 aria-label={`Select ${a.asset_code}`}
                               />
@@ -570,15 +653,16 @@ export function DisposalOrderCreatePage() {
                               {a.asset_name || "—"}
                             </div>
                           </AdminTableCell>
-                          <AdminTableCell>{places.costCenter}</AdminTableCell>
-                          <AdminTableCell>{places.loc1}</AdminTableCell>
-                          <AdminTableCell>{places.loc2}</AdminTableCell>
+                          <AdminTableCell className="whitespace-normal">{places.costCenter}</AdminTableCell>
+                          <AdminTableCell className="whitespace-normal">{places.loc1}</AdminTableCell>
+                          <AdminTableCell className="whitespace-normal">{places.loc2}</AdminTableCell>
                           <AdminTableCell>
                             {checked ? custodianSelect(a.id) : <span className="text-muted-foreground">—</span>}
                           </AdminTableCell>
                         </AdminTableBodyRow>
                       )
-                    })
+                    })}
+                    </>
                   )}
                 </TableBody>
               </Table>
@@ -620,7 +704,10 @@ export function DisposalOrderCreatePage() {
             variant="outline"
             className="h-9 shadow-sm"
             disabled={busy}
-            onClick={() => navigate("/dashboard/disposal-orders")}
+            onClick={() => {
+              persistAssetMasterSelection()
+              navigate(fromAssets ? "/dashboard/assets" : "/dashboard/disposal-orders")
+            }}
           >
             Cancel
           </Button>
