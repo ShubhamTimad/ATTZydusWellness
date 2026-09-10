@@ -44,7 +44,7 @@ from modules.capex.schema import (
     CapexWorkflowRunPublic,
 )
 from modules.errors import ConflictError, NotFoundError
-from modules.list_sort import apply_sort_dir
+from modules.list_sort import apply_sort_dir, archived_last_expr
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow
@@ -91,25 +91,6 @@ def action_and_entity_for_form(*, requires_engineering: bool) -> tuple[str, str]
     if requires_engineering:
         return ACTION_SUBMIT_WITH_ENGINEERING, ENTITY_TYPE_WITH_ENGINEERING
     return ACTION_SUBMIT, ENTITY_TYPE
-
-
-_PLAIN_CAPEX_DRAFT_AUDIT = frozenset({"created", "updated"})
-
-
-def _is_plain_capex_draft(db: Session, form: CapitalizationForm) -> bool:
-    if form.status != STATUS_DRAFT:
-        return False
-    if form.approval_request_id is not None:
-        return False
-    extra = db.scalar(
-        select(CapitalizationFormAudit.id)
-        .where(
-            CapitalizationFormAudit.form_id == int(form.id),
-            CapitalizationFormAudit.action.not_in(_PLAIN_CAPEX_DRAFT_AUDIT),
-        )
-        .limit(1)
-    )
-    return extra is None
 
 
 def _actor_may_discard_capex(form: CapitalizationForm, *, actor_user_id: int, db: Session) -> bool:
@@ -628,10 +609,9 @@ class CapexFormService:
             created_at=form.created_at,
             updated_at=form.updated_at,
             approval_panel=self._approval_panel(form, viewer_user_id=viewer_user_id),
-            can_delete=_is_plain_capex_draft(self._db, form) and (is_creator or is_super),
+            can_delete=False,
             can_archive=(
                 form.status in EDITABLE_STATUSES
-                and not _is_plain_capex_draft(self._db, form)
                 and (is_creator or is_super)
             ),
             can_unarchive=(
@@ -731,7 +711,11 @@ class CapexFormService:
         total = int(self._db.scalar(count_stmt) or 0)
         order_col = _capex_list_sort_expr(sort_by)
         stmt = apply_sort_dir(
-            stmt, order_col, sort_dir=sort_dir, tiebreaker=CapitalizationForm.id
+            stmt,
+            order_col,
+            sort_dir=sort_dir,
+            tiebreaker=CapitalizationForm.id,
+            pin_last=archived_last_expr(CapitalizationForm.status, status_filter=status),
         )
         rows = list(
             self._db.scalars(
@@ -977,26 +961,13 @@ class CapexFormService:
         return self._to_detail(self._load(form_id), viewer_user_id=actor_user_id)
 
     def delete_draft_form(self, form_id: int, *, actor_user_id: int) -> None:
-        form = self._load(form_id)
-        if not _is_plain_capex_draft(self._db, form):
-            raise ConflictError(
-                "Only a plain draft capitalization form (no submit, approve, or reject history) "
-                "can be deleted. Archive it instead to keep the audit trail."
-            )
-        if not _actor_may_discard_capex(form, actor_user_id=actor_user_id, db=self._db):
-            raise ConflictError("Only the draft creator can delete this capitalization form.")
-        self._db.delete(form)
-        self._db.commit()
+        raise ConflictError("Capitalization forms cannot be deleted. Archive the form instead.")
 
     def archive_form(self, form_id: int, *, actor_user_id: int) -> CapexFormDetail:
         form = self._load(form_id)
         if form.status not in EDITABLE_STATUSES:
             raise ConflictError(
                 "Only draft, rejected, or in-rework capitalization forms can be archived."
-            )
-        if _is_plain_capex_draft(self._db, form):
-            raise ConflictError(
-                "This is a plain draft with no approval history — delete it instead of archiving."
             )
         if not _actor_may_discard_capex(form, actor_user_id=actor_user_id, db=self._db):
             raise ConflictError("Only the form creator can archive this capitalization form.")

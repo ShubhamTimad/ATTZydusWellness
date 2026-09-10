@@ -78,7 +78,7 @@ from modules.disposals.schema import (
     UpdateDisposalOrderRequest,
 )
 from modules.errors import ConflictError, NotFoundError
-from modules.list_sort import apply_sort_dir
+from modules.list_sort import apply_sort_dir, archived_last_expr
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.list_inbox import (
     pending_approval_request_ids_for_viewer,
@@ -130,25 +130,6 @@ def _strip_or_none(value: str | None) -> str | None:
         return None
     s = value.strip()
     return s or None
-
-
-_PLAIN_DRAFT_AUDIT_ACTIONS = frozenset({"created", "updated"})
-
-
-def _is_plain_disposal_draft(db: Session, order: AssetDisposalOrder) -> bool:
-    if order.status != STATUS_DRAFT:
-        return False
-    if order.approval_request_id is not None:
-        return False
-    extra = db.scalar(
-        select(AssetDisposalOrderAudit.id)
-        .where(
-            AssetDisposalOrderAudit.order_id == int(order.id),
-            AssetDisposalOrderAudit.action.not_in(_PLAIN_DRAFT_AUDIT_ACTIONS),
-        )
-        .limit(1)
-    )
-    return extra is None
 
 
 def _actor_may_discard_disposal(order: AssetDisposalOrder, *, actor_user_id: int, db: Session) -> bool:
@@ -1163,32 +1144,16 @@ class DisposalOrderService:
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
     def delete_draft_order(self, order_id: int, *, actor_user_id: int) -> None:
-        """Hard-delete a plain draft that was never submitted / approved / rejected."""
-        order = self._load_order(order_id)
-        if not _is_plain_disposal_draft(self._db, order):
-            raise ConflictError(
-                "Only a plain draft disposal (no submit, approve, or reject history) "
-                "can be deleted. Archive it instead to keep the audit trail."
-            )
-        if not _actor_may_discard_disposal(order, actor_user_id=actor_user_id, db=self._db):
-            raise ConflictError("Only the draft creator can delete this disposal order.")
-        assets = self._order_assets(order)
-        self._restore_assets_active(assets)
-        self._db.delete(order)
-        self._db.commit()
+        raise ConflictError("Disposal orders cannot be deleted. Archive the order instead.")
 
     def archive_draft_order(
         self, order_id: int, *, actor_user_id: int
     ) -> DisposalOrderDetail:
-        """Archive an editable disposal that already has workflow history."""
+        """Archive a draft disposal (same order id, kept for audit)."""
         order = self._load_order(order_id)
         if order.status not in ARCHIVABLE_STATUSES:
             raise ConflictError(
                 "Only draft disposal orders can be archived."
-            )
-        if _is_plain_disposal_draft(self._db, order):
-            raise ConflictError(
-                "This is a plain draft with no approval history — delete it instead of archiving."
             )
         if not _actor_may_discard_disposal(order, actor_user_id=actor_user_id, db=self._db):
             raise ConflictError("Only the order creator can archive this disposal order.")
@@ -2072,6 +2037,7 @@ class DisposalOrderService:
             _disposal_list_sort_expr(sort_by),
             sort_dir=sort_dir,
             tiebreaker=AssetDisposalOrder.id,
+            pin_last=archived_last_expr(AssetDisposalOrder.status, status_filter=status),
         )
         rows = list(
             self._db.scalars(stmt.offset((page - 1) * page_size).limit(page_size)).all()
@@ -2106,17 +2072,10 @@ class DisposalOrderService:
                     created_at=r.created_at,
                     needs_my_action=self._row_needs_action(r, viewer_user_id),
                     my_action_label=self._row_action_label(r, viewer_user_id),
-                    can_delete=bool(
-                        viewer_user_id is not None
-                        and _is_plain_disposal_draft(self._db, r)
-                        and _actor_may_discard_disposal(
-                            r, actor_user_id=int(viewer_user_id), db=self._db
-                        )
-                    ),
+                    can_delete=False,
                     can_archive=bool(
                         viewer_user_id is not None
                         and r.status in ARCHIVABLE_STATUSES
-                        and not _is_plain_disposal_draft(self._db, r)
                         and _actor_may_discard_disposal(
                             r, actor_user_id=int(viewer_user_id), db=self._db
                         )
@@ -2481,10 +2440,9 @@ class DisposalOrderService:
             can_close=_can_disposal_operational_flag(
                 order, panel=panel, legacy_ok=legacy_close, step_kind="close"
             ),
-            can_delete=_is_plain_disposal_draft(self._db, order) and (is_creator or is_super),
+            can_delete=False,
             can_archive=(
                 order.status in ARCHIVABLE_STATUSES
-                and not _is_plain_disposal_draft(self._db, order)
                 and (is_creator or is_super)
             ),
             can_unarchive=(

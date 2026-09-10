@@ -1,4 +1,4 @@
-"""Transfer orders lock assets as pending_transfer and restore them on archive/delete/close."""
+"""Transfer orders lock assets as pending_transfer and restore them on archive/close."""
 
 from __future__ import annotations
 
@@ -107,19 +107,10 @@ def test_create_marks_assets_pending_transfer():
     assert asset.lifecycle_status == LIFECYCLE_PENDING_TRANSFER
 
 
-def test_delete_draft_restores_assets_active():
-    asset = _asset()
-    asset.lifecycle_status = LIFECYCLE_PENDING_TRANSFER
-    order = _order(STATUS_DRAFT, assets=[asset], assigned_to=None)
-    db = MagicMock()
-    svc = TransferOrderService(db)
-    with patch.object(svc, "_load_order", return_value=order):
-        with patch("modules.transfers.service._is_plain_transfer_draft", return_value=True):
-            with patch("modules.transfers.service._actor_may_discard_transfer", return_value=True):
-                svc.delete_draft_order(1, actor_user_id=2)
-    assert asset.lifecycle_status == "active"
-    db.delete.assert_called_once()
-    db.commit.assert_called_once()
+def test_delete_draft_is_rejected():
+    svc = TransferOrderService(MagicMock())
+    with pytest.raises(ConflictError, match="cannot be deleted"):
+        svc.delete_draft_order(1, actor_user_id=2)
 
 
 def test_archive_restores_assets_active():
@@ -130,9 +121,8 @@ def test_archive_restores_assets_active():
     svc = TransferOrderService(db)
     with patch.object(svc, "_load_order", return_value=order):
         with patch.object(svc, "get_order", return_value="detail"):
-            with patch("modules.transfers.service._is_plain_transfer_draft", return_value=False):
-                with patch("modules.transfers.service._actor_may_discard_transfer", return_value=True):
-                    result = svc.archive_order(1, actor_user_id=2)
+            with patch("modules.transfers.service._actor_may_discard_transfer", return_value=True):
+                result = svc.archive_order(1, actor_user_id=2)
     assert result == "detail"
     assert order.status == STATUS_CANCELLED
     assert asset.lifecycle_status == "active"

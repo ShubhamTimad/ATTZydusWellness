@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
 import {
   buildCapexProgress,
   capexCurrentStepKind,
@@ -326,39 +326,6 @@ export function CapexDetailPage() {
           >
             {capexStatusLabel(detail.status)}
           </AdminPillBadge>
-          {detail.can_delete ? (
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              className="h-9"
-              disabled={saving || acting || reassigning}
-              onClick={async () => {
-                const ok = await confirmAsk({
-                  title: "Delete draft form?",
-                  description:
-                    "Permanently delete this draft capitalization form? This cannot be undone.",
-                  confirmLabel: "Delete",
-                  destructive: true,
-                })
-                if (!ok) return
-                setSaving(true)
-                try {
-                  await deleteJson(`/admin/capitalization-forms/${detail.id}`)
-                  toast.success("Draft capitalization form deleted.")
-                  navigate("/dashboard/capitalization")
-                } catch (e) {
-                  toast.error(
-                    e instanceof ApiError ? e.message : "Could not delete capitalization form",
-                  )
-                } finally {
-                  setSaving(false)
-                }
-              }}
-            >
-              Delete Draft
-            </Button>
-          ) : null}
           {detail.can_archive ? (
             <Button
               type="button"

@@ -33,7 +33,7 @@ import { Button } from "@/components/ui/button"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
+import { ApiError, getJson, postJson } from "@/lib/api"
 import { transferListRootKey } from "@/lib/query-client"
 import {
   TRANSFER_STATUS_TABS,
@@ -239,26 +239,6 @@ export function TransferOrdersListPage() {
   }
 
   async function discardRow(row: TransferOrderListItem) {
-    if (row.can_delete) {
-      const ok = await confirmAsk({
-        title: "Delete draft transfer?",
-        description: `Permanently delete draft ${row.order_number}? This cannot be undone.`,
-        confirmLabel: "Delete",
-        destructive: true,
-      })
-      if (!ok) return
-      setBusyId(row.id)
-      try {
-        await deleteJson(`/admin/transfer-orders/${row.id}`)
-        toast.success("Draft transfer order deleted.")
-        await load()
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Could not delete transfer order")
-      } finally {
-        setBusyId(null)
-      }
-      return
-    }
     if (row.can_archive) {
       const ok = await confirmAsk({
         title: "Archive transfer order?",
@@ -642,10 +622,10 @@ export function TransferOrdersListPage() {
                       </AdminTableCell>
                       {showDiscard ? (
                         <AdminTableCell className="text-right">
-                          {row.can_delete || row.can_archive || row.can_unarchive ? (
+                          {row.can_archive || row.can_unarchive ? (
                             <Button
                               type="button"
-                              variant={row.can_delete ? "destructive" : "outline"}
+                              variant="outline"
                               size="sm"
                               className="h-8"
                               disabled={busyId === row.id}
@@ -654,7 +634,7 @@ export function TransferOrdersListPage() {
                                 void discardRow(row)
                               }}
                             >
-                              {row.can_delete ? "Delete" : row.can_archive ? "Archive" : "Unarchive"}
+                              {row.can_archive ? "Archive" : "Unarchive"}
                             </Button>
                           ) : null}
                         </AdminTableCell>

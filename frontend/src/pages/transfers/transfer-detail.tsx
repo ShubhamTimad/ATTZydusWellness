@@ -21,7 +21,7 @@ import { releaseAssetMasterSelectionUnlessReturn } from "@/lib/asset-master-sele
 import { Button } from "@/components/ui/button"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
 import { invalidateTransferLists } from "@/lib/query-client"
 import { formatAppDateTime as formatDt } from "@/lib/dates"
 import type { ActualLocationMaster } from "@/lib/masters-types"
@@ -478,28 +478,6 @@ export function TransferOrderDetailPage() {
     )
   }
 
-  async function deleteDraftOrder() {
-    if (!order) return
-    const ok = await confirmAsk({
-      title: "Delete draft transfer?",
-      description: "Permanently delete this draft transfer order? This cannot be undone.",
-      confirmLabel: "Delete",
-      destructive: true,
-    })
-    if (!ok) return
-    setBusy(true)
-    try {
-      await deleteJson(`/admin/transfer-orders/${order.id}`)
-      toast.success("Draft transfer order deleted.")
-      void invalidateTransferLists()
-      navigate("/dashboard/transfer-orders")
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Could not delete transfer order")
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function archiveTransferOrder() {
     if (!order) return
     const ok = await confirmAsk({
@@ -602,18 +580,6 @@ export function TransferOrderDetailPage() {
           >
             {transferStatusLabel(order.status, order.approval_panel?.current_step_role_name)}
           </AdminPillBadge>
-          {order.can_delete ? (
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              className="h-9"
-              disabled={busy}
-              onClick={() => void deleteDraftOrder()}
-            >
-              Delete Draft
-            </Button>
-          ) : null}
           {order.can_archive ? (
             <Button
               type="button"

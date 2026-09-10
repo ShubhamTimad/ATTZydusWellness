@@ -68,7 +68,7 @@ from modules.assets.audit_log import log_asset_event
 from modules.assets.model import AssetAuditEvent, AssetInventoryInformation
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.settings.financial_year import financial_year_period_for, is_verified_in_financial_year
-from modules.list_sort import apply_sort_dir
+from modules.list_sort import apply_sort_dir, archived_last_expr
 from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow, TaskAuditLog
 from modules.platform.approvals.service import (
     ApprovalEngineService,
@@ -1924,6 +1924,7 @@ class PhysicalOrderService:
             _physical_list_sort_expr(sort_by),
             sort_dir=sort_dir,
             tiebreaker=PhysicalOrder.id,
+            pin_last=archived_last_expr(PhysicalOrder.status, status_filter=status_q),
         )
         rows = list(
             self._db.scalars(

@@ -22,7 +22,7 @@ from modules.assets.model import (
     AssetMaster,
 )
 from modules.errors import ConflictError, NotFoundError
-from modules.list_sort import apply_sort_dir
+from modules.list_sort import apply_sort_dir, archived_last_expr
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.list_inbox import pending_role_names_for_requests
 from modules.platform.approvals.model import (
@@ -126,30 +126,8 @@ def _strip_or_none(value: str | None) -> str | None:
     return s or None
 
 
-# Drafts with only create/update history can be hard-deleted; anything with
-# submit / approve / reject / receive / etc. must archive instead.
-_PLAIN_DRAFT_AUDIT_ACTIONS = frozenset({"created", "updated"})
-
-
-def _is_plain_transfer_draft(db: Session, order: AssetTransferOrder) -> bool:
-    """True when the order is an untouched draft (never submitted / acted on)."""
-    if order.status != STATUS_DRAFT:
-        return False
-    if order.approval_request_id is not None:
-        return False
-    extra = db.scalar(
-        select(AssetTransferOrderAudit.id)
-        .where(
-            AssetTransferOrderAudit.order_id == int(order.id),
-            AssetTransferOrderAudit.action.not_in(_PLAIN_DRAFT_AUDIT_ACTIONS),
-        )
-        .limit(1)
-    )
-    return extra is None
-
-
 def _actor_may_discard_transfer(order: AssetTransferOrder, *, actor_user_id: int, db: Session) -> bool:
-    """Archive / unarchive / delete-draft: order creator (or platform superuser) only."""
+    """Archive / unarchive: order creator (or platform superuser) only."""
     creator_id = int(order.created_by) if order.created_by is not None else None
     if creator_id is not None and creator_id == int(actor_user_id):
         return True
@@ -1151,29 +1129,14 @@ class TransferOrderService:
         return self.get_order(int(order.id), viewer_user_id=actor_user_id)
 
     def delete_draft_order(self, order_id: int, *, actor_user_id: int) -> None:
-        """Hard-delete a plain draft that was never submitted / approved / rejected."""
-        order = self._load_order(order_id)
-        if not _is_plain_transfer_draft(self._db, order):
-            raise ConflictError(
-                "Only a plain draft transfer (no submit, approve, or reject history) "
-                "can be deleted. Archive it instead to keep the audit trail."
-            )
-        if not _actor_may_discard_transfer(order, actor_user_id=actor_user_id, db=self._db):
-            raise ConflictError("Only the draft creator can delete this transfer order.")
-        self._restore_assets_active(self._order_assets(order))
-        self._db.delete(order)
-        self._db.commit()
+        raise ConflictError("Transfer orders cannot be deleted. Archive the order instead.")
 
     def archive_order(self, order_id: int, *, actor_user_id: int) -> TransferOrderDetail:
-        """Archive an editable transfer that already has workflow history (same order id)."""
+        """Archive a draft transfer (same order id, kept for audit)."""
         order = self._load_order(order_id)
         if order.status not in ARCHIVABLE_STATUSES:
             raise ConflictError(
                 "Only draft transfer orders can be archived."
-            )
-        if _is_plain_transfer_draft(self._db, order):
-            raise ConflictError(
-                "This is a plain draft with no approval history — delete it instead of archiving."
             )
         if not _actor_may_discard_transfer(order, actor_user_id=actor_user_id, db=self._db):
             raise ConflictError("Only the order creator can archive this transfer order.")
@@ -1806,6 +1769,7 @@ class TransferOrderService:
             _transfer_list_sort_expr(sort_by),
             sort_dir=sort_dir,
             tiebreaker=AssetTransferOrder.id,
+            pin_last=archived_last_expr(AssetTransferOrder.status, status_filter=status),
         )
         rows = list(
             self._db.scalars(
@@ -1830,7 +1794,6 @@ class TransferOrderService:
                     r, actor_user_id=int(viewer_user_id), db=self._db
                 )
             )
-            plain = _is_plain_transfer_draft(self._db, r)
             action_label = _list_action_label(self._db, r, viewer_user_id, pending_kinds)
             items.append(
                 TransferOrderListItem(
@@ -1850,10 +1813,8 @@ class TransferOrderService:
                     ),
                     created_by_name=r.creator.full_name if r.creator else None,
                     created_at=r.created_at,
-                    can_delete=bool(may_discard and plain),
-                    can_archive=bool(
-                        may_discard and r.status in ARCHIVABLE_STATUSES and not plain
-                    ),
+                    can_delete=False,
+                    can_archive=bool(may_discard and r.status in ARCHIVABLE_STATUSES),
                     can_unarchive=bool(may_discard and r.status == STATUS_CANCELLED),
                     needs_my_action=action_label is not None,
                     my_action_label=action_label,
@@ -2449,17 +2410,10 @@ class TransferOrderService:
             can_resume=(order.status in RESUMABLE_STATUSES)
             and not returned_to_receiver
             and (is_creator or is_super),
-            can_delete=(
-                viewer_user_id is not None
-                and _is_plain_transfer_draft(self._db, order)
-                and _actor_may_discard_transfer(
-                    order, actor_user_id=int(viewer_user_id), db=self._db
-                )
-            ),
+            can_delete=False,
             can_archive=(
                 viewer_user_id is not None
                 and order.status in ARCHIVABLE_STATUSES
-                and not _is_plain_transfer_draft(self._db, order)
                 and _actor_may_discard_transfer(
                     order, actor_user_id=int(viewer_user_id), db=self._db
                 )

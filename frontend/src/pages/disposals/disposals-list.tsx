@@ -33,7 +33,7 @@ import { Button } from "@/components/ui/button"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
+import { ApiError, getJson, postJson } from "@/lib/api"
 import { disposalListRootKey } from "@/lib/query-client"
 import {
   DISPOSAL_STATUS_TABS,
@@ -221,29 +221,9 @@ export function DisposalOrdersListPage() {
   }
 
   async function discardRow(row: DisposalOrderListItem) {
-    if (row.can_delete) {
-      const ok = await confirmAsk({
-        title: "Delete draft disposal?",
-        description: `Permanently delete draft ${row.order_number} and reactivate its assets? This cannot be undone.`,
-        confirmLabel: "Delete",
-        destructive: true,
-      })
-      if (!ok) return
-      setBusyId(row.id)
-      try {
-        await deleteJson(`/admin/disposal-orders/${row.id}`)
-        toast.success("Draft disposal order deleted. Assets reactivated.")
-        await load()
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Could not delete disposal order")
-      } finally {
-        setBusyId(null)
-      }
-      return
-    }
     if (row.can_archive) {
       const ok = await confirmAsk({
-        title: "Archive disposal order?",
+        title: "Archive Disposal Order?",
         description: `Archive ${row.order_number} and reactivate its assets? The order stays for audit history.`,
         confirmLabel: "Archive",
       })
@@ -598,20 +578,20 @@ export function DisposalOrdersListPage() {
                       </AdminTableCell>
                       {showDiscard ? (
                         <AdminTableCell className="text-right">
-                          {row.can_delete || row.can_archive || row.can_unarchive ? (
+                          {row.can_archive || row.can_unarchive ? (
                             <Button
                               type="button"
-                              variant={row.can_delete ? "destructive" : "outline"}
+                              variant="outline"
                               size="sm"
                               className="h-8"
                               disabled={busyId === row.id}
-                              title={row.can_delete ? "Delete" : row.can_archive ? "Archive" : "Unarchive"}
+                              title={row.can_archive ? "Archive" : "Unarchive"}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 void discardRow(row)
                               }}
                             >
-                              {row.can_delete ? "Delete" : row.can_archive ? "Archive" : "Unarchive"}
+                              {row.can_archive ? "Archive" : "Unarchive"}
                             </Button>
                           ) : null}
                         </AdminTableCell>

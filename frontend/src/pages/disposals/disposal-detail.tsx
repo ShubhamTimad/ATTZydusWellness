@@ -29,7 +29,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, deleteJson, getJson, patchJson, postJson } from "@/lib/api"
+import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
 import { invalidateDisposalLists } from "@/lib/query-client"
 import { formatAppDateTime as formatWhen } from "@/lib/dates"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
@@ -658,41 +658,6 @@ export function DisposalOrderDetailPage() {
               {busy ? "Saving…" : "Save"}
             </Button>
           ) : null}
-          {order.can_delete ? (
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              className="h-9"
-              disabled={busy}
-              title="Delete Draft"
-              onClick={async () => {
-                const ok = await confirmAsk({
-                  title: "Delete draft disposal?",
-                  description:
-                    "Permanently delete this draft disposal order and reactivate its assets?",
-                  confirmLabel: "Delete",
-                  destructive: true,
-                })
-                if (!ok) return
-                setBusy(true)
-                try {
-                  await deleteJson(`/admin/disposal-orders/${order.id}`)
-                  toast.success("Draft disposal order deleted. Assets reactivated.")
-                  void invalidateDisposalLists()
-                  navigate("/dashboard/disposal-orders")
-                } catch (e) {
-                  toast.error(
-                    e instanceof ApiError ? e.message : "Could not delete disposal order",
-                  )
-                } finally {
-                  setBusy(false)
-                }
-              }}
-            >
-              Delete Draft
-            </Button>
-          ) : null}
           {order.can_archive ? (
             <Button
               type="button"
@@ -702,7 +667,7 @@ export function DisposalOrderDetailPage() {
               disabled={busy}
               onClick={async () => {
                 const ok = await confirmAsk({
-                  title: "Archive disposal order?",
+                  title: "Archive Disposal Order?",
                   description:
                     "Archive this disposal order and reactivate its assets? The order stays for audit history.",
                   confirmLabel: "Archive",
