@@ -62,7 +62,7 @@ class CreatePhysicalOrderRequest(BaseModel):
     submit: bool = False
     reset_verification_asset_ids: list[int] = Field(
         default_factory=list,
-        description="Assets to clear physical verification when the order is assigned (re-audit in current FY).",
+        description="Assets to clear physical verification when the order is created (re-audit in current FY).",
     )
 
 

@@ -143,7 +143,7 @@ function matchesAssetColumnFilters(item: PhysicalOrderItem, filters: AssetColumn
   const verifiedOnQ = filters.verified_on.trim().toLowerCase()
   if (
     verifiedOnQ &&
-    !String(item.last_verification_date ? formatDate(item.last_verification_date) : "—")
+    !String(item.last_verification_date ? formatDate(item.last_verification_date) : "-")
       .toLowerCase()
       .includes(verifiedOnQ)
   ) {
@@ -745,11 +745,6 @@ export function OrderDetailPage() {
     canExecute &&
     isAssignee
 
-  const activeProgressDetail =
-    order.progress.steps
-      .find((step) => step.key === order.progress.current_step_key)
-      ?.detail?.trim() || null
-
   return (
     <AdminPage
       fullWidth
@@ -1011,9 +1006,6 @@ export function OrderDetailPage() {
             currentStepKey={order.progress.current_step_key}
             orderStatus={order.status}
           />
-          {activeProgressDetail ? (
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{activeProgressDetail}</p>
-          ) : null}
         </div>
       </AdminPanel>
 
@@ -1034,11 +1026,11 @@ export function OrderDetailPage() {
             <OrderSummaryField label="Created On" value={formatDt(order.created_at)} />
             <OrderSummaryField
               label="Started On"
-              value={order.started_at ? formatDt(order.started_at) : "—"}
+              value={order.started_at ? formatDt(order.started_at) : "-"}
             />
             <OrderSummaryField
               label="Executor"
-              value={executorName || "—"}
+              value={executorName || "-"}
             />
           </div>
           <div className="mt-2 min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
@@ -1046,7 +1038,7 @@ export function OrderDetailPage() {
               Order Description
             </p>
             <p className="mt-1.5 whitespace-pre-wrap break-words text-sm font-normal leading-snug text-black">
-              {orderDescription || "—"}
+              {orderDescription || "-"}
             </p>
           </div>
           {isRejected && (order.rejection_reason || "").trim() ? (
@@ -1087,7 +1079,7 @@ export function OrderDetailPage() {
                       {/* <p className="mt-1 text-xs text-muted-foreground">
                         Expected RFID:{" "}
                         <span className="font-mono text-foreground">
-                          {selectedScanItem.rfid_code ?? "—"}
+                          {selectedScanItem.rfid_code ?? "-"}
                         </span>
                       </p> */}
                     </div>
@@ -1426,16 +1418,16 @@ export function OrderDetailPage() {
                       }}
                     >
                       <AdminTableCell className="whitespace-normal">
-                        <p className="mt-0.5 text-sm text-foreground">{item.asset_name}</p>
+                        <p className="mt-0.5 text-sm text-foreground">{item.asset_name || "-"}</p>
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
-                        {item.asset_code}
+                        {item.asset_code || "-"}
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
-                        {item.rfid_code ?? "—"}
+                        {item.rfid_code?.trim() ? item.rfid_code : "-"}
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
-                        {item.cost_center_code?.trim() ? item.cost_center_code : "—"}
+                        {item.cost_center_code?.trim() ? item.cost_center_code : "-"}
                       </AdminTableCell>
                       <AdminTableCell className="tabular-nums text-foreground">
                         {item.inventory_count ?? 1}
@@ -1444,11 +1436,11 @@ export function OrderDetailPage() {
                         {item.physical_count ?? 0}
                       </AdminTableCell>
                       <AdminTableCell className="whitespace-nowrap text-sm text-foreground">
-                        {item.last_verification_date ? formatDate(item.last_verification_date) : "—"}
+                        {item.last_verification_date ? formatDate(item.last_verification_date) : "-"}
                       </AdminTableCell>
                       <AdminTableCell className="max-w-[14rem] text-sm text-foreground">
                         <span className="block truncate" title={item.remark ?? undefined}>
-                          {item.remark?.trim() ? item.remark : "—"}
+                          {item.remark?.trim() ? item.remark : "-"}
                         </span>
                       </AdminTableCell>
                       <AdminTableCell>
@@ -1472,14 +1464,10 @@ export function OrderDetailPage() {
                         )}
                       </AdminTableCell>
                       <AdminTableCell className="whitespace-normal text-sm text-foreground">
-                        {item.physically_verified ? (
-                          item.verified_by_name ? (
-                            <div className="text-xs">{item.verified_by_name}</div>
-                          ) : (
-                            "—"
-                          )
+                        {item.verified_by_name?.trim() ? (
+                          <div className="text-xs">{item.verified_by_name}</div>
                         ) : (
-                          "—"
+                          "-"
                         )}
                       </AdminTableCell>
                       {showClosureDecisionCols ? (

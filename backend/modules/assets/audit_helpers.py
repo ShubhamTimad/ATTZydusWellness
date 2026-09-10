@@ -278,7 +278,7 @@ def include_asset_audit_event(
 ) -> bool:
     nv = new_value or {}
     if action == "physical_order_created":
-        # Re-audit: reset on approval is shown as "Order created" with count/date changes.
+        # Re-audit: reset on create is shown as "Order created" with count/date changes.
         return not bool(nv.get("pending_reset_on_approval"))
     if action == "physical_order_approved":
         return False

@@ -225,7 +225,9 @@ export function PhysicalOrderCreatePage() {
     >
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <div className="shrink-0">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">&nbsp;</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+            Order Number : -
+          </h1>
         </div>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
@@ -248,12 +250,12 @@ export function PhysicalOrderCreatePage() {
               <SummaryField label="Pending Asset" value={assets.length} tone="warning" />
               <SummaryField label="Verified Asset" value={0} tone="success" />
               <SummaryField label="Created On" value={formatAppDateTime(new Date())} />
-              <SummaryField label="Started On" value="" />
-              <SummaryField label="Executor" value="" />
+              <SummaryField label="Started On" value="-" />
+              <SummaryField label="Executor" value="-" />
             </div>
             <div className="mt-2 min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
               <p className="text-xs font-bold uppercase tracking-[0.06em] text-black">Order Description</p>
-              <p className="mt-1.5 text-sm font-normal leading-snug text-black">&nbsp;</p>
+              <p className="mt-1.5 text-sm font-normal leading-snug text-black">-</p>
             </div>
           </div>
         </AdminPanel>
@@ -325,16 +327,16 @@ export function PhysicalOrderCreatePage() {
                   pageRows.map((asset) => (
                     <AdminTableBodyRow key={asset.id} interactive={false}>
                       <AdminTableCell className="whitespace-normal">
-                        <p className="mt-0.5 text-sm text-foreground">{asset.asset_name || ""}</p>
+                        <p className="mt-0.5 text-sm text-foreground">{asset.asset_name || "-"}</p>
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
-                        {asset.asset_code}
+                        {asset.asset_code || "-"}
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
-                        {asset.rfid_code?.trim() || ""}
+                        {asset.rfid_code?.trim() || "-"}
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
-                        {asset.cost_center?.trim() || ""}
+                        {asset.cost_center?.trim() || "-"}
                       </AdminTableCell>
                       <AdminTableCell className="tabular-nums text-foreground">
                         {asset.inventory_count ?? 1}
@@ -343,13 +345,13 @@ export function PhysicalOrderCreatePage() {
                         {asset.physical_count ?? 0}
                       </AdminTableCell>
                       <AdminTableCell className="whitespace-nowrap text-sm text-foreground">
-                        {asset.last_verification_date ? formatAppDate(asset.last_verification_date) : ""}
+                        {asset.last_verification_date ? formatAppDate(asset.last_verification_date) : "-"}
                       </AdminTableCell>
-                      <AdminTableCell className="text-sm text-foreground">{""}</AdminTableCell>
+                      <AdminTableCell className="text-sm text-foreground">-</AdminTableCell>
                       <AdminTableCell>
                         <AdminPillBadge tone="warning">Pending</AdminPillBadge>
                       </AdminTableCell>
-                      <AdminTableCell className="text-sm text-foreground">{""}</AdminTableCell>
+                      <AdminTableCell className="text-sm text-foreground">-</AdminTableCell>
                     </AdminTableBodyRow>
                   ))
                 )}

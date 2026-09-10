@@ -2763,7 +2763,7 @@ export function AssetsListPage() {
                         ))}
 
                       {fyVerifiedEligibleIdsFrom(validationResult).length > 0 ? (
-                        <li>Re-verify resets count and date on assign.</li>
+                        <li>Re-verify resets count and date when the order is created.</li>
                       ) : null}
                     </ul>
                   </div>

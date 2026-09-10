@@ -233,7 +233,7 @@ class PhysicalOrderService:
                 item.verification_status = ITEM_STATUS_PENDING
                 item.rejection_reason = None
             item.scan_time = None
-            item.verified_by = None
+            # Keep last Verified By until the line is scanned again.
         log_order_event(
             self._db,
             order_id=int(order.id),
@@ -273,12 +273,34 @@ class PhysicalOrderService:
         # reason is order-level only; kept as unused kwarg so callers stay stable.
         _ = reason
         item.scan_time = None
-        item.verified_by = None
+        # Keep verified_by so the last scanner remains visible after reject until re-verify.
         if rejected:
             item.verification_status = ITEM_STATUS_REJECTED
         else:
             item.verification_status = ITEM_STATUS_PENDING
         item.rejection_reason = None
+
+    def _revert_inventory_for_rejected_scans(
+        self,
+        order: PhysicalOrder,
+        items: list[PhysicalOrderItem],
+        *,
+        actor_user_id: int | None,
+        scanned_asset_ids: list[int],
+    ) -> None:
+        """After reject clears order scans, put asset inventory back to unverified."""
+        _ = items
+        asset_ids = sorted({int(aid) for aid in scanned_asset_ids})
+        if not asset_ids:
+            return
+        period = financial_year_period_for()
+        self._reset_physical_verification_for_assets(
+            asset_ids,
+            actor_user_id=int(actor_user_id or order.created_by or 0),
+            order_number=order.order_number,
+            financial_year_label=period.label,
+            reason="rejected_in_physical_order",
+        )
 
     def _set_order_rejection_reason(self, order: PhysicalOrder, reason: str | None) -> None:
         cleaned = (reason or "").strip()
@@ -306,17 +328,27 @@ class PhysicalOrderService:
         cleaned = (reason or "Rejected").strip() or "Rejected"
         rejected_codes: list[str] = []
         kept_approved: list[str] = []
+        scanned_asset_ids: list[int] = []
         for item in order.items:
             if item.verification_status == ITEM_STATUS_APPROVED:
                 kept_approved.append(self._item_asset_code(item))
                 continue
+            if item.scan_time is not None or self._inventory_already_posted_for_order(
+                asset_id=int(item.asset_id), order_id=int(order.id)
+            ):
+                scanned_asset_ids.append(int(item.asset_id))
             if item.verification_status == ITEM_STATUS_REJECTED:
                 item.scan_time = None
-                item.verified_by = None
                 item.rejection_reason = None
             else:
                 self._clear_item_verification(item, rejected=True)
             rejected_codes.append(self._item_asset_code(item))
+        self._revert_inventory_for_rejected_scans(
+            order,
+            list(order.items),
+            actor_user_id=actor_user_id,
+            scanned_asset_ids=scanned_asset_ids,
+        )
         order.status = ORDER_STATUS_REJECTED
         self._set_order_rejection_reason(order, cleaned)
         creation_req: ApprovalRequest | None = None
@@ -1344,7 +1376,7 @@ class PhysicalOrderService:
         if reset_codes:
             message_parts.append(
                 f"{len(reset_codes)} asset(s) will have physical count set to 0 and verification date cleared "
-                "when this order is approved."
+                "when this order is created."
             )
         return PhysicalOrderApprovalNotice(
             financial_year_label=period.label,
@@ -1362,6 +1394,7 @@ class PhysicalOrderService:
         actor_user_id: int,
         order_number: str,
         financial_year_label: str,
+        reason: str = "re_audit_for_physical_order",
     ) -> list[str]:
         if not asset_ids:
             return []
@@ -1393,7 +1426,7 @@ class PhysicalOrderService:
                 new_value={
                     "physical_count": 0,
                     "last_verification_date": None,
-                    "reason": "re_audit_for_physical_order",
+                    "reason": reason,
                     "order_number": order_number,
                     "financial_year": financial_year_label,
                 },
@@ -1493,12 +1526,16 @@ class PhysicalOrderService:
                 )
             )
         self._db.flush()
+        # Clear FY verification on create (not on assign) so re-audit starts from count 0.
+        if reset_ids:
+            self._apply_pending_verification_resets(order, actor_user_id=actor_user_id)
         for a in assets:
             log_asset_order_created(
                 self._db,
                 asset_id=int(a.id),
                 order=order,
                 actor_user_id=actor_user_id,
+                # Hide duplicate "Order created" when reset row already records count/date clear.
                 pending_reset=int(a.id) in reset_ids,
             )
         log_order_event(
@@ -1511,7 +1548,7 @@ class PhysicalOrderService:
                 "asset_count": len(assets),
                 "assigned_to": assigned_to_id,
                 "assigned_to_name": assignee.full_name if assignee is not None else None,
-                "reset_on_approval_asset_ids": sorted(reset_ids) if reset_ids else [],
+                "reset_on_create_asset_ids": sorted(reset_ids) if reset_ids else [],
                 "financial_year": period.label if reset_ids else None,
             },
         )
@@ -1549,7 +1586,7 @@ class PhysicalOrderService:
             plant_id=int(order.plant_id),
             cost_center_ids=self._cost_center_ids_for_order(order),
         )
-        self._apply_pending_verification_resets(order, actor_user_id=actor_user_id)
+        # FY re-audit inventory reset runs on create, not assign.
         # Clear any leftover creation-approval linkage from legacy flows.
         order.approval_request_id = None
         self._activate_assignment(
@@ -2285,11 +2322,9 @@ class PhysicalOrderService:
             scan_time=item.scan_time,
             verified_by_name=verifier,
             physically_verified=self._is_physically_verified(item),
-            # Order UI: show this order's scan date; asset inventory updates only after approval.
+            # Order UI reflects this order's scan only — rejected/unscanned lines show 0 / blank.
             last_verification_date=(
-                item.scan_time.date()
-                if item.scan_time is not None
-                else (inv.last_verification_date if inv else None)
+                item.scan_time.date() if item.scan_time is not None else None
             ),
             # Per-line remark on this order (not asset_master.remark).
             remark=(item.remarks.strip() if item.remarks and item.remarks.strip() else None),
@@ -2302,11 +2337,7 @@ class PhysicalOrderService:
                 else (a.asset_class if a else None)
             ),
             inventory_count=inv.inventory_count if inv else None,
-            physical_count=(
-                1
-                if self._is_physically_verified(item)
-                else (inv.physical_count if inv else 0)
-            ),
+            physical_count=1 if self._is_physically_verified(item) else 0,
             cost_center_code=(fin.cost_center.strip() if fin and fin.cost_center else None),
         )
 
@@ -2918,9 +2949,20 @@ class PhysicalOrderService:
             if not selected:
                 raise ConflictError("Select at least one line item to reject.")
             rejected_codes: list[str] = []
+            scanned_asset_ids: list[int] = []
             for item in selected:
+                if item.scan_time is not None or self._inventory_already_posted_for_order(
+                    asset_id=int(item.asset_id), order_id=int(order.id)
+                ):
+                    scanned_asset_ids.append(int(item.asset_id))
                 self._clear_item_verification(item, rejected=True)
                 rejected_codes.append(self._item_asset_code(item))
+            self._revert_inventory_for_rejected_scans(
+                order,
+                selected,
+                actor_user_id=actor_user_id,
+                scanned_asset_ids=scanned_asset_ids,
+            )
             self._set_order_rejection_reason(order, reason)
             log_order_event(
                 self._db,
@@ -3087,7 +3129,7 @@ class PhysicalOrderService:
             item.verification_status = ITEM_STATUS_PENDING
             item.rejection_reason = None
             item.scan_time = None
-            item.verified_by = None
+            # Keep verified_by until the next successful scan overwrites it.
         log_order_event(
             self._db,
             order_id=order_id,

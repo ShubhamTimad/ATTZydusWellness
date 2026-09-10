@@ -16,6 +16,7 @@ from modules.orders.service import PhysicalOrderService
 def _item(code: str, status: str, *, scan: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
         id=hash(code) % 10_000,
+        asset_id=hash(code) % 10_000,
         asset_code=code,
         verification_status=status,
         rejection_reason=None,
@@ -49,6 +50,16 @@ def test_apply_rejection_keeps_approved_lines() -> None:
         def _close_pending_approval_tasks(self, _request_id: int) -> None:
             return None
 
+        def _inventory_already_posted_for_order(self, *, asset_id: int, order_id: int) -> bool:
+            _ = asset_id, order_id
+            return False
+
+        def _revert_inventory_for_rejected_scans(self, *_a, **_k) -> None:
+            return None
+
+        def _restore_executor_assignee(self, _order) -> None:  # noqa: ANN001
+            return None
+
     svc = _Svc()
     # Bypass log_order_event side effects by stubbing it on the module during call.
     import modules.orders.service as orders_service
@@ -76,7 +87,7 @@ def test_apply_rejection_keeps_approved_lines() -> None:
     # Scanned-but-not-line-approved is rejected and must be scanned again.
     assert by_code["A4"].verification_status == ITEM_STATUS_REJECTED
     assert by_code["A4"].scan_time is None
-    assert by_code["A4"].verified_by is None
+    assert by_code["A4"].verified_by == 1
     assert by_code["A4"].rejection_reason is None
     assert order.rejection_reason == "Reject rest"
 
@@ -119,5 +130,39 @@ def test_rejected_verified_line_becomes_pending_scan() -> None:
     PhysicalOrderService._clear_item_verification(None, item, rejected=True, reason="mismatch")
     assert item.verification_status == ITEM_STATUS_REJECTED
     assert item.scan_time is None
-    assert item.verified_by is None
+    assert item.verified_by == 1
     assert item.rejection_reason is None
+
+
+def test_order_line_counts_follow_scan_not_inventory_fallback() -> None:
+    """Rejected / unscanned lines must show 0 and no date (not asset-master inventory)."""
+    svc = PhysicalOrderService.__new__(PhysicalOrderService)
+    svc._user_name = lambda _uid: None  # type: ignore[method-assign]
+    item = SimpleNamespace(
+        id=1,
+        asset_id=9,
+        verification_status=ITEM_STATUS_REJECTED,
+        scan_time=None,
+        verified_by=None,
+        remarks=None,
+        asset=SimpleNamespace(
+            asset_code="A1",
+            asset_name="Asset",
+            rfid_code="R1",
+            combined_asset_number=None,
+            sub_no=None,
+            category=None,
+            asset_class_master=None,
+            asset_class=None,
+            inventory=SimpleNamespace(
+                inventory_count=1,
+                physical_count=1,
+                last_verification_date="2026-09-10",
+            ),
+            financial=SimpleNamespace(cost_center="CC-1"),
+        ),
+    )
+    public = PhysicalOrderService._to_item_public(svc, item)  # type: ignore[arg-type]
+    assert public.physical_count == 0
+    assert public.last_verification_date is None
+    assert public.physically_verified is False

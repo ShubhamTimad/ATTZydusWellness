@@ -13,8 +13,8 @@ export type AssetAuditLogRow = {
 }
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
-  physical_order_created: "Order created",
-  physical_verification_reset: "Order created",
+  physical_order_created: "Order Created",
+  physical_verification_reset: "Order Created",
   physical_order_verified: "Verified",
 }
 
@@ -152,11 +152,8 @@ function activityForRow(row: AssetAuditLogRow): React.ReactNode {
       <p className="text-sm font-medium leading-snug text-foreground">
         {orderRef ? (
           <>
-            <span className="font-mono text-xs font-medium text-primary">{orderRef}</span>
-            <span className="mx-1.5 text-muted-foreground/50" aria-hidden>
-              ·
-            </span>
             <span>{status}</span>
+            <span className="mx-1.5 font-mono text-xs font-medium text-foreground">{orderRef}</span>
           </>
         ) : (
           status

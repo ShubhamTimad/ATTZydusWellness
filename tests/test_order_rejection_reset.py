@@ -33,7 +33,9 @@ def test_full_rejection_clears_scans_and_marks_all_rejected() -> None:
 
     assert all(i.verification_status == ITEM_STATUS_REJECTED for i in items)
     assert all(i.scan_time is None for i in items)
-    assert all(i.verified_by is None for i in items)
+    # Verified By is kept after reject until the next scan.
+    assert items[0].verified_by == 1
+    assert items[1].verified_by is None
     # Reason lives on the order, not each line.
     assert all(i.rejection_reason is None for i in items)
 
