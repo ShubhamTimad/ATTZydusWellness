@@ -296,9 +296,14 @@ def approve_creation_order(
     current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
     _: Annotated[object, Depends(require_permission("order.approve"))],
+    body: ApproveClosureRequest | None = None,
 ) -> PhysicalOrderDetail:
     try:
-        return svc.approve_creation_order(order_id, actor_user_id=int(current.subject))
+        return svc.approve_creation_order(
+            order_id,
+            actor_user_id=int(current.subject),
+            comment=body.comment if body else None,
+        )
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
@@ -316,6 +321,7 @@ def approve_all_items(
             order_id,
             actor_user_id=int(current.subject),
             next_assigned_user_id=body.next_assigned_user_id if body else None,
+            comment=body.comment if body else None,
         )
     except ConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e

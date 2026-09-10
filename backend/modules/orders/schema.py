@@ -301,8 +301,9 @@ class RejectOrderRequest(BaseModel):
 
 
 class ApproveClosureRequest(BaseModel):
-    """When another workflow level follows, name that user before approving."""
+    """Optional remark; when another workflow level follows, name that user before approving."""
 
+    comment: str | None = Field(default=None, max_length=10_000)
     next_assigned_user_id: int | None = Field(default=None, ge=1)
 
 

@@ -240,7 +240,7 @@ export function CostCenterCustodiansPanel({ plants }: { plants: PlantOption[] })
     const q = userFilter.trim().toLowerCase()
     const opts = allUsers.map((u) => ({
       id: u.id,
-      label: `${u.full_name} (${u.username})${u.email ? ` — ${u.email}` : ""}`,
+      label: u.full_name,
     }))
     if (!q) return opts
     return opts.filter((o) => o.label.toLowerCase().includes(q))

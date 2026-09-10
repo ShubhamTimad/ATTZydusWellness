@@ -47,7 +47,8 @@ _AUDIT_LABELS: dict[str, str] = {
     "submitted_for_approval": "Submitted for Creation Approval",
     "approved": "Creation Approved",
     "rejected": "Order Rejected",
-    "started": "Physical Verification",
+    "started": "Physical Verification Started",
+    "physical_verification": "Physical Verification",
     "asset_verified": "Asset Physically Verified (RFID Scan)",
     "closure_submitted": "Submitted for Approval",
     "closure_approved": "Closure Approved",
@@ -103,6 +104,9 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
         if reason and reason.lower() not in boilerplate:
             return f"Rejected Reason: {reason}"
         return None
+    if action in ("approved", "closure_approved"):
+        remark = (new_value.get("comment") or new_value.get("remark") or "").strip()
+        return f"Approve Remark: {remark}" if remark else None
     if action == "submitted_for_approval":
         rid = new_value.get("approval_request_id")
         next_name = new_value.get("next_assignee_name") or new_value.get("assigned_to_name")
@@ -402,10 +406,7 @@ def enrich_audit_rows(
 
     workflow_rows: list[PhysicalOrderAuditPublic] = []
     if db is not None and order_id is not None:
-        for entity_type, phase_label in (
-            (ENTITY_TYPE_CREATION, "Creation approval"),
-            (ENTITY_TYPE_CLOSURE, "Closure approval"),
-        ):
+        for entity_type in (ENTITY_TYPE_CREATION, ENTITY_TYPE_CLOSURE):
             req = _latest_approval_request(db, order_id=order_id, entity_type=entity_type)
             if req is None:
                 continue
@@ -420,10 +421,11 @@ def enrich_audit_rows(
                 synthetic_id -= 1
                 step_order = int(act.task.step.step_order) if act.task and act.task.step else None
                 act_name = str(act.action).lower()
+                phase = "creation" if entity_type == ENTITY_TYPE_CREATION else "closure"
                 label = (
-                    f"{phase_label} level {step_order} approved"
+                    "Approved"
                     if act_name in ("approve", "approved")
-                    else f"{phase_label} level {step_order} rejected"
+                    else "Rejected"
                 )
                 detail_parts: list[str] = []
                 next_line = _workflow_next_assignee_line(
@@ -432,7 +434,11 @@ def enrich_audit_rows(
                 if next_line:
                     detail_parts.append(next_line)
                 if act.comment:
-                    detail_parts.append(f"Comment: {act.comment}")
+                    detail_parts.append(
+                        f"Approve Remark: {act.comment}"
+                        if act_name in ("approve", "approved")
+                        else f"Comment: {act.comment}"
+                    )
                 workflow_rows.append(
                     PhysicalOrderAuditPublic(
                         id=synthetic_id,
@@ -445,6 +451,7 @@ def enrich_audit_rows(
                             "request_id": int(req.id),
                             "step_order": step_order,
                             "action": act_name,
+                            "phase": phase,
                         },
                         created_at=act.created_at,
                     )
@@ -453,13 +460,13 @@ def enrich_audit_rows(
     has_workflow_creation_approve = any(
         e.action.startswith("workflow_")
         and (e.new_value or {}).get("action") in ("approve", "approved")
-        and "Creation" in e.label
+        and (e.new_value or {}).get("phase") == "creation"
         for e in workflow_rows
     )
     has_workflow_closure_approve = any(
         e.action.startswith("workflow_")
         and (e.new_value or {}).get("action") in ("approve", "approved")
-        and "Closure" in e.label
+        and (e.new_value or {}).get("phase") == "closure"
         for e in workflow_rows
     )
 
@@ -496,6 +503,9 @@ def enrich_audit_rows(
         if action == "asset_verified":
             continue
         if action == "item_remark_updated" and int(r.id) in fold_remark_ids:
+            continue
+        # Draft "intended" assignee is not a real assignment — wait for activate/submit.
+        if action == "assignment_changed" and (r.new_value or {}).get("intended_only"):
             continue
         # Line rejects are applied right before order-level reject; keep one "Order rejected".
         if action == "closure_items_rejected" and has_order_rejected:
@@ -581,7 +591,41 @@ def enrich_audit_rows(
                 old_value=r.old_value,
                 new_value=new_value,
                 created_at=r.created_at,
-                verified_assets=verified_assets if action == "started" else [],
+                verified_assets=[],
+            )
+        )
+
+    if verified_assets:
+        synthetic_id -= 1
+        latest = max(
+            (a for a in verified_assets if a.verified_at is not None),
+            key=lambda a: a.verified_at,  # type: ignore[arg-type, return-value]
+            default=None,
+        )
+        started_row = next((e for e in out if e.action == "started"), None)
+        out.append(
+            PhysicalOrderAuditPublic(
+                id=synthetic_id,
+                action="physical_verification",
+                label=_AUDIT_LABELS["physical_verification"],
+                detail=None,
+                actor_name=(
+                    latest.verified_by_name
+                    if latest and latest.verified_by_name
+                    else (started_row.actor_name if started_row else None)
+                ),
+                old_value=None,
+                new_value={"verified_count": len(verified_assets)},
+                created_at=(
+                    latest.verified_at
+                    if latest and latest.verified_at is not None
+                    else (
+                        started_row.created_at
+                        if started_row is not None
+                        else verified_assets[0].verified_at
+                    )
+                ),
+                verified_assets=verified_assets,
             )
         )
 

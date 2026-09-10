@@ -829,7 +829,7 @@ export function TransferOrderDetailPage() {
           <div className={cn("space-y-2 py-3", transferTextPad)}>
             <h3 className="text-sm font-semibold text-foreground">Transfer Summary</h3>
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
-              <SummaryField label="Assets" value={order.items.length} />
+              <SummaryField label="Asset List" value={order.items.length} />
               <SummaryField
                 label="Source"
                 value={formatCostCenterWithCode(
@@ -871,7 +871,7 @@ export function TransferOrderDetailPage() {
                   )
                 }
               />
-              <SummaryField label="Created" value={formatDt(order.created_at)} />
+              <SummaryField label="Created On" value={formatDt(order.created_at)} />
               <SummaryField
                 label="Assigned To"
                 value={order.assigned_to_name || "—"}
@@ -888,24 +888,24 @@ export function TransferOrderDetailPage() {
             )}
           >
             <p className="shrink-0 text-sm font-medium text-foreground">
-              Assets
+              Asset List
               <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
                 ({order.items.length})
               </span>
             </p>
           </div>
           <div className="overflow-x-auto">
-            <Table className="table-fixed">
+            <Table className="min-w-[68rem] table-fixed">
               <colgroup>
                 <col className={showLocations ? "w-[14%]" : "w-[22%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[20%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[20%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[20%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[18%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[16%]"} />
+                <col className={showLocations ? "w-[14%]" : "w-[18%]"} />
+                <col className={showLocations ? "w-[14%]" : "w-[18%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[16%]"} />
                 {showLocations ? (
                   <>
-                    <col className="w-[19%]" />
-                    <col className="w-[19%]" />
+                    <col className="w-[17%]" />
+                    <col className="w-[17%]" />
                   </>
                 ) : null}
               </colgroup>
@@ -913,10 +913,10 @@ export function TransferOrderDetailPage() {
                 <AdminTableHeaderRow>
                   <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">Asset</AdminTableHeadCell>
                   <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">Source CC</AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
                     From Actual Location 1
                   </AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
                     From Actual Location 2
                   </AdminTableHeadCell>
                   <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
@@ -924,10 +924,10 @@ export function TransferOrderDetailPage() {
                   </AdminTableHeadCell>
                   {showLocations ? (
                     <>
-                      <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                      <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
                         Actual Location 1
                       </AdminTableHeadCell>
-                      <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                      <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
                         Actual Location 2
                       </AdminTableHeadCell>
                     </>

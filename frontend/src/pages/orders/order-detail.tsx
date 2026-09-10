@@ -37,7 +37,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -245,6 +244,8 @@ export function OrderDetailPage() {
   const [remarkFocusItemId, setRemarkFocusItemId] = React.useState<number | null>(null)
   const [rejectOpen, setRejectOpen] = React.useState(false)
   const [rejectReason, setRejectReason] = React.useState("")
+  const [approveOpen, setApproveOpen] = React.useState(false)
+  const [approveRemark, setApproveRemark] = React.useState("")
   const [reassignOpen, setReassignOpen] = React.useState(false)
   const [assignOpen, setAssignOpen] = React.useState(false)
   const [closureAssignOpen, setClosureAssignOpen] = React.useState(false)
@@ -450,7 +451,7 @@ export function OrderDetailPage() {
             : "Approved.",
         )
       } else if (path === "/start" && res.status === "in_progress") {
-        toast.success("Verification started successfully.")
+        toast.success("Order Started successfully. Please start scanning asset tags.")
       } else if (path === "/submit-closure") {
         toast.success("Order completed successfully.")
       } else if (path === "/submit") {
@@ -715,11 +716,25 @@ export function OrderDetailPage() {
       toast.error("Rejected assets found. Please use Reject to complete the review.")
       return
     }
+    setApproveRemark("")
+    setApproveOpen(true)
+  }
+
+  async function confirmApproveWithRemark() {
+    if (!order) return
+    const remark = approveRemark.trim() || null
+    if (canReviewCreation) {
+      const ok = await runAction("/approval/approve-order", { comment: remark })
+      if (ok) setApproveOpen(false)
+      return
+    }
     if (order.needs_next_closure_assignee) {
+      setApproveOpen(false)
       setClosureNextOpen(true)
       return
     }
-    await runAction("/approval/approve-all")
+    const ok = await runAction("/approval/approve-all", { comment: remark })
+    if (ok) setApproveOpen(false)
   }
 
   const showClosureDecisionCols = canReviewClosure
@@ -854,7 +869,10 @@ export function OrderDetailPage() {
               <AdminPrimaryButton
                 type="button"
                 disabled={busy}
-                onClick={() => void runAction("/approval/approve-order")}
+                onClick={() => {
+                  setApproveRemark("")
+                  setApproveOpen(true)
+                }}
               >
                 Approve
               </AdminPrimaryButton>
@@ -1004,18 +1022,18 @@ export function OrderDetailPage() {
           <h3 className="text-sm font-semibold text-foreground">Order Summary</h3>
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
             <OrderSummaryField
-              label="Pending"
+              label="Pending Assets"
               value={order.pending_physical_count}
               tone="warning"
             />
             <OrderSummaryField
-              label="Verified"
+              label="Verified Assets"
               value={order.physically_verified_count}
               tone="success"
             />
-            <OrderSummaryField label="Created" value={formatDt(order.created_at)} />
+            <OrderSummaryField label="Created On" value={formatDt(order.created_at)} />
             <OrderSummaryField
-              label="Started"
+              label="Started On"
               value={order.started_at ? formatDt(order.started_at) : "—"}
             />
             <OrderSummaryField
@@ -1111,7 +1129,7 @@ export function OrderDetailPage() {
                       onKeyDown={(e) => {
                         if (e.key === "Enter") void scan()
                       }}
-                      placeholder="Scan or Enter RFID"
+                      placeholder="Scan or Enter RFID Code"
                       className="mt-2 h-10"
                     />
                   </div>
@@ -1150,7 +1168,7 @@ export function OrderDetailPage() {
       <AdminPanel className="shrink-0 overflow-hidden p-0">
         <div className={cn("flex flex-nowrap items-center gap-2 border-b border-border/60 py-3", orderPanelPad)}>
           <p className="shrink-0 text-sm font-medium text-foreground">
-            Asset
+            Asset List
             <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
               ({order.total_count})
             </span>
@@ -1165,9 +1183,9 @@ export function OrderDetailPage() {
                 id="order-asset-search"
                 value={assetSearchInput}
                 onChange={(e) => setAssetSearchInput(e.target.value)}
-                placeholder="Search Asset"
+                placeholder="Search by Name, Code, RFID Code"
                 className="h-9 w-full pl-9"
-                aria-label="Search order assets"
+                aria-label="Search Assets"
               />
               {assetSearchInput ? (
                 <button
@@ -1220,7 +1238,7 @@ export function OrderDetailPage() {
               <AdminTableHeaderRow>
                 <AdminTableHeadCell className="!text-black">Asset Name</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">Asset Code</AdminTableHeadCell>
-                <AdminTableHeadCell className="!text-black">RFID</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">RFID Code</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">Cost Center</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">Inventory Count</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">Physical Count</AdminTableHeadCell>
@@ -1269,8 +1287,8 @@ export function OrderDetailPage() {
                       onChange={(e) =>
                         setAssetColumnFilterInputs((f) => ({ ...f, rfid: e.target.value }))
                       }
-                      aria-label="Filter RFID"
-                      placeholder="RFID"
+                      aria-label="Filter RFID Code"
+                      placeholder="RFID Code"
                       className={columnFilterControlClass}
                     />
                   </AdminTableHeadCell>
@@ -1512,7 +1530,7 @@ export function OrderDetailPage() {
           totalPages={assetTotalPages}
           total={assetTotal}
           pageSize={ORDER_ASSETS_PAGE_SIZE}
-          itemLabel="Asset"
+          itemLabel="Asset List"
           onPageChange={setAssetPage}
         />
       </AdminPanel>
@@ -1523,7 +1541,7 @@ export function OrderDetailPage() {
       <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{isRejected ? "Reassign" : "Assign"}</DialogTitle>
+            <DialogTitle>{isRejected ? "Reassign Order" : "Assign Order"}</DialogTitle>
             {/* <DialogDescription>
               {executorRoleName
                 ? `Select a user from the "${executorRoleName}" role (Assign step of the Physical order workflow). The order moves to Assigned so they can start work.`
@@ -1533,7 +1551,7 @@ export function OrderDetailPage() {
           <div className="dialog-body space-y-4">
             <div className="space-y-2">
               <Label htmlFor="assign-to">
-                {executorRoleName ? `Select ${executorRoleName}` : "Select Executor"}{" "}
+                Select {executorRoleName ?? "User"}{" "}
                 <span className="text-destructive" aria-hidden>
                   *
                 </span>
@@ -1544,13 +1562,10 @@ export function OrderDetailPage() {
                 value={assignTo}
                 onChange={(e) => setAssignTo(e.target.value)}
               >
-                <option value="">
-                  {executorRoleName ? `Select ${executorRoleName}` : "Select Executor"}
-                </option>
+                <option value="">Select User</option>
                 {executors.map((e) => (
                   <option key={e.id} value={String(e.id)}>
                     {e.full_name}
-                    {e.email ? ` (${e.email})` : ""}
                   </option>
                 ))}
               </select>
@@ -1587,7 +1602,7 @@ export function OrderDetailPage() {
               disabled={busy || !assignTo || !assignRemarks.trim()}
               onClick={() => {
                 if (!assignTo) {
-                  toast.error("Select an executor.")
+                  toast.error("Select a user.")
                   return
                 }
                 if (!assignRemarks.trim()) {
@@ -1611,33 +1626,28 @@ export function OrderDetailPage() {
       <Dialog open={reassignOpen} onOpenChange={setReassignOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reassign order</DialogTitle>
-            <DialogDescription>
+            <DialogTitle>Reassign Order</DialogTitle>
+            {/* <DialogDescription>
               {executorRoleName
                 ? `Select a different user from the "${executorRoleName}" workflow role. Work has not started yet.`
                 : "Select a new executor. Work has not started yet, so reassignment is allowed."}
-            </DialogDescription>
+            </DialogDescription> */}
           </DialogHeader>
           <div className="dialog-body space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="reassign-to">
-                {executorRoleName ? `Select ${executorRoleName}` : "Select Executor"}
-              </Label>
+              <Label htmlFor="reassign-to">Select {executorRoleName ?? "User"}</Label>
               <select
                 id="reassign-to"
                 className={adminSelectClass}
                 value={reassignTo}
                 onChange={(e) => setReassignTo(e.target.value)}
               >
-                <option value="">
-                  {executorRoleName ? `Select ${executorRoleName}` : "Select Executor"}
-                </option>
+                <option value="">Select User</option>
                 {executors
                   .filter((e) => e.id !== order.assigned_to)
                   .map((e) => (
                   <option key={e.id} value={String(e.id)}>
                     {e.full_name}
-                    {e.email ? ` (${e.email})` : ""}
                   </option>
                 ))}
               </select>
@@ -1658,6 +1668,42 @@ export function OrderDetailPage() {
               >
                 Reassign
               </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={approveOpen} onOpenChange={setApproveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Approve Remark</DialogTitle>
+          </DialogHeader>
+          <div className="dialog-body space-y-4">
+            <div className="app-form-field">
+              <Label htmlFor="approve-remark" className="text-sm font-medium text-foreground">
+                Approve Remark
+              </Label>
+              <textarea
+                id="approve-remark"
+                className={cn("w-full rounded-md border border-input bg-background px-3 py-2 text-sm")}
+                rows={3}
+                value={approveRemark}
+                onChange={(e) => setApproveRemark(e.target.value)}
+                placeholder="Approve Remark (Optional)"
+                aria-label="Approve Remark"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setApproveOpen(false)} disabled={busy}>
+                Cancel
+              </Button>
+              <AdminPrimaryButton
+                type="button"
+                disabled={busy}
+                onClick={() => void confirmApproveWithRemark()}
+              >
+                {busy ? "Approving…" : "Approve"}
+              </AdminPrimaryButton>
             </div>
           </div>
         </DialogContent>
@@ -1752,6 +1798,7 @@ export function OrderDetailPage() {
           }
           const ok = await runAction("/approval/approve-all", {
             next_assigned_user_id: userId,
+            comment: approveRemark.trim() || null,
           })
           if (ok) setClosureNextOpen(false)
         }}

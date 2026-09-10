@@ -29,7 +29,7 @@ from modules.orders.constants import (
     ITEM_STATUS_APPROVED,
     ITEM_STATUS_PENDING,
     ITEM_STATUS_REJECTED,
-    ORDER_CONFLICT_WARN_STATUSES,
+    ORDER_CONFLICT_BLOCK_STATUSES,
     ORDER_STATUS_APPROVED,
     ORDER_STATUS_ASSIGNED,
     ORDER_STATUS_CANCELLED,
@@ -560,7 +560,13 @@ class PhysicalOrderService:
             "closure_approver_role_name": empty["closure_approver_role_name"],
         }
 
-    def _complete_closure_approval(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
+    def _complete_closure_approval(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int,
+        comment: str | None = None,
+    ) -> None:
         for item in order.items:
             if item.verification_status == ITEM_STATUS_PENDING:
                 item.verification_status = ITEM_STATUS_APPROVED
@@ -571,11 +577,13 @@ class PhysicalOrderService:
             order.completed_at = _now_utc()
         # Whole-order approval → update Inventory & verification for every scanned asset.
         self._post_inventory_for_items(order, list(order.items or []), actor_user_id=actor_user_id)
+        remark = (comment or "").strip() or None
         log_order_event(
             self._db,
             order_id=int(order.id),
             action="closure_approved",
             actor_user_id=actor_user_id,
+            new_value={"comment": remark} if remark else None,
         )
 
     def _inventory_already_posted_for_order(
@@ -837,10 +845,10 @@ class PhysicalOrderService:
             .join(AssetMaster, AssetMaster.id == PhysicalOrderItem.asset_id)
             .where(
                 PhysicalOrderItem.asset_id.in_(asset_ids),
-                PhysicalOrder.status.in_(tuple(ORDER_CONFLICT_WARN_STATUSES)),
+                PhysicalOrder.status.in_(tuple(ORDER_CONFLICT_BLOCK_STATUSES)),
             )
         ).all()
-        # Warn only — assets on an active order remain eligible for a new order.
+        # Open-order conflicts are hard blocks — deselect before creating a new order.
         for aid, code, name, oid, onum, ost in active_rows:
             active_conflicts.append(
                 ActiveOrderConflict(
@@ -852,6 +860,7 @@ class PhysicalOrderService:
                     order_status=str(ost),
                 )
             )
+            blocked.add(int(aid))
 
         plant_ids = set()
         cc_codes = set()
@@ -1398,6 +1407,17 @@ class PhysicalOrderService:
         actor_user_id: int,
     ) -> PhysicalOrderDetail:
         validation = self.validate_assets(body.asset_ids, viewer_user_id=actor_user_id)
+        if validation.active_order_conflicts:
+            sample = validation.active_order_conflicts[0]
+            extra = len(validation.active_order_conflicts) - 1
+            msg = (
+                f"{sample.asset_name or sample.asset_code} is already on order "
+                f"{sample.order_number} ({sample.order_status.replace('_', ' ')}). "
+                "Deselect assets on an open physical order before creating a new one."
+            )
+            if extra > 0:
+                msg = f"{msg} (+{extra} more)"
+            raise ConflictError(msg)
         if not validation.eligible_asset_ids:
             if validation.missing_rfid and len(validation.missing_rfid) == len(body.asset_ids):
                 raise ConflictError(
@@ -2537,27 +2557,13 @@ class PhysicalOrderService:
         description = (remarks or "").strip()
         if not description:
             raise ConflictError("Order description is required.")
-        assignee = self._assert_valid_executor(
+        self._assert_valid_executor(
             int(assigned_to),
             plant_id=int(order.plant_id),
             cost_center_ids=self._cost_center_ids_for_order(order),
         )
         order.remarks = description
-        old_assignee = order.assigned_to
         order.assigned_to = int(assigned_to)
-        if old_assignee != int(assigned_to):
-            log_order_event(
-                self._db,
-                order_id=order_id,
-                action="assignment_changed",
-                actor_user_id=actor_user_id,
-                old_value={"assigned_to": old_assignee},
-                new_value={
-                    "assigned_to": int(assigned_to),
-                    "assigned_to_name": assignee.full_name,
-                    "intended_only": True,
-                },
-            )
         if order.status == ORDER_STATUS_REJECTED:
             self._reset_order_after_full_rejection(order)
         else:
@@ -2734,7 +2740,13 @@ class PhysicalOrderService:
         )
         return self._task_for_actor(tasks, actor_user_id=actor_user_id, role_ids=role_ids)
 
-    def approve_creation_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+    def approve_creation_order(
+        self,
+        order_id: int,
+        *,
+        actor_user_id: int,
+        comment: str | None = None,
+    ) -> PhysicalOrderDetail:
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != ORDER_STATUS_PENDING_APPROVAL:
             raise ConflictError("Order is not pending approval.")
@@ -2744,6 +2756,7 @@ class PhysicalOrderService:
                 item.verification_status = ITEM_STATUS_APPROVED
                 item.rejection_reason = None
         self._db.flush()
+        remark = (comment or "").strip() or None
 
         task = self._find_pending_creation_task(order, actor_user_id=actor_user_id)
         if task is not None:
@@ -2751,13 +2764,14 @@ class PhysicalOrderService:
                 task_id=int(task.id),
                 actor_user_id=actor_user_id,
                 action="approve",
-                comment=None,
+                comment=remark,
             )
         else:
             finalize_creation_approval(
                 self._db,
                 order_id=order_id,
                 approver_user_id=actor_user_id,
+                comment=remark,
             )
         return self.get_order(order_id)
 
@@ -2767,8 +2781,10 @@ class PhysicalOrderService:
         *,
         actor_user_id: int,
         next_assigned_user_id: int | None = None,
+        comment: str | None = None,
     ) -> PhysicalOrderDetail:
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        remark = (comment or "").strip() or None
         if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
             self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
             for item in order.items:
@@ -2794,13 +2810,15 @@ class PhysicalOrderService:
                         task_id=int(task.id),
                         actor_user_id=actor_user_id,
                         action="approve",
-                        comment=None,
+                        comment=remark,
                         next_assigned_user_id=next_assigned_user_id,
                     )
                 except ApprovalError as exc:
                     raise ConflictError(exc.message) from exc
             else:
-                self._complete_closure_approval(order, actor_user_id=actor_user_id)
+                self._complete_closure_approval(
+                    order, actor_user_id=actor_user_id, comment=remark
+                )
                 self._db.commit()
             return self.get_order(order_id)
         if order.status != ORDER_STATUS_PENDING_APPROVAL:
@@ -3508,7 +3526,13 @@ class PhysicalOrderService:
 # --- Approval engine hooks (called from ApprovalEngineService) ---
 
 
-def finalize_creation_approval(db: Session, *, order_id: int, approver_user_id: int | None) -> None:
+def finalize_creation_approval(
+    db: Session,
+    *,
+    order_id: int,
+    approver_user_id: int | None,
+    comment: str | None = None,
+) -> None:
     svc = PhysicalOrderService(db)
     try:
         order = svc._load_order(order_id)
@@ -3531,12 +3555,16 @@ def finalize_creation_approval(db: Session, *, order_id: int, approver_user_id: 
                 item.verification_status = ITEM_STATUS_APPROVED
         order.status = ORDER_STATUS_APPROVED
         reset_codes = svc._apply_pending_verification_resets(order, actor_user_id=approver_user_id)
+        remark = (comment or "").strip() or None
+        new_value: dict = {"reset_verification_assets": reset_codes}
+        if remark:
+            new_value["comment"] = remark
         log_order_event(
             db,
             order_id=order_id,
             action="approved",
             actor_user_id=approver_user_id,
-            new_value={"reset_verification_assets": reset_codes},
+            new_value=new_value,
         )
         for item in order.items:
             if item.verification_status != ITEM_STATUS_REJECTED:

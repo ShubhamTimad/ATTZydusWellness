@@ -16,7 +16,7 @@ function ActivityCell({
   onToggleVerified: () => void
 }) {
   const verifiedAssets = ev.verified_assets ?? []
-  const showVerifiedToggle = ev.action === "started" && verifiedAssets.length > 0
+  const showVerifiedToggle = verifiedAssets.length > 0
   const detail = ev.detail?.trim() || ""
   const nextMatch = detail.match(/^(Assigned (?:to|role):\s*.+?)(?:\s+[—-]\s+|$)/i)
   const nextLine = nextMatch?.[1]?.trim() || null

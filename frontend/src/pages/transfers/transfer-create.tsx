@@ -697,7 +697,7 @@ export function TransferOrderCreatePage() {
         }}
       >
         <AdminPanel
-            title={`Selected Asset `}
+            title="Selected Asset List"
             // description={
             //   fromAssets
             //     ? "Assets where you are the asset custodian (from Asset Master)."

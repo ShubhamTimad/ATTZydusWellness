@@ -22,11 +22,10 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { asAssetListItem, clearAssetMasterSelection, writeAssetMasterSelection } from "@/lib/asset-master-selection"
 import type { AssetListItem } from "@/lib/assets-types"
-import { ApiError, getJson, postJson } from "@/lib/api"
+import { ApiError, postJson } from "@/lib/api"
 import { formatAppDate, formatAppDateTime } from "@/lib/dates"
 import { invalidateAssetLists, invalidateOrderLists } from "@/lib/query-client"
 import type { OrderLifecycleStep, PhysicalOrderDetail } from "@/lib/orders-types"
-import { orderStatusLabel, orderStatusPillTone } from "@/lib/orders-types"
 import { cn } from "@/lib/utils"
 
 export const PHYSICAL_ORDER_PREVIEW_KEY = "physical-order-preview"
@@ -134,13 +133,15 @@ function SummaryField({
 export function PhysicalOrderCreatePage() {
   const navigate = useNavigate()
   const [preview] = React.useState(() => readPreview())
-  const [orderNumber, setOrderNumber] = React.useState<string | null>(null)
   const [busy, setBusy] = React.useState(false)
   const [search, setSearch] = React.useState("")
   const [page, setPage] = React.useState(1)
 
   React.useEffect(() => {
-    if (!preview) return
+    if (!preview) {
+      navigate("/dashboard/assets", { replace: true })
+      return
+    }
     const rows = previewSelectionRows(preview)
     // Asset Master clears the handoff when this page opens. Put it back for the return trip.
     const id = window.setTimeout(() => writeAssetMasterSelection(rows), 0)
@@ -154,24 +155,6 @@ export function PhysicalOrderCreatePage() {
         }
         clearAssetMasterSelection()
       }, 0)
-    }
-  }, [preview])
-
-  React.useEffect(() => {
-    if (!preview) {
-      navigate("/dashboard/assets", { replace: true })
-      return
-    }
-    let cancelled = false
-    void getJson<{ order_number: string }>("/admin/physical-orders/next-number")
-      .then((res) => {
-        if (!cancelled) setOrderNumber(res.order_number)
-      })
-      .catch(() => {
-        if (!cancelled) setOrderNumber(null)
-      })
-    return () => {
-      cancelled = true
     }
   }, [navigate, preview])
 
@@ -231,10 +214,7 @@ export function PhysicalOrderCreatePage() {
       className="w-full gap-3 pb-6"
       actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <AdminPillBadge tone={orderStatusPillTone("draft")} className="h-9 px-3.5 text-sm font-semibold">
-            {orderStatusLabel("draft")}
-          </AdminPillBadge>
-          <AdminPrimaryButton type="button" disabled={busy || !orderNumber} onClick={() => void saveDraft()}>
+          <AdminPrimaryButton type="button" disabled={busy} onClick={() => void saveDraft()}>
             {busy ? "Saving…" : "Create Order"}
           </AdminPrimaryButton>
           <AdminBackLink to="/dashboard/assets" onClick={() => persistPreviewSelection(preview)}>
@@ -245,9 +225,7 @@ export function PhysicalOrderCreatePage() {
     >
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <div className="shrink-0">
-          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-            {orderNumber ?? "…"}
-          </h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">&nbsp;</h1>
         </div>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
@@ -267,15 +245,15 @@ export function PhysicalOrderCreatePage() {
           <div className={cn("space-y-2 py-3", orderPanelPad)}>
             <h3 className="text-sm font-semibold text-foreground">Order Summary</h3>
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
-              <SummaryField label="Pending" value={assets.length} tone="warning" />
-              <SummaryField label="Verified" value={0} tone="success" />
-              <SummaryField label="Created" value={formatAppDateTime(new Date())} />
-              <SummaryField label="Started" value="—" />
-              <SummaryField label="Executor" value="—" />
+              <SummaryField label="Pending Asset" value={assets.length} tone="warning" />
+              <SummaryField label="Verified Asset" value={0} tone="success" />
+              <SummaryField label="Created On" value={formatAppDateTime(new Date())} />
+              <SummaryField label="Started On" value="" />
+              <SummaryField label="Executor" value="" />
             </div>
             <div className="mt-2 min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
               <p className="text-xs font-bold uppercase tracking-[0.06em] text-black">Order Description</p>
-              <p className="mt-1.5 text-sm font-normal leading-snug text-black">—</p>
+              <p className="mt-1.5 text-sm font-normal leading-snug text-black">&nbsp;</p>
             </div>
           </div>
         </AdminPanel>
@@ -283,7 +261,7 @@ export function PhysicalOrderCreatePage() {
         <AdminPanel className="shrink-0 overflow-hidden p-0">
           <div className={cn("flex flex-nowrap items-center gap-2 border-b border-border/60 py-3", orderPanelPad)}>
             <p className="shrink-0 text-sm font-medium text-foreground">
-              Asset
+              Asset List
               <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">({assets.length})</span>
             </p>
             <div className="ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-2">
@@ -298,9 +276,9 @@ export function PhysicalOrderCreatePage() {
                     setSearch(e.target.value)
                     setPage(1)
                   }}
-                  placeholder="Search Asset"
+                  placeholder="Search by Name, Code, RFID Code"
                   className="h-9 w-full pl-9"
-                  aria-label="Search order assets"
+                  aria-label="Search Assets"
                 />
                 {search ? (
                   <button
@@ -328,7 +306,7 @@ export function PhysicalOrderCreatePage() {
                 <AdminTableHeaderRow>
                   <AdminTableHeadCell className="!text-black">Asset Name</AdminTableHeadCell>
                   <AdminTableHeadCell className="!text-black">Asset Code</AdminTableHeadCell>
-                  <AdminTableHeadCell className="!text-black">RFID</AdminTableHeadCell>
+                  <AdminTableHeadCell className="!text-black">RFID Code</AdminTableHeadCell>
                   <AdminTableHeadCell className="!text-black">Cost Center</AdminTableHeadCell>
                   <AdminTableHeadCell className="!text-black">Inventory Count</AdminTableHeadCell>
                   <AdminTableHeadCell className="!text-black">Physical Count</AdminTableHeadCell>
@@ -347,16 +325,16 @@ export function PhysicalOrderCreatePage() {
                   pageRows.map((asset) => (
                     <AdminTableBodyRow key={asset.id} interactive={false}>
                       <AdminTableCell className="whitespace-normal">
-                        <p className="mt-0.5 text-sm text-foreground">{asset.asset_name || "—"}</p>
+                        <p className="mt-0.5 text-sm text-foreground">{asset.asset_name || ""}</p>
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
                         {asset.asset_code}
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
-                        {asset.rfid_code?.trim() || "—"}
+                        {asset.rfid_code?.trim() || ""}
                       </AdminTableCell>
                       <AdminTableCell className="font-mono text-xs text-foreground">
-                        {asset.cost_center?.trim() || "—"}
+                        {asset.cost_center?.trim() || ""}
                       </AdminTableCell>
                       <AdminTableCell className="tabular-nums text-foreground">
                         {asset.inventory_count ?? 1}
@@ -365,13 +343,13 @@ export function PhysicalOrderCreatePage() {
                         {asset.physical_count ?? 0}
                       </AdminTableCell>
                       <AdminTableCell className="whitespace-nowrap text-sm text-foreground">
-                        {asset.last_verification_date ? formatAppDate(asset.last_verification_date) : "—"}
+                        {asset.last_verification_date ? formatAppDate(asset.last_verification_date) : ""}
                       </AdminTableCell>
-                      <AdminTableCell className="text-sm text-foreground">—</AdminTableCell>
+                      <AdminTableCell className="text-sm text-foreground">{""}</AdminTableCell>
                       <AdminTableCell>
                         <AdminPillBadge tone="warning">Pending</AdminPillBadge>
                       </AdminTableCell>
-                      <AdminTableCell className="text-sm text-foreground">—</AdminTableCell>
+                      <AdminTableCell className="text-sm text-foreground">{""}</AdminTableCell>
                     </AdminTableBodyRow>
                   ))
                 )}
@@ -383,7 +361,7 @@ export function PhysicalOrderCreatePage() {
             totalPages={totalPages}
             total={filtered.length}
             pageSize={PAGE_SIZE}
-            itemLabel="Asset"
+            itemLabel="Asset List"
             onPageChange={setPage}
           />
         </AdminPanel>

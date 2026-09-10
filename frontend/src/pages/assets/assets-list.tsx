@@ -511,7 +511,11 @@ function hasOrderCreateWarnings(res: ValidateAssetsResponse): boolean {
 }
 
 function hasBlockingOrderMismatch(res: ValidateAssetsResponse): boolean {
-  return res.plant_mismatch.length > 0 || res.cost_center_mismatch.length > 0
+  return (
+    res.active_order_conflicts.length > 0 ||
+    res.plant_mismatch.length > 0 ||
+    res.cost_center_mismatch.length > 0
+  )
 }
 
 function warningAssetName(code: string, name: string): string {
@@ -2675,21 +2679,45 @@ export function AssetsListPage() {
             <>
               <div className="border-b px-6 py-4 pr-12">
                 <DialogHeader className="space-y-1">
-                  <DialogTitle className="text-base font-semibold">Review Warning</DialogTitle>
+                  <DialogTitle className="text-base font-semibold">
+                    {validationResult.active_order_conflicts.length > 0
+                      ? "Cannot Create Order"
+                      : "Review Warning"}
+                  </DialogTitle>
                 </DialogHeader>
               </div>
               <div className="dialog-body">
-                <div className="rounded-lg border border-amber-300/80 bg-amber-50 px-3.5 py-3.5 dark:border-amber-500/40 dark:bg-amber-950/40">
+                <div
+                  className={cn(
+                    "rounded-lg border px-3.5 py-3.5",
+                    validationResult.active_order_conflicts.length > 0
+                      ? "border-red-300/80 bg-red-50 dark:border-red-500/40 dark:bg-red-950/40"
+                      : "border-amber-300/80 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-950/40",
+                  )}
+                >
                   <div className="flex gap-3">
                     <AlertTriangle
-                      className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400"
+                      className={cn(
+                        "mt-0.5 size-5 shrink-0",
+                        validationResult.active_order_conflicts.length > 0
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-amber-600 dark:text-amber-400",
+                      )}
                       aria-hidden
                     />
-                    <ul className="max-h-[min(18rem,50vh)] list-disc space-y-2.5 overflow-auto pl-5 text-sm font-semibold leading-snug text-amber-950 dark:text-amber-50">
+                    <ul
+                      className={cn(
+                        "max-h-[min(18rem,50vh)] list-disc space-y-2.5 overflow-auto pl-5 text-sm font-semibold leading-snug",
+                        validationResult.active_order_conflicts.length > 0
+                          ? "text-red-950 dark:text-red-50"
+                          : "text-amber-950 dark:text-amber-50",
+                      )}
+                    >
                       {validationResult.active_order_conflicts.map((c) => (
-                        <li key={`active-${c.asset_id}`}>
-                          {warningAssetName(c.asset_code, c.asset_name)} is already on order{" "}
-                          {c.order_number} ({orderStatusLabel(c.order_status)}).
+                        <li key={`active-${c.asset_id}-${c.order_id}`}>
+                          {warningAssetName(c.asset_code, c.asset_name)} cannot be added — already
+                          on order {c.order_number} ({orderStatusLabel(c.order_status)}). Deselect
+                          this asset before continuing.
                         </li>
                       ))}
 

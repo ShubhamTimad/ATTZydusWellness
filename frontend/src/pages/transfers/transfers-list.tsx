@@ -429,7 +429,7 @@ export function TransferOrdersListPage() {
                     onSort={toggleColumnSort}
                   />
                   <SortableColumnHeader
-                    label="Creation Date"
+                    label="Created On"
                     columnKey="created_at"
                     sortBy={sortBy}
                     sortDir={sortDir}

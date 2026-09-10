@@ -23,13 +23,8 @@ ACTIVE_ORDER_STATUSES = frozenset(
     }
 )
 
-# Warn on create only when the asset is already being worked on another order.
-ORDER_CONFLICT_WARN_STATUSES = frozenset(
-    {
-        ORDER_STATUS_ASSIGNED,
-        ORDER_STATUS_IN_PROGRESS,
-    }
-)
+# Block create while the asset is still on another open physical order.
+ORDER_CONFLICT_BLOCK_STATUSES = ACTIVE_ORDER_STATUSES
 
 ITEM_STATUS_PENDING = "pending"
 ITEM_STATUS_APPROVED = "approved"

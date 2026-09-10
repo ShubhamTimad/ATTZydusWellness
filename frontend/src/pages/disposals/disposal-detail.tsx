@@ -903,7 +903,7 @@ export function DisposalOrderDetailPage() {
           <div className={cn("space-y-3 py-3", disposalTextPad)}>
             <h3 className="text-sm font-bold text-black">Disposal Summary</h3>
             <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
-              <SummaryField label="Assets" value={editAssets.length} />
+              <SummaryField label="Asset List" value={editAssets.length} />
               <SummaryField
                 label="Source"
                 value={
@@ -949,7 +949,7 @@ export function DisposalOrderDetailPage() {
                   )
                 }
               />
-              <SummaryField label="Created" value={formatWhen(order.created_at)} />
+              <SummaryField label="Created On" value={formatWhen(order.created_at)} />
               <SummaryField label="Assigned To" value={order.assigned_to_name || "—"} />
               <SummaryField
                 label="Engineering Approval Required"
@@ -1011,7 +1011,7 @@ export function DisposalOrderDetailPage() {
             )}
           >
             <p className="shrink-0 text-sm font-medium text-foreground">
-              Assets
+              Asset List
               <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
                 ({editAssets.length})
               </span>
@@ -1032,17 +1032,17 @@ export function DisposalOrderDetailPage() {
             ) : null}
           </div>
           <div className="overflow-x-auto">
-            <Table className="table-fixed">
+            <Table className="min-w-[68rem] table-fixed">
               <colgroup>
                 <col className={showLocations ? "w-[14%]" : "w-[22%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[18%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[18%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[18%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[18%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[16%]"} />
+                <col className={showLocations ? "w-[14%]" : "w-[18%]"} />
+                <col className={showLocations ? "w-[14%]" : "w-[18%]"} />
+                <col className={showLocations ? "w-[12%]" : "w-[16%]"} />
                 {showLocations ? (
                   <>
-                    <col className="w-[16%]" />
-                    <col className="w-[16%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[14%]" />
                   </>
                 ) : null}
                 {order.can_edit ? <col className="w-[6%]" /> : null}
@@ -1055,10 +1055,10 @@ export function DisposalOrderDetailPage() {
                   <AdminTableHeadCell className="h-9 px-4 py-2 !font-bold !text-black">
                     Source CC
                   </AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
                     From Actual Location 1
                   </AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                  <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
                     From Actual Location 2
                   </AdminTableHeadCell>
                   <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
@@ -1066,10 +1066,10 @@ export function DisposalOrderDetailPage() {
                   </AdminTableHeadCell>
                     {showLocations ? (
                       <>
-                        <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                        <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
                           Actual Location 1
                         </AdminTableHeadCell>
-                        <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
+                        <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
                           Actual Location 2
                         </AdminTableHeadCell>
                       </>

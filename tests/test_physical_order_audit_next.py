@@ -73,6 +73,18 @@ def test_rejected_detail_hides_boilerplate_reason() -> None:
     assert detail is None
 
 
+def test_approve_remark_in_audit_detail() -> None:
+    assert (
+        _audit_detail("closure_approved", None, {"comment": "Looks good"})
+        == "Approve Remark: Looks good"
+    )
+    assert (
+        _audit_detail("approved", None, {"comment": "OK to proceed"})
+        == "Approve Remark: OK to proceed"
+    )
+    assert _audit_detail("closure_approved", None, {}) is None
+
+
 def test_enrich_hides_line_rejects_when_order_rejected() -> None:
     from datetime import datetime, timezone
 
@@ -305,10 +317,13 @@ def test_simultaneous_remark_and_scan_folds_into_started() -> None:
         order_items=[item],
     )
     labels = [e.label for e in audit]
-    assert labels == ["Physical Verification"]
-    started = audit[0]
-    assert started.verified_assets[0].remark == "Checked on bench"
-    assert started.verified_assets[0].asset_name == "pH Meter - QC Lab"
+    assert labels == ["Physical Verification", "Physical Verification Started"]
+    verification = audit[0]
+    assert verification.action == "physical_verification"
+    assert verification.verified_assets[0].remark == "Checked on bench"
+    assert verification.verified_assets[0].asset_name == "pH Meter - QC Lab"
+    assert audit[1].action == "started"
+    assert audit[1].verified_assets == []
 
 
 def test_later_remark_stays_as_own_audit_row() -> None:
@@ -357,6 +372,48 @@ def test_later_remark_stays_as_own_audit_row() -> None:
         order_items=[item],
     )
     labels = [e.label for e in audit]
-    assert labels == ["Physical Verification", "Remark added for pH Meter - QC Lab"]
+    assert labels == [
+        "Physical Verification",
+        "Physical Verification Started",
+        "Remark added for pH Meter - QC Lab",
+    ]
     assert audit[0].verified_assets[0].remark is None
-    assert audit[1].detail == "Added later"
+    assert audit[1].action == "started"
+    assert audit[1].verified_assets == []
+    assert audit[2].detail == "Added later"
+
+
+def test_enrich_hides_intended_only_assignment() -> None:
+    from datetime import datetime, timezone
+
+    from modules.orders.progress import enrich_audit_rows
+
+    rows = [
+        SimpleNamespace(
+            id=1,
+            action="assignment_changed",
+            actor_user_id=5,
+            old_value={"assigned_to": None},
+            new_value={
+                "assigned_to": 7,
+                "assigned_to_name": "Operator Demo",
+                "intended_only": True,
+            },
+            created_at=datetime(2026, 9, 10, 14, 35, tzinfo=timezone.utc),
+        ),
+        SimpleNamespace(
+            id=2,
+            action="assignment_changed",
+            actor_user_id=5,
+            old_value=None,
+            new_value={
+                "assigned_to": 7,
+                "assigned_to_name": "Operator Demo",
+                "on_submit": True,
+            },
+            created_at=datetime(2026, 9, 10, 14, 35, tzinfo=timezone.utc),
+        ),
+    ]
+    audit = enrich_audit_rows(rows, user_name_fn=lambda _uid: "Operator Demo")
+    assert [e.label for e in audit] == ["Executor Assigned"]
+    assert audit[0].detail == "Assigned to: Operator Demo"

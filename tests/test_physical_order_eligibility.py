@@ -72,3 +72,22 @@ def test_executor_must_cover_every_selected_cost_center() -> None:
     assert user_covers_cost_centers(assigned_cost_center_ids={10, 20, 30}, cost_center_ids=[10, 20])
     assert not user_covers_cost_centers(assigned_cost_center_ids={10}, cost_center_ids=[10, 20])
     assert not user_covers_cost_centers(assigned_cost_center_ids={10, 30}, cost_center_ids=[10, 20])
+
+
+def test_open_order_statuses_block_new_physical_order() -> None:
+    from modules.orders.constants import (
+        ACTIVE_ORDER_STATUSES,
+        ORDER_CONFLICT_BLOCK_STATUSES,
+        ORDER_STATUS_ASSIGNED,
+        ORDER_STATUS_CANCELLED,
+        ORDER_STATUS_CLOSED,
+        ORDER_STATUS_DRAFT,
+        ORDER_STATUS_IN_PROGRESS,
+        ORDER_STATUS_REJECTED,
+    )
+
+    assert ORDER_CONFLICT_BLOCK_STATUSES == ACTIVE_ORDER_STATUSES
+    for status in (ORDER_STATUS_DRAFT, ORDER_STATUS_ASSIGNED, ORDER_STATUS_IN_PROGRESS):
+        assert status in ORDER_CONFLICT_BLOCK_STATUSES
+    for status in (ORDER_STATUS_CLOSED, ORDER_STATUS_CANCELLED, ORDER_STATUS_REJECTED):
+        assert status not in ORDER_CONFLICT_BLOCK_STATUSES

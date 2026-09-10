@@ -36,7 +36,6 @@ export function CapexAssigneePickerDialog({
   const [items, setItems] = React.useState<CapexAssigneeOption[]>([])
   const [loading, setLoading] = React.useState(false)
   const [selectedId, setSelectedId] = React.useState("")
-  const [resolvedRole, setResolvedRole] = React.useState(roleLabel)
 
   const fetchUrl =
     assigneesUrl ??
@@ -47,7 +46,6 @@ export function CapexAssigneePickerDialog({
   React.useEffect(() => {
     if (!open) return
     setSelectedId("")
-    setResolvedRole(roleLabel)
     if (!fetchUrl) {
       setItems([])
       setLoading(false)
@@ -66,7 +64,6 @@ export function CapexAssigneePickerDialog({
               ? res.items
               : res.items.filter((u) => Number(u.id) !== excludeId),
           )
-          if (res.role_name) setResolvedRole(res.role_name)
         }
       } catch (e) {
         if (!cancelled) {
@@ -80,24 +77,21 @@ export function CapexAssigneePickerDialog({
     return () => {
       cancelled = true
     }
-  }, [open, fetchUrl, roleLabel, excludeUserId])
+  }, [open, fetchUrl, excludeUserId])
 
   async function confirm() {
-    const role = (resolvedRole || roleLabel || "user").trim()
     if (!selectedId) {
-      toast.error(`Select a ${role}.`)
+      toast.error("Select a user.")
       return
     }
     await onConfirm(Number(selectedId))
   }
 
-  const selectLabel = (resolvedRole || roleLabel || "User").trim()
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 p-0 sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>{`Select ${selectLabel}`}</DialogTitle>
+          <DialogTitle>Select {roleLabel || "User"}</DialogTitle>
         </DialogHeader>
         <div className="dialog-body">
           <select
@@ -107,9 +101,9 @@ export function CapexAssigneePickerDialog({
             disabled={loading || busy}
             onChange={(e) => setSelectedId(e.target.value)}
             autoFocus
-            aria-label={`Select ${selectLabel}`}
+            aria-label={`Select ${roleLabel || "User"}`}
           >
-            <option value="">{loading ? "Loading…" : `Select ${selectLabel}`}</option>
+            <option value="">{loading ? "Loading…" : "Select User"}</option>
             {items.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.full_name}
