@@ -159,7 +159,7 @@ export function OrderAuditLog({
       fillHeight={fillHeight}
       className={className}
       emptyDescription="No audit events recorded yet."
-      descriptionFallback="Creation, assignment, verification, and approval actions for this order."
+      descriptionFallback=""
     />
   )
 }

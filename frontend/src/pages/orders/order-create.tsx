@@ -235,7 +235,7 @@ export function PhysicalOrderCreatePage() {
             {orderStatusLabel("draft")}
           </AdminPillBadge>
           <AdminPrimaryButton type="button" disabled={busy || !orderNumber} onClick={() => void saveDraft()}>
-            {busy ? "Saving…" : "Save Draft"}
+            {busy ? "Saving…" : "Create Order"}
           </AdminPrimaryButton>
           <AdminBackLink to="/dashboard/assets" onClick={() => persistPreviewSelection(preview)}>
             Asset Master

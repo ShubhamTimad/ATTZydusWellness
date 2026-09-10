@@ -52,9 +52,6 @@ export function AppLoginPage() {
   const [searchParams] = useSearchParams()
   const legacyReset = (searchParams.get("reset_token") ?? "").trim()
   const ssoErrorParam = (searchParams.get("sso_error") ?? "").trim()
-  // After silent miss (?sso_skip=1) or real SSO error, show Email/Password + Microsoft button.
-  const skipAutoSso =
-    Boolean(ssoErrorParam) || (searchParams.get("sso_skip") ?? "").trim() === "1"
 
   const [identifier, setIdentifier] = React.useState("")
   const [password, setPassword] = React.useState("")
@@ -62,11 +59,9 @@ export function AppLoginPage() {
   const [otp, setOtp] = React.useState("")
   const [challengeToken, setChallengeToken] = React.useState<string | null>(null)
   const [step, setStep] = React.useState<"password" | "otp">("password")
-  // Only surface real SSO failures; silent miss (sso_skip) is non-blocking.
   const [error, setError] = React.useState<string | null>(ssoErrorParam || null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [policy, setPolicy] = React.useState<PublicAuthPolicy | null>(null)
-  const [ssoRedirecting, setSsoRedirecting] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -82,13 +77,6 @@ export function AppLoginPage() {
       cancelled = true
     }
   }, [])
-
-  // Initial /login only: silent OIDC (prompt=none). No interactive auto-retry on miss.
-  React.useEffect(() => {
-    if (legacyReset || !policy?.sso_enabled || skipAutoSso || step !== "password") return
-    setSsoRedirecting(true)
-    window.location.replace(`${API_BASE_URL}/auth/sso/login?portal=user&prompt=none`)
-  }, [legacyReset, policy, skipAutoSso, step])
 
   if (legacyReset) {
     return <Navigate to={`/reset-password?token=${encodeURIComponent(legacyReset)}`} replace />
@@ -201,16 +189,6 @@ export function AppLoginPage() {
     } finally {
       setIsSubmitting(false)
     }
-  }
-
-  if (ssoRedirecting && !skipAutoSso) {
-    return (
-      <AppAuthMarketingLayout>
-        <AuthFormShell title="Signing in">
-          <p className="text-sm text-muted-foreground">Redirecting to Microsoft…</p>
-        </AuthFormShell>
-      </AppAuthMarketingLayout>
-    )
   }
 
   return (
