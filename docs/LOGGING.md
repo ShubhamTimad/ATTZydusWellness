@@ -4,9 +4,10 @@ Ops/debug logs for the API process. Separate from **business audit** (who change
 
 ## Design
 
-- **One stream** for the whole app (stdout; optional single file). **Not** one file per user.
+- **One stream** for the whole app (stdout; rotating file on the Docker volume). **Not** one file per user.
 - Every line carries `request_id` and `user_id` (when known) so you can filter one flow end-to-end.
 - Responses include `X-Request-ID` and JSON errors include `request_id`.
+- Prefer structured `event=` fields via `core.app_log.log_event` for lifecycle breadcrumbs.
 
 ## Configuration
 
@@ -14,7 +15,7 @@ Ops/debug logs for the API process. Separate from **business audit** (who change
 |-----|---------|---------|
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FORMAT` | `text` on TTY, else `json` | `json` or `text` |
-| `LOG_FILE` | unset | Optional path; same events also go to stdout. Rotates at 10 MB × 5 |
+| `LOG_FILE` | unset locally; `logs/app.log` in Docker | Optional path; same events also always go to stdout. Rotates at 10 MB × 5 |
 
 Examples:
 
@@ -22,21 +23,29 @@ Examples:
 # Local readable
 LOG_LEVEL=DEBUG LOG_FORMAT=text uvicorn app.main:app --app-dir backend --reload
 
-# Docker / production style
-LOG_LEVEL=INFO LOG_FORMAT=json
+# Docker / production style (compose sets these + mounts takeda_att_logs → /app/logs)
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+LOG_FILE=logs/app.log
 ```
 
 ## Reading logs
 
 ```bash
-# Docker
+# Docker stdout
 docker compose logs -f backend
+
+# Durable file inside the backend container (survives recreate via takeda_att_logs volume)
+docker compose exec backend tail -f logs/app.log
 
 # One request end-to-end
 docker compose logs backend | grep 'a1b2c3d4'
 
 # One user (JSON)
 docker compose logs backend | grep '"user_id": "42"'
+
+# Physical order lifecycle
+docker compose logs backend | grep physical_order_
 ```
 
 ## What is logged
@@ -46,6 +55,7 @@ docker compose logs backend | grep '"user_id": "42"'
 | HTTP | One access line per request (`method`, `path`, `status_code`, `duration_ms`) |
 | Auth | `login_ok` / `login_failed`, refresh failures |
 | SSO | `sso_login_started`, `sso_callback_ok` / `sso_callback_failed`, IdP errors |
+| Physical orders | `physical_order_created`, `physical_order_assigned`, `physical_order_reassigned`, `physical_order_started`, `physical_order_scanned`, `physical_order_completed`, `physical_order_approved`, `physical_order_rejected`, `physical_order_items_rejected`, `physical_order_closed` |
 | Errors | Unhandled exceptions with stack; validation failures |
 
 **Never logged:** passwords, tokens, refresh cookies, IdP secrets.

@@ -3184,6 +3184,11 @@ class AssetMasterService:
         if (asset.approval_status or "").strip().lower() == APPROVAL_PENDING:
             raise ConflictError("Cannot edit asset while approval is pending.")
 
+        from modules.capex.model import CapitalizationForm
+
+        before_capex_id = self._db.scalar(
+            select(CapitalizationForm.id).where(CapitalizationForm.asset_id == int(asset.id))
+        )
         before = snapshot_asset(asset)
         if data.asset_name is not None:
             asset.asset_name = data.asset_name.strip()
@@ -3198,8 +3203,9 @@ class AssetMasterService:
             ):
                 raise DuplicateCombinedAssetNumberError()
             asset.combined_asset_number = can
-        if data.asset_code is not None:
-            asset.asset_code = data.asset_code.strip().upper()
+        # Empty/null clears Asset Number to "" (column is NOT NULL). Validator maps "" → None.
+        if "asset_code" in data.model_fields_set:
+            asset.asset_code = (data.asset_code or "").strip().upper()
         if "remark" in data.model_dump(exclude_unset=True):
             asset.remark = (data.remark.strip() if data.remark and data.remark.strip() else None)
         if "sub_no" in data.model_dump(exclude_unset=True):
@@ -3291,8 +3297,16 @@ class AssetMasterService:
                 old_value=before,
                 new_value={"changes": changes},
             )
-        # CapEx link changes are audited on the form; also note on asset when only the link changed.
-        if "capitalization_form_id" in data.model_fields_set and not changes:
+        # CapEx link changes are audited on the form; note on asset only when the link actually changed.
+        after_capex_id = (
+            int(data.capitalization_form_id) if data.capitalization_form_id is not None else None
+        )
+        before_capex_int = int(before_capex_id) if before_capex_id is not None else None
+        if (
+            "capitalization_form_id" in data.model_fields_set
+            and not changes
+            and after_capex_id != before_capex_int
+        ):
             log_asset_event(
                 self._db,
                 asset_id=asset.id,

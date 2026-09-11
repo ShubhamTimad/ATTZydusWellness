@@ -10,6 +10,7 @@ import logging
 import os
 from io import StringIO
 
+from core.app_log import log_event
 from core.logging_setup import ContextFilter, JsonFormatter, configure_logging
 from core.request_context import clear_request_context, get_request_id, set_request_id, set_user_id
 
@@ -37,16 +38,20 @@ def main() -> None:
     set_user_id(42)
     assert get_request_id() == "abc123"
     log.info("probe", extra={"event": "probe", "path": "/login"})
+    log_event(log, "helper_probe", order_id=7, order_number="PVO-1")
     clear_request_context()
     assert get_request_id() == "-"
 
-    line = buf.getvalue().strip().splitlines()[-1]
-    payload = json.loads(line)
-    assert payload["request_id"] == "abc123"
-    assert payload["user_id"] == "42"
-    assert payload["event"] == "probe"
-    assert payload["message"] == "probe"
-    assert payload["level"] == "INFO"
+    lines = [json.loads(line) for line in buf.getvalue().strip().splitlines()]
+    assert lines[0]["request_id"] == "abc123"
+    assert lines[0]["user_id"] == "42"
+    assert lines[0]["event"] == "probe"
+    assert lines[0]["message"] == "probe"
+    assert lines[0]["level"] == "INFO"
+    assert lines[1]["event"] == "helper_probe"
+    assert lines[1]["message"] == "helper_probe"
+    assert lines[1]["order_id"] == 7
+    assert lines[1]["order_number"] == "PVO-1"
 
     ls._CONFIGURED = False
     configure_logging()

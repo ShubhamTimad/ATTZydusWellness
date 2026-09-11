@@ -286,7 +286,7 @@ export function AssetDetailPage() {
       }
       const updated = await patchJson<AssetDetail>(`/admin/assets/${asset.id}`, {
         asset_name: asset.asset_name,
-        asset_code: asset.asset_code,
+        asset_code: (asset.asset_code ?? "").trim() || null,
         combined_asset_number: asset.combined_asset_number,
         remark: asset.remark ?? null,
         sub_no: asset.sub_no ?? null,

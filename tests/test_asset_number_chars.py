@@ -48,3 +48,24 @@ def test_update_request_rejects_special_chars() -> None:
     ok = AssetUpdateRequest(asset_code="AST-1", combined_asset_number="CAN-1")
     assert ok.asset_code == "AST-1"
     assert ok.combined_asset_number == "CAN-1"
+
+
+def test_update_request_empty_asset_code_is_explicit_clear() -> None:
+    """Empty string normalizes to None but stays in fields_set so update can clear."""
+    req = AssetUpdateRequest(asset_code="")
+    assert req.asset_code is None
+    assert "asset_code" in req.model_fields_set
+    cleared = AssetUpdateRequest(asset_code=None)
+    assert cleared.asset_code is None
+    assert "asset_code" in cleared.model_fields_set
+    omitted = AssetUpdateRequest(asset_name="Keep code")
+    assert "asset_code" not in omitted.model_fields_set
+
+
+def test_cleared_asset_code_stores_empty_string() -> None:
+    """Mirror update_asset: NOT NULL column uses '' for a cleared Asset Number."""
+    req = AssetUpdateRequest(asset_code="  ")
+    assert req.asset_code is None
+    stored = (req.asset_code or "").strip().upper()
+    assert stored == ""
+

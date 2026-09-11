@@ -61,10 +61,14 @@ services:
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Takeda Workspace}
       BACKEND_PORT: ${BACKEND_PORT:-9005}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_FILE: ${LOG_FILE:-logs/app.log}
     expose:
       - "${BACKEND_PORT:-9005}"
     volumes:
       - takeda_att_uploads:/app/backend/uploads
+      - takeda_att_logs:/app/logs
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${BACKEND_PORT:-9005}/docs > /dev/null || exit 1"]
       interval: 20s
@@ -142,6 +146,7 @@ services:
 volumes:
   takeda_att_db_data:
   takeda_att_uploads:
+  takeda_att_logs:
   certbot_www:
   certbot_certs:
 

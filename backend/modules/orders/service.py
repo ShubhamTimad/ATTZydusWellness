@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from datetime import date, datetime, timezone
@@ -8,6 +9,7 @@ from typing import Any, Callable
 from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import Session, aliased, selectinload
 
+from core.app_log import log_event
 from modules.asset_masters.model import CostCenterMaster
 from modules.assets.lifecycle import LIFECYCLE_ACTIVE
 from modules.assets.model import AssetFinancialInformation, AssetLocationInformation, AssetMaster
@@ -173,6 +175,9 @@ def user_in_cost_center_scope(*, assigned_cost_center_ids: set[int], cost_center
         assigned_cost_center_ids=assigned_cost_center_ids,
         cost_center_ids=[int(cost_center_id)],
     )
+
+
+logger = logging.getLogger(__name__)
 
 
 class PhysicalOrderService:
@@ -1580,6 +1585,14 @@ class PhysicalOrderService:
             self._submit_and_assign(order, actor_user_id=actor_user_id)
         else:
             self._db.commit()
+        log_event(
+            logger,
+            "physical_order_created",
+            order_id=int(order.id),
+            order_number=order.order_number,
+            asset_count=len(assets),
+            submitted=bool(body.submit),
+        )
         return self.get_order(int(order.id))
 
     def _order_payload(self, order: PhysicalOrder, *, action_code: str) -> dict[str, Any]:
@@ -1617,6 +1630,13 @@ class PhysicalOrderService:
             after_creation_approval=False,
         )
         self._db.commit()
+        log_event(
+            logger,
+            "physical_order_assigned",
+            order_id=int(order.id),
+            order_number=order.order_number,
+            assigned_to=int(order.assigned_to) if order.assigned_to is not None else None,
+        )
 
     def _submit_for_creation_approval(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
         # Kept as alias for older call sites / scripts.
@@ -2673,6 +2693,13 @@ class PhysicalOrderService:
             new_value={"reason": "Auto-started on restart"},
         )
         self._db.commit()
+        log_event(
+            logger,
+            "physical_order_started",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            restart=True,
+        )
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
     def update_order_asset_remark(
@@ -2855,6 +2882,13 @@ class PhysicalOrderService:
                     reason=(order.rejection_reason or "").strip() or "Rejected",
                 )
                 self._db.commit()
+                log_event(
+                    logger,
+                    "physical_order_items_rejected",
+                    order_id=int(order_id),
+                    order_number=order.order_number,
+                    scope="mixed_finalize",
+                )
                 return self.get_order(order_id)
             task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)
             if task is not None:
@@ -2873,6 +2907,13 @@ class PhysicalOrderService:
                     order, actor_user_id=actor_user_id, comment=remark
                 )
                 self._db.commit()
+            log_event(
+                logger,
+                "physical_order_approved",
+                order_id=int(order_id),
+                order_number=order.order_number,
+                scope="closure_all",
+            )
             return self.get_order(order_id)
         if order.status != ORDER_STATUS_PENDING_APPROVAL:
             raise ConflictError("Order is not pending approval.")
@@ -2882,6 +2923,13 @@ class PhysicalOrderService:
                 item.verification_status = ITEM_STATUS_APPROVED
                 item.rejection_reason = None
         self._db.commit()
+        log_event(
+            logger,
+            "physical_order_approved",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            scope="creation_all",
+        )
         return self.get_order(order_id)
 
     def approve_items(self, order_id: int, item_ids: list[int], *, actor_user_id: int) -> PhysicalOrderDetail:
@@ -2917,6 +2965,14 @@ class PhysicalOrderService:
                         action="approve",
                         comment=None,
                     )
+                    log_event(
+                        logger,
+                        "physical_order_approved",
+                        order_id=int(order_id),
+                        order_number=order.order_number,
+                        scope="closure_items",
+                        item_count=len(id_set),
+                    )
                     return self.get_order(order_id)
                 self._complete_closure_approval(order, actor_user_id=actor_user_id)
             else:
@@ -2930,6 +2986,14 @@ class PhysicalOrderService:
                         order, selected, actor_user_id=actor_user_id
                     )
             self._db.commit()
+            log_event(
+                logger,
+                "physical_order_approved",
+                order_id=int(order_id),
+                order_number=order.order_number,
+                scope="closure_items",
+                item_count=len(id_set),
+            )
             return self.get_order(order_id)
         if order.status != ORDER_STATUS_PENDING_APPROVAL:
             raise ConflictError("Order is not pending approval.")
@@ -2939,6 +3003,14 @@ class PhysicalOrderService:
                 item.verification_status = ITEM_STATUS_APPROVED
                 item.rejection_reason = None
         self._db.commit()
+        log_event(
+            logger,
+            "physical_order_approved",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            scope="creation_items",
+            item_count=len(id_set),
+        )
         return self.get_order(order_id)
 
     def reject_items(
@@ -2960,6 +3032,14 @@ class PhysicalOrderService:
                     item.rejection_reason = None
             self._set_order_rejection_reason(order, reason)
             self._db.commit()
+            log_event(
+                logger,
+                "physical_order_items_rejected",
+                order_id=int(order_id),
+                order_number=order.order_number,
+                scope="creation",
+                item_count=len(id_set),
+            )
             return self.get_order(order_id)
         if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
             self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
@@ -2995,6 +3075,14 @@ class PhysicalOrderService:
             )
             # Stay in closure review so the approver can continue approving/rejecting lines.
             self._db.commit()
+            log_event(
+                logger,
+                "physical_order_items_rejected",
+                order_id=int(order_id),
+                order_number=order.order_number,
+                scope="closure",
+                item_count=len(rejected_codes),
+            )
             return self.get_order(order_id)
         raise ConflictError("Order is not in an approval phase.")
 
@@ -3063,6 +3151,13 @@ class PhysicalOrderService:
         )
         self._notify_rejected(order, cleaned)
         self._db.commit()
+        log_event(
+            logger,
+            "physical_order_rejected",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            entity_type=entity_type,
+        )
         return self.get_order(order_id)
 
     def reassign_order(
@@ -3106,6 +3201,14 @@ class PhysicalOrderService:
         )
         self._notify_assigned(order)
         self._db.commit()
+        log_event(
+            logger,
+            "physical_order_reassigned",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            from_user_id=int(old_id) if old_id is not None else None,
+            to_user_id=int(assigned_to),
+        )
         return self.get_order(order_id)
 
     def close_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
@@ -3126,12 +3229,19 @@ class PhysicalOrderService:
             actor_user_id=actor_user_id,
         )
         self._db.commit()
+        log_event(
+            logger,
+            "physical_order_closed",
+            order_id=int(order_id),
+            order_number=order.order_number,
+        )
         return self.get_order(order_id)
 
     def start_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.assigned_to != actor_user_id:
             raise ConflictError("Only the assigned executor can start this order.")
+        restarted = False
         if order.status == ORDER_STATUS_REJECTED:
             if not self._execution_side_rejection(order):
                 raise ConflictError(
@@ -3139,6 +3249,7 @@ class PhysicalOrderService:
                 )
             # Clear prior run; stay with same assignee and move straight to in progress.
             self._reset_order_after_full_rejection(order)
+            restarted = True
         elif order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
             raise ConflictError("Order must be assigned before starting.")
         order.status = ORDER_STATUS_IN_PROGRESS
@@ -3167,6 +3278,13 @@ class PhysicalOrderService:
                     actor_user_id=actor_user_id,
                 )
         self._db.commit()
+        log_event(
+            logger,
+            "physical_order_started",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            restart=restarted,
+        )
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
     def scan_asset(
@@ -3248,6 +3366,17 @@ class PhysicalOrderService:
         self._db.commit()
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
         physically_verified = self._physically_verified_count(order.items)
+        log_event(
+            logger,
+            "physical_order_scanned",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            asset_id=int(item.asset_id),
+            asset_code=a.asset_code,
+            verified_count=physically_verified,
+            total_count=len(order.items),
+            bulk=False,
+        )
         return ScanAssetResponse(
             item=self._to_item_public(item),
             verified_count=physically_verified,
@@ -3387,10 +3516,24 @@ class PhysicalOrderService:
             live = next((i for i in order.items if int(i.id) == item_id), item)
             public_items.append(self._to_item_public(live, user_name_fn=user_name_fn))
 
+        verified_count = self._physically_verified_count(order.items)
+        if success_items or failures:
+            log_event(
+                logger,
+                "physical_order_scanned",
+                order_id=int(order_id),
+                order_number=order.order_number,
+                success_count=len(seen_item_ids),
+                failure_count=len(failures),
+                verified_count=verified_count,
+                total_count=len(order.items),
+                bulk=True,
+            )
+
         return BulkScanAssetResponse(
             items=public_items,
             failures=failures,
-            verified_count=self._physically_verified_count(order.items),
+            verified_count=verified_count,
             total_count=len(order.items),
         )
 
@@ -3503,6 +3646,13 @@ class PhysicalOrderService:
             )
             self._notify_completed(order)
         self._db.commit()
+        log_event(
+            logger,
+            "physical_order_completed",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            has_closure_workflow=bool(wf),
+        )
         return self.get_order(order_id)
 
     def approve_closure_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
@@ -3527,9 +3677,24 @@ class PhysicalOrderService:
                     action="approve",
                     comment=None,
                 )
+                log_event(
+                    logger,
+                    "physical_order_approved",
+                    order_id=int(order_id),
+                    order_number=order.order_number,
+                    scope="closure_order",
+                )
                 return self.get_order(order_id)
             self._complete_closure_approval(order, actor_user_id=actor_user_id)
         self._db.commit()
+        log_event(
+            logger,
+            "physical_order_items_rejected" if rejected else "physical_order_approved",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            scope="closure_order",
+            rejected_item_count=len(rejected) if rejected else None,
+        )
         return self.get_order(order_id)
 
     def _notify_rejected(self, order: PhysicalOrder, reason: str) -> None:
