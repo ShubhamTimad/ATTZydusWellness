@@ -451,7 +451,11 @@ export function OrderDetailPage() {
             : "Approved.",
         )
       } else if (path === "/start" && res.status === "in_progress") {
-        toast.success("Order Started successfully. Please start scanning asset tags.")
+        toast.success(
+          order?.status === "rejected"
+            ? "Order Restarted successfully. Please start scanning asset tags."
+            : "Order Started successfully. Please start scanning asset tags.",
+        )
       } else if (path === "/submit-closure") {
         toast.success("Order completed successfully.")
       } else if (path === "/submit") {
@@ -460,6 +464,8 @@ export function OrderDetailPage() {
             ? `Order assigned to ${res.assigned_to_name} successfully.`
             : "Order assigned successfully.",
         )
+      } else if (path === "/reassign") {
+        toast.success("Order reassigned successfully.")
       } else {
         toast.success("Changes saved successfully.")
       }
@@ -616,6 +622,8 @@ export function OrderDetailPage() {
   }
 
   function itemIsScannable(item: PhysicalOrderItem): boolean {
+    // Approved lines stay locked after mixed reject/restart — only rejected (pending) lines re-verify.
+    if ((item.verification_status || "").toLowerCase() === "approved") return false
     return canScan && !item.physically_verified
   }
 
@@ -1648,9 +1656,8 @@ export function OrderDetailPage() {
                 type="button"
                 disabled={!reassignTo || busy}
                 onClick={() => {
-                  void runAction("/reassign", { assigned_to: Number(reassignTo) }).then(() => {
-                    setReassignOpen(false)
-                    toast.success("Order reassigned.")
+                  void runAction("/reassign", { assigned_to: Number(reassignTo) }).then((ok) => {
+                    if (ok) setReassignOpen(false)
                   })
                 }}
               >

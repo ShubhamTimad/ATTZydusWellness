@@ -166,3 +166,26 @@ def test_order_line_counts_follow_scan_not_inventory_fallback() -> None:
     assert public.physical_count == 0
     assert public.last_verification_date is None
     assert public.physically_verified is False
+
+
+def test_approved_line_cannot_be_scanned_even_without_scan_time() -> None:
+    """After mixed reject/restart, approved lines stay locked even if scan_time is empty."""
+    from modules.errors import ConflictError
+
+    svc = PhysicalOrderService.__new__(PhysicalOrderService)
+    item = _item("E1", ITEM_STATUS_APPROVED, scan=False)
+    try:
+        PhysicalOrderService._assert_item_can_be_scanned(svc, item)
+        raise AssertionError("approved line must not be scannable")
+    except ConflictError as exc:
+        assert "already approved" in str(exc).lower()
+
+    pending = _item("E2", ITEM_STATUS_PENDING, scan=False)
+    PhysicalOrderService._assert_item_can_be_scanned(svc, pending)
+
+    scanned = _item("E3", ITEM_STATUS_PENDING, scan=True)
+    try:
+        PhysicalOrderService._assert_item_can_be_scanned(svc, scanned)
+        raise AssertionError("already scanned line must not be scannable")
+    except ConflictError as exc:
+        assert "already physically verified" in str(exc).lower()

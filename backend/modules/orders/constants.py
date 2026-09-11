@@ -23,8 +23,9 @@ ACTIVE_ORDER_STATUSES = frozenset(
     }
 )
 
-# Block create while the asset is still on another open physical order.
-ORDER_CONFLICT_BLOCK_STATUSES = ACTIVE_ORDER_STATUSES
+# Block create while the asset is still mid-workflow on another physical order.
+# `approved` with completed_at set = closure approved (awaiting Close only) — free for a new PVO.
+ORDER_CONFLICT_BLOCK_STATUSES = frozenset(ACTIVE_ORDER_STATUSES - {ORDER_STATUS_APPROVED})
 
 ITEM_STATUS_PENDING = "pending"
 ITEM_STATUS_APPROVED = "approved"

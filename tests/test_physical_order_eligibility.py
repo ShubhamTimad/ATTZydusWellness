@@ -76,18 +76,51 @@ def test_executor_must_cover_every_selected_cost_center() -> None:
 
 def test_open_order_statuses_block_new_physical_order() -> None:
     from modules.orders.constants import (
-        ACTIVE_ORDER_STATUSES,
         ORDER_CONFLICT_BLOCK_STATUSES,
+        ORDER_STATUS_APPROVED,
         ORDER_STATUS_ASSIGNED,
         ORDER_STATUS_CANCELLED,
         ORDER_STATUS_CLOSED,
+        ORDER_STATUS_COMPLETED,
         ORDER_STATUS_DRAFT,
         ORDER_STATUS_IN_PROGRESS,
         ORDER_STATUS_REJECTED,
     )
 
-    assert ORDER_CONFLICT_BLOCK_STATUSES == ACTIVE_ORDER_STATUSES
-    for status in (ORDER_STATUS_DRAFT, ORDER_STATUS_ASSIGNED, ORDER_STATUS_IN_PROGRESS):
+    for status in (
+        ORDER_STATUS_DRAFT,
+        ORDER_STATUS_ASSIGNED,
+        ORDER_STATUS_IN_PROGRESS,
+        ORDER_STATUS_COMPLETED,
+    ):
         assert status in ORDER_CONFLICT_BLOCK_STATUSES
-    for status in (ORDER_STATUS_CLOSED, ORDER_STATUS_CANCELLED, ORDER_STATUS_REJECTED):
+    # Closure-approved (`approved` + completed_at) must not block; early approved is
+    # handled in validate_assets via completed_at IS NULL.
+    for status in (
+        ORDER_STATUS_APPROVED,
+        ORDER_STATUS_CLOSED,
+        ORDER_STATUS_CANCELLED,
+        ORDER_STATUS_REJECTED,
+    ):
         assert status not in ORDER_CONFLICT_BLOCK_STATUSES
+
+
+def _blocks_new_pvo(*, status: str, completed_at) -> bool:
+    """Mirrors validate_assets conflict filter (constants + early-approved special case)."""
+    from modules.orders.constants import ORDER_CONFLICT_BLOCK_STATUSES, ORDER_STATUS_APPROVED
+
+    if status in ORDER_CONFLICT_BLOCK_STATUSES:
+        return True
+    return status == ORDER_STATUS_APPROVED and completed_at is None
+
+
+def test_closure_approved_does_not_block_new_pvo() -> None:
+    from datetime import datetime, timezone
+
+    from modules.orders.constants import ORDER_STATUS_APPROVED, ORDER_STATUS_IN_PROGRESS
+
+    now = datetime.now(timezone.utc)
+    assert _blocks_new_pvo(status=ORDER_STATUS_IN_PROGRESS, completed_at=None)
+    assert _blocks_new_pvo(status=ORDER_STATUS_APPROVED, completed_at=None)
+    assert not _blocks_new_pvo(status=ORDER_STATUS_APPROVED, completed_at=now)
+    assert not _blocks_new_pvo(status="closed", completed_at=now)

@@ -296,7 +296,7 @@ export const ASSET_VIEW_SECTIONS: AssetViewSectionConfig[] = [
   },
   {
     id: "location",
-    title: "Location",
+    title: "Location Information",
     showPlant: true,
     keys: [
       "functional_location",

@@ -184,6 +184,21 @@ class PhysicalOrderService:
         return item.scan_time is not None
 
     @staticmethod
+    def _is_line_locked_after_approval(item: PhysicalOrderItem) -> bool:
+        """Closure-approved lines stay locked when the order returns for rework."""
+        return (item.verification_status or "").strip().lower() == ITEM_STATUS_APPROVED
+
+    def _assert_item_can_be_scanned(self, item: PhysicalOrderItem) -> None:
+        if self._is_line_locked_after_approval(item):
+            raise ConflictError(
+                f"Asset {self._item_asset_code(item)} was already approved and cannot be verified again."
+            )
+        if self._is_physically_verified(item):
+            raise ConflictError(
+                "This asset was already physically verified and cannot be scanned again."
+            )
+
+    @staticmethod
     def _physically_verified_count(items: list[PhysicalOrderItem]) -> int:
         return sum(1 for i in items if i.scan_time is not None)
 
@@ -877,10 +892,17 @@ class PhysicalOrderService:
             .join(AssetMaster, AssetMaster.id == PhysicalOrderItem.asset_id)
             .where(
                 PhysicalOrderItem.asset_id.in_(asset_ids),
-                PhysicalOrder.status.in_(tuple(ORDER_CONFLICT_BLOCK_STATUSES)),
+                or_(
+                    PhysicalOrder.status.in_(tuple(ORDER_CONFLICT_BLOCK_STATUSES)),
+                    # Early `approved` (creation-approved, work not done) still blocks.
+                    and_(
+                        PhysicalOrder.status == ORDER_STATUS_APPROVED,
+                        PhysicalOrder.completed_at.is_(None),
+                    ),
+                ),
             )
         ).all()
-        # Open-order conflicts are hard blocks — deselect before creating a new order.
+        # Mid-workflow conflicts are hard blocks — deselect before creating a new order.
         for aid, code, name, oid, onum, ost in active_rows:
             active_conflicts.append(
                 ActiveOrderConflict(
@@ -3193,10 +3215,7 @@ class PhysicalOrderService:
         if item is None:
             raise NotFoundError("Asset in order", scan_value)
 
-        if self._is_physically_verified(item):
-            raise ConflictError(
-                "This asset was already physically verified and cannot be scanned again."
-            )
+        self._assert_item_can_be_scanned(item)
 
         a = item.asset
         if a is None:
@@ -3290,6 +3309,15 @@ class PhysicalOrderService:
                     BulkScanAssetFailure(
                         scan_value=val,
                         message="Tag not found on this order",
+                    )
+                )
+                continue
+
+            if self._is_line_locked_after_approval(item):
+                failures.append(
+                    BulkScanAssetFailure(
+                        scan_value=val,
+                        message=f"Asset {self._item_asset_code(item)} was already approved and cannot be verified again",
                     )
                 )
                 continue
