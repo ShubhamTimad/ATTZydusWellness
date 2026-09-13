@@ -52,7 +52,7 @@ export function CapexProcessFlow({ steps, currentStepKey }: Props) {
         return (
           <li
             key={`${step.key}-${index}`}
-            className={cn("flex min-w-[5.25rem] flex-1 flex-col items-center sm:min-w-[6rem]")}
+            className="flex min-w-[6.5rem] flex-1 flex-col items-center overflow-hidden sm:min-w-[7.5rem]"
             aria-current={phase === "current" ? "step" : undefined}
             title={step.detail ? `${step.label} — ${step.detail}` : step.label}
           >
@@ -89,7 +89,8 @@ export function CapexProcessFlow({ steps, currentStepKey }: Props) {
             </div>
             <p
               className={cn(
-                "mt-2 max-w-[9.5rem] px-1 text-center text-[11px] leading-snug sm:text-xs",
+                "mt-2 w-full px-1 text-center text-[11px] leading-snug sm:text-xs",
+                "line-clamp-2 break-words",
                 phase === "completed" && "font-medium text-foreground",
                 phase === "current" && "font-semibold text-primary",
                 phase === "upcoming" && "font-medium text-muted-foreground",

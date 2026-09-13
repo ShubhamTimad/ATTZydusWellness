@@ -65,6 +65,7 @@ from modules.transfers.constants import (
     STATUS_RECEIVED_BY_CC2,
     STATUS_REJECTED,
     SUBMITTABLE_STATUSES,
+    status_codes_matching_search,
     transfer_needs_next_assignee,
 )
 from modules.transfers.model import AssetTransferOrder, AssetTransferOrderAudit, AssetTransferOrderItem
@@ -1872,22 +1873,24 @@ class TransferOrderService:
         q = (search or "").strip()
         if q:
             pattern = f"%{q}%"
-            clauses.append(
-                or_(
-                    AssetTransferOrder.order_number.ilike(pattern),
-                    AssetTransferOrder.plant.has(
-                        or_(OrgUnit.name.ilike(pattern), OrgUnit.code.ilike(pattern))
-                    ),
-                    AssetTransferOrder.from_cost_center.has(
-                        CostCenterMaster.code.ilike(pattern)
-                    ),
-                    AssetTransferOrder.to_cost_center.has(
-                        CostCenterMaster.code.ilike(pattern)
-                    ),
-                    AssetTransferOrder.assignee.has(User.full_name.ilike(pattern)),
-                    AssetTransferOrder.creator.has(User.full_name.ilike(pattern)),
-                )
-            )
+            search_parts = [
+                AssetTransferOrder.order_number.ilike(pattern),
+                AssetTransferOrder.plant.has(
+                    or_(OrgUnit.name.ilike(pattern), OrgUnit.code.ilike(pattern))
+                ),
+                AssetTransferOrder.from_cost_center.has(
+                    CostCenterMaster.code.ilike(pattern)
+                ),
+                AssetTransferOrder.to_cost_center.has(
+                    CostCenterMaster.code.ilike(pattern)
+                ),
+                AssetTransferOrder.assignee.has(User.full_name.ilike(pattern)),
+                AssetTransferOrder.creator.has(User.full_name.ilike(pattern)),
+            ]
+            status_codes = status_codes_matching_search(q)
+            if status_codes:
+                search_parts.append(AssetTransferOrder.status.in_(status_codes))
+            clauses.append(or_(*search_parts))
         return clauses
 
     def _pending_approval_request_ids(self, viewer_user_id: int):

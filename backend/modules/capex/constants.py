@@ -40,16 +40,9 @@ SEARCH_STATUS_LABELS: dict[str, str] = {
 
 
 def status_codes_matching_search(query: str) -> list[str]:
-    needle = " ".join((query or "").strip().lower().replace("_", " ").split())
-    if not needle:
-        return []
-    matched: list[str] = []
-    for code, label in SEARCH_STATUS_LABELS.items():
-        raw = code.replace("_", " ")
-        if needle in label or needle in raw:
-            matched.append(code)
-    return matched
+    from core.label_search import codes_matching_label_search
 
+    return codes_matching_label_search(query, SEARCH_STATUS_LABELS)
 # Role names used for CapEx user-assignment pools (must match seeded roles).
 ROLE_COST_CENTER_USER = "Cost Center User"
 ROLE_HOD = "Department HOD"

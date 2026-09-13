@@ -38,3 +38,23 @@ PHYSICAL_ORDER_ENTITY_TYPES = frozenset({ENTITY_TYPE_CREATION, ENTITY_TYPE_CLOSU
 
 ACTION_CREATE = "order.create"
 ACTION_COMPLETE = "order.complete"
+
+# List UI labels (keep in sync with frontend orderStatusLabel). Search matches these.
+SEARCH_STATUS_LABELS: dict[str, str] = {
+    ORDER_STATUS_DRAFT: "Draft",
+    ORDER_STATUS_PENDING_APPROVAL: "Pending Approval",
+    ORDER_STATUS_APPROVED: "Approved",
+    ORDER_STATUS_ASSIGNED: "Assigned",
+    ORDER_STATUS_IN_PROGRESS: "In Progress",
+    ORDER_STATUS_PENDING_CLOSURE: "Completed",
+    ORDER_STATUS_COMPLETED: "Completed",
+    ORDER_STATUS_CLOSED: "Closed",
+    ORDER_STATUS_REJECTED: "Rejected",
+    ORDER_STATUS_CANCELLED: "Archived",
+}
+
+
+def status_codes_matching_search(query: str) -> list[str]:
+    from core.label_search import codes_matching_label_search
+
+    return codes_matching_label_search(query, SEARCH_STATUS_LABELS)

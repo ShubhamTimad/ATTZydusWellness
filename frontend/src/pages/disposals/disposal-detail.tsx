@@ -120,12 +120,12 @@ function SummaryField({
   required?: boolean
 }) {
   return (
-    <div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
-      <p className="text-xs font-bold uppercase tracking-[0.06em] !text-black">
+    <div className="flex h-full min-w-[10.5rem] flex-col rounded-md bg-muted/35 px-3 py-2">
+      <p className="min-h-[2.25rem] text-[10px] font-bold uppercase leading-tight tracking-[0.06em] !text-black">
         {label}
         {required ? <RequiredFieldMark /> : null}
       </p>
-      <div className="mt-0.5 min-w-0 text-sm font-medium leading-snug !text-black">{value}</div>
+      <div className="mt-1 min-w-0 text-sm font-medium leading-snug !text-black">{value}</div>
     </div>
   )
 }
@@ -877,7 +877,7 @@ export function DisposalOrderDetailPage() {
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             {order.order_number}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          {/* <p className="mt-1 text-sm text-muted-foreground">
             {order.plant_name}
             {order.from_cost_center_code || order.to_cost_center_code
               ? ` · ${order.from_cost_center_code ?? "—"} → ${order.to_cost_center_code ?? "—"}`
@@ -887,7 +887,7 @@ export function DisposalOrderDetailPage() {
               : order.created_by_name
                 ? ` · ${order.created_by_name}`
                 : null}
-          </p>
+          </p> */}
         </div>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
@@ -902,10 +902,10 @@ export function DisposalOrderDetailPage() {
         <AdminPanel className="shrink-0 overflow-hidden p-0">
           <div className={cn("space-y-3 py-3", disposalTextPad)}>
             <h3 className="text-sm font-bold text-black">Disposal Summary</h3>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-6">
-              <SummaryField label="Asset List" value={editAssets.length} />
+            <div className="flex gap-2 overflow-x-auto pb-0.5">
+              <SummaryField label="Asset Count" value={editAssets.length} />
               <SummaryField
-                label="Source"
+                label="Source Cost Center"
                 value={
                   derivedFromCc?.code === "Multiple"
                     ? "Multiple"
@@ -917,7 +917,7 @@ export function DisposalOrderDetailPage() {
                 }
               />
               <SummaryField
-                label="Scrapyard"
+                label="Scrapyard Cost Center"
                 value={
                   order.can_edit ? (
                     <select
@@ -1032,56 +1032,42 @@ export function DisposalOrderDetailPage() {
             ) : null}
           </div>
           <div className="overflow-x-auto">
-            <Table className="min-w-[68rem] table-fixed">
-              <colgroup>
-                <col className={showLocations ? "w-[14%]" : "w-[22%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[16%]"} />
-                <col className={showLocations ? "w-[14%]" : "w-[18%]"} />
-                <col className={showLocations ? "w-[14%]" : "w-[18%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[16%]"} />
-                {showLocations ? (
-                  <>
-                    <col className="w-[14%]" />
-                    <col className="w-[14%]" />
-                  </>
-                ) : null}
-                {order.can_edit ? <col className="w-[6%]" /> : null}
-              </colgroup>
+            <Table className="w-max min-w-full">
               <TableHeader>
                 <AdminTableHeaderRow>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !font-bold !text-black">
-                    Asset
+                  <AdminTableHeadCell className="min-w-[12rem] !font-bold !text-black">
+                    Asset Name
                   </AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !font-bold !text-black">
-                    Source CC
+                  <AdminTableHeadCell className="min-w-[11rem] !font-bold !text-black">
+                    Source Cost Center
                   </AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
+                  <AdminTableHeadCell className="min-w-[12rem] !text-black">
                     From Actual Location 1
                   </AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
+                  <AdminTableHeadCell className="min-w-[12rem] !text-black">
                     From Actual Location 2
                   </AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
-                    Custodian
+                  <AdminTableHeadCell className="min-w-[10rem] !text-black">
+                    Asset Custodian
                   </AdminTableHeadCell>
-                    {showLocations ? (
-                      <>
-                        <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
-                          Actual Location 1
-                        </AdminTableHeadCell>
-                        <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
-                          Actual Location 2
-                        </AdminTableHeadCell>
-                      </>
-                    ) : null}
-                    {order.can_edit ? (
-                      <AdminTableHeadCell className="h-9 w-12 px-2 py-2">
-                        <span className="sr-only">Remove</span>
+                  {showLocations ? (
+                    <>
+                      <AdminTableHeadCell className="min-w-[12rem] !text-black">
+                        Actual Location 1
                       </AdminTableHeadCell>
-                    ) : null}
-                  </AdminTableHeaderRow>
-                </TableHeader>
-                <TableBody>
+                      <AdminTableHeadCell className="min-w-[12rem] !text-black">
+                        Actual Location 2
+                      </AdminTableHeadCell>
+                    </>
+                  ) : null}
+                  {order.can_edit ? (
+                    <AdminTableHeadCell className="w-12 px-2">
+                      <span className="sr-only">Remove</span>
+                    </AdminTableHeadCell>
+                  ) : null}
+                </AdminTableHeaderRow>
+              </TableHeader>
+              <TableBody>
                   {editAssets.length === 0 ? (
                     <AdminTableEmptyRow
                       colSpan={5 + (showLocations ? 2 : 0) + (order.can_edit ? 1 : 0)}
@@ -1097,11 +1083,8 @@ export function DisposalOrderDetailPage() {
                       )
                       return (
                       <AdminTableBodyRow key={item.asset_id} interactive={false}>
-                        <AdminTableCell className="min-h-0 min-w-0 whitespace-normal px-4 py-2">
-                          <span className="font-mono text-xs !text-black">{item.asset_code}</span>
-                          <p className="mt-0.5 truncate text-sm !text-black">
-                            {item.asset_name || "—"}
-                          </p>
+                        <AdminTableCell className="min-h-0 min-w-0 truncate px-4 py-2 text-sm !text-black">
+                          {item.asset_name || "—"}
                         </AdminTableCell>
                         <AdminTableCell className="min-w-0 truncate px-4 py-2 !text-black">
                           {formatCostCenterWithCode(

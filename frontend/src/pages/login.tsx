@@ -27,7 +27,7 @@ import { writeStoredAuthMethod } from "@/lib/session-idle-events"
 const loginSchema = z.object({
   identifier: z
     .string()
-    .min(1, "Email is required")
+    .min(1, "Email Address is required")
     .superRefine((val, ctx) => {
       const err = validateLoginIdentifier(val)
       if (err) ctx.addIssue({ code: "custom", message: err })
@@ -236,7 +236,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
           <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
             <div className="app-form-field">
               <Label htmlFor="identifier" className={AUTH_LABEL_CLASS}>
-                Login ID
+                Email Address
               </Label>
               <Input
                 id="identifier"

@@ -489,7 +489,7 @@ export function DisposalOrderCreatePage() {
       >
         <div className="grid gap-[var(--app-grid-gap)]">
           <AdminPanel
-            title={fromAssets ? "Selected Asset List" : "Select Asset List"}
+            title={fromAssets ? "Asset List" : "Asset List"}
             // description="Active, approved assets from a single plant. Their current cost center becomes the order's From CC."
             headerActions={<Package className="size-4 text-muted-foreground" aria-hidden />}
             contentClassName="px-5 py-5"

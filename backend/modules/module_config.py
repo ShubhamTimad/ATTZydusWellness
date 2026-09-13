@@ -234,11 +234,11 @@ MODULE_CONFIG: list[ModuleConfigDict] = [
     },
     {
         "key": "report",
-        "title": "Reports",
+        "title": "Report",
         "tabs": [
             {
                 "key": "report",
-                "title": "Reports",
+                "title": "Report",
                 "actions": ["view", "export"],
             },
         ],

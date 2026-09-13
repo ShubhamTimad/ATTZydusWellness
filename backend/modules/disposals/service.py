@@ -51,6 +51,7 @@ from modules.disposals.constants import (
     STATUS_REJECTED,
     SUBMITTABLE_STATUSES,
     disposal_needs_next_assignee,
+    status_codes_matching_search,
 )
 from modules.disposals.model import (
     AssetDisposalOrder,
@@ -2137,19 +2138,21 @@ class DisposalOrderService:
         q = (search or "").strip()
         if q:
             pattern = f"%{q}%"
-            clauses.append(
-                or_(
-                    AssetDisposalOrder.order_number.ilike(pattern),
-                    AssetDisposalOrder.plant.has(
-                        or_(OrgUnit.name.ilike(pattern), OrgUnit.code.ilike(pattern))
-                    ),
-                    AssetDisposalOrder.from_cost_center.has(
-                        CostCenterMaster.code.ilike(pattern)
-                    ),
-                    AssetDisposalOrder.assignee.has(User.full_name.ilike(pattern)),
-                    AssetDisposalOrder.creator.has(User.full_name.ilike(pattern)),
-                )
-            )
+            search_parts = [
+                AssetDisposalOrder.order_number.ilike(pattern),
+                AssetDisposalOrder.plant.has(
+                    or_(OrgUnit.name.ilike(pattern), OrgUnit.code.ilike(pattern))
+                ),
+                AssetDisposalOrder.from_cost_center.has(
+                    CostCenterMaster.code.ilike(pattern)
+                ),
+                AssetDisposalOrder.assignee.has(User.full_name.ilike(pattern)),
+                AssetDisposalOrder.creator.has(User.full_name.ilike(pattern)),
+            ]
+            status_codes = status_codes_matching_search(q)
+            if status_codes:
+                search_parts.append(AssetDisposalOrder.status.in_(status_codes))
+            clauses.append(or_(*search_parts))
         return clauses
 
     def _list_orders_where(self, tab: str, *, viewer_user_id: int | None) -> list:

@@ -294,7 +294,16 @@ export function MasterCrudPanel({
     const nameQ = nameFilter.trim().toLowerCase()
     return rows.filter((row) => {
       if (q) {
-        const blob = [row.code, row.name, row.description, row.color_hex, row.plant_name, row.location_type]
+        const statusWord = row.is_active ? "active" : "inactive"
+        const blob = [
+          row.code,
+          row.name,
+          row.description,
+          row.color_hex,
+          row.plant_name,
+          row.location_type,
+          statusWord,
+        ]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()

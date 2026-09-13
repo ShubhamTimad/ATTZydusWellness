@@ -77,6 +77,12 @@ STATUS_LABELS: dict[str, str] = {
 }
 
 
+def status_codes_matching_search(query: str) -> list[str]:
+    from core.label_search import codes_matching_label_search
+
+    return codes_matching_label_search(query, STATUS_LABELS)
+
+
 def disposal_needs_next_assignee(
     *,
     current_kind: str,

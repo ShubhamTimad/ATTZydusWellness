@@ -61,16 +61,16 @@ function SummaryField({
   return (
     <div
       className={cn(
-        "min-w-0 rounded-md px-2.5 py-1.5",
+        "flex h-full min-w-0 flex-col rounded-md px-3 py-2",
         tone === "warning" && "bg-amber-50/90 dark:bg-amber-950/25",
         tone === "success" && "bg-emerald-50/90 dark:bg-emerald-950/25",
         !tone && "bg-muted/35",
       )}
     >
-      <p className="text-[10px] font-bold uppercase tracking-[0.06em] text-black">
+      <p className="min-h-[2.25rem] text-[10px] font-bold uppercase leading-tight tracking-[0.06em] text-black">
         {label}
       </p>
-      <div className="mt-0.5 min-w-0 text-sm font-normal tabular-nums leading-snug text-black">
+      <div className="mt-1 min-w-0 text-sm font-medium tabular-nums leading-snug text-black">
         {value}
       </div>
     </div>
@@ -803,7 +803,7 @@ export function TransferOrderDetailPage() {
           <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
             {order.order_number}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          {/* <p className="mt-1 text-sm text-muted-foreground">
             {order.plant_name}
             {order.from_cost_center_code || order.to_cost_center_code
               ? ` · ${order.from_cost_center_code ?? "—"} → ${order.to_cost_center_code ?? "—"}`
@@ -813,7 +813,7 @@ export function TransferOrderDetailPage() {
               : order.created_by_name
                 ? ` · ${order.created_by_name}`
                 : null}
-          </p>
+          </p> */}
         </div>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
@@ -828,10 +828,10 @@ export function TransferOrderDetailPage() {
         <AdminPanel className="shrink-0 overflow-hidden p-0">
           <div className={cn("space-y-2 py-3", transferTextPad)}>
             <h3 className="text-sm font-semibold text-foreground">Transfer Summary</h3>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
-              <SummaryField label="Asset List" value={order.items.length} />
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              <SummaryField label="Asset Count" value={order.items.length} />
               <SummaryField
-                label="Source"
+                label="Source Cost Center"
                 value={formatCostCenterWithCode(
                   order.from_cost_center_code,
                   masters.costCenters,
@@ -839,7 +839,7 @@ export function TransferOrderDetailPage() {
                 )}
               />
               <SummaryField
-                label="Destination"
+                label="Destination Cost Center"
                 value={
                   draftEditable ? (
                     <select
@@ -872,10 +872,6 @@ export function TransferOrderDetailPage() {
                 }
               />
               <SummaryField label="Created On" value={formatDt(order.created_at)} />
-              <SummaryField
-                label="Assigned To"
-                value={order.assigned_to_name || "—"}
-              />
             </div>
           </div>
         </AdminPanel>
@@ -895,39 +891,30 @@ export function TransferOrderDetailPage() {
             </p>
           </div>
           <div className="overflow-x-auto">
-            <Table className="min-w-[68rem] table-fixed">
-              <colgroup>
-                <col className={showLocations ? "w-[14%]" : "w-[22%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[16%]"} />
-                <col className={showLocations ? "w-[14%]" : "w-[18%]"} />
-                <col className={showLocations ? "w-[14%]" : "w-[18%]"} />
-                <col className={showLocations ? "w-[12%]" : "w-[16%]"} />
-                {showLocations ? (
-                  <>
-                    <col className="w-[17%]" />
-                    <col className="w-[17%]" />
-                  </>
-                ) : null}
-              </colgroup>
+            <Table className="w-max min-w-full">
               <TableHeader>
                 <AdminTableHeaderRow>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">Asset</AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">Source CC</AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
+                  <AdminTableHeadCell className="min-w-[12rem] !text-black">
+                    Asset Name
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="min-w-[11rem] !text-black">
+                    Source Cost Center
+                  </AdminTableHeadCell>
+                  <AdminTableHeadCell className="min-w-[12rem] !text-black">
                     From Actual Location 1
                   </AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
+                  <AdminTableHeadCell className="min-w-[12rem] !text-black">
                     From Actual Location 2
                   </AdminTableHeadCell>
-                  <AdminTableHeadCell className="h-9 px-4 py-2 !text-black">
-                    Custodian
+                  <AdminTableHeadCell className="min-w-[10rem] !text-black">
+                    Asset Custodian
                   </AdminTableHeadCell>
                   {showLocations ? (
                     <>
-                      <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
+                      <AdminTableHeadCell className="min-w-[12rem] !text-black">
                         Actual Location 1
                       </AdminTableHeadCell>
-                      <AdminTableHeadCell className="h-9 px-4 py-2 !whitespace-normal !leading-snug !text-black">
+                      <AdminTableHeadCell className="min-w-[12rem] !text-black">
                         Actual Location 2
                       </AdminTableHeadCell>
                     </>
@@ -950,9 +937,8 @@ export function TransferOrderDetailPage() {
                     )
                     return (
                     <AdminTableBodyRow key={item.id} interactive={false}>
-                      <AdminTableCell className="min-h-0 min-w-0 whitespace-normal px-4 py-2">
-                        <span className="font-mono text-xs text-foreground">{item.asset_code}</span>
-                        <p className="mt-0.5 truncate text-sm text-foreground">{item.asset_name || "—"}</p>
+                      <AdminTableCell className="min-h-0 min-w-0 truncate px-4 py-2 text-sm text-foreground">
+                        {item.asset_name || "—"}
                       </AdminTableCell>
                       <AdminTableCell className="min-w-0 truncate px-4 py-2">
                         {formatCostCenterWithCode(

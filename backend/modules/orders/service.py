@@ -42,6 +42,7 @@ from modules.orders.constants import (
     ORDER_STATUS_PENDING_APPROVAL,
     ORDER_STATUS_PENDING_CLOSURE,
     ORDER_STATUS_REJECTED,
+    status_codes_matching_search,
 )
 from modules.orders.model import PhysicalOrder, PhysicalOrderAudit, PhysicalOrderItem
 from modules.orders.progress import build_order_progress, enrich_audit_rows
@@ -1992,22 +1993,24 @@ class PhysicalOrderService:
             cc_alias = aliased(CostCenterMaster)
             creator_s = aliased(User)
             assignee_s = aliased(User)
+            search_parts = [
+                PhysicalOrder.order_number.ilike(pattern),
+                plant_alias.name.ilike(pattern),
+                plant_alias.code.ilike(pattern),
+                cc_alias.code.ilike(pattern),
+                cc_alias.name.ilike(pattern),
+                creator_s.full_name.ilike(pattern),
+                assignee_s.full_name.ilike(pattern),
+            ]
+            status_codes = status_codes_matching_search(q)
+            if status_codes:
+                search_parts.append(PhysicalOrder.status.in_(status_codes))
             base = (
                 base.outerjoin(plant_alias, plant_alias.id == PhysicalOrder.plant_id)
                 .outerjoin(cc_alias, cc_alias.id == PhysicalOrder.cost_center_id)
                 .outerjoin(creator_s, creator_s.id == PhysicalOrder.created_by)
                 .outerjoin(assignee_s, assignee_s.id == PhysicalOrder.assigned_to)
-                .where(
-                    or_(
-                        PhysicalOrder.order_number.ilike(pattern),
-                        plant_alias.name.ilike(pattern),
-                        plant_alias.code.ilike(pattern),
-                        cc_alias.code.ilike(pattern),
-                        cc_alias.name.ilike(pattern),
-                        creator_s.full_name.ilike(pattern),
-                        assignee_s.full_name.ilike(pattern),
-                    )
-                )
+                .where(or_(*search_parts))
             )
 
         total = int(

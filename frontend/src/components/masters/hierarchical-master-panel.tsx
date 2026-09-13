@@ -378,7 +378,8 @@ export function HierarchicalMasterPanel({
     const parentQ = parentFilter.trim().toLowerCase()
     return rows.filter((row) => {
       if (q) {
-        const blob = [row.code, row.name, row.description, row.plant_label, row.parent_label]
+        const statusWord = row.is_active ? "active" : "inactive"
+        const blob = [row.code, row.name, row.description, row.plant_label, row.parent_label, statusWord]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()

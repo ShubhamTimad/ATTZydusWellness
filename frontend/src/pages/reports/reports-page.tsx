@@ -86,7 +86,7 @@ export function ReportsPage() {
   return (
     <div className="app-page flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-x-hidden overflow-y-auto">
       <div>
-        <h1 className="app-page-heading">Reports</h1>
+        <h1 className="app-page-heading">Report</h1>
       </div>
 
       {loadError ? (

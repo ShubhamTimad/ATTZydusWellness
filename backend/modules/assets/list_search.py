@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from sqlalchemy import String, cast, or_, select
+from sqlalchemy import String, and_, cast, or_, select
 
+from core.label_search import normalize_search_needle
 from modules.asset_masters.model import (
     ActualLocationMaster,
     AssetClassMaster,
@@ -21,10 +22,59 @@ from modules.assets.model import (
     AssetLocationInformation,
     AssetMaster,
 )
-from modules.orders.constants import ACTIVE_ORDER_STATUSES
+from modules.orders.constants import ACTIVE_ORDER_STATUSES, status_codes_matching_search
 from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 from modules.platform.org_units.model import OrgUnit
 from modules.platform.users.model import User
+
+# Display labels from frontend assetStatusLabel → match approval/lifecycle codes.
+_ASSET_STATUS_LABEL_MATCHES: tuple[tuple[str, str | None, str | None], ...] = (
+    # needle substring, approval_status (None=any), lifecycle_status (None=any)
+    ("disposed", None, "disposed"),
+    ("pending disposal", None, "pending_disposal"),
+    ("pending transfer", None, "pending_transfer"),
+    ("deactivated", None, "deactivated"),
+    ("pending approval", "pending", None),
+    ("rejected", "rejected", None),
+    ("approved", "approved", None),
+    ("draft", "draft", None),
+)
+
+
+def _asset_status_search_clauses(raw_term: str):
+    """OR clauses matching UI status badges (not only raw DB codes)."""
+    needle = normalize_search_needle(raw_term)
+    if not needle:
+        return []
+    parts = []
+    for label, approval, lifecycle in _ASSET_STATUS_LABEL_MATCHES:
+        life_raw = (lifecycle or "").replace("_", " ")
+        if needle not in label and needle not in (approval or "") and needle not in life_raw:
+            continue
+        conds = []
+        if approval is not None:
+            if approval == "approved":
+                conds.append(AssetMaster.approval_status.in_(("approved", "not_required")))
+            else:
+                conds.append(AssetMaster.approval_status == approval)
+        if lifecycle is not None:
+            conds.append(AssetMaster.lifecycle_status == lifecycle)
+        elif approval is not None:
+            # Badge statuses for approval apply when not in a terminal lifecycle.
+            conds.append(
+                ~AssetMaster.lifecycle_status.in_(
+                    ("disposed", "pending_disposal", "pending_transfer", "deactivated")
+                )
+            )
+        if conds:
+            parts.append(and_(*conds) if len(conds) > 1 else conds[0])
+    # Also keep raw ILIKE on codes for partial code typing.
+    underscore = needle.replace(" ", "_")
+    parts.append(AssetMaster.lifecycle_status.ilike(f"%{underscore}%"))
+    parts.append(AssetMaster.approval_status.ilike(f"%{underscore}%"))
+    parts.append(AssetMaster.lifecycle_status.ilike(f"%{needle}%"))
+    parts.append(AssetMaster.approval_status.ilike(f"%{needle}%"))
+    return parts
 
 # Keep in sync with frontend ASSET_LIST_COLUMNS / backend ASSET_LIST_COLUMN_KEYS.
 DEFAULT_SEARCH_COLUMNS = (
@@ -180,9 +230,8 @@ def asset_global_search_clause(term: str, columns: Iterable[str] | None = None):
             .exists()
         )
     if "lifecycle_status" in keys:
-        # Status pill uses lifecycle + approval (Draft / Pending / Approved / …).
-        clauses.append(AssetMaster.lifecycle_status.ilike(q))
-        clauses.append(AssetMaster.approval_status.ilike(q))
+        # Status pill uses lifecycle + approval (Draft / Pending Approval / …).
+        clauses.extend(_asset_status_search_clauses(needle))
     if "sub_no" in keys:
         clauses.append(AssetMaster.sub_no.ilike(q))
     if "asset_type" in keys:
@@ -251,6 +300,9 @@ def asset_global_search_clause(term: str, columns: Iterable[str] | None = None):
             order_parts.append(PhysicalOrder.order_number.ilike(q))
         if "physical_order_status" in keys:
             order_parts.append(PhysicalOrder.status.ilike(q))
+            status_codes = status_codes_matching_search(needle)
+            if status_codes:
+                order_parts.append(PhysicalOrder.status.in_(status_codes))
         clauses.append(
             select(1)
             .select_from(PhysicalOrderItem)

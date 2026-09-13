@@ -212,7 +212,7 @@ export function AppLoginPage() {
           <form onSubmit={onSubmitPassword} className="space-y-5">
             <div className="app-form-field">
               <Label htmlFor="identifier" className={AUTH_LABEL_CLASS}>
-                Login ID
+                Email Address
               </Label>
               <Input
                 id="identifier"

@@ -79,7 +79,7 @@ export function ForgotPasswordPage() {
     <AppAuthMarketingLayout>
       <AuthFormShell
         title="Forgot Password"
-        description="Enter your registered email address."
+        // description="Enter your registered email address."
       >
         {submitted ? (
           <div className="space-y-4 text-sm leading-relaxed text-muted-foreground">

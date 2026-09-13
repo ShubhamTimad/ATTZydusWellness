@@ -97,3 +97,9 @@ STATUS_LABELS: dict[str, str] = {
     STATUS_CLOSED: "Closed",
     STATUS_CANCELLED: "Cancelled",
 }
+
+
+def status_codes_matching_search(query: str) -> list[str]:
+    from core.label_search import codes_matching_label_search
+
+    return codes_matching_label_search(query, STATUS_LABELS)

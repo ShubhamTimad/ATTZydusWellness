@@ -529,7 +529,7 @@ export function TransferOrderCreatePage() {
   }
 
   const designatedCostCenterField = (
-    <FormField id="to_cc" labelText="Designated Cost Center" required>
+    <FormField id="to_cc" labelText="Destination Cost Center" required>
       <select
         id="to_cc"
         className={adminSelectClass}
@@ -697,7 +697,7 @@ export function TransferOrderCreatePage() {
         }}
       >
         <AdminPanel
-            title="Selected Asset List"
+            title="Asset List"
             // description={
             //   fromAssets
             //     ? "Assets where you are the asset custodian (from Asset Master)."
