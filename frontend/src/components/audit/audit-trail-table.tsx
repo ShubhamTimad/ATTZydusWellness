@@ -38,7 +38,7 @@ export type AuditTrailRow = {
   activity: React.ReactNode
 }
 
-export function formatWhenParts(iso: string): { date: string; time: string } {
+function formatWhenParts(iso: string): { date: string; time: string } {
   return formatAppWhenParts(iso)
 }
 

@@ -113,7 +113,7 @@ import {
 } from "@/lib/asset-lifecycle"
 import { currentUserId, hasPermission, isSuperuser } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
-import { writePhysicalOrderPreview } from "@/pages/orders/order-create"
+import { writePhysicalOrderPreview } from "@/lib/physical-order-preview"
 import { orderStatusLabel } from "@/lib/orders-types"
 import {
   TRANSFER_IN_PROGRESS_MESSAGE,

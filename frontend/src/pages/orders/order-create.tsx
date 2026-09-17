@@ -22,34 +22,17 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { asAssetListItem, clearAssetMasterSelection, writeAssetMasterSelection } from "@/lib/asset-master-selection"
-import type { AssetListItem } from "@/lib/assets-types"
 import { ApiError, postJson } from "@/lib/api"
 import { formatAppDate, formatAppDateTime } from "@/lib/dates"
 import { invalidateAssetLists, invalidateOrderLists } from "@/lib/query-client"
 import { listReturnTo } from "@/lib/use-url-tab"
 import type { OrderLifecycleStep, PhysicalOrderDetail } from "@/lib/orders-types"
+import {
+  PHYSICAL_ORDER_PREVIEW_KEY,
+  type PhysicalOrderPreview,
+  type PhysicalOrderPreviewAsset,
+} from "@/lib/physical-order-preview"
 import { cn } from "@/lib/utils"
-
-export const PHYSICAL_ORDER_PREVIEW_KEY = "physical-order-preview"
-
-export type PhysicalOrderPreviewAsset = {
-  id: number
-  asset_code: string
-  asset_name: string
-  rfid_code?: string | null
-  cost_center?: string | null
-  plant_name?: string | null
-  inventory_count?: number | null
-  physical_count?: number | null
-  last_verification_date?: string | null
-}
-
-export type PhysicalOrderPreview = {
-  asset_ids: number[]
-  reset_verification_asset_ids: number[]
-  assets: PhysicalOrderPreviewAsset[]
-  selection?: AssetListItem[]
-}
 
 const PAGE_SIZE = 20
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -63,14 +46,6 @@ const DRAFT_STEPS: OrderLifecycleStep[] = [
   { key: "approved", label: "Approved", status: "pending", approver_slots: [] },
   { key: "closed", label: "Closed", status: "pending", approver_slots: [] },
 ]
-
-export function writePhysicalOrderPreview(preview: PhysicalOrderPreview) {
-  try {
-    sessionStorage.setItem(PHYSICAL_ORDER_PREVIEW_KEY, JSON.stringify(preview))
-  } catch {
-    /* quota */
-  }
-}
 
 function previewSelectionRows(preview: PhysicalOrderPreview) {
   if (preview.selection?.length) return preview.selection.map((row) => asAssetListItem(row))

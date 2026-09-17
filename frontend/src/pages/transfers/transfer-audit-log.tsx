@@ -69,7 +69,7 @@ const WORKFLOW_ACTIONS = new Set([
 ])
 
 /** Short headline: decision + step role when present. */
-export function transferAuditHeadline(ev: TransferOrderAudit): string {
+function transferAuditHeadline(ev: TransferOrderAudit): string {
   const step = fromNew(ev, "step_role_name") || fromNew(ev, "role_name")
   switch (ev.action) {
     case "created":
@@ -115,7 +115,7 @@ export function transferAuditHeadline(ev: TransferOrderAudit): string {
  * Workflow actions: next assignee, comment, receive destinations.
  * Edits: only fields that actually changed.
  */
-export function transferAuditDetailLines(
+function transferAuditDetailLines(
   ev: TransferOrderAudit,
   assetCodeById?: Map<number, string>,
 ): string[] {
