@@ -27,6 +27,7 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { clearAssetMasterSelection, writeAssetMasterSelection } from "@/lib/asset-master-selection"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import { invalidateDisposalLists } from "@/lib/query-client"
+import { listReturnTo } from "@/lib/use-url-tab"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import type { DisposalAssigneeListResponse, DisposalAssigneeOption, DisposalOrderDetail } from "@/lib/disposal-types"
 import type { CostCenterMaster } from "@/lib/masters-types"
@@ -473,11 +474,9 @@ export function DisposalOrderCreatePage() {
       className="w-full pb-6"
       actions={
         <AdminBackLink
-          to={fromAssets ? "/dashboard/assets" : "/dashboard/disposal-orders"}
+          to={listReturnTo(fromAssets ? "/dashboard/assets" : "/dashboard/disposal-orders")}
           onClick={persistAssetMasterSelection}
-        >
-          {fromAssets ? "Asset Master" : "Disposal Order"}
-        </AdminBackLink>
+        />
       }
     >
       <form
@@ -557,10 +556,10 @@ export function DisposalOrderCreatePage() {
                       </AdminTableHeadCell>
                     ) : null}
                     <AdminTableHeadCell>Asset</AdminTableHeadCell>
-                    <AdminTableHeadCell>Cost center</AdminTableHeadCell>
+                    <AdminTableHeadCell>Source Cost Center</AdminTableHeadCell>
                     <AdminTableHeadCell>Actual Location 1</AdminTableHeadCell>
                     <AdminTableHeadCell>Actual Location 2</AdminTableHeadCell>
-                    <AdminTableHeadCell>Custodian</AdminTableHeadCell>
+                    <AdminTableHeadCell>Asset Custodian</AdminTableHeadCell>
                   </AdminTableHeaderRow>
                 </TableHeader>
                 <TableBody>
@@ -706,7 +705,7 @@ export function DisposalOrderCreatePage() {
             disabled={busy}
             onClick={() => {
               persistAssetMasterSelection()
-              navigate(fromAssets ? "/dashboard/assets" : "/dashboard/disposal-orders")
+              navigate(listReturnTo(fromAssets ? "/dashboard/assets" : "/dashboard/disposal-orders"))
             }}
           >
             Cancel

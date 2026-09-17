@@ -43,6 +43,7 @@ import {
   type DisposalOrderDetail,
   type DisposalOrderItem,
 } from "@/lib/disposal-types"
+import { listReturnTo } from "@/lib/use-url-tab"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import {
   actualLocationLabel,
@@ -113,19 +114,14 @@ function FormField({
 function SummaryField({
   label,
   value,
-  required,
 }: {
   label: string
   value: React.ReactNode
-  required?: boolean
 }) {
   return (
-    <div className="flex h-full min-w-[10.5rem] flex-col rounded-md bg-muted/35 px-3 py-2">
-      <p className="min-h-[2.25rem] text-[10px] font-bold uppercase leading-tight tracking-[0.06em] !text-black">
-        {label}
-        {required ? <RequiredFieldMark /> : null}
-      </p>
-      <div className="mt-1 min-w-0 text-sm font-medium leading-snug !text-black">{value}</div>
+    <div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
+      <p className="text-[10px] font-bold uppercase tracking-[0.06em] !text-black">{label}</p>
+      <div className="mt-0.5 min-w-0 text-sm font-medium leading-snug !text-black">{value}</div>
     </div>
   )
 }
@@ -243,7 +239,7 @@ export function DisposalOrderDetailPage() {
       applyOrder(await getJson<DisposalOrderDetail>(`/admin/disposal-orders/${orderId}`))
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to load disposal order")
-      navigate("/dashboard/disposal-orders", { replace: true })
+      navigate(listReturnTo("/dashboard/disposal-orders"), { replace: true })
     } finally {
       setLoading(false)
     }
@@ -436,36 +432,45 @@ export function DisposalOrderDetailPage() {
     setEditAssets([])
   }
 
-  async function saveEdits() {
-    if (!order) return
+  async function saveEdits(opts?: { quiet?: boolean }): Promise<boolean> {
+    if (!order) return false
     if (editAssets.length === 0) {
       toast.error("Keep at least one asset on the disposal order.")
-      return
+      return false
     }
     if (!toCostCenterId) {
       toast.error("Select a scrapyard cost center.")
-      return
+      return false
     }
     const missing = assetsMissingCustodian()
     if (missing.length > 0) {
       warnMissingCustodian(missing)
-      return
+      return false
     }
     if (!remarks.trim()) {
       toast.error("Enter the disposal reason.")
-      return
+      return false
     }
-    await run(
-      () =>
-        patchJson(`/admin/disposal-orders/${order.id}`, {
+    setBusy(true)
+    try {
+      applyOrder(
+        await patchJson(`/admin/disposal-orders/${order.id}`, {
           remarks: remarks.trim() || null,
           requires_engineering: requiresEngineering,
           asset_ids: editAssets.map((a) => a.asset_id),
           to_cost_center_id: Number(toCostCenterId),
           ...custodianPayload(),
         }),
-      "Disposal order saved.",
-    )
+      )
+      if (!opts?.quiet) toast.success("Disposal order saved.")
+      void invalidateDisposalLists()
+      return true
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Action failed")
+      return false
+    } finally {
+      setBusy(false)
+    }
   }
 
   /** Asset codes with no scrapyard custodian picked yet. */
@@ -615,12 +620,11 @@ export function DisposalOrderDetailPage() {
 
   const savedAssetIds = (order.items ?? []).map((i) => i.asset_id).slice().sort((a, b) => a - b)
   const editAssetIds = editAssets.map((a) => a.asset_id).slice().sort((a, b) => a - b)
-  // Compared in edit-row order so reordering assets alone does not look like a custodian change.
   const savedCustodianIds = JSON.stringify(
-    editAssets.map(
-      (a) =>
-        (order.items ?? []).find((i) => i.asset_id === a.asset_id)?.to_asset_custodian_id ?? null,
-    ),
+    editAssets.map((a) => {
+      const item = (order.items ?? []).find((i) => i.asset_id === a.asset_id)
+      return item?.to_asset_custodian_id ?? order.receiver_user_id ?? null
+    }),
   )
   const isDirty =
     order.can_edit &&
@@ -680,7 +684,7 @@ export function DisposalOrderDetailPage() {
                   )
                   toast.success("Disposal order archived. Assets reactivated.")
                   void invalidateDisposalLists()
-                  navigate("/dashboard/disposal-orders")
+                  navigate(listReturnTo("/dashboard/disposal-orders"))
                 } catch (e) {
                   toast.error(
                     e instanceof ApiError ? e.message : "Could not archive disposal order",
@@ -756,28 +760,26 @@ export function DisposalOrderDetailPage() {
               type="button"
               disabled={busy}
               onClick={() => {
-                if (!toCostCenterId) {
-                  toast.error("Select a scrapyard cost center and save before submitting.")
-                  return
-                }
-                if (order.to_cost_center_id !== Number(toCostCenterId)) {
-                  toast.error("Save the scrapyard cost center before submitting.")
-                  return
-                }
-                const missing = assetsMissingCustodian()
-                if (missing.length > 0) {
-                  warnMissingCustodian(missing)
-                  return
-                }
-                if (isDirty) {
-                  toast.error("Save your changes before submitting.")
-                  return
-                }
-                if (!remarks.trim()) {
-                  toast.error("Enter the disposal reason.")
-                  return
-                }
-                setPickerMode("submit")
+                void (async () => {
+                  if (!toCostCenterId) {
+                    toast.error("Select a scrapyard cost center.")
+                    return
+                  }
+                  const missing = assetsMissingCustodian()
+                  if (missing.length > 0) {
+                    warnMissingCustodian(missing)
+                    return
+                  }
+                  if (!remarks.trim()) {
+                    toast.error("Enter the disposal reason.")
+                    return
+                  }
+                  if (isDirty) {
+                    const saved = await saveEdits({ quiet: true })
+                    if (!saved) return
+                  }
+                  setPickerMode("submit")
+                })()
               }}
             >
               Submit for Approval
@@ -866,9 +868,7 @@ export function DisposalOrderDetailPage() {
               Approve
             </AdminPrimaryButton>
           ) : null}
-          <AdminBackLink to={backToAssets ? "/dashboard/assets" : "/dashboard/disposal-orders"}>
-            {backToAssets ? "Asset Master" : "Disposal Orders"}
-          </AdminBackLink>
+          <AdminBackLink to={listReturnTo(backToAssets ? "/dashboard/assets" : "/dashboard/disposal-orders")} />
         </div>
       }
     >
@@ -900,9 +900,9 @@ export function DisposalOrderDetailPage() {
         </AdminPanel>
 
         <AdminPanel className="shrink-0 overflow-hidden p-0">
-          <div className={cn("space-y-3 py-3", disposalTextPad)}>
-            <h3 className="text-sm font-bold text-black">Disposal Summary</h3>
-            <div className="flex gap-2 overflow-x-auto pb-0.5">
+          <div className={cn("space-y-2 py-3", disposalTextPad)}>
+            <h3 className="text-sm font-semibold text-foreground">Disposal Summary</h3>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
               <SummaryField label="Asset Count" value={editAssets.length} />
               <SummaryField
                 label="Source Cost Center"
@@ -950,7 +950,6 @@ export function DisposalOrderDetailPage() {
                 }
               />
               <SummaryField label="Created On" value={formatWhen(order.created_at)} />
-              <SummaryField label="Assigned To" value={order.assigned_to_name || "—"} />
               <SummaryField
                 label="Engineering Approval Required"
                 value={
@@ -970,36 +969,41 @@ export function DisposalOrderDetailPage() {
                 }
               />
             </div>
-
-            {order.can_edit || order.can_close ? (
-              <SummaryField
-                label={order.can_close && !order.can_edit ? "Remarks" : "Disposal Reason"}
-                required={order.can_edit}
-                value={
-                  <textarea
-                    id="remarks"
-                    className={cn(adminTextareaClass, "min-h-[72px] !text-black")}
-                    placeholder={
-                      order.can_close && !order.can_edit
-                        ? "Remarks"
-                        : "Enter the disposal reason"
-                    }
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    rows={2}
-                  />
-                }
-              />
-            ) : (
-              <SummaryField
-                label="Disposal Reason"
-                value={
-                  <span className="whitespace-pre-wrap font-medium !text-black">
-                    {order.remarks || "—"}
-                  </span>
-                }
-              />
-            )}
+            <div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
+              <p className="text-xs font-bold uppercase tracking-[0.06em] text-black">
+                {order.can_close && !order.can_edit ? "Remarks" : "Disposal Reason"}
+                {order.can_edit ? <RequiredFieldMark /> : null}
+              </p>
+              {order.can_edit || order.can_close ? (
+                <textarea
+                  id="remarks"
+                  className={cn(adminTextareaClass, "mt-1.5 min-h-[72px] !text-black")}
+                  placeholder={
+                    order.can_close && !order.can_edit
+                      ? "Remarks"
+                      : "Enter the disposal reason"
+                  }
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  rows={2}
+                />
+              ) : (
+                <p className="mt-1.5 whitespace-pre-wrap break-words text-sm font-normal leading-snug text-black">
+                  {order.remarks || "—"}
+                </p>
+              )}
+            </div>
+            {(order.status === "rejected" || order.status === "in_rework") &&
+            (order.rejection_comment || "").trim() ? (
+              <div className="min-w-0 overflow-hidden rounded-lg border border-red-200 bg-red-50/70 px-3 py-2.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-red-700">
+                  Rejected Reason
+                </p>
+                <p className="mt-1 whitespace-pre-wrap break-all text-sm leading-relaxed text-red-700">
+                  {order.rejection_comment}
+                </p>
+              </div>
+            ) : null}
           </div>
         </AdminPanel>
 
@@ -1012,9 +1016,6 @@ export function DisposalOrderDetailPage() {
           >
             <p className="shrink-0 text-sm font-medium text-foreground">
               Asset List
-              <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
-                ({editAssets.length})
-              </span>
             </p>
             {order.can_edit ? (
               <div className="flex flex-wrap items-center gap-2">
@@ -1031,7 +1032,7 @@ export function DisposalOrderDetailPage() {
               </div>
             ) : null}
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto pb-4">
             <Table className="w-max min-w-full">
               <TableHeader>
                 <AdminTableHeaderRow>

@@ -68,6 +68,7 @@ import {
   canSubmitForApproval,
 } from "@/lib/asset-lifecycle"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
+import { listReturnTo } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -825,7 +826,7 @@ export function AssetDetailPage() {
           onAction={handleDetailAction}
         />
       ) : null}
-      <AdminBackLink to="/dashboard/assets">Assets</AdminBackLink>
+      <AdminBackLink to={listReturnTo("/dashboard/assets")} />
     </div>
   )
 
@@ -875,7 +876,7 @@ export function AssetDetailPage() {
                     Retry
                   </Button>
                 ) : null}
-                <Link to="/dashboard/assets" className="text-primary underline-offset-2 hover:underline">
+                <Link to={listReturnTo("/dashboard/assets")} className="text-primary underline-offset-2 hover:underline">
                   Return to Assets
                 </Link>
               </div>

@@ -307,6 +307,20 @@ def test_unarchive_order_marks_assets_pending_disposal():
     db.commit.assert_called_once()
 
 
+def test_update_skips_audit_when_nothing_changed():
+    asset = _asset()
+    order = _order(STATUS_DRAFT, assets=[asset])
+    order.items[0].to_asset_custodian_id = 8
+    db = MagicMock()
+    svc = DisposalOrderService(db)
+    with patch.object(svc, "_load_order", return_value=order):
+        with patch.object(svc, "get_order", return_value="detail"):
+            with patch("modules.disposals.service.log_disposal_event") as log:
+                svc.update_order(1, UpdateDisposalOrderRequest(), actor_user_id=2)
+    log.assert_not_called()
+    db.commit.assert_called_once()
+
+
 def test_update_restores_removed_assets_and_marks_added_pending_disposal():
     asset1 = _asset(1)
     asset1.lifecycle_status = LIFECYCLE_PENDING_DISPOSAL

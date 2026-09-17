@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, getJson, postJson, putFormData } from "@/lib/api"
 import { invalidateAssetLists } from "@/lib/query-client"
+import { listReturnTo } from "@/lib/use-url-tab"
 import type { CapexFormDetail } from "@/lib/capex-types"
 import type { AssetDetail } from "@/lib/assets-types"
 import { useAssetFieldConfig } from "@/lib/use-asset-field-config"
@@ -311,7 +312,7 @@ export function AssetCreatePage() {
 
   React.useEffect(() => {
     if (!hasPermission("asset.create")) {
-      navigate("/dashboard/assets", { replace: true })
+      navigate(listReturnTo("/dashboard/assets"), { replace: true })
     }
   }, [navigate])
 
@@ -385,7 +386,7 @@ export function AssetCreatePage() {
       dense
       // description="Enter all asset master fields. Inventory count defaults to 1; physical count stays 0 until a physical verification order is completed."
       className="w-full pb-6"
-      actions={<AdminBackLink to="/dashboard/assets">Asset Master</AdminBackLink>}
+      actions={<AdminBackLink to={listReturnTo("/dashboard/assets")} />}
     >
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
         <div className="min-w-0">
@@ -1085,7 +1086,7 @@ export function AssetCreatePage() {
             type="button"
             variant="outline"
             className="h-9 shadow-sm"
-            onClick={() => navigate("/dashboard/assets")}
+            onClick={() => navigate(listReturnTo("/dashboard/assets"))}
           >
             Cancel
           </Button>

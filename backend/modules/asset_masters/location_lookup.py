@@ -93,7 +93,12 @@ def resolve_cost_center_name(
 
 
 def plant_code_display_map(db: Session, plant_id: int) -> dict[str, str]:
-    """Case-folded master code → display name for FL / AL / CC / PC in this plant."""
+    """Master code → display name for FL / AL / CC / PC in this plant.
+
+    Keys are prefixed (``fl:``, ``al:``, ``al:{fl}:{al}``, ``cc:``, ``pc:``) so
+    Actual Location 1 and Actual Location 2 can share a code without colliding.
+    Unprefixed keys are kept for cost/profit centers (and as a lookup fallback).
+    """
     labels: dict[str, str] = {}
     fl_rows = list(
         db.scalars(
@@ -106,7 +111,7 @@ def plant_code_display_map(db: Session, plant_id: int) -> dict[str, str]:
     for row in fl_rows:
         name = location_display_name(row.name, row.code, row.description)
         if name:
-            labels[row.code.strip().casefold()] = name
+            labels[f"fl:{row.code.strip().casefold()}"] = name
     if fl_by_id:
         for row in db.scalars(
             select(ActualLocationMaster).where(
@@ -114,8 +119,13 @@ def plant_code_display_map(db: Session, plant_id: int) -> dict[str, str]:
             )
         ).all():
             name = location_display_name(row.name, row.code, row.description)
-            if name:
-                labels[row.code.strip().casefold()] = name
+            if not name:
+                continue
+            al_key = row.code.strip().casefold()
+            labels[f"al:{al_key}"] = name
+            fl = fl_by_id.get(int(row.functional_location_id))
+            if fl is not None:
+                labels[f"al:{fl.code.strip().casefold()}:{al_key}"] = name
     cc_rows = list(
         db.scalars(
             select(CostCenterMaster).where(CostCenterMaster.plant_id == int(plant_id))
@@ -125,14 +135,18 @@ def plant_code_display_map(db: Session, plant_id: int) -> dict[str, str]:
     for row in cc_rows:
         name = location_display_name(row.name, row.code, row.description)
         if name:
-            labels[row.code.strip().casefold()] = name
+            folded = row.code.strip().casefold()
+            labels[f"cc:{folded}"] = name
+            labels[folded] = name
     if cc_ids:
         for row in db.scalars(
             select(ProfitCenterMaster).where(ProfitCenterMaster.cost_center_id.in_(cc_ids))
         ).all():
             name = location_display_name(row.name, row.code, row.description)
             if name:
-                labels[row.code.strip().casefold()] = name
+                folded = row.code.strip().casefold()
+                labels[f"pc:{folded}"] = name
+                labels[folded] = name
     return labels
 
 

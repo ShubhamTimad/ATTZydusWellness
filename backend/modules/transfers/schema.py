@@ -52,6 +52,20 @@ class SaveReceiveLocationsRequest(BaseModel):
     item_locations: list[TransferItemPartialLocation] = Field(min_length=1)
 
 
+class ValidateTransferAssetsRequest(BaseModel):
+    asset_ids: list[int] = Field(min_length=1)
+
+
+class TransferInProgressAsset(BaseModel):
+    asset_id: int
+    asset_code: str
+    asset_name: str
+
+
+class ValidateTransferAssetsResponse(BaseModel):
+    in_progress: list[TransferInProgressAsset] = []
+
+
 class CreateTransferOrderRequest(BaseModel):
     asset_ids: list[int] = Field(min_length=1)
     to_cost_center_id: int

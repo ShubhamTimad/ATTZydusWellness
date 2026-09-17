@@ -2,7 +2,7 @@ import * as React from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Plus } from "lucide-react"
+import { ArrowLeft, Plus } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -275,8 +275,9 @@ export function EmailTemplatesPage() {
     if (!tpl) {
       return (
         <AdminPage fullWidth className="space-y-4">
-          <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToList}>
-            ← Back to templates
+          <Button type="button" variant="outline" size="sm" onClick={backToList}>
+            <ArrowLeft className="size-4" aria-hidden />
+            Back
           </Button>
           <p className="text-sm text-muted-foreground">Template not found.</p>
         </AdminPage>
@@ -286,8 +287,9 @@ export function EmailTemplatesPage() {
     return (
       <AdminPage fullWidth className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToList}>
-            ← Back to templates
+          <Button type="button" variant="outline" size="sm" onClick={backToList}>
+            <ArrowLeft className="size-4" aria-hidden />
+            Back
           </Button>
           <div className="flex flex-wrap gap-2">
             <AdminPrimaryButton type="button" onClick={() => void onSave()} disabled={!canUpdate || saving}>

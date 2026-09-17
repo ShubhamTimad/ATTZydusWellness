@@ -24,6 +24,17 @@ export function formatAppDate(value: string | Date | null | undefined): string {
   return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${String(d.getFullYear()).slice(-2)}`
 }
 
+/** Reformat ISO or "17 Sep 2026" style dates; leave other text alone. */
+export function formatAppDateIfDate(value: string): string {
+  const s = value.trim()
+  if (!s || s === "—" || s === "-") return s || "—"
+  if (/^\d{2}\/\d{2}\/\d{2}$/.test(s)) return s
+  if (/^\d{4}-\d{2}-\d{2}(?:[T\s].*)?$/.test(s) || /^\d{1,2} [A-Za-z]{3,9} \d{4}$/.test(s)) {
+    return formatAppDate(s)
+  }
+  return value
+}
+
 /** Date + short time, e.g. 21/08/26, 2:47 PM */
 export function formatAppDateTime(value: string | Date | null | undefined): string {
   if (value == null || value === "") return "—"
@@ -46,4 +57,6 @@ export function formatAppWhenParts(value: string | Date): { date: string; time: 
 if (import.meta.env?.DEV) {
   console.assert(formatAppDate("2026-08-21") === "21/08/26", "formatAppDate DD/MM/YY")
   console.assert(formatAppDate("") === "—", "formatAppDate empty")
+  console.assert(formatAppDateIfDate("17 Sep 2026") === "17/09/26", "formatAppDateIfDate long month")
+  console.assert(formatAppDateIfDate("2026-09-17") === "17/09/26", "formatAppDateIfDate ISO")
 }

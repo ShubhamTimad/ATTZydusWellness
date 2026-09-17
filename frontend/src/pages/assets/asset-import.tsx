@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -9,13 +9,14 @@ import {
   type ImportProgressState,
 } from "@/components/assets/asset-import-progress"
 import { AdminPage } from "@/components/layout/admin-page"
-import { AdminPanel, AdminPrimaryButton } from "@/components/layout/admin-ui"
+import { AdminBackLink, AdminPanel, AdminPrimaryButton } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { API_BASE_URL, downloadFile, getJson, postJson } from "@/lib/api"
 import type { CostCenterMaster } from "@/lib/masters-types"
+import { listReturnTo } from "@/lib/use-url-tab"
 import {
   assetClassLabel,
   assetConditionLabel,
@@ -541,11 +542,7 @@ export function AssetImportPage() {
       fullWidth
       dense
       viewportFill={step === "review"}
-      actions={
-        <Button type="button" variant="outline" size="sm" asChild>
-          <Link to="/dashboard/assets">← Assets</Link>
-        </Button>
-      }
+      actions={<AdminBackLink to={listReturnTo("/dashboard/assets")} />}
     >
       <input
         ref={fileInputRef}
@@ -696,7 +693,7 @@ export function AssetImportPage() {
               Created and activated <strong>{result.created_count}</strong> assets. They are ready
               to use immediately.
             </p>
-            <AdminPrimaryButton type="button" onClick={() => navigate("/dashboard/assets")}>
+            <AdminPrimaryButton type="button" onClick={() => navigate(listReturnTo("/dashboard/assets"))}>
               Go to assets
             </AdminPrimaryButton>
           </div>

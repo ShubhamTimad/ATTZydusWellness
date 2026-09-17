@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -53,9 +53,26 @@ def logo_file_path() -> Path | None:
     return None
 
 
+def format_app_date(value: date | datetime | None) -> str:
+    """Match frontend formatAppDate: DD/MM/YY."""
+    if value is None:
+        return ""
+    d = value.date() if isinstance(value, datetime) else value
+    return d.strftime("%d/%m/%y")
+
+
+def format_app_datetime(value: datetime | None) -> str:
+    """Match frontend formatAppDateTime: DD/MM/YY h:mm AM/PM."""
+    if value is None:
+        return ""
+    local = value.astimezone() if value.tzinfo else value
+    hour12 = local.hour % 12 or 12
+    suffix = "AM" if local.hour < 12 else "PM"
+    return f"{format_app_date(local)} {hour12}:{local.strftime('%M')} {suffix}"
+
+
 def format_generated_at(when: datetime | None = None) -> str:
-    dt = when or datetime.now()
-    return dt.strftime("%d.%m.%Y %H:%M")
+    return format_app_datetime(when or datetime.now())
 
 
 def logo_png_bytes() -> bytes | None:

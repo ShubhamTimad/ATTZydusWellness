@@ -47,13 +47,12 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Table, TableBody, TableHeader } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { AssetExportDialog } from "@/components/assets/asset-export-dialog"
@@ -116,7 +115,10 @@ import { currentUserId, hasPermission, isSuperuser } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
 import { writePhysicalOrderPreview } from "@/pages/orders/order-create"
 import { orderStatusLabel } from "@/lib/orders-types"
-import { TRANSFER_IN_PROGRESS_MESSAGE } from "@/lib/transfer-types"
+import {
+  TRANSFER_IN_PROGRESS_MESSAGE,
+  type ValidateTransferAssetsResponse,
+} from "@/lib/transfer-types"
 import { formatAppDate } from "@/lib/dates"
 import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
@@ -518,9 +520,70 @@ function hasBlockingOrderMismatch(res: ValidateAssetsResponse): boolean {
   )
 }
 
-function warningAssetName(code: string, name: string): string {
-  const label = (name || "").trim()
-  return label || code
+function warningIdentity(
+  ref: { asset_id: number; asset_code: string; asset_name: string },
+  byId: Map<number, AssetListItem>,
+): { number: string; name: string } {
+  const row = byId.get(ref.asset_id)
+  const number = (
+    row?.asset_code ||
+    ref.asset_code ||
+    row?.combined_asset_number ||
+    ""
+  ).trim()
+  const name = (row?.asset_name || ref.asset_name || "").trim()
+  return { number: number || "—", name: name || "—" }
+}
+
+function collectOrderWarningRows(
+  res: ValidateAssetsResponse,
+  byId: Map<number, AssetListItem>,
+): { assetId: number; number: string; name: string; issues: string[] }[] {
+  const rows = new Map<number, { assetId: number; number: string; name: string; issues: string[] }>()
+  const ensure = (ref: { asset_id: number; asset_code: string; asset_name: string }) => {
+    const existing = rows.get(ref.asset_id)
+    if (existing) return existing
+    const id = warningIdentity(ref, byId)
+    const created = { assetId: ref.asset_id, number: id.number, name: id.name, issues: [] as string[] }
+    rows.set(ref.asset_id, created)
+    return created
+  }
+  const addIssue = (
+    ref: { asset_id: number; asset_code: string; asset_name: string },
+    issue: string,
+  ) => {
+    const row = ensure(ref)
+    if (!row.issues.includes(issue)) row.issues.push(issue)
+  }
+
+  const ordersByAsset = new Map<
+    number,
+    { ref: { asset_id: number; asset_code: string; asset_name: string }; parts: string[] }
+  >()
+  for (const c of res.active_order_conflicts) {
+    const part = `${c.order_number} (${orderStatusLabel(c.order_status)})`
+    const cur = ordersByAsset.get(c.asset_id)
+    if (cur) {
+      if (!cur.parts.includes(part)) cur.parts.push(part)
+    } else {
+      ordersByAsset.set(c.asset_id, { ref: c, parts: [part] })
+    }
+  }
+  for (const { ref, parts } of ordersByAsset.values()) {
+    addIssue(ref, `Already on ${parts.join(", ")}`)
+  }
+  for (const a of res.not_approved ?? []) addIssue(a, "Not approved")
+  for (const a of res.missing_rfid) addIssue(a, "No RFID tag")
+  for (const a of res.plant_mismatch) addIssue(a, "Different plant")
+  for (const a of res.cost_center_mismatch) addIssue(a, "Outside your cost centers")
+  const fyOk = new Set(res.eligible_asset_ids)
+  for (const a of res.already_verified_in_fy) {
+    if (!fyOk.has(a.asset_id)) continue
+    const when = a.last_verification_date ? ` on ${formatAppDate(a.last_verification_date)}` : ""
+    const fy = res.financial_year_label ? ` (${res.financial_year_label})` : ""
+    addIssue(a, `Already verified${when}${fy}`)
+  }
+  return [...rows.values()]
 }
 
 export function AssetsListPage() {
@@ -688,6 +751,10 @@ export function AssetsListPage() {
   const [orderValidateBusy, setOrderValidateBusy] = React.useState(false)
   const [orderWarningsOpen, setOrderWarningsOpen] = React.useState(false)
   const [validationResult, setValidationResult] = React.useState<ValidateAssetsResponse | null>(null)
+  const [transferBlockOpen, setTransferBlockOpen] = React.useState(false)
+  const [transferBlockRows, setTransferBlockRows] = React.useState<
+    { assetId: number; number: string; name: string }[]
+  >([])
   const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
   const [rfidDialogIsUpdate, setRfidDialogIsUpdate] = React.useState(false)
   const [rfidDialogMode, setRfidDialogMode] = React.useState<"by-code" | "selected">("by-code")
@@ -1321,6 +1388,10 @@ export function AssetsListPage() {
       .map((id) => byId.get(id))
       .filter((row): row is AssetListItem => row != null)
   }, [items, selected, selectionCache])
+  const selectedById = React.useMemo(
+    () => new Map(selectedRows.map((row) => [row.id, row])),
+    [selectedRows],
+  )
   const rfidTaggedCount = React.useMemo(() => {
     let count = 0
     for (const id of selected) {
@@ -1731,6 +1802,105 @@ export function AssetsListPage() {
     }
   }
 
+  async function beginCreateTransferOrder() {
+    const localBlocked = selectedRows.filter((r) => isAssetPendingTransfer(r.lifecycle_status))
+    const checkIds = selectedRows.map((r) => r.id)
+    if (checkIds.length === 0) return
+
+    setOrderValidateBusy(true)
+    try {
+      const blocked = new Map<number, { assetId: number; number: string; name: string }>()
+      for (const r of localBlocked) {
+        const id = warningIdentity(
+          { asset_id: r.id, asset_code: r.asset_code, asset_name: r.asset_name },
+          selectedById,
+        )
+        blocked.set(r.id, { assetId: r.id, number: id.number, name: id.name })
+      }
+      const res = await postJson<ValidateTransferAssetsResponse>(
+        "/admin/transfer-orders/validate-assets",
+        { asset_ids: checkIds },
+      )
+      for (const a of res.in_progress) {
+        const id = warningIdentity(a, selectedById)
+        blocked.set(a.asset_id, { assetId: a.asset_id, number: id.number, name: id.name })
+      }
+      if (blocked.size > 0) {
+        setTransferBlockRows([...blocked.values()])
+        setTransferBlockOpen(true)
+        return
+      }
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Validation failed.")
+      return
+    } finally {
+      setOrderValidateBusy(false)
+    }
+
+    if (transferEligibleRows.length === 0) {
+      toast.error("Only approved assets you custodiate can be transferred.")
+      return
+    }
+    if (transferEligibleRows.length < selectedRows.length) {
+      toast.error("Select only approved assets where you are the custodian.")
+      return
+    }
+    const plants = [
+      ...new Set(
+        transferEligibleRows.map((r) => r.plant_id).filter((id): id is number => id != null),
+      ),
+    ]
+    if (plants.length !== 1) {
+      toast.error("Select assets from the same plant.")
+      return
+    }
+    const costCenters = [
+      ...new Set(
+        transferEligibleRows
+          .map((r) => r.cost_center?.trim())
+          .filter((c): c is string => Boolean(c)),
+      ),
+    ]
+    if (costCenters.length !== 1) {
+      toast.error(
+        "Select assets from the same cost center. Create a separate transfer for each source cost center.",
+      )
+      return
+    }
+    try {
+      sessionStorage.setItem(
+        "transfer-order-draft-assets",
+        JSON.stringify(
+          transferEligibleRows.map((r) => ({
+            id: r.id,
+            asset_code: r.asset_code,
+            asset_name: r.asset_name,
+            plant_id: r.plant_id,
+            plant_name: r.plant_name,
+            cost_center: r.cost_center,
+            cost_center_description: r.cost_center_description,
+            functional_location: r.functional_location,
+            functional_location_description: r.functional_location_description,
+            actual_location: r.actual_location,
+            actual_location_description: r.actual_location_description,
+            asset_custodian_id: r.asset_custodian_id ?? null,
+            approval_status: r.approval_status,
+            lifecycle_status: r.lifecycle_status,
+          })),
+        ),
+      )
+    } catch {
+      /* ignore quota */
+    }
+    writeAssetMasterSelection(transferEligibleRows)
+    const q = new URLSearchParams({
+      asset_ids: transferEligibleRows.map((r) => r.id).join(","),
+      from: "assets",
+    })
+    q.set("plant_id", String(plants[0]))
+    navigate(`/dashboard/transfer-orders/new?${q}`)
+  }
+
   function handleListAction(actionId: string) {
     if (actionId === "attach-rfid") {
       openAttachRfidFromSelection()
@@ -1745,72 +1915,7 @@ export function AssetsListPage() {
       return
     }
     if (actionId === "create-transfer-order") {
-      if (selectedRows.some((r) => isAssetPendingTransfer(r.lifecycle_status))) {
-        toast.error(TRANSFER_IN_PROGRESS_MESSAGE)
-        return
-      }
-      if (transferEligibleRows.length === 0) {
-        toast.error("Only approved assets you custodiate can be transferred.")
-        return
-      }
-      if (transferEligibleRows.length < selectedRows.length) {
-        toast.error("Select only approved assets where you are the custodian.")
-        return
-      }
-      const plants = [
-        ...new Set(
-          transferEligibleRows.map((r) => r.plant_id).filter((id): id is number => id != null),
-        ),
-      ]
-      if (plants.length !== 1) {
-        toast.error("Select assets from the same plant.")
-        return
-      }
-      const costCenters = [
-        ...new Set(
-          transferEligibleRows
-            .map((r) => r.cost_center?.trim())
-            .filter((c): c is string => Boolean(c)),
-        ),
-      ]
-      if (costCenters.length !== 1) {
-        toast.error(
-          "Select assets from the same cost center. Create a separate transfer for each source cost center.",
-        )
-        return
-      }
-      try {
-        sessionStorage.setItem(
-          "transfer-order-draft-assets",
-          JSON.stringify(
-            transferEligibleRows.map((r) => ({
-              id: r.id,
-              asset_code: r.asset_code,
-              asset_name: r.asset_name,
-              plant_id: r.plant_id,
-              plant_name: r.plant_name,
-              cost_center: r.cost_center,
-              cost_center_description: r.cost_center_description,
-              functional_location: r.functional_location,
-              functional_location_description: r.functional_location_description,
-              actual_location: r.actual_location,
-              actual_location_description: r.actual_location_description,
-              asset_custodian_id: r.asset_custodian_id ?? null,
-              approval_status: r.approval_status,
-              lifecycle_status: r.lifecycle_status,
-            })),
-          ),
-        )
-      } catch {
-        /* ignore quota */
-      }
-      writeAssetMasterSelection(transferEligibleRows)
-      const q = new URLSearchParams({
-        asset_ids: transferEligibleRows.map((r) => r.id).join(","),
-        from: "assets",
-      })
-      q.set("plant_id", String(plants[0]))
-      navigate(`/dashboard/transfer-orders/new?${q}`)
+      void beginCreateTransferOrder()
       return
     }
     if (actionId === "create-disposal-order") {
@@ -2674,102 +2779,78 @@ export function AssetsListPage() {
         open={orderWarningsOpen}
         onOpenChange={setOrderWarningsOpen}
       >
-        <DialogContent className="max-w-md overflow-hidden p-0 sm:max-w-md" aria-describedby={undefined}>
+        <DialogContent
+          className="flex max-h-[min(90vh,40rem)] max-w-2xl flex-col overflow-hidden p-0 sm:max-w-2xl"
+          aria-describedby={undefined}
+        >
           {validationResult ? (
             <>
-              <div className="border-b px-6 py-4 pr-12">
-                <DialogHeader className="space-y-1">
-                  <DialogTitle className="text-base font-semibold">
-                    {validationResult.active_order_conflicts.length > 0
-                      ? "Cannot Create Order"
-                      : "Review Warning"}
-                  </DialogTitle>
-                </DialogHeader>
-              </div>
-              <div className="dialog-body">
-                <div
-                  className={cn(
-                    "rounded-lg border px-3.5 py-3.5",
-                    validationResult.active_order_conflicts.length > 0
-                      ? "border-red-300/80 bg-red-50 dark:border-red-500/40 dark:bg-red-950/40"
-                      : "border-amber-300/80 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-950/40",
-                  )}
-                >
-                  <div className="flex gap-3">
-                    <AlertTriangle
-                      className={cn(
-                        "mt-0.5 size-5 shrink-0",
-                        validationResult.active_order_conflicts.length > 0
-                          ? "text-red-600 dark:text-red-400"
-                          : "text-amber-600 dark:text-amber-400",
-                      )}
-                      aria-hidden
-                    />
-                    <ul
-                      className={cn(
-                        "max-h-[min(18rem,50vh)] list-disc space-y-2.5 overflow-auto pl-5 text-sm font-semibold leading-snug",
-                        validationResult.active_order_conflicts.length > 0
-                          ? "text-red-950 dark:text-red-50"
-                          : "text-amber-950 dark:text-amber-50",
-                      )}
-                    >
-                      {validationResult.active_order_conflicts.map((c) => (
-                        <li key={`active-${c.asset_id}-${c.order_id}`}>
-                          {warningAssetName(c.asset_code, c.asset_name)} cannot be added — already
-                          on order {c.order_number} ({orderStatusLabel(c.order_status)}). Deselect
-                          this asset before continuing.
-                        </li>
+              <DialogHeader className="pr-12">
+                <DialogTitle>
+                  {hasBlockingOrderMismatch(validationResult)
+                    ? "Cannot Create Order"
+                    : "Review Warning"}
+                </DialogTitle>
+              </DialogHeader>
+              <div className="dialog-body min-h-0 gap-3 overflow-y-auto">
+                <p className="flex gap-2 text-sm text-foreground">
+                  <AlertTriangle
+                    className={cn(
+                      "mt-0.5 size-4 shrink-0",
+                      hasBlockingOrderMismatch(validationResult)
+                        ? "text-red-600"
+                        : "text-amber-600",
+                    )}
+                    aria-hidden
+                  />
+                  <span>
+                    {hasBlockingOrderMismatch(validationResult)
+                      ? "Deselect these assets and try again."
+                      : "Review the warnings below before continuing."}
+                  </span>
+                </p>
+                <div className="overflow-auto rounded-md border">
+                  <Table className="table-fixed">
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="w-[28%]">Asset Number</TableHead>
+                        <TableHead className="w-[32%]">Asset Name</TableHead>
+                        <TableHead>Warning</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {collectOrderWarningRows(validationResult, selectedById).map((row) => (
+                        <TableRow key={row.assetId} className="hover:bg-transparent">
+                          <TableCell className="h-auto whitespace-normal py-2.5 align-top font-medium">
+                            {row.number}
+                          </TableCell>
+                          <TableCell className="h-auto whitespace-normal py-2.5 align-top">
+                            {row.name}
+                          </TableCell>
+                          <TableCell className="h-auto whitespace-normal py-2.5 align-top text-muted-foreground">
+                            {row.issues.length > 1 ? (
+                              <ul className="list-disc space-y-1 pl-4 text-foreground">
+                                {row.issues.map((issue) => (
+                                  <li key={issue}>{issue}</li>
+                                ))}
+                              </ul>
+                            ) : (
+                              row.issues[0]
+                            )}
+                          </TableCell>
+                        </TableRow>
                       ))}
-
-                      {(validationResult.not_approved ?? []).map((a) => (
-                        <li key={`na-${a.asset_id}`}>
-                          {warningAssetName(a.asset_code, a.asset_name)} is not approved.
-                        </li>
-                      ))}
-
-                      {validationResult.missing_rfid.map((a) => (
-                        <li key={`rfid-${a.asset_id}`}>
-                          {warningAssetName(a.asset_code, a.asset_name)} has no RFID tag.
-                        </li>
-                      ))}
-
-                      {validationResult.plant_mismatch.map((a) => (
-                        <li key={`plant-${a.asset_id}`}>
-                          {warningAssetName(a.asset_code, a.asset_name)} belongs to a different
-                          plant.
-                        </li>
-                      ))}
-
-                      {validationResult.cost_center_mismatch.map((a) => (
-                        <li key={`cc-${a.asset_id}`}>
-                          {warningAssetName(a.asset_code, a.asset_name)} is outside your cost
-                          centers.
-                        </li>
-                      ))}
-
-                      {validationResult.already_verified_in_fy
-                        .filter((a) => validationResult.eligible_asset_ids.includes(a.asset_id))
-                        .map((a) => (
-                          <li key={`fy-${a.asset_id}`}>
-                            {warningAssetName(a.asset_code, a.asset_name)}
-                            {a.last_verification_date
-                              ? ` was verified on ${formatAppDate(a.last_verification_date)}`
-                              : " was verified"}
-                            {validationResult.financial_year_label
-                              ? ` in ${validationResult.financial_year_label}`
-                              : " this financial year"}
-                            .
-                          </li>
-                        ))}
-
-                      {fyVerifiedEligibleIdsFrom(validationResult).length > 0 ? (
-                        <li>Re-verify resets count and date when the order is created.</li>
-                      ) : null}
-                    </ul>
-                  </div>
+                    </TableBody>
+                  </Table>
                 </div>
+                {!hasBlockingOrderMismatch(validationResult) &&
+                fyVerifiedEligibleIdsFrom(validationResult).length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Re-verify resets count and date when the order is created.
+                  </p>
+                ) : null}
               </div>
-              <DialogFooter className="border-t bg-muted/20 px-6 py-4 sm:justify-end">
+              <div className="dialog-footer-actions">
                 <Button
                   type="button"
                   variant="outline"
@@ -2791,9 +2872,57 @@ export function AssetsListPage() {
                     Continue
                   </AdminPrimaryButton>
                 ) : null}
-              </DialogFooter>
+              </div>
             </>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={transferBlockOpen} onOpenChange={setTransferBlockOpen}>
+        <DialogContent
+          className="flex max-h-[min(90vh,40rem)] max-w-2xl flex-col overflow-hidden p-0 sm:max-w-2xl"
+          aria-describedby={undefined}
+        >
+          <DialogHeader className="pr-12">
+            <DialogTitle>Cannot Create Order</DialogTitle>
+          </DialogHeader>
+          <div className="dialog-body min-h-0 gap-3 overflow-y-auto">
+            <p className="flex gap-2 text-sm text-foreground">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" aria-hidden />
+              <span>{TRANSFER_IN_PROGRESS_MESSAGE}</span>
+            </p>
+            <div className="overflow-auto rounded-md border">
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-[28%]">Asset Number</TableHead>
+                    <TableHead className="w-[32%]">Asset Name</TableHead>
+                    <TableHead>Warning</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {transferBlockRows.map((row) => (
+                    <TableRow key={row.assetId} className="hover:bg-transparent">
+                      <TableCell className="h-auto whitespace-normal py-2.5 align-top font-medium">
+                        {row.number}
+                      </TableCell>
+                      <TableCell className="h-auto whitespace-normal py-2.5 align-top">
+                        {row.name}
+                      </TableCell>
+                      <TableCell className="h-auto whitespace-normal py-2.5 align-top text-muted-foreground">
+                        Transfer already in progress
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+          <div className="dialog-footer-actions">
+            <Button type="button" variant="outline" onClick={() => setTransferBlockOpen(false)}>
+              Close
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

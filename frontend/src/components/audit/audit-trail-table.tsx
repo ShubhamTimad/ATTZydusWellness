@@ -22,11 +22,11 @@ export function AuditDetailLine({ line }: { line: string }) {
     )
   }
   const [, indent, key, value] = match
+  const shown = value.trim() || "—"
   return (
     <p className="break-words text-[11px] leading-relaxed whitespace-pre-wrap text-black">
       {indent}
-      <span className="font-bold text-black">{key}:</span>
-      {value ? <> {value}</> : null}
+      <span className="font-bold text-black">{key}:</span> {shown}
     </p>
   )
 }

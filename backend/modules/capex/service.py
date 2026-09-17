@@ -141,7 +141,7 @@ _FIELD_LABELS: dict[str, str] = {
 
 _AUDIT_LABELS: dict[str, str] = {
     "created": "Form Created",
-    "updated": "Form Updated",
+    "updated": "Updated",
     "submitted": "Submitted for Approval",
     "resubmitted": "Resubmitted for approval",
     "reassigned": "Approver Reassigned",

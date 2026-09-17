@@ -31,8 +31,22 @@ def test_build_audit_summary_uses_custodian_names() -> None:
         user_labels={12: "Alice", 5: "Bob"},
     )
     assert "Alice → Bob" in summary
+    assert summary.startswith("Updated by Operator Demo")
     assert "12" not in summary
     assert "5" not in summary
+
+
+def test_cleared_asset_number_shows_dash() -> None:
+    lines = format_changes_detail({"asset_code": {"from": "AST-1001", "to": ""}})
+    assert lines == [
+        {
+            "field_label": "Asset Number",
+            "from_value": "AST-1001",
+            "to_value": "—",
+        }
+    ]
+    lines_none = format_changes_detail({"asset_code": {"from": "AST-1001", "to": None}})
+    assert lines_none[0]["to_value"] == "—"
 
 
 def test_format_changes_detail_resolves_location_and_cost_center_codes() -> None:
@@ -64,6 +78,29 @@ def test_format_changes_detail_resolves_location_and_cost_center_codes() -> None
     }
     assert by_label["Cost Center Code"]["from_value"] == "Production"
     assert by_label["Cost Center Code"]["to_value"] == "QC & Quality"
+
+
+def test_format_changes_detail_keeps_fl_and_al_when_codes_collide() -> None:
+    """Same stored code for Location 1 and 2 must not show Location 2 on both lines."""
+    lines = format_changes_detail(
+        {
+            "functional_location": {"from": "WH-01", "to": "WH-02"},
+            "actual_location": {"from": "WH-01", "to": "WH-02"},
+        },
+        code_labels={
+            "fl:wh-01": "Warehouse A",
+            "fl:wh-02": "Warehouse B",
+            "al:wh-01": "Bay 1",
+            "al:wh-02": "Bay 2",
+            "al:wh-01:wh-01": "Bay 1",
+            "al:wh-02:wh-02": "Bay 2",
+        },
+    )
+    by_label = {line["field_label"]: line for line in lines}
+    assert by_label["Actual Location 1"]["from_value"] == "Warehouse A"
+    assert by_label["Actual Location 1"]["to_value"] == "Warehouse B"
+    assert by_label["Actual location 2"]["from_value"] == "Bay 1"
+    assert by_label["Actual location 2"]["to_value"] == "Bay 2"
 
 
 def test_format_changes_detail_skips_class_id_when_name_present() -> None:
@@ -112,3 +149,24 @@ def test_format_changes_detail_resolves_tag_color_ids_to_names() -> None:
     )
     assert lines[0]["from_value"] == "Red"
     assert lines[0]["to_value"] == "Blue"
+
+
+def test_inventory_audit_dates_use_dd_mm_yy() -> None:
+    from datetime import date
+
+    from modules.assets.audit_helpers import format_inventory_count_date_lines
+
+    lines = format_inventory_count_date_lines(
+        old_value={"last_verification_date": "2026-09-17", "physical_count": 1},
+        new_value={"last_verification_date": None, "physical_count": 0},
+    )
+    by_label = {line["field_label"]: line for line in lines}
+    assert by_label["Last verification date"]["from_value"] == "17/09/26"
+    assert by_label["Last verification date"]["to_value"] == "—"
+
+    lines_date = format_inventory_count_date_lines(
+        old_value={"last_verification_date": date(2026, 9, 17)},
+        new_value={"last_verification_date": date(2026, 9, 18)},
+    )
+    assert lines_date[0]["from_value"] == "17/09/26"
+    assert lines_date[0]["to_value"] == "18/09/26"

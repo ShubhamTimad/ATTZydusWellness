@@ -59,7 +59,9 @@ export function ConfirmDialog({
       <DialogContent showCloseButton={false} className="gap-0 p-0 sm:max-w-md">
         <DialogHeader className="px-5 py-4">
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription className="whitespace-pre-wrap">{description}</DialogDescription>
+          {description.trim() ? (
+            <DialogDescription className="whitespace-pre-wrap">{description}</DialogDescription>
+          ) : null}
         </DialogHeader>
         {requireText ? (
           <div className="space-y-1.5 border-t border-border/60 px-5 py-3">

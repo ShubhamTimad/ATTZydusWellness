@@ -19,6 +19,7 @@ import { blockNonNegativeNumberKeys, sanitizeNonNegativeNumericInput } from "@/l
 import { ApiError, postJson } from "@/lib/api"
 import type { CapexFormDetail, CapexFormWritePayload } from "@/lib/capex-types"
 import { hasPermission } from "@/lib/permissions"
+import { listReturnTo } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 import { CapexAssigneePickerDialog } from "./capex-assignee-picker-dialog"
@@ -97,7 +98,7 @@ export function CapexCreatePage() {
 
   React.useEffect(() => {
     if (!hasPermission("capitalization.create")) {
-      navigate("/dashboard/capitalization", { replace: true })
+      navigate(listReturnTo("/dashboard/capitalization"), { replace: true })
     }
   }, [navigate])
 
@@ -175,7 +176,7 @@ export function CapexCreatePage() {
       dense
       // description="Fill asset details and submit for approval."
       className="w-full pb-6"
-      actions={<AdminBackLink to="/dashboard/capitalization">Capitalization</AdminBackLink>}
+      actions={<AdminBackLink to={listReturnTo("/dashboard/capitalization")} />}
     >
       <form
         className="space-y-[var(--app-grid-gap)]"
@@ -327,7 +328,7 @@ export function CapexCreatePage() {
             variant="outline"
             className="h-9 shadow-sm"
             disabled={saving}
-            onClick={() => navigate("/dashboard/capitalization")}
+            onClick={() => navigate(listReturnTo("/dashboard/capitalization"))}
           >
             Cancel
           </Button>

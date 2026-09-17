@@ -88,8 +88,10 @@ from modules.transfers.schema import (
     TransferListFilterCostCenter,
     TransferListFilterOptionsResponse,
     TransferListFilterPlant,
+    TransferInProgressAsset,
     TransferWorkflowRunPublic,
     UpdateTransferOrderRequest,
+    ValidateTransferAssetsResponse,
 )
 
 _TAB_STATUSES: dict[str, frozenset[str] | None] = {
@@ -108,6 +110,28 @@ _TAB_STATUSES: dict[str, frozenset[str] | None] = {
 
 def action_and_entity_for_order() -> tuple[str, str]:
     return ACTION_SUBMIT, ENTITY_TYPE
+
+
+CREATOR_ASSIGNEE_ERROR = "Cannot assign this transfer order to the user who created it."
+
+
+def exclude_creator_from_assignees(
+    users: list[User],
+    *,
+    created_by: int | None = None,
+    actor_user_id: int | None = None,
+) -> list[User]:
+    """Hide the order creator (or the actor on create) from workflow assignee pickers."""
+    skip = created_by if created_by is not None else actor_user_id
+    if skip is None:
+        return users
+    skip_id = int(skip)
+    return [u for u in users if int(u.id) != skip_id]
+
+
+def assert_assignee_is_not_creator(*, created_by: int | None, assigned_to: int) -> None:
+    if created_by is not None and int(assigned_to) == int(created_by):
+        raise ConflictError(CREATOR_ASSIGNEE_ERROR)
 
 
 def _first_step_role(db: Session, workflow: ApprovalWorkflow) -> Role:
@@ -566,6 +590,8 @@ class TransferOrderService:
                 ),
             )
             users = filter_users_by_cost_center(users, cost_center_id=cc_id)
+        if order is not None:
+            users = exclude_creator_from_assignees(users, created_by=order.created_by)
         return role, users
 
     def list_assignees(self, *, level: str) -> TransferAssigneeListResponse:
@@ -584,7 +610,11 @@ class TransferOrderService:
         )
 
     def list_assignees_by_role_id(
-        self, *, role_id: int | None = None, order_id: int | None = None
+        self,
+        *,
+        role_id: int | None = None,
+        order_id: int | None = None,
+        actor_user_id: int | None = None,
     ) -> TransferAssigneeListResponse:
         """Users in a workflow step role — resolved from the order so a stale role id still works."""
         order = self._load_order(int(order_id)) if order_id is not None else None
@@ -597,6 +627,8 @@ class TransferOrderService:
         from modules.platform.approvals.step_roles import picker_role_ids, role_names_label
 
         role, users = self._assignee_pool(role_id=rid, order=order, step=step)
+        if order is None:
+            users = exclude_creator_from_assignees(users, actor_user_id=actor_user_id)
         return TransferAssigneeListResponse(
             role_name=role_names_label(self._db, picker_role_ids(self._db, rid, step)),
             items=[
@@ -606,7 +638,11 @@ class TransferOrderService:
         )
 
     def list_assignees_for_action(
-        self, *, action_code: str = ACTION_SUBMIT, order_id: int | None = None
+        self,
+        *,
+        action_code: str = ACTION_SUBMIT,
+        order_id: int | None = None,
+        actor_user_id: int | None = None,
     ) -> TransferAssigneeListResponse:
         """Users in the first step role of the workflow mapped to this transfer action."""
         order = self._load_order(int(order_id)) if order_id is not None else None
@@ -627,6 +663,8 @@ class TransferOrderService:
         role, users = self._assignee_pool(
             role_id=int(step.approver_role_id), order=order, step=step
         )
+        if order is None:
+            users = exclude_creator_from_assignees(users, actor_user_id=actor_user_id)
         return TransferAssigneeListResponse(
             role_name=role_names_label(self._db, step_role_ids(step)),
             items=[
@@ -788,6 +826,22 @@ class TransferOrderService:
                 "Only approved assets can be included on a transfer order: "
                 f"{sample}{more}."
             )
+
+    def validate_assets(self, asset_ids: list[int]) -> ValidateTransferAssetsResponse:
+        """Return assets that already have an open transfer — list-page check before create."""
+        assets = self._load_assets(asset_ids)
+        in_progress: list[TransferInProgressAsset] = []
+        for asset in assets:
+            lifecycle = (asset.lifecycle_status or "").strip().lower()
+            if lifecycle == LIFECYCLE_PENDING_TRANSFER:
+                in_progress.append(
+                    TransferInProgressAsset(
+                        asset_id=int(asset.id),
+                        asset_code=str(asset.asset_code or asset.id),
+                        asset_name=str(asset.asset_name or ""),
+                    )
+                )
+        return ValidateTransferAssetsResponse(in_progress=in_progress)
 
     def _order_assets(self, order: AssetTransferOrder) -> list[AssetMaster]:
         assets = [item.asset for item in order.items if item.asset is not None]
@@ -1060,6 +1114,10 @@ class TransferOrderService:
             "to_functional_location": order.to_functional_location,
             "to_actual_location": order.to_actual_location,
             "remarks": order.remarks,
+            "item_custodians": {
+                int(item.asset_id): getattr(item, "to_asset_custodian_id", None)
+                for item in order.items
+            },
         }
         patch = data.model_dump(exclude_unset=True)
         if "to_cost_center_id" in patch and patch["to_cost_center_id"] is not None:
@@ -1112,20 +1170,26 @@ class TransferOrderService:
             if dest_map:
                 self._apply_item_dest_custodians(order, dest_map)
             self._mark_assets_pending_transfer([a for a in assets if int(a.id) not in old_ids])
-        _log(
-            self._db,
-            order_id=int(order.id),
-            action="updated",
-            actor_user_id=actor_user_id,
-            old_value=before,
-            new_value={
-                "to_cost_center_id": order.to_cost_center_id,
-                "to_asset_custodian_id": order.to_asset_custodian_id,
-                "to_functional_location": order.to_functional_location,
-                "to_actual_location": order.to_actual_location,
-                "remarks": order.remarks,
+        after = {
+            "to_cost_center_id": order.to_cost_center_id,
+            "to_asset_custodian_id": order.to_asset_custodian_id,
+            "to_functional_location": order.to_functional_location,
+            "to_actual_location": order.to_actual_location,
+            "remarks": order.remarks,
+            "item_custodians": {
+                int(item.asset_id): getattr(item, "to_asset_custodian_id", None)
+                for item in order.items
             },
-        )
+        }
+        if after != before:
+            _log(
+                self._db,
+                order_id=int(order.id),
+                action="updated",
+                actor_user_id=actor_user_id,
+                old_value={k: v for k, v in before.items() if k != "item_custodians"},
+                new_value={k: v for k, v in after.items() if k != "item_custodians"},
+            )
         self._db.commit()
         return self.get_order(int(order.id), viewer_user_id=actor_user_id)
 
@@ -1343,6 +1407,7 @@ class TransferOrderService:
         self._assert_same_from_cost_center(assets)
         if order.to_asset_custodian_id is None:
             raise ConflictError("Destination asset custodian is required before submitting.")
+        assert_assignee_is_not_creator(created_by=order.created_by, assigned_to=int(assigned_to))
 
         action_code, entity_type = action_and_entity_for_order()
         wf = get_workflow_for_action(self._db, action_code)
@@ -1536,6 +1601,7 @@ class TransferOrderService:
                 "Transfer workflow has no confirm/close step — cannot assign next user by role name."
             )
         self._assert_user_in_role_id(int(data.assigned_to), confirm_role_id)
+        assert_assignee_is_not_creator(created_by=order.created_by, assigned_to=int(data.assigned_to))
 
         if data.remarks is not None:
             order.remarks = _strip_or_none(data.remarks)

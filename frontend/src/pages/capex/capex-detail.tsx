@@ -32,6 +32,7 @@ import {
 } from "@/lib/capex-types"
 import { blockNonNegativeNumberKeys, sanitizeNonNegativeNumericInput } from "@/lib/asset-master-fields"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
+import { listReturnTo } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 import { CapexAssigneePickerDialog } from "./capex-assignee-picker-dialog"
@@ -155,7 +156,7 @@ export function CapexDetailPage() {
       void loadAudit()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to load form")
-      navigate("/dashboard/capitalization", { replace: true })
+      navigate(listReturnTo("/dashboard/capitalization"), { replace: true })
     } finally {
       setLoading(false)
     }
@@ -300,7 +301,7 @@ export function CapexDetailPage() {
       <AdminPage
         fullWidth
         viewportFill
-        actions={<AdminBackLink to="/dashboard/capitalization">Capitalization</AdminBackLink>}
+        actions={<AdminBackLink to={listReturnTo("/dashboard/capitalization")} />}
       >
         {loading ? <PageLoader label="Loading capitalization" /> : <p className="text-sm text-muted-foreground">Form not found.</p>}
       </AdminPage>
@@ -347,7 +348,7 @@ export function CapexDetailPage() {
                     await postJson(`/admin/capitalization-forms/${detail.id}/archive`, {}),
                   )
                   toast.success("Capitalization form archived.")
-                  navigate("/dashboard/capitalization")
+                  navigate(listReturnTo("/dashboard/capitalization"))
                 } catch (e) {
                   toast.error(
                     e instanceof ApiError ? e.message : "Could not archive capitalization form",
@@ -467,7 +468,7 @@ export function CapexDetailPage() {
               Submit for Approval
             </AdminPrimaryButton>
           ) : null}
-          <AdminBackLink to="/dashboard/capitalization">Capitalization</AdminBackLink>
+          <AdminBackLink to={listReturnTo("/dashboard/capitalization")} />
         </div>
       }
     >

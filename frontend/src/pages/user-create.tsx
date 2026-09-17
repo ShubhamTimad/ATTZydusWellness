@@ -1,26 +1,28 @@
 import * as React from "react"
+import { Building2, Info, UserRound } from "lucide-react"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
+import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
   AdminBackLink,
   AdminPanel,
   AdminPrimaryButton,
-  adminSwitchRowClass,
+  adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import { phoneFieldSchema } from "@/lib/phone"
 import { canListOrgUnitsForAssignments, hasPermission } from "@/lib/permissions"
 import { MultiCheckList } from "@/components/admin/multi-check-list"
+import { cn } from "@/lib/utils"
 
 type RoleListItem = { id: number; name: string; org_unit_ids?: number[] }
 
@@ -67,6 +69,50 @@ const createUserSchema = z.object({
 })
 
 type CreateUserValues = z.infer<typeof createUserSchema>
+
+function FormField({
+  id,
+  labelText,
+  required,
+  hint,
+  error,
+  className,
+  children,
+}: {
+  id?: string
+  labelText: string
+  required?: boolean
+  hint?: string
+  error?: string
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className={cn("app-form-field", className)}>
+      <Label htmlFor={id} className="app-form-label uppercase">
+        {labelText}
+        {required ? <RequiredFieldMark /> : null}
+        {hint ? (
+          <span
+            tabIndex={0}
+            className="group relative ml-1 inline-flex align-middle outline-none"
+            aria-label={hint}
+          >
+            <Info className="size-3.5 text-muted-foreground" aria-hidden />
+            <span
+              role="tooltip"
+              className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 hidden w-56 -translate-x-1/2 rounded-md bg-foreground px-2.5 py-1.5 text-left text-[11px] font-normal normal-case leading-snug tracking-normal text-background shadow-md group-hover:block group-focus-visible:block"
+            >
+              {hint}
+            </span>
+          </span>
+        ) : null}
+      </Label>
+      {children}
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
+    </div>
+  )
+}
 
 export function UserCreatePage() {
   const navigate = useNavigate()
@@ -206,152 +252,169 @@ export function UserCreatePage() {
   }
 
   return (
-    <AdminPage fullWidth actions={<AdminBackLink to=".." />}>
-      <div className="w-full space-y-4">
-        {error ? (
-          <Alert variant="destructive">
-            <AlertTitle>Something went wrong</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
+    <AdminPage fullWidth dense className="w-full pb-6" actions={<AdminBackLink to=".." />}>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Something went wrong</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl truncate">
+            Create User
+          </h1>
+        </div>
+      </header>
+
+      <form
+        id="create-user-form"
+        className="space-y-[var(--app-grid-gap)]"
+        onSubmit={form.handleSubmit(onSubmit)}
+      >
+        <AdminPanel
+          title="PROFILE"
+          headerActions={<UserRound className="size-4 text-primary" aria-hidden />}
+          contentClassName="px-5 py-5"
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <FormField
+              id="create-full-name"
+              labelText="Full Name"
+              required
+              error={form.formState.errors.full_name?.message}
+            >
+              <Input id="create-full-name" autoComplete="name" {...form.register("full_name")} />
+            </FormField>
+            <FormField
+              id="create-username"
+              labelText="Username"
+              required
+              error={form.formState.errors.username?.message}
+            >
+              <Input id="create-username" autoComplete="username" {...form.register("username")} />
+            </FormField>
+            <FormField
+              id="create-phone"
+              labelText="Phone"
+              required
+              error={form.formState.errors.phone?.message}
+            >
+              <Input
+                id="create-phone"
+                autoComplete="tel"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="e.g. 9876543210"
+                {...form.register("phone")}
+              />
+            </FormField>
+            <FormField
+              id="create-email"
+              labelText="Email"
+              required
+              error={form.formState.errors.email?.message}
+            >
+              <Input id="create-email" type="email" autoComplete="email" {...form.register("email")} />
+            </FormField>
+            <FormField
+              id="create-is-active"
+              labelText="Active"
+              hint="Inactive users cannot sign in and will not receive emails."
+            >
+              <select
+                id="create-is-active"
+                className={adminSelectClass}
+                value={form.watch("is_active") ? "true" : "false"}
+                onChange={(e) =>
+                  form.setValue("is_active", e.target.value === "true", { shouldDirty: true })
+                }
+              >
+                <option value="true">Active</option>
+                <option value="false">Inactive</option>
+              </select>
+            </FormField>
+          </div>
+        </AdminPanel>
 
         <AdminPanel
-          title="New user"
-          description="Name, contact, at least one plant, and at least one role are required. Department is optional."
-          contentClassName="space-y-6 px-5 py-5"
-          footer={
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" className="h-9" onClick={() => navigate("..")}>
-                Cancel
-              </Button>
-              <AdminPrimaryButton type="submit" form="create-user-form" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? "Creating…" : "Create user"}
-              </AdminPrimaryButton>
-            </div>
-          }
+          title="ASSIGNMENT"
+          headerActions={<Building2 className="size-4 text-primary" aria-hidden />}
+          contentClassName="px-5 py-5"
         >
-          <form id="create-user-form" className="grid items-start gap-6 xl:grid-cols-2" onSubmit={form.handleSubmit(onSubmit)}>
-            <section className="space-y-4">
-              <h4 className="text-sm font-semibold">Profile</h4>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="create-full-name">Full name</Label>
-                  <Input id="create-full-name" autoComplete="name" {...form.register("full_name")} />
-                  {form.formState.errors.full_name?.message ? (
-                    <p className="text-xs text-destructive">{form.formState.errors.full_name.message}</p>
-                  ) : null}
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="create-username">Username</Label>
-                  <Input id="create-username" autoComplete="username" {...form.register("username")} />
-                  {form.formState.errors.username?.message ? (
-                    <p className="text-xs text-destructive">{form.formState.errors.username.message}</p>
-                  ) : null}
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="create-phone">Phone</Label>
-                  <Input
-                    id="create-phone"
-                    autoComplete="tel"
-                    inputMode="numeric"
-                    maxLength={10}
-                    placeholder="e.g. 9876543210"
-                    {...form.register("phone")}
-                  />
-                  {form.formState.errors.phone?.message ? (
-                    <p className="text-xs text-destructive">{form.formState.errors.phone.message}</p>
-                  ) : null}
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="create-email">Email</Label>
-                  <Input id="create-email" type="email" autoComplete="email" {...form.register("email")} />
-                  {form.formState.errors.email?.message ? (
-                    <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
-                  ) : null}
-                </div>
-              </div>
-            </section>
-
-            <section className="space-y-4">
-              <div>
-                <h4 className="text-sm font-semibold">Assignment</h4>
-                {/* <p className="mt-1 text-xs text-muted-foreground">
-                  Plant is required. Department can be skipped if the user only needs a plant and cost center.
-                </p> */}
-              </div>
-              <div className="space-y-1.5">
-                <Label>Plants</Label>
-                <MultiCheckList
-                  options={(plants ?? []).map((p) => ({
-                    id: p.id,
-                    label: `${p.code} — ${p.name}`,
-                  }))}
-                  values={plantIds}
-                  onChange={(next) => form.setValue("org_unit_ids", next, { shouldDirty: true, shouldValidate: true })}
-                  emptyLabel="No plants available."
-                />
-                {form.formState.errors.org_unit_ids?.message ? (
-                  <p className="text-xs text-destructive">{form.formState.errors.org_unit_ids.message}</p>
-                ) : null}
-              </div>
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>Departments</Label>
-                  <MultiCheckList
-                    options={departments.map((d) => ({
-                      id: d.id,
-                      label: `${d.code} — ${d.name}`,
-                    }))}
-                    values={form.watch("department_ids")}
-                    onChange={(next) => form.setValue("department_ids", next, { shouldDirty: true })}
-                    disabled={plantIds.length === 0}
-                    emptyLabel="Select at least one plant first."
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Cost centers</Label>
-                  <MultiCheckList
-                    options={costCenters.map((c) => ({
-                      id: c.id,
-                      label: c.code,
-                      title: `${c.code} — ${c.name}`,
-                    }))}
-                    values={form.watch("cost_center_ids")}
-                    onChange={(next) => form.setValue("cost_center_ids", next, { shouldDirty: true })}
-                    disabled={plantIds.length === 0}
-                    emptyLabel="Select at least one plant first."
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Roles</Label>
-                <MultiCheckList
-                  options={rolesForPlants(roles, plantIds).map((r) => ({ id: r.id, label: r.name }))}
-                  values={form.watch("role_ids")}
-                  onChange={(next) => form.setValue("role_ids", next, { shouldDirty: true, shouldValidate: true })}
-                  emptyLabel="No roles available."
-                />
-                {form.formState.errors.role_ids?.message ? (
-                  <p className="text-xs text-destructive">{form.formState.errors.role_ids.message}</p>
-                ) : null}
-              </div>
-            </section>
-
-            <div className={`${adminSwitchRowClass} xl:col-span-2`}>
-              <div className="min-w-0">
-                <div className="text-sm font-medium">Active</div>
-                <div className="text-xs text-muted-foreground">
-                  Inactive users cannot sign in and will not receive emails.
-                </div>
-              </div>
-              <Switch
-                checked={form.watch("is_active")}
-                onCheckedChange={(v) => form.setValue("is_active", v, { shouldDirty: true })}
+          <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
+            <FormField
+              labelText="Plant"
+              required
+              error={form.formState.errors.org_unit_ids?.message}
+            >
+              <MultiCheckList
+                options={(plants ?? []).map((p) => ({
+                  id: p.id,
+                  label: `${p.code} — ${p.name}`,
+                }))}
+                values={plantIds}
+                onChange={(next) =>
+                  form.setValue("org_unit_ids", next, { shouldDirty: true, shouldValidate: true })
+                }
+                emptyLabel="No plants available."
               />
-            </div>
-          </form>
+            </FormField>
+            {departments.length > 0 ? (
+              <FormField labelText="Department">
+                <MultiCheckList
+                  options={departments.map((d) => ({
+                    id: d.id,
+                    label: `${d.code} — ${d.name}`,
+                  }))}
+                  values={form.watch("department_ids")}
+                  onChange={(next) => form.setValue("department_ids", next, { shouldDirty: true })}
+                  emptyLabel="No departments available."
+                />
+              </FormField>
+            ) : null}
+            {costCenters.length > 0 ? (
+              <FormField labelText="Cost Center">
+                <MultiCheckList
+                  options={costCenters.map((c) => ({
+                    id: c.id,
+                    label: c.code,
+                    title: `${c.code} — ${c.name}`,
+                  }))}
+                  values={form.watch("cost_center_ids")}
+                  onChange={(next) => form.setValue("cost_center_ids", next, { shouldDirty: true })}
+                  selectAll
+                  emptyLabel="No cost centers available."
+                />
+              </FormField>
+            ) : null}
+            <FormField
+              labelText="Roles"
+              required
+              error={form.formState.errors.role_ids?.message}
+            >
+              <MultiCheckList
+                options={rolesForPlants(roles, plantIds).map((r) => ({ id: r.id, label: r.name }))}
+                values={form.watch("role_ids")}
+                onChange={(next) =>
+                  form.setValue("role_ids", next, { shouldDirty: true, shouldValidate: true })
+                }
+                emptyLabel="No roles available."
+              />
+            </FormField>
+          </div>
         </AdminPanel>
-      </div>
+
+        <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
+          <Button type="button" variant="outline" className="h-9 shadow-sm" onClick={() => navigate("..")}>
+            Cancel
+          </Button>
+          <AdminPrimaryButton type="submit" disabled={form.formState.isSubmitting}>
+            {form.formState.isSubmitting ? "Creating…" : "Create User"}
+          </AdminPrimaryButton>
+        </div>
+      </form>
     </AdminPage>
   )
 }

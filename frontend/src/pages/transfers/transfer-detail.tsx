@@ -35,6 +35,7 @@ import {
   type TransferDestinationCostCenter,
   type TransferOrderDetail,
 } from "@/lib/transfer-types"
+import { listReturnTo } from "@/lib/use-url-tab"
 import {
   actualLocationLabel,
   formatCostCenterWithCode,
@@ -52,27 +53,14 @@ type PickerMode = "submit" | "cc2_assign" | null
 function SummaryField({
   label,
   value,
-  tone,
 }: {
   label: string
   value: React.ReactNode
-  tone?: "warning" | "success"
 }) {
   return (
-    <div
-      className={cn(
-        "flex h-full min-w-0 flex-col rounded-md px-3 py-2",
-        tone === "warning" && "bg-amber-50/90 dark:bg-amber-950/25",
-        tone === "success" && "bg-emerald-50/90 dark:bg-emerald-950/25",
-        !tone && "bg-muted/35",
-      )}
-    >
-      <p className="min-h-[2.25rem] text-[10px] font-bold uppercase leading-tight tracking-[0.06em] text-black">
-        {label}
-      </p>
-      <div className="mt-1 min-w-0 text-sm font-medium tabular-nums leading-snug text-black">
-        {value}
-      </div>
+    <div className="min-w-0 rounded-md bg-muted/35 px-2.5 py-1.5">
+      <p className="text-[10px] font-bold uppercase tracking-[0.06em] !text-black">{label}</p>
+      <div className="mt-0.5 min-w-0 text-sm font-medium leading-snug !text-black">{value}</div>
     </div>
   )
 }
@@ -188,7 +176,7 @@ export function TransferOrderDetailPage() {
       applyOrder(await getJson<TransferOrderDetail>(`/admin/transfer-orders/${orderId}`))
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to load transfer order")
-      navigate("/dashboard/transfer-orders")
+      navigate(listReturnTo("/dashboard/transfer-orders"))
     } finally {
       setLoading(false)
     }
@@ -446,8 +434,19 @@ export function TransferOrderDetailPage() {
     }
   }, [draftEditable, toCostCenterId, sourceCostCenterCodes, plantCostCenters])
 
+  const isDirty = Boolean(
+    order &&
+      draftEditable &&
+      ((toCostCenterId || "") !== String(order.to_cost_center_id ?? "") ||
+        order.items.some(
+          (item) =>
+            (itemCustodians[item.asset_id] ?? null) !==
+            (item.to_asset_custodian_id ?? order.to_asset_custodian_id ?? null),
+        )),
+  )
+
   async function saveDraftChanges() {
-    if (!order) return
+    if (!order || !isDirty) return
     if (!toCostCenterId) {
       toast.error("Select destination cost center.")
       return
@@ -491,7 +490,7 @@ export function TransferOrderDetailPage() {
       applyOrder(await postJson(`/admin/transfer-orders/${order.id}/archive`, {}))
       toast.success("Transfer order archived.")
       void invalidateTransferLists()
-      navigate("/dashboard/transfer-orders")
+      navigate(listReturnTo("/dashboard/transfer-orders"))
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not archive transfer order")
     } finally {
@@ -639,7 +638,7 @@ export function TransferOrderDetailPage() {
               variant="outline"
               size="sm"
               className="h-9"
-              disabled={busy}
+              disabled={!isDirty || busy}
               onClick={() => void saveDraftChanges()}
             >
               {busy ? "Saving…" : "Save"}
@@ -792,9 +791,7 @@ export function TransferOrderDetailPage() {
               Close
             </AdminPrimaryButton>
           ) : null}
-          <AdminBackLink to={backToAssets ? "/dashboard/assets" : "/dashboard/transfer-orders"}>
-            {backToAssets ? "Asset Master" : "Transfer orders"}
-          </AdminBackLink>
+          <AdminBackLink to={listReturnTo(backToAssets ? "/dashboard/assets" : "/dashboard/transfer-orders")} />
         </div>
       }
     >
@@ -828,7 +825,7 @@ export function TransferOrderDetailPage() {
         <AdminPanel className="shrink-0 overflow-hidden p-0">
           <div className={cn("space-y-2 py-3", transferTextPad)}>
             <h3 className="text-sm font-semibold text-foreground">Transfer Summary</h3>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-4">
               <SummaryField label="Asset Count" value={order.items.length} />
               <SummaryField
                 label="Source Cost Center"
@@ -873,6 +870,17 @@ export function TransferOrderDetailPage() {
               />
               <SummaryField label="Created On" value={formatDt(order.created_at)} />
             </div>
+            {(order.status === "rejected" || order.status === "in_rework") &&
+            (order.rejection_reason || "").trim() ? (
+              <div className="min-w-0 overflow-hidden rounded-lg border border-red-200 bg-red-50/70 px-3 py-2.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-red-700">
+                  Rejected Reason
+                </p>
+                <p className="mt-1 whitespace-pre-wrap break-all text-sm leading-relaxed text-red-700">
+                  {order.rejection_reason}
+                </p>
+              </div>
+            ) : null}
           </div>
         </AdminPanel>
 
@@ -885,12 +893,9 @@ export function TransferOrderDetailPage() {
           >
             <p className="shrink-0 text-sm font-medium text-foreground">
               Asset List
-              <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
-                ({order.items.length})
-              </span>
             </p>
           </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto pb-4">
             <Table className="w-max min-w-full">
               <TableHeader>
                 <AdminTableHeaderRow>
@@ -1082,6 +1087,7 @@ export function TransferOrderDetailPage() {
             ? nextAssigneesUrl
             : `/admin/transfer-orders/assignees?for_submit=true&order_id=${order.id}`
         }
+        excludeUserId={order.created_by}
         roleLabel={
           pickerMode === "cc2_assign"
             ? (panel?.next_step_role_name ?? "Next Approver")

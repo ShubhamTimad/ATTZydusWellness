@@ -2,7 +2,7 @@ import * as React from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Pencil, Plus, Trash2, X } from "lucide-react"
+import { ArrowLeft, Pencil, Plus, Trash2, X } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -491,8 +491,9 @@ export function WorkflowAssignmentPage() {
       <>
       <AdminPage dense fullWidth viewportFill className="gap-4">
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={backToList}>
-            ← Back to workflows
+          <Button type="button" variant="outline" size="sm" onClick={backToList}>
+            <ArrowLeft className="size-4" aria-hidden />
+            Back
           </Button>
           {!selectedWf.is_active ? (
             <Button

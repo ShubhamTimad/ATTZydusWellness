@@ -389,7 +389,7 @@
   .app-tabs-shell {
     display: flex;
     flex-direction: column;
-    gap: var(--app-section-gap);
+    gap: var(--app-grid-gap);
   }
 
   .app-tabs-bar {

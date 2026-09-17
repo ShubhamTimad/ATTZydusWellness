@@ -14,38 +14,38 @@ AUDIT_FIELD_LABELS: dict[str, str] = {
     "asset_class_id": "Asset Class",
     "asset_class_code": "Asset Class",
     "tag_color_id": "Tag color",
-    "asset_custodian_id": "Asset custodian",
-    "asset_condition_id": "Asset condition",
-    "asset_category_id": "Asset category",
-    "serial_no": "Serial no.",
+    "asset_custodian_id": "Asset Custodian",
+    "asset_condition_id": "Asset Condition",
+    "asset_category_id": "Asset Category",
+    "serial_no": "Serial No.",
     "combined_asset_number": "Combined Asset No",
     "remark": "Asset Remark",
     "sub_no": "Sub-No",
     "ownership_type": "Ownership",
-    "inventory_no": "Inventory no.",
+    "inventory_no": "Inventory No.",
     "asset_description": "Description",
     "engineering_description": "Engineering",
     "qa_description": "QA",
-    "pm_equipment_id": "PM equipment ID",
+    "pm_equipment_id": "PM Equipment ID",
     "plant_id": "Plant",
     "functional_location": "Actual Location 1",
-    "actual_location": "Actual location 2",
+    "actual_location": "Actual Location 2",
     "building": "Building",
     "floor": "Floor",
     "room": "Room",
     "zone": "Zone",
     "cost_center": "Cost Center Code",
     "laboratory": "Laboratory",
-    "profit_center": "Profit center",
-    "po_number": "PO no.",
-    "party_details": "Party details",
-    "gross_block": "Gross block",
-    "cap_date": "CAP date",
-    "inventory_count": "Inventory count",
-    "physical_count": "Physical count",
-    "last_verification_date": "Last verification date",
-    "verification_status": "Verification status",
-    "verification_remarks": "Verification remarks",
+    "profit_center": "Profit Center",
+    "po_number": "PO No.",
+    "party_details": "Party Details",
+    "gross_block": "Gross Block",
+    "cap_date": "CAP Date",
+    "inventory_count": "Inventory Count",
+    "physical_count": "Physical Count",
+    "last_verification_date": "Last Verification Date",
+    "verification_status": "Verification Status",
+    "verification_remarks": "Verification Remarks",
 }
 
 
@@ -57,6 +57,14 @@ def _norm(value: Any) -> Any:
     return value
 
 
+def _blank_snapshot(value: Any) -> str | None:
+    """Store cleared NOT NULL text fields as None so audit shows — not a blank."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def snapshot_asset(asset: AssetMaster) -> dict[str, Any]:
     state: dict[str, Any] = {
         "asset_name": asset.asset_name,
@@ -65,8 +73,8 @@ def snapshot_asset(asset: AssetMaster) -> dict[str, Any]:
         else asset.asset_class,
         "asset_class_id": asset.asset_class_id,
         "asset_type": asset.asset_type,
-        "asset_code": asset.asset_code,
-        "combined_asset_number": asset.combined_asset_number,
+        "asset_code": _blank_snapshot(asset.asset_code),
+        "combined_asset_number": _blank_snapshot(asset.combined_asset_number),
         "remark": asset.remark,
         "sub_no": asset.sub_no,
         "rfid_code": asset.rfid_code,
@@ -146,6 +154,12 @@ _CODE_FIELDS = frozenset(
         "profit_center",
     }
 )
+_CODE_FIELD_PREFIX = {
+    "functional_location": "fl",
+    "actual_location": "al",
+    "cost_center": "cc",
+    "profit_center": "pc",
+}
 _ID_LABEL_FIELDS = frozenset(
     {
         "tag_color_id",
@@ -166,6 +180,35 @@ def _lookup_id_label(labels: dict[int, str] | None, value: Any) -> str | None:
         return None
 
 
+def _lookup_code_label(
+    code_labels: dict[str, str] | None,
+    key: str,
+    value: Any,
+    *,
+    peer_fl: Any = None,
+) -> str | None:
+    """Resolve a stored master code to its display name.
+
+    Actual Location 1 (FL) and Actual Location 2 (AL) are looked up under
+    separate prefixes so a shared code cannot show AL's name on both lines.
+    """
+    if code_labels is None or value is None or value == "":
+        return None
+    folded = str(value).strip().casefold()
+    if not folded:
+        return None
+    prefix = _CODE_FIELD_PREFIX.get(key)
+    if prefix == "al" and peer_fl not in (None, ""):
+        named = code_labels.get(f"al:{str(peer_fl).strip().casefold()}:{folded}")
+        if named:
+            return named
+    if prefix:
+        named = code_labels.get(f"{prefix}:{folded}")
+        if named:
+            return named
+    return code_labels.get(folded)
+
+
 def _display_value(
     key: str,
     value: Any,
@@ -175,8 +218,9 @@ def _display_value(
     user_labels: dict[int, str] | None = None,
     code_labels: dict[str, str] | None = None,
     id_labels: dict[str, dict[int, str]] | None = None,
+    peer_fl: Any = None,
 ) -> str:
-    if value is None or value == "":
+    if value is None or (isinstance(value, str) and not value.strip()):
         return "—"
     if key == "plant_id" and plant_labels is not None:
         named = _lookup_id_label(plant_labels, value)
@@ -194,10 +238,12 @@ def _display_value(
         named = _lookup_id_label(id_labels.get(key), value)
         if named:
             return named
-    if key in _CODE_FIELDS and code_labels is not None:
-        named = code_labels.get(str(value).strip().casefold())
+    if key in _CODE_FIELDS:
+        named = _lookup_code_label(code_labels, key, value, peer_fl=peer_fl)
         if named:
             return named
+    if key in {"cap_date", "last_verification_date"}:
+        return _format_audit_date_value(value)
     text = str(value)
     if len(text) > 120:
         return text[:117] + "…"
@@ -215,6 +261,9 @@ def format_changes_detail(
 ) -> list[dict[str, str]]:
     skip = {id_key for id_key, name_key in _SKIP_ID_WHEN_NAME.items() if name_key in changes}
     lines: list[dict[str, str]] = []
+    fl_delta = changes.get("functional_location")
+    fl_from = fl_delta.get("from") if isinstance(fl_delta, dict) else None
+    fl_to = fl_delta.get("to") if isinstance(fl_delta, dict) else None
     for key in sorted(changes.keys(), key=lambda k: AUDIT_FIELD_LABELS.get(k, k)):
         if key in skip:
             continue
@@ -222,6 +271,8 @@ def format_changes_detail(
         if not isinstance(delta, dict):
             continue
         label = AUDIT_FIELD_LABELS.get(key, key.replace("_", " "))
+        peer_from = fl_from if key == "actual_location" else None
+        peer_to = fl_to if key == "actual_location" else None
         lines.append(
             {
                 "field_label": label,
@@ -233,6 +284,7 @@ def format_changes_detail(
                     user_labels=user_labels,
                     code_labels=code_labels,
                     id_labels=id_labels,
+                    peer_fl=peer_from,
                 ),
                 "to_value": _display_value(
                     key,
@@ -242,6 +294,7 @@ def format_changes_detail(
                     user_labels=user_labels,
                     code_labels=code_labels,
                     id_labels=id_labels,
+                    peer_fl=peer_to,
                 ),
             }
         )
@@ -288,13 +341,17 @@ def include_asset_audit_event(
 
 
 def _format_audit_date_value(value: Any) -> str:
+    """Match app date display: DD/MM/YY."""
     if value is None or value == "":
         return "—"
-    text = str(value)
+    if isinstance(value, datetime):
+        value = value.date()
+    if isinstance(value, date):
+        return value.strftime("%d/%m/%y")
+    text = str(value).strip()
     if len(text) >= 10 and text[4] == "-" and text[7] == "-":
         try:
-            d = datetime.fromisoformat(text.replace("Z", "+00:00")[:10])
-            return d.strftime("%d %b %Y")
+            return date.fromisoformat(text[:10]).strftime("%d/%m/%y")
         except ValueError:
             pass
     return text
@@ -426,7 +483,7 @@ def activity_verb_for_action(action: str, new_value: dict[str, Any] | None, sour
     if action == "imported":
         return "Imported By"
     if action == "updated":
-        return "Edited By"
+        return "Updated By"
     if action == "approved":
         return "Approved By"
     if action == "activated":
@@ -508,10 +565,10 @@ def build_audit_summary(
                 body = "\n".join(
                     f"{d['field_label']}: {d['from_value']} → {d['to_value']}" for d in detail_lines
                 )
-                return f"Edited by {actor_name}:\n{body}"
+                return f"Updated by {actor_name}:\n{body}"
             fields = format_field_list(list(changes.keys()))
-            return f"Edited {fields} by {actor_name}"
-        return f"Edited by {actor_name}"
+            return f"Updated {fields} by {actor_name}"
+        return f"Updated by {actor_name}"
     if action == "approved":
         comment = str(nv.get("comment") or "").strip()
         if comment:

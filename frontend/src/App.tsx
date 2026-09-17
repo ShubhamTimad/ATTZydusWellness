@@ -606,9 +606,7 @@ function AdminRoute() {
 
   const pageTitle = React.useMemo(() => {
     const p = location.pathname
-    if (/\/admin\/users\/new\/?$/.test(p)) return "Create user"
-    if (/\/admin\/users\/\d+\/edit\/?$/.test(p)) return "Edit user"
-    if (/\/admin\/users\/\d+\/?$/.test(p)) return "User details"
+    if (/\/admin\/users\/\d+\/?$/.test(p) && !/\/edit\/?$/.test(p)) return "User details"
     return undefined
   }, [location.pathname])
 

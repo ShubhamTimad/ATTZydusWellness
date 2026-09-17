@@ -356,15 +356,15 @@ export function UserViewPage() {
             <AdminPanel title="Assignment" >
               <div className="space-y-5 px-5 py-5">
                 <AdminDetailField
-                  label="Plants"
+                  label="Plant"
                   value={<OrgPills items={user.org_units} fallback={user.org_unit} />}
                 />
                 <AdminDetailField
-                  label="Departments"
+                  label="Department"
                   value={<OrgPills items={user.departments} fallback={user.department} />}
                 />
                 <AdminDetailField
-                  label="Cost centers"
+                  label="Cost center"
                   value={
                     <UserCostCentersDisplay
                       items={user.cost_centers}

@@ -89,6 +89,19 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _warning_asset_code(
+    asset: AssetMaster | None = None,
+    *,
+    code: str | None = None,
+    combined: str | None = None,
+) -> str:
+    """Asset Number, or Combined Asset No when the number was cleared."""
+    if asset is not None:
+        code = asset.asset_code
+        combined = asset.combined_asset_number
+    return (str(code or "").strip() or str(combined or "").strip())
+
+
 _EDITABLE_PHYSICAL_STATUSES = frozenset({ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED})
 _ARCHIVABLE_PHYSICAL_STATUSES = frozenset({ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED})
 
@@ -889,6 +902,7 @@ class PhysicalOrderService:
             select(
                 PhysicalOrderItem.asset_id,
                 AssetMaster.asset_code,
+                AssetMaster.combined_asset_number,
                 AssetMaster.asset_name,
                 PhysicalOrder.id,
                 PhysicalOrder.order_number,
@@ -909,11 +923,11 @@ class PhysicalOrderService:
             )
         ).all()
         # Mid-workflow conflicts are hard blocks — deselect before creating a new order.
-        for aid, code, name, oid, onum, ost in active_rows:
+        for aid, code, combined, name, oid, onum, ost in active_rows:
             active_conflicts.append(
                 ActiveOrderConflict(
                     asset_id=int(aid),
-                    asset_code=str(code),
+                    asset_code=_warning_asset_code(code=code, combined=combined),
                     asset_name=str(name),
                     order_id=int(oid),
                     order_number=str(onum),
@@ -946,7 +960,7 @@ class PhysicalOrderService:
                 not_approved.append(
                     InvalidAssetRef(
                         asset_id=int(a.id),
-                        asset_code=a.asset_code,
+                        asset_code=_warning_asset_code(a),
                         asset_name=a.asset_name,
                     )
                 )
@@ -956,7 +970,7 @@ class PhysicalOrderService:
                 missing_rfid.append(
                     InvalidAssetRef(
                         asset_id=int(a.id),
-                        asset_code=a.asset_code,
+                        asset_code=_warning_asset_code(a),
                         asset_name=a.asset_name,
                     )
                 )
@@ -971,7 +985,7 @@ class PhysicalOrderService:
                 cc_mismatch.append(
                     InvalidAssetRef(
                         asset_id=int(a.id),
-                        asset_code=a.asset_code,
+                        asset_code=_warning_asset_code(a),
                         asset_name=a.asset_name,
                         plant_id=pid,
                         plant_name=pname,
@@ -994,7 +1008,7 @@ class PhysicalOrderService:
                     cc_mismatch.append(
                         InvalidAssetRef(
                             asset_id=int(a.id),
-                            asset_code=a.asset_code,
+                            asset_code=_warning_asset_code(a),
                             asset_name=a.asset_name,
                             plant_id=pid,
                             plant_name=pname,
@@ -1007,7 +1021,7 @@ class PhysicalOrderService:
                 plant_mismatch.append(
                     InvalidAssetRef(
                         asset_id=int(a.id),
-                        asset_code=a.asset_code,
+                        asset_code=_warning_asset_code(a),
                         asset_name=a.asset_name,
                         plant_id=pid,
                         plant_name=pname,
@@ -1018,7 +1032,7 @@ class PhysicalOrderService:
                 plant_mismatch.append(
                     InvalidAssetRef(
                         asset_id=int(a.id),
-                        asset_code=a.asset_code,
+                        asset_code=_warning_asset_code(a),
                         asset_name=a.asset_name,
                         plant_id=pid,
                         plant_name=pname,
@@ -1040,7 +1054,7 @@ class PhysicalOrderService:
             already_verified.append(
                 VerifiedInFinancialYearRef(
                     asset_id=int(a.id),
-                    asset_code=a.asset_code,
+                    asset_code=_warning_asset_code(a),
                     asset_name=a.asset_name,
                     last_verification_date=last_dt,
                     physical_count=inv.physical_count if inv else None,
@@ -1471,8 +1485,15 @@ class PhysicalOrderService:
         if validation.active_order_conflicts:
             sample = validation.active_order_conflicts[0]
             extra = len(validation.active_order_conflicts) - 1
+            code = (sample.asset_code or "").strip()
+            name = (sample.asset_name or "").strip()
+            ident = (
+                f"{code} ({name})"
+                if code and name and code != name
+                else (name or code)
+            )
             msg = (
-                f"{sample.asset_name or sample.asset_code} is already on order "
+                f"{ident} is already on order "
                 f"{sample.order_number} ({sample.order_status.replace('_', ' ')}). "
                 "Deselect assets on an open physical order before creating a new one."
             )
@@ -1762,11 +1783,9 @@ class PhysicalOrderService:
 
         statuses = [
             ORDER_STATUS_DRAFT,
-            ORDER_STATUS_PENDING_APPROVAL,
             ORDER_STATUS_APPROVED,
             ORDER_STATUS_ASSIGNED,
             ORDER_STATUS_IN_PROGRESS,
-            ORDER_STATUS_PENDING_CLOSURE,
             ORDER_STATUS_COMPLETED,
             ORDER_STATUS_CLOSED,
             ORDER_STATUS_REJECTED,
@@ -1954,7 +1973,14 @@ class PhysicalOrderService:
 
         status_q = (status or "").strip().lower()
         if status_q:
-            base = base.where(PhysicalOrder.status == status_q)
+            if status_q == ORDER_STATUS_COMPLETED:
+                base = base.where(
+                    PhysicalOrder.status.in_(
+                        (ORDER_STATUS_COMPLETED, ORDER_STATUS_PENDING_CLOSURE)
+                    )
+                )
+            else:
+                base = base.where(PhysicalOrder.status == status_q)
 
         if asset_count is not None:
             item_count = (

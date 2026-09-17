@@ -219,7 +219,7 @@ export function UsersPage() {
           <AdminPrimaryButton asChild className="h-9 px-4 font-semibold shadow-sm">
             <Link to="new">
               <Plus className="size-4" aria-hidden />
-              Create user
+              Create User
             </Link>
           </AdminPrimaryButton>
         ) : undefined

@@ -21,6 +21,8 @@ from modules.transfers.service import (
     _changed_item_locations,
     _item_location_snapshot,
     apply_transfer_close,
+    assert_assignee_is_not_creator,
+    exclude_creator_from_assignees,
 )
 
 
@@ -60,6 +62,16 @@ def _order(status: str, *, assets, order_id: int = 1, assigned_to: int | None = 
         from_cost_center_id=10,
         items=[SimpleNamespace(id=i + 1, asset_id=a.id, asset=a) for i, a in enumerate(assets)],
     )
+
+
+def test_validate_assets_reports_pending_transfer():
+    asset = _asset()
+    asset.lifecycle_status = LIFECYCLE_PENDING_TRANSFER
+    svc = TransferOrderService(MagicMock())
+    svc._load_assets = lambda ids: [asset]  # type: ignore[method-assign]
+    res = svc.validate_assets([1])
+    assert len(res.in_progress) == 1
+    assert res.in_progress[0].asset_id == 1
 
 
 def test_assert_blocks_pending_transfer_on_new_order():
@@ -145,6 +157,20 @@ def test_unarchive_marks_assets_pending_transfer():
     assert result == "detail"
     assert order.status == STATUS_DRAFT
     assert asset.lifecycle_status == LIFECYCLE_PENDING_TRANSFER
+    db.commit.assert_called_once()
+
+
+def test_update_skips_audit_when_nothing_changed():
+    asset = _asset()
+    order = _order(STATUS_DRAFT, assets=[asset])
+    order.items[0].to_asset_custodian_id = 8
+    db = MagicMock()
+    svc = TransferOrderService(db)
+    with patch.object(svc, "_load_order", return_value=order):
+        with patch.object(svc, "get_order", return_value="detail"):
+            with patch("modules.transfers.service._log") as log:
+                svc.update_order(1, UpdateTransferOrderRequest(), actor_user_id=2)
+    log.assert_not_called()
     db.commit.assert_called_once()
 
 
@@ -307,3 +333,31 @@ def test_save_receive_locations_keeps_partial_rows_and_logs_pending() -> None:
     }
     # Assets are only relocated on receive, not on a partial save.
     assert a1.location.functional_location == "OLD-FL"
+
+
+def test_exclude_creator_from_assignees():
+    creator = SimpleNamespace(id=2, full_name="Creator")
+    other = SimpleNamespace(id=9, full_name="Other")
+    users = [creator, other]
+    assert [u.id for u in exclude_creator_from_assignees(users, created_by=2)] == [9]
+    assert [u.id for u in exclude_creator_from_assignees(users, actor_user_id=2)] == [9]
+    assert [u.id for u in exclude_creator_from_assignees(users, created_by=2, actor_user_id=9)] == [9]
+    assert [u.id for u in exclude_creator_from_assignees(users)] == [2, 9]
+
+
+def test_cannot_assign_transfer_to_creator():
+    with pytest.raises(ConflictError, match="who created it"):
+        assert_assignee_is_not_creator(created_by=2, assigned_to=2)
+    assert_assignee_is_not_creator(created_by=2, assigned_to=9)
+    assert_assignee_is_not_creator(created_by=None, assigned_to=2)
+
+
+def test_submit_rejects_assigning_creator():
+    asset = _asset()
+    order = _order(STATUS_DRAFT, assets=[asset])
+    svc = TransferOrderService(MagicMock())
+    with patch.object(svc, "_assert_actor_may_submit_transfer"):
+        with patch.object(svc, "_assert_assets_approved_for_transfer"):
+            with patch.object(svc, "_assert_same_from_cost_center"):
+                with pytest.raises(ConflictError, match="who created it"):
+                    svc._submit(order, actor_user_id=2, assigned_to=2, remarks=None)

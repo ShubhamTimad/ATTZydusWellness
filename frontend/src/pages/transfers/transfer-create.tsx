@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, postJson } from "@/lib/api"
 import { invalidateTransferLists } from "@/lib/query-client"
+import { listReturnTo } from "@/lib/use-url-tab"
 import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import { isAssetPendingTransfer } from "@/lib/asset-lifecycle"
 import type { ActualLocationMaster } from "@/lib/masters-types"
@@ -618,16 +619,16 @@ export function TransferOrderCreatePage() {
       } catch {
         /* ignore */
       }
-      toast.success(
-        submit
-          ? `Transfer ${order.order_number} submitted for approval.`
-          : `Draft ${order.order_number} saved.`,
-      )
       void invalidateTransferLists()
       navigate(`/dashboard/transfer-orders/${order.id}`, {
         replace: true,
         state: fromAssets ? { fromAssets: true } : undefined,
       })
+      toast.success(
+        submit
+          ? `Transfer ${order.order_number} submitted for approval.`
+          : `${order.order_number} saved in draft.`,
+      )
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to create transfer order.")
     } finally {
@@ -682,11 +683,9 @@ export function TransferOrderCreatePage() {
       className="w-full pb-6"
       actions={
         <AdminBackLink
-          to={fromAssets ? "/dashboard/assets" : "/dashboard/transfer-orders"}
+          to={listReturnTo(fromAssets ? "/dashboard/assets" : "/dashboard/transfer-orders")}
           onClick={persistAssetMasterSelection}
-        >
-          {fromAssets ? "Asset Master" : "Transfer Orders"}
-        </AdminBackLink>
+        />
       }
     >
       <form
@@ -795,7 +794,7 @@ export function TransferOrderCreatePage() {
               </div>
             ) : (
               <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <FormField id="plant" labelText="Plant">
+                <FormField id="plant" labelText="Plant" required>
                   <Input readOnly disabled className="bg-muted/40" value={plantName || "—"} />
                 </FormField>
                 {designatedCostCenterField}
@@ -925,7 +924,7 @@ export function TransferOrderCreatePage() {
             disabled={busy}
             onClick={() => {
               persistAssetMasterSelection()
-              navigate(fromAssets ? "/dashboard/assets" : "/dashboard/transfer-orders")
+              navigate(listReturnTo(fromAssets ? "/dashboard/assets" : "/dashboard/transfer-orders"))
             }}
           >
             Cancel
@@ -949,6 +948,7 @@ export function TransferOrderCreatePage() {
         open={pickerOpen}
         onOpenChange={setPickerOpen}
         assigneesUrl="/admin/transfer-orders/assignees?for_submit=true"
+        excludeUserId={viewerId}
         roleLabel="Approver"
         confirmLabel="Submit"
         busy={busy}

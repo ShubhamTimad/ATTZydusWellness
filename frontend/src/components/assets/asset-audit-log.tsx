@@ -1,6 +1,7 @@
 import * as React from "react"
 
 import { AuditDetailLine, AuditTrailTable, type AuditTrailRow } from "@/components/audit/audit-trail-table"
+import { formatAppDateIfDate } from "@/lib/dates"
 
 export type AssetAuditLogRow = {
   id: string
@@ -108,31 +109,32 @@ function changesForRow(row: AssetAuditLogRow): AssetAuditLogRow["changes"] {
 }
 
 /** Match physical-order audit: bold title + muted wrapping detail lines (no boxed grid). */
+function dash(value: string): string {
+  const s = value.trim()
+  if (!s || s === "-") return "—"
+  return formatAppDateIfDate(s)
+}
+
 function detailLinesFromChanges(changes: AssetAuditLogRow["changes"]): string[] {
   const lines: string[] = []
   for (const c of changes) {
-    const from = (c.from_value || "").trim()
-    const to = (c.to_value || "").trim()
+    const from = dash(c.from_value || "")
+    const to = dash(c.to_value || "")
     const label = c.field_label.trim()
-    if (label === "Reason" && (from === "—" || !from) && to) {
+    if (label === "Reason" && from === "—" && to !== "—") {
       lines.push(`Rejected Reason: ${to}`)
       continue
     }
-    if (label === "Comment" && (from === "—" || !from) && to) {
+    if (label === "Comment" && from === "—" && to !== "—") {
       lines.push(`Comment: ${to}`)
       continue
     }
-    if ((from === "—" || !from) && to) {
+    if (from === to) continue
+    if (from === "—") {
       lines.push(`${label}: ${to}`)
       continue
     }
-    if (from && to && from !== to) {
-      lines.push(`${label}: ${from} → ${to}`)
-      continue
-    }
-    if (from && (!to || to === "—")) {
-      lines.push(`${label}: cleared (was ${from})`)
-    }
+    lines.push(`${label}: ${from} → ${to}`)
   }
   return lines
 }
@@ -140,25 +142,26 @@ function detailLinesFromChanges(changes: AssetAuditLogRow["changes"]): string[] 
 function activityForRow(row: AssetAuditLogRow): React.ReactNode {
   const orderRef = orderRefFromRow(row)
   const headline = activityHeadline(row)
-  const status =
+  let status =
     ORDER_STATUS_LABELS[row.action] ??
     (orderRef && headline.includes(orderRef)
       ? headline.replace(`${orderRef} · `, "").trim()
       : headline)
+  if (orderRef) {
+    status = status
+      .replace(new RegExp(`\\s*${orderRef}\\s*`, "i"), " ")
+      .replace(/\s*·\s*/g, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+  }
   const details = detailLinesFromChanges(changesForRow(row))
+  if (orderRef && !details.some((line) => line.startsWith("Order Number:"))) {
+    details.unshift(`Order Number: ${orderRef}`)
+  }
 
   return (
     <div className="min-w-0 space-y-1.5">
-      <p className="text-sm font-medium leading-snug text-foreground">
-        {orderRef ? (
-          <>
-            <span>{status}</span>
-            <span className="mx-1.5 font-mono text-xs font-medium text-foreground">{orderRef}</span>
-          </>
-        ) : (
-          status
-        )}
-      </p>
+      <p className="text-sm font-medium leading-snug text-foreground">{status}</p>
       {details.map((line) => (
         <AuditDetailLine key={line} line={line} />
       ))}

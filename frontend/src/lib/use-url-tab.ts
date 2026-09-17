@@ -1,5 +1,24 @@
 import * as React from "react"
-import { useSearchParams } from "react-router-dom"
+import { useLocation, useSearchParams } from "react-router-dom"
+
+const LIST_RETURN_PREFIX = "att:list-return:"
+
+function rememberListReturn(pathname: string, search: string) {
+  try {
+    sessionStorage.setItem(LIST_RETURN_PREFIX + pathname, search)
+  } catch {
+    /* private mode */
+  }
+}
+
+/** Last list URL (`?tab=` / `?page=`) so detail Back returns to the same tab. */
+export function listReturnTo(pathname: string): string {
+  try {
+    return `${pathname}${sessionStorage.getItem(LIST_RETURN_PREFIX + pathname) ?? ""}`
+  } catch {
+    return pathname
+  }
+}
 
 type Mutator = (params: URLSearchParams) => void
 
@@ -73,6 +92,11 @@ export function useUrlTab<T extends string>(
   defaultTab: T,
   paramKey = "tab",
 ): [T, (next: string) => void] {
+  const { pathname, search } = useLocation()
+  React.useEffect(() => {
+    rememberListReturn(pathname, search)
+  }, [pathname, search])
+
   const [searchParams, apply] = useBatchedSearchParams()
   const allowedKey = allowed.join("\0")
   const raw = searchParams.get(paramKey)

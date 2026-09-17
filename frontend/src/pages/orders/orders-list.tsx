@@ -255,9 +255,9 @@ export function OrdersListPage() {
             return (
               <WorkspaceTabsTrigger key={t.key} value={t.key}>
                 {t.label}
-                <span className="ml-1.5 inline-block min-w-[3.25rem] text-left tabular-nums text-muted-foreground">
-                  {typeof count === "number" ? `(${count})` : "\u00a0"}
-                </span>
+                {typeof count === "number" ? (
+                  <span className="ml-1.5 tabular-nums text-muted-foreground">({count})</span>
+                ) : null}
               </WorkspaceTabsTrigger>
             )
           })}

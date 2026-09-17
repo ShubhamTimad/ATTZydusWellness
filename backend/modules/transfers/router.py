@@ -23,6 +23,8 @@ from modules.transfers.schema import (
     TransferOrderDetail,
     TransferOrderListResponse,
     UpdateTransferOrderRequest,
+    ValidateTransferAssetsRequest,
+    ValidateTransferAssetsResponse,
 )
 from modules.transfers.constants import ACTION_SUBMIT
 from modules.transfers.service import TransferOrderService
@@ -45,6 +47,7 @@ def _http(exc: Exception) -> HTTPException:
 @router.get("/assignees", response_model=TransferAssigneeListResponse)
 def list_assignees(
     svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     _: Annotated[
         object,
         Depends(
@@ -81,11 +84,16 @@ def list_assignees(
     ),
 ) -> TransferAssigneeListResponse:
     try:
+        actor_user_id = int(current.subject)
         if role_id is not None or for_next:
-            return svc.list_assignees_by_role_id(role_id=role_id, order_id=order_id)
+            return svc.list_assignees_by_role_id(
+                role_id=role_id, order_id=order_id, actor_user_id=actor_user_id
+            )
         if for_submit or level is None:
             return svc.list_assignees_for_action(
-                action_code=ACTION_SUBMIT, order_id=order_id
+                action_code=ACTION_SUBMIT,
+                order_id=order_id,
+                actor_user_id=actor_user_id,
             )
         return svc.list_assignees(level=level)
     except Exception as e:
@@ -185,6 +193,18 @@ def list_orders(
         sort_by=sort_by,
         sort_dir=sort_dir,
     )
+
+
+@router.post("/validate-assets", response_model=ValidateTransferAssetsResponse)
+def validate_assets(
+    body: ValidateTransferAssetsRequest,
+    svc: Annotated[TransferOrderService, Depends(get_transfer_service)],
+    _: Annotated[object, Depends(require_permission("transfer.create"))],
+) -> ValidateTransferAssetsResponse:
+    try:
+        return svc.validate_assets(body.asset_ids)
+    except Exception as e:
+        raise _http(e) from e
 
 
 @router.post("", response_model=TransferOrderDetail, status_code=status.HTTP_201_CREATED)

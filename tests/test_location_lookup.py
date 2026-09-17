@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 from modules.asset_masters.location_lookup import (
     location_display_name,
+    plant_code_display_map,
     resolve_plant_location_names,
     rewrite_audit_master_codes,
 )
@@ -82,3 +83,25 @@ def test_rewrite_audit_master_codes_item_locations(monkeypatch) -> None:
     assert row["to_functional_location"] == "QC Floor"
     assert row["to_actual_location"] == "QC Bay 1"
     assert row["asset_code"] == "DEMO-AST-006"
+
+
+def test_plant_code_display_map_namespaces_colliding_fl_and_al_codes() -> None:
+    fl = SimpleNamespace(id=1, code="WH-01", name="Warehouse A", description=None)
+    al = SimpleNamespace(
+        id=2, code="WH-01", name="Bay 1", description=None, functional_location_id=1
+    )
+
+    class _Rows:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+    db = MagicMock()
+    db.scalars.side_effect = [_Rows([fl]), _Rows([al]), _Rows([])]
+    labels = plant_code_display_map(db, plant_id=1)
+    assert labels["fl:wh-01"] == "Warehouse A"
+    assert labels["al:wh-01"] == "Bay 1"
+    assert labels["al:wh-01:wh-01"] == "Bay 1"
+    assert "wh-01" not in labels

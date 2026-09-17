@@ -45,9 +45,9 @@ function nextAssigneeLine(ev: TransferOrderAudit): string | null {
     fromNew(ev, "next_assignee_name") ||
     fromNew(ev, "assigned_to_name") ||
     fromNew(ev, "assignee_name")
+  if (name) return `Next: ${name}`
   const role = fromNew(ev, "next_role_name") || fromNew(ev, "role_name")
   if (role) return `Next: ${role}`
-  if (name) return `Next: ${name}`
   return null
 }
 

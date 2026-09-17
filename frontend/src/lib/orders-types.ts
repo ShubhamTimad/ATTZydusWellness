@@ -252,11 +252,9 @@ export const ASSET_PHYSICAL_ORDER_STATUS_FILTERS: { value: string; label: string
 /** Lifecycle status filter for the orders list Status column (not inbox tabs). */
 export const ORDER_STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "draft", label: "Draft" },
-  { value: "pending_approval", label: "Pending Approval" },
   { value: "approved", label: "Approved" },
   { value: "assigned", label: "Assigned" },
   { value: "in_progress", label: "In progress" },
-  { value: "pending_closure_approval", label: "Pending closure" },
   { value: "completed", label: "Completed" },
   { value: "closed", label: "Closed" },
   { value: "rejected", label: "Rejected" },

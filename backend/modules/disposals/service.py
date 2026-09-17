@@ -1031,14 +1031,7 @@ class DisposalOrderService:
                 "Disposal order can only be edited while draft. "
                 "Restart a rejected or in-rework order before making changes."
             )
-        before = {
-            "remarks": order.remarks,
-            "requires_engineering": bool(order.requires_engineering),
-            "asset_count": len(order.items),
-            "to_cost_center_id": (
-                int(order.to_cost_center_id) if order.to_cost_center_id else None
-            ),
-        }
+        before = self._edit_snapshot(order)
         patch = data.model_dump(exclude_unset=True)
         if "remarks" in patch:
             order.remarks = _strip_or_none(patch["remarks"])
@@ -1082,33 +1075,51 @@ class DisposalOrderService:
             self._replace_items(order, assets)
             self._mark_assets_pending_disposal(added_assets)
         # Assets or the scrapyard may have just changed, so re-check custodians either way.
-        self._resolve_item_custodians(
-            order,
-            item_custodians=data.item_custodians,
-            fallback_id=(
-                patch["receiver_user_id"]
-                if "receiver_user_id" in patch
-                else order.receiver_user_id
-            ),
-            require_all=False,
-        )
-        log_disposal_event(
-            self._db,
-            order_id=int(order.id),
-            action="updated",
-            actor_user_id=actor_user_id,
-            old_value=before,
-            new_value={
-                "remarks": order.remarks,
-                "requires_engineering": bool(order.requires_engineering),
-                "asset_count": len(order.items),
-                "to_cost_center_id": (
-                    int(order.to_cost_center_id) if order.to_cost_center_id else None
+        if (
+            "item_custodians" in patch
+            or "receiver_user_id" in patch
+            or "to_cost_center_id" in patch
+            or patch.get("asset_ids") is not None
+        ):
+            self._resolve_item_custodians(
+                order,
+                item_custodians=data.item_custodians,
+                fallback_id=(
+                    patch["receiver_user_id"]
+                    if "receiver_user_id" in patch
+                    else order.receiver_user_id
                 ),
-            },
-        )
+                require_all=False,
+            )
+        after = self._edit_snapshot(order)
+        if after != before:
+            log_disposal_event(
+                self._db,
+                order_id=int(order.id),
+                action="updated",
+                actor_user_id=actor_user_id,
+                old_value={k: v for k, v in before.items() if k != "item_custodians"},
+                new_value={k: v for k, v in after.items() if k != "item_custodians"},
+            )
         self._db.commit()
         return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def _edit_snapshot(self, order: AssetDisposalOrder) -> dict:
+        return {
+            "remarks": order.remarks,
+            "requires_engineering": bool(order.requires_engineering),
+            "asset_count": len(order.items),
+            "to_cost_center_id": (
+                int(order.to_cost_center_id) if order.to_cost_center_id else None
+            ),
+            "receiver_user_id": (
+                int(order.receiver_user_id) if order.receiver_user_id else None
+            ),
+            "item_custodians": {
+                int(item.asset_id): getattr(item, "to_asset_custodian_id", None)
+                for item in order.items
+            },
+        }
 
     def resume_rejected_order(
         self, order_id: int, *, actor_user_id: int

@@ -36,6 +36,7 @@ export function CapexAssigneePickerDialog({
   const [items, setItems] = React.useState<CapexAssigneeOption[]>([])
   const [loading, setLoading] = React.useState(false)
   const [selectedId, setSelectedId] = React.useState("")
+  const [loadedRoleName, setLoadedRoleName] = React.useState("")
 
   const fetchUrl =
     assigneesUrl ??
@@ -46,6 +47,7 @@ export function CapexAssigneePickerDialog({
   React.useEffect(() => {
     if (!open) return
     setSelectedId("")
+    setLoadedRoleName("")
     if (!fetchUrl) {
       setItems([])
       setLoading(false)
@@ -64,6 +66,7 @@ export function CapexAssigneePickerDialog({
               ? res.items
               : res.items.filter((u) => Number(u.id) !== excludeId),
           )
+          setLoadedRoleName((res.role_name || "").trim())
         }
       } catch (e) {
         if (!cancelled) {
@@ -87,11 +90,13 @@ export function CapexAssigneePickerDialog({
     await onConfirm(Number(selectedId))
   }
 
+  const titleRole = loadedRoleName || roleLabel || "User"
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 p-0 sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Select {roleLabel || "User"}</DialogTitle>
+          <DialogTitle>Select {titleRole}</DialogTitle>
         </DialogHeader>
         <div className="dialog-body">
           <select
@@ -101,7 +106,7 @@ export function CapexAssigneePickerDialog({
             disabled={loading || busy}
             onChange={(e) => setSelectedId(e.target.value)}
             autoFocus
-            aria-label={`Select ${roleLabel || "User"}`}
+            aria-label={`Select ${titleRole}`}
           >
             <option value="">{loading ? "Loading…" : "Select User"}</option>
             {items.map((u) => (

@@ -61,7 +61,7 @@ export function WorkspaceTabsList({
 }) {
   return (
     <div className="app-tabs-bar">
-      <TabsList variant="line" className={cn("h-auto w-full max-w-none gap-0 bg-transparent p-0", className)}>
+      <TabsList variant="line" className={cn("h-auto w-fit max-w-full gap-0 bg-transparent p-0", className)}>
         {children}
       </TabsList>
     </div>

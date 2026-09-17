@@ -56,6 +56,7 @@ import {
   type PhysicalOrderItem,
 } from "@/lib/orders-types"
 import { hasPermission } from "@/lib/permissions"
+import { listReturnTo } from "@/lib/use-url-tab"
 import { formatAppDate as formatDate, formatAppDateTime as formatDt } from "@/lib/dates"
 import { cn } from "@/lib/utils"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
@@ -791,7 +792,7 @@ export function OrderDetailPage() {
                   toast.success("Physical order archived.")
                   void invalidateOrderLists()
                   void invalidateAssetLists()
-                  navigate("/dashboard/orders")
+                  navigate(listReturnTo("/dashboard/orders"))
                 } catch (e) {
                   toast.error(
                     e instanceof ApiError ? e.message : "Could not archive physical order",
@@ -967,9 +968,7 @@ export function OrderDetailPage() {
               Close
             </AdminPrimaryButton>
           ) : null}
-          <AdminBackLink to={backToAssets ? "/dashboard/assets" : "/dashboard/orders"}>
-            {backToAssets ? "Asset Master" : "Order"}
-          </AdminBackLink>
+          <AdminBackLink to={listReturnTo(backToAssets ? "/dashboard/assets" : "/dashboard/orders")} />
         </div>
       }
     >
@@ -1169,9 +1168,6 @@ export function OrderDetailPage() {
         <div className={cn("flex flex-nowrap items-center gap-2 border-b border-border/60 py-3", orderPanelPad)}>
           <p className="shrink-0 text-sm font-medium text-foreground">
             Asset List
-            <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">
-              ({order.total_count})
-            </span>
           </p>
           <div className="ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-2">
             <div className="relative min-w-0 w-56 flex-1 sm:w-64 sm:flex-none lg:w-80">

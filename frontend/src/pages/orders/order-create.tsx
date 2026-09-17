@@ -18,6 +18,7 @@ import { AdminTableBodyRow, AdminTablePagination } from "@/components/layout/lis
 import { OrderAuditLog } from "@/components/orders/order-audit-log"
 import { OrderLifecycleStepper } from "@/components/orders/order-lifecycle-stepper"
 import { Button } from "@/components/ui/button"
+import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { asAssetListItem, clearAssetMasterSelection, writeAssetMasterSelection } from "@/lib/asset-master-selection"
@@ -25,6 +26,7 @@ import type { AssetListItem } from "@/lib/assets-types"
 import { ApiError, postJson } from "@/lib/api"
 import { formatAppDate, formatAppDateTime } from "@/lib/dates"
 import { invalidateAssetLists, invalidateOrderLists } from "@/lib/query-client"
+import { listReturnTo } from "@/lib/use-url-tab"
 import type { OrderLifecycleStep, PhysicalOrderDetail } from "@/lib/orders-types"
 import { cn } from "@/lib/utils"
 
@@ -132,6 +134,7 @@ function SummaryField({
 
 export function PhysicalOrderCreatePage() {
   const navigate = useNavigate()
+  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [preview] = React.useState(() => readPreview())
   const [busy, setBusy] = React.useState(false)
   const [search, setSearch] = React.useState("")
@@ -139,7 +142,7 @@ export function PhysicalOrderCreatePage() {
 
   React.useEffect(() => {
     if (!preview) {
-      navigate("/dashboard/assets", { replace: true })
+      navigate(listReturnTo("/dashboard/assets"), { replace: true })
       return
     }
     const rows = previewSelectionRows(preview)
@@ -180,6 +183,13 @@ export function PhysicalOrderCreatePage() {
 
   async function saveDraft() {
     if (!preview) return
+    const ok = await confirmAsk({
+      title: "Do you want to create order?",
+      description: "",
+      confirmLabel: "Yes",
+      cancelLabel: "Cancel",
+    })
+    if (!ok) return
     setBusy(true)
     try {
       const order = await postJson<PhysicalOrderDetail>("/admin/physical-orders", {
@@ -217,9 +227,7 @@ export function PhysicalOrderCreatePage() {
           <AdminPrimaryButton type="button" disabled={busy} onClick={() => void saveDraft()}>
             {busy ? "Saving…" : "Create Order"}
           </AdminPrimaryButton>
-          <AdminBackLink to="/dashboard/assets" onClick={() => persistPreviewSelection(preview)}>
-            Asset Master
-          </AdminBackLink>
+          <AdminBackLink to={listReturnTo("/dashboard/assets")} onClick={() => persistPreviewSelection(preview)} />
         </div>
       }
     >
@@ -264,7 +272,6 @@ export function PhysicalOrderCreatePage() {
           <div className={cn("flex flex-nowrap items-center gap-2 border-b border-border/60 py-3", orderPanelPad)}>
             <p className="shrink-0 text-sm font-medium text-foreground">
               Asset List
-              <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">({assets.length})</span>
             </p>
             <div className="ml-auto flex min-w-0 flex-nowrap items-center justify-end gap-2">
               <div className="relative min-w-0 w-56 flex-1 sm:w-64 sm:flex-none lg:w-80">
@@ -370,6 +377,7 @@ export function PhysicalOrderCreatePage() {
 
         <OrderAuditLog rows={[]} fillHeight />
       </div>
+      {confirmDialog}
     </AdminPage>
   )
 }

@@ -30,17 +30,15 @@ import {
   type SortDir,
 } from "@/components/layout/sortable-column-header"
 import { Button } from "@/components/ui/button"
-import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
-import { ApiError, getJson, postJson } from "@/lib/api"
+import { getJson } from "@/lib/api"
 import { disposalListRootKey } from "@/lib/query-client"
 import {
   DISPOSAL_STATUS_TABS,
   disposalStatusLabel,
   disposalStatusPillTone,
   disposalTabEmptyMessage,
-  type DisposalOrderListItem,
   type DisposalOrderListResponse,
 } from "@/lib/disposal-types"
 import { formatAppDate } from "@/lib/dates"
@@ -82,10 +80,8 @@ type ListFilterCostCenter = {
 
 export function DisposalOrdersListPage() {
   const navigate = useNavigate()
-  const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
   const [tab, setTab] = useUrlTab(DISPOSAL_TAB_KEYS, DEFAULT_TAB)
   const [page, setPage] = useUrlPage()
-  const [busyId, setBusyId] = React.useState<number | null>(null)
   const [searchInput, setSearchInput] = React.useState("")
   const [search, setSearch] = React.useState("")
   const [columnFiltersOpen, setColumnFiltersOpen] = React.useState(false)
@@ -171,10 +167,6 @@ export function DisposalOrdersListPage() {
     }
   }, [disposalsQuery.error])
 
-  const load = React.useCallback(async () => {
-    await disposalsQuery.refetch()
-  }, [disposalsQuery])
-
   React.useEffect(() => {
     const t = window.setTimeout(() => {
       setSearch((prev) => {
@@ -220,57 +212,15 @@ export function DisposalOrdersListPage() {
     setPage(1)
   }
 
-  async function discardRow(row: DisposalOrderListItem) {
-    if (row.can_archive) {
-      const ok = await confirmAsk({
-        title: "Archive Disposal Order?",
-        description: `Archive ${row.order_number} and reactivate its assets? The order stays for audit history.`,
-        confirmLabel: "Archive",
-      })
-      if (!ok) return
-      setBusyId(row.id)
-      try {
-        await postJson(`/admin/disposal-orders/${row.id}/archive`, {})
-        toast.success("Disposal order archived. Assets reactivated.")
-        await load()
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Could not archive disposal order")
-      } finally {
-        setBusyId(null)
-      }
-      return
-    }
-    if (row.can_unarchive) {
-      const ok = await confirmAsk({
-        title: "Unarchive disposal order?",
-        description: `Restore ${row.order_number} so you can edit and resubmit it?`,
-        confirmLabel: "Unarchive",
-      })
-      if (!ok) return
-      setBusyId(row.id)
-      try {
-        await postJson(`/admin/disposal-orders/${row.id}/unarchive`, {})
-        toast.success("Disposal order unarchived.")
-        await load()
-      } catch (e) {
-        toast.error(e instanceof ApiError ? e.message : "Could not unarchive disposal order")
-      } finally {
-        setBusyId(null)
-      }
-    }
-  }
-
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const pageSize = data?.page_size ?? 25
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   const counts = data?.tab_counts ?? {}
-  const showDiscard = true
-  const colSpan = 7 + (showDiscard ? 1 : 0)
+  const colSpan = 7
 
   return (
     <AdminPage fullWidth dense viewportFill className="w-full gap-[var(--app-grid-gap)]">
-      {confirmDialog}
       <ListPageHeader
         className="shrink-0"
         title="Asset Disposal Order"
@@ -291,9 +241,9 @@ export function DisposalOrdersListPage() {
             return (
               <WorkspaceTabsTrigger key={t.key} value={t.key}>
                 {t.label}
-                <span className="ml-1.5 inline-block min-w-[3.25rem] text-left tabular-nums text-muted-foreground">
-                  {typeof count === "number" ? `(${count})` : "\u00a0"}
-                </span>
+                {typeof count === "number" ? (
+                  <span className="ml-1.5 tabular-nums text-muted-foreground">({count})</span>
+                ) : null}
               </WorkspaceTabsTrigger>
             )
           })}
@@ -429,9 +379,6 @@ export function DisposalOrdersListPage() {
                     sortDir={sortDir}
                     onSort={toggleColumnSort}
                   />
-                  {showDiscard ? (
-                    <AdminTableHeadCell className="text-right">Actions</AdminTableHeadCell>
-                  ) : null}
                 </AdminTableHeaderRow>
                 {columnFiltersOpen ? (
                   <AdminTableHeaderRow>
@@ -540,7 +487,6 @@ export function DisposalOrdersListPage() {
                         ))}
                       </select>
                     </AdminTableHeadCell>
-                    {showDiscard ? <AdminTableHeadCell className="px-2 py-1.5">{null}</AdminTableHeadCell> : null}
                   </AdminTableHeaderRow>
                 ) : null}
               </TableHeader>
@@ -576,26 +522,6 @@ export function DisposalOrdersListPage() {
                           {disposalStatusLabel(row.status, row.pending_role_name)}
                         </AdminPillBadge>
                       </AdminTableCell>
-                      {showDiscard ? (
-                        <AdminTableCell className="text-right">
-                          {row.can_archive || row.can_unarchive ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8"
-                              disabled={busyId === row.id}
-                              title={row.can_archive ? "Archive" : "Unarchive"}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                void discardRow(row)
-                              }}
-                            >
-                              {row.can_archive ? "Archive" : "Unarchive"}
-                            </Button>
-                          ) : null}
-                        </AdminTableCell>
-                      ) : null}
                     </AdminTableBodyRow>
                   ))
                 )}
