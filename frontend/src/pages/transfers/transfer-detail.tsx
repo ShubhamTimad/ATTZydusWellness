@@ -104,7 +104,7 @@ export function TransferOrderDetailPage() {
   const panel = order?.approval_panel
   const stepKind = (panel?.current_step_kind || "approve").toLowerCase()
   // Prefer the viewer's task; for receive, fall back to the pending receive task when
-  // this viewer is the destination custodian (can_cc2_assign) after a CF reject return.
+  // this viewer is the assigned receiver (can_cc2_assign) after a CF reject return.
   const myTaskId =
     panel?.my_pending_task_id ??
     (order?.can_cc2_assign && stepKind === "receive" ? panel?.pending_task_id ?? null : null)
@@ -942,8 +942,13 @@ export function TransferOrderDetailPage() {
                     )
                     return (
                     <AdminTableBodyRow key={item.id} interactive={false}>
-                      <AdminTableCell className="min-h-0 min-w-0 truncate px-4 py-2 text-sm text-foreground">
-                        {item.asset_name || "—"}
+                      <AdminTableCell className="min-h-0 min-w-0 px-4 py-2 text-sm text-foreground">
+                        <div className="truncate font-medium" title={item.asset_name || undefined}>
+                          {item.asset_name || "—"}
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground" title={item.asset_code || undefined}>
+                          {item.asset_code || "—"}
+                        </div>
                       </AdminTableCell>
                       <AdminTableCell className="min-w-0 truncate px-4 py-2">
                         {formatCostCenterWithCode(
@@ -1097,8 +1102,8 @@ export function TransferOrderDetailPage() {
           pickerMode === "submit"
             ? "Submit"
             : engineReceive
-              ? "Receive & Assign Next"
-              : "Receive & Assign CF"
+              ? "Receive & Assign"
+              : "Receive & Assign"
         }
         busy={busy}
         onConfirm={async (userId) => {

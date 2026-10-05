@@ -13,6 +13,7 @@ from modules.asset_masters.model import (
     FunctionalLocationMaster,
     ProfitCenterMaster,
 )
+from modules.assets.model import AssetMaster
 
 _FL_KEYS = ("to_functional_location", "functional_location", "from_functional_location")
 _AL_KEYS = ("to_actual_location", "actual_location", "from_actual_location")
@@ -215,10 +216,27 @@ def rewrite_audit_master_codes(
                 rewritten[cc_key] = cc_name(row.get(cc_key))
         return rewritten
 
+    def asset_name(code: Any) -> str | None:
+        if not isinstance(code, str) or not code.strip():
+            return None
+        key = ("asset_name", code.strip())
+        if key not in store:
+            # ponytail: matches by code only; older events did not store the asset id.
+            store[key] = db.scalar(
+                select(AssetMaster.asset_name).where(AssetMaster.asset_code == code.strip()).limit(1)
+            )
+        return store[key]
+
+    def rewrite_item(row: dict[str, Any]) -> dict[str, Any]:
+        rewritten = rewrite_row(row)
+        if not rewritten.get("asset_name"):
+            rewritten["asset_name"] = asset_name(row.get("asset_code"))
+        return rewritten
+
     out = rewrite_row(out)
     items = out.get("item_locations")
     if isinstance(items, list):
         out["item_locations"] = [
-            rewrite_row(row) if isinstance(row, dict) else row for row in items
+            rewrite_item(row) if isinstance(row, dict) else row for row in items
         ]
     return out

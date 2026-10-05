@@ -1,3 +1,5 @@
+import { queryClient } from "@/lib/query-client"
+
 const LS_PERMISSIONS = "user_permissions"
 const LS_IS_SUPERUSER = "me_is_superuser"
 const LS_USER_ID = "me_user_id"
@@ -11,6 +13,10 @@ export type MePermissionsPayload = {
 /** Persist RBAC snapshot from ``GET /me`` (call after login when token is set). */
 export function persistAuthFromMe(me: MePermissionsPayload): void {
   try {
+    // Lists (Pending Action especially) are per-user; never show another login's cache.
+    if (typeof me.id === "number" && localStorage.getItem(LS_USER_ID) !== String(me.id)) {
+      queryClient.clear()
+    }
     localStorage.setItem(LS_IS_SUPERUSER, me.is_superuser === true ? "1" : "0")
     if (typeof me.id === "number" && Number.isFinite(me.id)) {
       localStorage.setItem(LS_USER_ID, String(me.id))
@@ -26,6 +32,7 @@ export function persistAuthFromMe(me: MePermissionsPayload): void {
 }
 
 export function clearAuthProfile(): void {
+  queryClient.clear()
   try {
     localStorage.removeItem(LS_PERMISSIONS)
     localStorage.removeItem(LS_IS_SUPERUSER)

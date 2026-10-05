@@ -1,5 +1,4 @@
 import * as React from "react"
-import { Search, Trash2 } from "lucide-react"
 import { useLocation, useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
@@ -14,7 +13,6 @@ import {
   AdminPrimaryButton,
   AdminTableCell,
   AdminTableEmptyRow,
-  AdminTableLoadingRow,
   AdminTableHeadCell,
   AdminTableHeaderRow,
   adminSelectClass,
@@ -23,16 +21,12 @@ import {
 import { AdminTableBodyRow } from "@/components/layout/list-page-ui"
 import { releaseAssetMasterSelectionUnlessReturn } from "@/lib/asset-master-selection"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Switch } from "@/components/ui/switch"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
 import { invalidateDisposalLists } from "@/lib/query-client"
 import { formatAppDateTime as formatWhen } from "@/lib/dates"
-import type { AssetListItem, AssetListResponse } from "@/lib/assets-types"
 import type { ActualLocationMaster, CostCenterMaster } from "@/lib/masters-types"
 import {
   buildDisposalProgress,
@@ -47,10 +41,8 @@ import { listReturnTo } from "@/lib/use-url-tab"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
 import {
   actualLocationLabel,
-  costCenterLabel,
   formatCostCenterWithCode,
   functionalLocationLabel,
-  plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
 import { cn } from "@/lib/utils"
@@ -60,56 +52,6 @@ import { CapexProcessFlow } from "@/pages/capex/capex-process-flow"
 import { DisposalAuditLog } from "@/pages/disposals/disposal-audit-log"
 
 type PickerMode = "submit" | "receive" | null
-
-/** Backend rule: only active assets with approval approved/not_required can be disposed. */
-function isApprovedForDisposal(asset: { approval_status?: string | null }): boolean {
-  const approval = (asset.approval_status ?? "").trim().toLowerCase()
-  return approval === "approved" || approval === "not_required"
-}
-
-/**
- * Assets already on this disposal stay pending_disposal until save restores removals.
- * Keep them selectable so rework can remove and re-add without waiting for save.
- */
-function isSelectableOnThisOrder(
-  asset: {
-    id: number
-    approval_status?: string | null
-    lifecycle_status?: string | null
-  },
-  reservedAssetIds: Set<number>,
-): boolean {
-  if (!isApprovedForDisposal(asset)) return false
-  const lifecycle = (asset.lifecycle_status ?? "").trim().toLowerCase()
-  if (reservedAssetIds.has(asset.id)) {
-    return !lifecycle || lifecycle === "active" || lifecycle === "pending_disposal"
-  }
-  return !lifecycle || lifecycle === "active"
-}
-
-function FormField({
-  id,
-  labelText,
-  required,
-  children,
-  className,
-}: {
-  id?: string
-  labelText: string
-  required?: boolean
-  children: React.ReactNode
-  className?: string
-}) {
-  return (
-    <div className={cn("app-form-field", className)}>
-      <Label htmlFor={id} className="app-form-label">
-        {labelText}
-        {required ? <RequiredFieldMark /> : null}
-      </Label>
-      {children}
-    </div>
-  )
-}
 
 function SummaryField({
   label,
@@ -161,15 +103,9 @@ export function DisposalOrderDetailPage() {
   const [itemLoc2, setItemLoc2] = React.useState<Record<number, string>>({})
   const [plantActualLocations, setPlantActualLocations] = React.useState<ActualLocationMaster[]>([])
   const [editAssets, setEditAssets] = React.useState<DisposalOrderItem[]>([])
-  const [editPlantId, setEditPlantId] = React.useState<number | null>(null)
-  const [assetSearch, setAssetSearch] = React.useState("")
-  const [filterCostCenter, setFilterCostCenter] = React.useState("")
-  const [catalog, setCatalog] = React.useState<AssetListItem[]>([])
-  const [catalogLoading, setCatalogLoading] = React.useState(false)
-  const [assetPickerOpen, setAssetPickerOpen] = React.useState(false)
 
-  const lookupPlantId = order?.can_edit ? editPlantId : (order?.plant_id ?? null)
-  const masters = useAssetMasterLookups(lookupPlantId ?? null)
+  const lookupPlantId = order?.plant_id ?? null
+  const masters = useAssetMasterLookups(lookupPlantId)
   const [scrapyardCostCenters, setScrapyardCostCenters] = React.useState<CostCenterMaster[]>([])
   const scrapyardFunctionalLocations = React.useMemo(
     () =>
@@ -219,9 +155,6 @@ export function DisposalOrderDetailPage() {
     setItemLoc1(mergeLocations((i) => i.to_functional_location, res.to_functional_location))
     setItemLoc2(mergeLocations((i) => i.to_actual_location, res.to_actual_location))
     setEditAssets(itemsToEditAssets(res.items))
-    setEditPlantId(res.plant_id)
-    setFilterCostCenter("")
-    setAssetPickerOpen(false)
   }, [])
 
   const load = React.useCallback(async () => {
@@ -324,13 +257,6 @@ export function DisposalOrderDetailPage() {
     }
   }, [toCostCenterId, order?.can_edit])
 
-  const selectedIds = React.useMemo(() => new Set(editAssets.map((a) => a.asset_id)), [editAssets])
-
-  const reservedAssetIds = React.useMemo(
-    () => new Set((order?.items ?? []).map((i) => i.asset_id)),
-    [order?.items],
-  )
-
   const derivedFromCc = React.useMemo(() => {
     const codes = [
       ...new Set(
@@ -352,85 +278,6 @@ export function DisposalOrderDetailPage() {
       description: "Selected assets are from more than one cost center",
     }
   }, [editAssets, masters.costCenters])
-
-  React.useEffect(() => {
-    if (!order?.can_edit || !assetPickerOpen || editPlantId == null) {
-      if (!assetPickerOpen) setCatalog([])
-      return
-    }
-    let cancelled = false
-    setCatalogLoading(true)
-    const handle = window.setTimeout(() => {
-      const params = new URLSearchParams({
-        page: "1",
-        page_size: "100",
-        plant_id: String(editPlantId),
-        sort_by: "asset_code",
-        sort_dir: "asc",
-      })
-      const q = assetSearch.trim()
-      if (q) params.set("search", q)
-      void getJson<AssetListResponse>(`/admin/assets?${params}`)
-        .then((res) => {
-          if (!cancelled) {
-            setCatalog(res.items.filter((a) => isSelectableOnThisOrder(a, reservedAssetIds)))
-          }
-        })
-        .catch(() => {
-          if (!cancelled) setCatalog([])
-        })
-        .finally(() => {
-          if (!cancelled) setCatalogLoading(false)
-        })
-    }, 250)
-    return () => {
-      cancelled = true
-      window.clearTimeout(handle)
-    }
-  }, [order?.can_edit, assetPickerOpen, editPlantId, assetSearch, reservedAssetIds])
-
-  const filteredCatalog = React.useMemo(() => {
-    const cc = filterCostCenter.trim()
-    if (!cc) return catalog
-    return catalog.filter((a) => (a.cost_center ?? "").trim() === cc)
-  }, [catalog, filterCostCenter])
-
-  function toggleCatalogAsset(a: AssetListItem) {
-    if (selectedIds.has(a.id)) {
-      setEditAssets((prev) => prev.filter((x) => x.asset_id !== a.id))
-      return
-    }
-    if (!isSelectableOnThisOrder(a, reservedAssetIds)) {
-      toast.error("Only active, approved assets can be disposed.")
-      return
-    }
-    setEditAssets((prev) => [
-      ...prev,
-      {
-        id: -a.id,
-        asset_id: a.id,
-        asset_code: a.asset_code,
-        asset_name: a.asset_name ?? "",
-        from_cost_center_code: a.cost_center ?? null,
-        from_functional_location: a.functional_location ?? null,
-        from_actual_location: a.actual_location ?? null,
-        from_functional_location_name: a.functional_location_description ?? null,
-        from_actual_location_name: a.actual_location_description ?? null,
-      },
-    ])
-    setItemCustodians((prev) => ({
-      ...prev,
-      [a.id]: custodianOptions.length === 1 ? custodianOptions[0]!.id : null,
-    }))
-  }
-
-  function removeEditAsset(assetId: number) {
-    setEditAssets((prev) => prev.filter((a) => a.asset_id !== assetId))
-  }
-
-  function clearEditAssets() {
-    setEditAssets([])
-  }
 
   async function saveEdits(opts?: { quiet?: boolean }): Promise<boolean> {
     if (!order) return false
@@ -799,19 +646,21 @@ export function DisposalOrderDetailPage() {
           ) : null}
           {canDecide ? (
             <>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-9"
-                disabled={busy}
-                onClick={() => {
-                  setDecisionMode("reject")
-                  setDecisionOpen(true)
-                }}
-              >
-                Reject
-              </Button>
+              {!engineClose ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  disabled={busy}
+                  onClick={() => {
+                    setDecisionMode("reject")
+                    setDecisionOpen(true)
+                  }}
+                >
+                  Reject
+                </Button>
+              ) : null}
               <AdminPrimaryButton
                 type="button"
                 disabled={busy}
@@ -1017,20 +866,6 @@ export function DisposalOrderDetailPage() {
             <p className="shrink-0 text-sm font-medium text-foreground">
               Asset List
             </p>
-            {order.can_edit ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8"
-                  disabled={busy || editAssets.length === 0}
-                  onClick={clearEditAssets}
-                >
-                  Clear All
-                </Button>
-              </div>
-            ) : null}
           </div>
           <div className="overflow-x-auto pb-4">
             <Table className="w-max min-w-full">
@@ -1061,19 +896,12 @@ export function DisposalOrderDetailPage() {
                       </AdminTableHeadCell>
                     </>
                   ) : null}
-                  {order.can_edit ? (
-                    <AdminTableHeadCell className="w-12 px-2">
-                      <span className="sr-only">Remove</span>
-                    </AdminTableHeadCell>
-                  ) : null}
                 </AdminTableHeaderRow>
               </TableHeader>
               <TableBody>
                   {editAssets.length === 0 ? (
-                    <AdminTableEmptyRow
-                      colSpan={5 + (showLocations ? 2 : 0) + (order.can_edit ? 1 : 0)}
-                    >
-                      {order.can_edit ? "No Assets selected." : "No Assets"}
+                    <AdminTableEmptyRow colSpan={5 + (showLocations ? 2 : 0)}>
+                      No Assets
                     </AdminTableEmptyRow>
                   ) : (
                     editAssets.map((item) => {
@@ -1084,8 +912,13 @@ export function DisposalOrderDetailPage() {
                       )
                       return (
                       <AdminTableBodyRow key={item.asset_id} interactive={false}>
-                        <AdminTableCell className="min-h-0 min-w-0 truncate px-4 py-2 text-sm !text-black">
-                          {item.asset_name || "—"}
+                        <AdminTableCell className="min-h-0 min-w-0 px-4 py-2 text-sm !text-black">
+                          <div className="truncate font-medium" title={item.asset_code || undefined}>
+                            {item.asset_code || "—"}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground" title={item.asset_name || undefined}>
+                            {item.asset_name || "—"}
+                          </div>
                         </AdminTableCell>
                         <AdminTableCell className="min-w-0 truncate px-4 py-2 !text-black">
                           {formatCostCenterWithCode(
@@ -1207,21 +1040,6 @@ export function DisposalOrderDetailPage() {
                             </>
                           )
                         ) : null}
-                        {order.can_edit ? (
-                          <AdminTableCell className="min-h-0 px-2 py-2">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                              disabled={busy}
-                              aria-label={`Remove ${item.asset_code}`}
-                              onClick={() => removeEditAsset(item.asset_id)}
-                            >
-                              <Trash2 className="size-3.5" aria-hidden />
-                            </Button>
-                          </AdminTableCell>
-                        ) : null}
                       </AdminTableBodyRow>
                       )
                     })
@@ -1229,123 +1047,6 @@ export function DisposalOrderDetailPage() {
                 </TableBody>
               </Table>
             </div>
-
-            {order.can_edit && assetPickerOpen ? (
-              <div className="space-y-3 border-t border-border/60 px-4 py-3">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <FormField id="edit_plant" labelText="Plant" required>
-                    <select
-                      id="edit_plant"
-                      className={adminSelectClass}
-                      value={editPlantId != null ? String(editPlantId) : ""}
-                      disabled={busy}
-                      onChange={(e) => {
-                        const next = e.target.value ? Number(e.target.value) : null
-                        setEditPlantId(next)
-                        setEditAssets([])
-                        setFilterCostCenter("")
-                        setAssetSearch("")
-                        setToCostCenterId("")
-                      }}
-                    >
-                      <option value="">Select plant</option>
-                      {masters.plants.map((p) => (
-                        <option key={p.id} value={String(p.id)}>
-                          {plantLabel(p)}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
-                  <FormField id="filter_cc" labelText="Filter by cost center">
-                    <select
-                      id="filter_cc"
-                      className={adminSelectClass}
-                      value={filterCostCenter}
-                      disabled={busy || editPlantId == null}
-                      onChange={(e) => setFilterCostCenter(e.target.value)}
-                    >
-                      <option value="">All</option>
-                      {masters.costCenters.map((cc) => (
-                        <option key={cc.id} value={cc.code}>
-                          {costCenterLabel(cc)}
-                          {cc.code ? ` (${cc.code})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
-                  <FormField id="asset_search_edit" labelText="Search assets">
-                    <div className="relative">
-                      <Search
-                        className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                        aria-hidden
-                      />
-                      <Input
-                        id="asset_search_edit"
-                        value={assetSearch}
-                        disabled={editPlantId == null}
-                        onChange={(e) => setAssetSearch(e.target.value)}
-                        placeholder={
-                          editPlantId == null ? "Select a plant first" : "Asset code or name…"
-                        }
-                        className="pl-9"
-                        autoComplete="off"
-                      />
-                    </div>
-                  </FormField>
-                </div>
-                <div className="-mx-4 max-h-64 overflow-auto border-t border-border/40">
-                  <Table>
-                    <TableHeader>
-                      <AdminTableHeaderRow>
-                        <AdminTableHeadCell className="h-9 w-10 px-3 py-2">
-                          <span className="sr-only">Select</span>
-                        </AdminTableHeadCell>
-                        <AdminTableHeadCell className="h-9 px-3 py-2">Asset</AdminTableHeadCell>
-                        <AdminTableHeadCell className="h-9 px-3 py-2">Cost center</AdminTableHeadCell>
-                      </AdminTableHeaderRow>
-                    </TableHeader>
-                    <TableBody>
-                      {editPlantId == null ? (
-                        <AdminTableEmptyRow colSpan={3}>
-                          Select a plant to list assets.
-                        </AdminTableEmptyRow>
-                      ) : catalogLoading ? (
-                        <AdminTableLoadingRow colSpan={3} label="Loading assets" />
-                      ) : filteredCatalog.length === 0 ? (
-                        <AdminTableEmptyRow colSpan={3}>
-                          No active, approved assets match this filter.
-                        </AdminTableEmptyRow>
-                      ) : (
-                        filteredCatalog.map((a) => {
-                          const checked = selectedIds.has(a.id)
-                          return (
-                            <AdminTableBodyRow key={a.id} interactive={false}>
-                              <AdminTableCell className="min-h-0 px-3 py-1.5">
-                                <Checkbox
-                                  checked={checked}
-                                  disabled={busy}
-                                  aria-label={`Select ${a.asset_code}`}
-                                  onCheckedChange={() => toggleCatalogAsset(a)}
-                                />
-                              </AdminTableCell>
-                              <AdminTableCell className="min-h-0 px-3 py-1.5">
-                                <div className="font-medium leading-tight">{a.asset_code}</div>
-                                <div className="text-xs leading-tight text-muted-foreground">
-                                  {a.asset_name || "—"}
-                                </div>
-                              </AdminTableCell>
-                              <AdminTableCell className="min-h-0 px-3 py-1.5">
-                                {a.cost_center ?? "—"}
-                              </AdminTableCell>
-                            </AdminTableBodyRow>
-                          )
-                        })
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            ) : null}
         </AdminPanel>
 
         <DisposalAuditLog events={order.audit} fillHeight />

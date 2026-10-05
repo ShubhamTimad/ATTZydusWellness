@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
+import { AssetImage, validateAssetImageFile } from "@/components/assets/asset-image"
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
@@ -18,7 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ApiError, getJson, postJson } from "@/lib/api"
+import { ApiError, getJson, postJson, putFormData } from "@/lib/api"
 import { phoneFieldSchema } from "@/lib/phone"
 import { canListOrgUnitsForAssignments, hasPermission } from "@/lib/permissions"
 import { MultiCheckList } from "@/components/admin/multi-check-list"
@@ -121,6 +122,7 @@ export function UserCreatePage() {
   const [departments, setDepartments] = React.useState<OrgUnitPublic[]>([])
   const [costCenters, setCostCenters] = React.useState<CostCenterOption[]>([])
   const [error, setError] = React.useState<string | null>(null)
+  const [photoFile, setPhotoFile] = React.useState<File | null>(null)
 
   const canLoadPlantList = canListOrgUnitsForAssignments()
 
@@ -242,6 +244,15 @@ export function UserCreatePage() {
           .filter((n) => Number.isFinite(n) && n > 0),
         is_active: values.is_active,
       })
+      if (photoFile) {
+        const body = new FormData()
+        body.append("file", photoFile)
+        try {
+          await putFormData(`/admin/users/${created.id}/photo`, body)
+        } catch {
+          toast.error("User created, but the photo could not be uploaded.")
+        }
+      }
       toast.success("User created", { id: "create-user" })
       navigate(`../${created.id}`, { replace: true })
     } catch (e) {
@@ -334,6 +345,23 @@ export function UserCreatePage() {
                 <option value="true">Active</option>
                 <option value="false">Inactive</option>
               </select>
+            </FormField>
+            <FormField labelText="Photo">
+              <AssetImage
+                label="Photo"
+                file={photoFile}
+                editable
+                busy={form.formState.isSubmitting}
+                onFileChange={(file) => {
+                  const message = validateAssetImageFile(file, "Photo")
+                  if (message) {
+                    toast.error(message)
+                    return
+                  }
+                  setPhotoFile(file)
+                }}
+                onRemove={() => setPhotoFile(null)}
+              />
             </FormField>
           </div>
         </AdminPanel>

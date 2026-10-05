@@ -328,6 +328,7 @@ def test_save_receive_locations_keeps_partial_rows_and_logs_pending() -> None:
     assert logged["action"] == "receive_locations_saved"
     assert logged["new_value"]["item_locations"][1] == {
         "asset_code": "A-2",
+        "asset_name": "Pump",
         "to_functional_location": "FL-B",
         "to_actual_location": None,
     }

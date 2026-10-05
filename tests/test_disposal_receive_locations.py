@@ -14,6 +14,7 @@ from modules.disposals.service import (
     _apply_receive_assets,
     _changed_item_locations,
     _item_location_snapshot,
+    _revert_disposal_assets_after_receive,
 )
 from modules.errors import ConflictError
 
@@ -24,6 +25,7 @@ def _asset(asset_id: int = 1):
         asset_code=f"A-{asset_id}",
         asset_name="Pump",
         lifecycle_status="pending_disposal",
+        approval_status="approved",
         location=SimpleNamespace(
             asset_id=asset_id, plant_id=3, functional_location="OLD-FL", actual_location="OLD-AL"
         ),
@@ -83,6 +85,20 @@ def test_receive_sends_each_asset_to_its_own_scrapyard_location() -> None:
     )
     # Mixed destinations have no single order-level pair to show on the detail page.
     assert shared == (None, None)
+    # Receive is the last stage before CF close — assets are disposed now, not at close.
+    assert a1.lifecycle_status == a2.lifecycle_status == "disposed"
+
+
+def test_cf_reject_after_receive_undoes_disposed() -> None:
+    a1 = _asset(1)
+    a1.lifecycle_status = "disposed"
+    order = _order(a1)
+    order.items[0].from_cost_center_code = "CC-100"
+    order.items[0].from_functional_location = "OLD-FL"
+    order.items[0].from_actual_location = "OLD-AL"
+    _revert_disposal_assets_after_receive(order)
+    assert a1.lifecycle_status == "pending_disposal"
+    assert a1.financial.cost_center == "CC-100"
 
 
 def test_receive_falls_back_to_locations_parked_earlier() -> None:
@@ -169,8 +185,10 @@ def test_save_receive_locations_keeps_half_filled_rows() -> None:
     assert logged["action"] == "receive_locations_saved"
     assert logged["new_value"]["item_locations"][1] == {
         "asset_code": "A-2",
+        "asset_name": "Pump",
         "to_functional_location": "FL-B",
         "to_actual_location": None,
     }
     # Assets only move on receive, so a partial save must leave them where they are.
     assert a1.location.functional_location == "OLD-FL"
+    assert a1.lifecycle_status == "pending_disposal"

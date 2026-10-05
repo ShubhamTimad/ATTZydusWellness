@@ -19,7 +19,8 @@ import { UserCostCentersDisplay } from "@/components/users/user-cost-centers"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ApiError, deleteJson, getJson, postJson } from "@/lib/api"
+import { AssetImage } from "@/components/assets/asset-image"
+import { ApiError, deleteJson, getBlob, getJson, postJson } from "@/lib/api"
 import { formatAppDateTime as formatDateTime } from "@/lib/dates"
 import { hasPermission, isSuperuser } from "@/lib/permissions"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
@@ -35,6 +36,7 @@ type UserPublic = {
   is_locked?: boolean
   locked_at?: string | null
   mfa_setup_completed?: boolean
+  has_photo?: boolean
   role: { id: number; name: string } | null
   roles?: { id: number; name: string }[]
   org_units?: { id: number; name: string; type: string; code?: string | null }[]
@@ -89,6 +91,25 @@ export function UserViewPage() {
   const [resendingWelcome, setResendingWelcome] = React.useState(false)
   const [unlocking, setUnlocking] = React.useState(false)
   const [mfaEnabled, setMfaEnabled] = React.useState<boolean>(false)
+  const [photoUrl, setPhotoUrl] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    setPhotoUrl(null)
+    if (!user?.id || !user.has_photo) return
+    let cancelled = false
+    let objectUrl: string | null = null
+    void getBlob(`/admin/users/${user.id}/photo`)
+      .then((blob) => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setPhotoUrl(objectUrl)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [user?.id, user?.has_photo])
 
   const canUpdate = hasPermission("users.update")
   const canUnlock = hasPermission("users.unlock")
@@ -339,6 +360,9 @@ export function UserViewPage() {
                     value={<OrgPills items={user.roles} fallback={user.role} />}
                   />
                   <AdminDetailField label="Username" value={user.username} />
+                  {user.has_photo ? (
+                    <AdminDetailField label="Photo" value={<AssetImage label="Photo" imageUrl={photoUrl} />} />
+                  ) : null}
                 </AdminDetailGrid>
               </div>
               <div className="grid gap-3 border-t border-border/60 bg-muted/15 px-5 py-3 text-xs text-muted-foreground sm:grid-cols-2">

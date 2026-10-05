@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Integer, String, false, func, true
+from sqlalchemy import JSON, Boolean, DateTime, Integer, LargeBinary, String, false, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import Base
@@ -48,6 +48,8 @@ class User(Base):
         onupdate=func.now(),
     )
     asset_list_columns: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    photo_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
+    photo_content_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     roles = relationship(
         "Role",

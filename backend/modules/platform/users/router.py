@@ -1,13 +1,14 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
-from core.permissions import require_permission, require_superuser
+from core.permissions import require_any_permission, require_permission, require_superuser
 from core.password_policy import PasswordPolicyError
 from db.session import get_db
+from modules.assets.service import MAX_ASSET_IMAGE_BYTES, InvalidAssetImageError
 from modules.errors import NotFoundError, RbacSafetyError
 from modules.platform.users.model import User
 from modules.platform.users.schema import (
@@ -169,6 +170,36 @@ def update_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RbacSafetyError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.get("/{user_id}/photo")
+def get_user_photo(
+    user_id: int,
+    svc: Annotated[UserService, Depends(get_user_service)],
+    _: Annotated[object, Depends(require_permission("users.view"))],
+) -> Response:
+    try:
+        content, content_type = svc.get_photo(user_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return Response(content=content, media_type=content_type, headers={"Cache-Control": "private, no-store"})
+
+
+@router.put("/{user_id}/photo", status_code=status.HTTP_204_NO_CONTENT)
+async def upload_user_photo(
+    user_id: int,
+    svc: Annotated[UserService, Depends(get_user_service)],
+    _: Annotated[object, Depends(require_any_permission("users.create", "users.update"))],
+    file: UploadFile = File(...),
+) -> None:
+    try:
+        svc.set_photo(user_id, await file.read(MAX_ASSET_IMAGE_BYTES + 1))
+    except InvalidAssetImageError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    finally:
+        await file.close()
 
 
 @router.post("/{user_id}/unlock")

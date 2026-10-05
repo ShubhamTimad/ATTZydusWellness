@@ -33,7 +33,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { getJson } from "@/lib/api"
-import { transferListRootKey } from "@/lib/query-client"
+import { isListLoading, LIVE_LIST_QUERY_OPTIONS, transferListRootKey } from "@/lib/query-client"
 import {
   TRANSFER_STATUS_TABS,
   transferStatusLabel,
@@ -43,7 +43,7 @@ import {
 } from "@/lib/transfer-types"
 import { formatCostCenterWithCode } from "@/lib/use-asset-masters"
 import { formatAppDate } from "@/lib/dates"
-import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
+import { useSessionState, useUrlPage, useUrlTab } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -85,13 +85,17 @@ export function TransferOrdersListPage() {
   const navigate = useNavigate()
   const [tab, setTab] = useUrlTab(TRANSFER_TAB_KEYS, DEFAULT_TAB)
   const [page, setPage] = useUrlPage()
-  const [searchInput, setSearchInput] = React.useState("")
-  const [search, setSearch] = React.useState("")
+  const [searchInput, setSearchInput] = useSessionState("transfers:searchInput", "")
+  const [search, setSearch] = useSessionState("transfers:search", "")
   const [columnFiltersOpen, setColumnFiltersOpen] = React.useState(false)
-  const [columnFilterInputs, setColumnFilterInputs] =
-    React.useState<TransferColumnFilters>(DEFAULT_COLUMN_FILTERS)
-  const [columnFilters, setColumnFilters] =
-    React.useState<TransferColumnFilters>(DEFAULT_COLUMN_FILTERS)
+  const [columnFilterInputs, setColumnFilterInputs] = useSessionState<TransferColumnFilters>(
+    "transfers:columnFilterInputs",
+    DEFAULT_COLUMN_FILTERS,
+  )
+  const [columnFilters, setColumnFilters] = useSessionState<TransferColumnFilters>(
+    "transfers:columnFilters",
+    DEFAULT_COLUMN_FILTERS,
+  )
   const [filterPlants, setFilterPlants] = React.useState<ListFilterPlant[]>([])
   const [filterFromCostCenters, setFilterFromCostCenters] = React.useState<
     ListFilterCostCenter[]
@@ -100,8 +104,8 @@ export function TransferOrdersListPage() {
     [],
   )
   const [filterStatuses, setFilterStatuses] = React.useState<string[]>([])
-  const [sortBy, setSortBy] = React.useState("created_at")
-  const [sortDir, setSortDir] = React.useState<SortDir>("desc")
+  const [sortBy, setSortBy] = useSessionState("transfers:sortBy", "created_at")
+  const [sortDir, setSortDir] = useSessionState<SortDir>("transfers:sortDir", "desc")
 
   const activeColumnFilterCount = Object.values(columnFilters).filter((value) => value.trim()).length
 
@@ -169,11 +173,10 @@ export function TransferOrdersListPage() {
       q.set("sort_dir", sortDir)
       return getJson<TransferOrderListResponse>(`/admin/transfer-orders?${q}`)
     },
-    staleTime: Number.POSITIVE_INFINITY,
-    refetchOnMount: (query) => query.state.isInvalidated,
+    ...LIVE_LIST_QUERY_OPTIONS,
   })
   const data = transfersQuery.data ?? null
-  const loading = transfersQuery.isPending && !transfersQuery.data
+  const loading = isListLoading(transfersQuery)
 
   React.useEffect(() => {
     if (transfersQuery.error) {

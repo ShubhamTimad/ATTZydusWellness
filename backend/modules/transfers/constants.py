@@ -98,6 +98,12 @@ STATUS_LABELS: dict[str, str] = {
     STATUS_CANCELLED: "Cancelled",
 }
 
+# Legacy codes shown and filtered as their current equivalent.
+LEGACY_STATUS_ALIASES: dict[str, str] = {
+    STATUS_ASSIGNED_TO_CF: STATUS_PENDING_APPROVAL,
+    STATUS_IN_REWORK: STATUS_REJECTED,
+}
+
 
 def status_codes_matching_search(query: str) -> list[str]:
     from core.label_search import codes_matching_label_search

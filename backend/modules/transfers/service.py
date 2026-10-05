@@ -49,6 +49,7 @@ from modules.transfers.constants import (
     CREATOR_ACTION_STATUSES,
     EDITABLE_STATUSES,
     ENTITY_TYPE,
+    LEGACY_STATUS_ALIASES,
     PENDING_APPROVAL_STATUSES,
     REJECTABLE_STATUSES,
     RESUMABLE_STATUSES,
@@ -172,6 +173,23 @@ def _item_dest_custodian_ids(order: AssetTransferOrder) -> set[int]:
     return ids
 
 
+def assigned_receiver_id(db: Session, order: AssetTransferOrder) -> int | None:
+    """CC user picked at final approval to receive; a post-receive reject returns the order to them."""
+    new_value = db.scalar(
+        select(AssetTransferOrderAudit.new_value)
+        .where(
+            AssetTransferOrderAudit.order_id == int(order.id),
+            AssetTransferOrderAudit.action == "approved",
+        )
+        .order_by(AssetTransferOrderAudit.id.desc())
+        .limit(1)
+    )
+    if isinstance(new_value, dict) and isinstance(new_value.get("assigned_to"), int):
+        return int(new_value["assigned_to"])
+    # ponytail: pre-engine orders never logged the receiver; fall back to the destination custodian.
+    return int(order.to_asset_custodian_id) if order.to_asset_custodian_id is not None else None
+
+
 def _is_destination_actor(order: AssetTransferOrder, viewer_user_id: int | None) -> bool:
     if viewer_user_id is None:
         return False
@@ -236,10 +254,7 @@ def _list_action_label(
             "close": "Close",
         }.get(kind, "Approve")
     is_assignee = order.assigned_to is not None and int(order.assigned_to) == uid
-    is_custodian = uid in _item_dest_custodian_ids(order)
-    if (status == STATUS_APPROVED_BY_CF or bounced_to_receiver) and (
-        is_assignee or is_custodian
-    ):
+    if (status == STATUS_APPROVED_BY_CF or bounced_to_receiver) and is_assignee:
         return "Receive"
     if status == STATUS_RECEIVED_BY_CC2 and is_assignee:
         return "Confirm"
@@ -425,6 +440,11 @@ def _audit_payload_for_api(
                 if name:
                     out[name_key] = name
             out.pop(key, None)
+    if "to_cost_center_id" in out:
+        cc_id = out.pop("to_cost_center_id")
+        if "to_cost_center" not in out:
+            cc = db.get(CostCenterMaster, cc_id) if isinstance(cc_id, int) else None
+            out["to_cost_center"] = cc.code if cc else None
     return rewrite_audit_master_codes(db, out, plant_id=plant_id, cache=cache)
 
 
@@ -1542,14 +1562,8 @@ class TransferOrderService:
             raise ConflictError("Destination asset custodian is missing on this transfer.")
         actor = self._db.get(User, actor_user_id)
         is_super = actor is not None and actor.is_superuser
-        if (
-            not is_super
-            and int(actor_user_id) not in _item_dest_custodian_ids(order)
-            and (order.assigned_to is None or int(order.assigned_to) != int(actor_user_id))
-        ):
-            raise ConflictError(
-                "Only the selected destination asset custodian can receive this transfer."
-            )
+        if not is_super and (order.assigned_to is None or int(order.assigned_to) != int(actor_user_id)):
+            raise ConflictError("Only the assigned Cost Center user can receive this transfer.")
 
     def save_receive_locations(
         self, order_id: int, data: SaveReceiveLocationsRequest, *, actor_user_id: int
@@ -1572,6 +1586,7 @@ class TransferOrderService:
             saved.append(
                 {
                     "asset_code": item.asset.asset_code if item.asset else str(item.asset_id),
+                    "asset_name": item.asset.asset_name if item.asset else None,
                     "to_functional_location": fl,
                     "to_actual_location": al,
                 }
@@ -1761,16 +1776,16 @@ class TransferOrderService:
             )
             .distinct()
         )
-        statuses = [
-            str(s)
+        present = {
+            LEGACY_STATUS_ALIASES.get(str(s), str(s))
             for s in self._db.scalars(
                 select(AssetTransferOrder.status)
                 .where(AssetTransferOrder.id.in_(scoped_ids))
                 .distinct()
-                .order_by(AssetTransferOrder.status)
             ).all()
             if s
-        ]
+        }
+        statuses = [s for s in STATUS_LABELS if s in present and s not in LEGACY_STATUS_ALIASES]
         return TransferListFilterOptionsResponse(
             plants=plants,
             from_cost_centers=_cc_options(from_ids),
@@ -1917,7 +1932,8 @@ class TransferOrderService:
             clauses.append(AssetTransferOrder.to_cost_center_id == int(to_cost_center_id))
         status_q = (status or "").strip().lower()
         if status_q:
-            clauses.append(AssetTransferOrder.status == status_q)
+            codes = [status_q, *(old for old, new in LEGACY_STATUS_ALIASES.items() if new == status_q)]
+            clauses.append(AssetTransferOrder.status.in_(codes))
         if asset_count is not None:
             item_count = (
                 select(func.count(AssetTransferOrderItem.id))
@@ -2017,14 +2033,6 @@ class TransferOrderService:
     def _needs_action_clauses(self, viewer_user_id: int) -> list:
         uid = int(viewer_user_id)
         pending_req_ids = self._pending_approval_request_ids(uid)
-        # Rejected bounce-back to destination — same order, receive again.
-        bounced_to_receiver = and_(
-            AssetTransferOrder.status == STATUS_REJECTED,
-            AssetTransferOrder.rejection_reason.is_not(None),
-            AssetTransferOrder.rejection_reason != "",
-            AssetTransferOrder.to_asset_custodian_id.is_not(None),
-            AssetTransferOrder.assigned_to == AssetTransferOrder.to_asset_custodian_id,
-        )
         return [
             or_(
                 and_(
@@ -2051,13 +2059,6 @@ class TransferOrderService:
                             STATUS_CONFIRMED_BY_CF,
                             STATUS_REJECTED,
                         )
-                    ),
-                ),
-                and_(
-                    AssetTransferOrder.to_asset_custodian_id == uid,
-                    or_(
-                        AssetTransferOrder.status == STATUS_APPROVED_BY_CF,
-                        bounced_to_receiver,
                     ),
                 ),
             ),
@@ -2318,12 +2319,11 @@ class TransferOrderService:
         if returned_to_receiver and order.status == STATUS_APPROVED_BY_CF:
             order.status = STATUS_REJECTED
             self._db.commit()
-        # Bounce must sit with destination assignee — not the creator.
-        if returned_to_receiver and order.to_asset_custodian_id is not None:
-            custodian_id = int(order.to_asset_custodian_id)
-            if order.assigned_to is None or int(order.assigned_to) != custodian_id:
-                order.assigned_to = custodian_id
-                self._db.commit()
+        # Bounce must sit with the assigned receiver — not the creator or custodian.
+        receiver_id = assigned_receiver_id(self._db, order) if returned_to_receiver else None
+        if receiver_id is not None and (order.assigned_to is None or int(order.assigned_to) != receiver_id):
+            order.assigned_to = receiver_id
+            self._db.commit()
         if returned_to_receiver and _restore_destination_locations_from_audit(self._db, order):
             self._db.commit()
         may_edit_rework = is_creator or is_super or (
@@ -2452,14 +2452,7 @@ class TransferOrderService:
                 panel=panel,
                 legacy_ok=(
                     (order.status == STATUS_APPROVED_BY_CF or returned_to_receiver)
-                    and (
-                        is_super
-                        or is_assignee
-                        or (
-                            viewer_user_id is not None
-                            and int(viewer_user_id) in _item_dest_custodian_ids(order)
-                        )
-                    )
+                    and (is_super or is_assignee)
                 ),
                 step_kind="receive",
             ),
@@ -2576,6 +2569,7 @@ def _changed_item_locations(
         rows.append(
             {
                 "asset_code": (item.asset.asset_code if item.asset else str(item.asset_id)),
+                "asset_name": item.asset.asset_name if item.asset else None,
                 "to_functional_location": item.to_functional_location,
                 "to_actual_location": item.to_actual_location,
                 "to_asset_custodian_id": (
@@ -2854,7 +2848,7 @@ def reject_transfer_approval(
     """Apply reject on the transfer order.
 
     Returns ``\"receiver\"`` when post-receive reject sends the same order back to the
-    destination custodian (not draft/rework). Otherwise ``\"creator\"``.
+    assigned receiver (not draft/rework). Otherwise ``\"creator\"``.
     """
     order = db.scalar(
         select(AssetTransferOrder)
@@ -2878,9 +2872,7 @@ def reject_transfer_approval(
         order.status = STATUS_REJECTED
         order.closed_at = None
         # Keep destination CC + locations so the receiver sees the same values to edit.
-        receiver_id = (
-            int(order.to_asset_custodian_id) if order.to_asset_custodian_id is not None else None
-        )
+        receiver_id = assigned_receiver_id(db, order)
         if receiver_id is not None:
             order.assigned_to = receiver_id
             order.assigned_by = approver_user_id

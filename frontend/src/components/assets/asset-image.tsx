@@ -7,9 +7,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 export const MAX_ASSET_IMAGE_BYTES = 5 * 1024 * 1024
 
-export function validateAssetImageFile(file: File): string | null {
+export function validateAssetImageFile(file: File, label = "Asset image"): string | null {
   if (!ACCEPTED_IMAGE_TYPES.has(file.type)) return "Select a PNG, JPEG, or WebP image."
-  if (file.size > MAX_ASSET_IMAGE_BYTES) return "Asset image must be 5 MB or smaller."
+  if (file.size > MAX_ASSET_IMAGE_BYTES) return `${label} must be 5 MB or smaller.`
   return null
 }
 
@@ -18,6 +18,7 @@ export function AssetImage({
   file,
   editable = false,
   busy = false,
+  label = "Asset",
   onFileChange,
   onRemove,
 }: {
@@ -25,6 +26,7 @@ export function AssetImage({
   file?: File | null
   editable?: boolean
   busy?: boolean
+  label?: string
   onFileChange?: (file: File) => void
   onRemove?: () => void
 }) {
@@ -51,11 +53,11 @@ export function AssetImage({
           type="button"
           className="flex h-20 w-28 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/70 bg-muted/20 transition hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           disabled={!src}
-          aria-label={src ? "Open asset image" : "No Asset Image"}
+          aria-label={src ? `Open ${label.toLowerCase()} image` : `No ${label} Image`}
           onClick={() => src && setPreviewOpen(true)}
         >
           {src ? (
-            <img src={src} alt="Asset" className="h-full w-full object-contain" />
+            <img src={src} alt={label} className="h-full w-full object-contain" />
           ) : (
             <div className="flex flex-col items-center gap-1 text-muted-foreground">
               <ImageIcon className="size-6" aria-hidden />
@@ -102,11 +104,11 @@ export function AssetImage({
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Asset image</DialogTitle>
+            <DialogTitle>{label} image</DialogTitle>
           </DialogHeader>
           {src ? (
             <div className="flex max-h-[80vh] items-center justify-center overflow-hidden rounded-md bg-muted/20">
-              <img src={src} alt="Asset full size" className="max-h-[80vh] max-w-full object-contain" />
+              <img src={src} alt={`${label} full size`} className="max-h-[80vh] max-w-full object-contain" />
             </div>
           ) : null}
         </DialogContent>

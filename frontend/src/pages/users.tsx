@@ -30,7 +30,7 @@ import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { UserCostCentersDisplay } from "@/components/users/user-cost-centers"
 import { getJson } from "@/lib/api"
 import { hasPermission } from "@/lib/permissions"
-import { useUrlPage } from "@/lib/use-url-tab"
+import { useSessionState, useUrlPage } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 type UserPublic = {
@@ -97,13 +97,17 @@ export function UsersPage() {
   const [departmentOptions, setDepartmentOptions] = React.useState<string[]>([])
   const [costCenterOptions, setCostCenterOptions] = React.useState<string[]>([])
   const [error, setError] = React.useState<string | null>(null)
-  const [searchInput, setSearchInput] = React.useState("")
-  const [search, setSearch] = React.useState("")
+  const [searchInput, setSearchInput] = useSessionState("users:searchInput", "")
+  const [search, setSearch] = useSessionState("users:search", "")
   const [columnFiltersOpen, setColumnFiltersOpen] = React.useState(false)
-  const [columnFilterInputs, setColumnFilterInputs] =
-    React.useState<UserColumnFilters>(DEFAULT_COLUMN_FILTERS)
-  const [columnFilters, setColumnFilters] =
-    React.useState<UserColumnFilters>(DEFAULT_COLUMN_FILTERS)
+  const [columnFilterInputs, setColumnFilterInputs] = useSessionState<UserColumnFilters>(
+    "users:columnFilterInputs",
+    DEFAULT_COLUMN_FILTERS,
+  )
+  const [columnFilters, setColumnFilters] = useSessionState<UserColumnFilters>(
+    "users:columnFilters",
+    DEFAULT_COLUMN_FILTERS,
+  )
 
   const canUpdate = hasPermission("users.update")
   const canCreate = hasPermission("users.create")

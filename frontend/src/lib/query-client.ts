@@ -14,6 +14,26 @@ export const queryClient = new QueryClient({
   },
 })
 
+/**
+ * Order lists whose Pending Action tab changes when *other* users act, which never
+ * invalidates this cache: always revalidate on mount/visibility, and poll while open
+ * (side-by-side windows never fire a visibility change).
+ */
+export const LIVE_LIST_QUERY_OPTIONS = {
+  staleTime: 0,
+  refetchOnWindowFocus: true,
+  refetchInterval: 30_000,
+} as const
+
+/** Treat stale cache as loading until the first refetch after mount, so an old empty list never shows "No Pending Action". */
+export function isListLoading(q: {
+  isPending: boolean
+  isFetching: boolean
+  isFetchedAfterMount: boolean
+}): boolean {
+  return q.isPending || (q.isFetching && !q.isFetchedAfterMount)
+}
+
 export const assetListRootKey = ["assets", "list"] as const
 export const orderListRootKey = ["orders", "list"] as const
 export const transferListRootKey = ["transfers", "list"] as const

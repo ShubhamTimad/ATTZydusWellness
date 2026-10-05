@@ -16,7 +16,7 @@ class CreateDisposalOrderRequest(BaseModel):
     asset_ids: list[int] = Field(min_length=1)
     remarks: str | None = None
     requires_engineering: bool = False
-    # Scrapyard destination (must be is_scrapyard); required when submit=true.
+    # Scrapyard destination (must be is_scrapyard); required for drafts and submits.
     to_cost_center_id: int | None = Field(default=None, ge=1)
     assignee_user_id: int | None = Field(default=None, ge=1)
     # Scrapyard cost-center custodian (receiver). Required on submit; mirrors the first item.

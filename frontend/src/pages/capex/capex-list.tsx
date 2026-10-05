@@ -41,7 +41,7 @@ import {
   type CapexFormListResponse,
 } from "@/lib/capex-types"
 import { hasPermission } from "@/lib/permissions"
-import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
+import { useSessionState, useUrlPage, useUrlTab } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -70,22 +70,26 @@ export function CapexListPage() {
   const [page, setPage] = useUrlPage()
   const [data, setData] = React.useState<CapexFormListResponse | null>(null)
   const [loading, setLoading] = React.useState(true)
-  const [searchInput, setSearchInput] = React.useState("")
-  const [search, setSearch] = React.useState("")
+  const [searchInput, setSearchInput] = useSessionState("capex:searchInput", "")
+  const [search, setSearch] = useSessionState("capex:search", "")
   const [columnFiltersOpen, setColumnFiltersOpen] = React.useState(false)
-  const [columnFilterInputs, setColumnFilterInputs] =
-    React.useState<CapexColumnFilters>(DEFAULT_COLUMN_FILTERS)
-  const [columnFilters, setColumnFilters] =
-    React.useState<CapexColumnFilters>(DEFAULT_COLUMN_FILTERS)
-  const [sortBy, setSortBy] = React.useState("form_number")
-  const [sortDir, setSortDir] = React.useState<SortDir>("desc")
+  const [columnFilterInputs, setColumnFilterInputs] = useSessionState<CapexColumnFilters>(
+    "capex:columnFilterInputs",
+    DEFAULT_COLUMN_FILTERS,
+  )
+  const [columnFilters, setColumnFilters] = useSessionState<CapexColumnFilters>(
+    "capex:columnFilters",
+    DEFAULT_COLUMN_FILTERS,
+  )
+  const [sortBy, setSortBy] = useSessionState("capex:sortBy", "form_number")
+  const [sortDir, setSortDir] = useSessionState<SortDir>("capex:sortDir", "desc")
   const canCreate = hasPermission("capitalization.create")
 
   const activeColumnFilterCount =
     Object.values(columnFilters).filter((value) => value.trim()).length
 
-  const load = React.useCallback(async () => {
-    setLoading(true)
+  const load = React.useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const q = new URLSearchParams({ tab, page: String(page), page_size: "25" })
       if (search.trim()) q.set("search", search.trim())
@@ -97,7 +101,7 @@ export function CapexListPage() {
       const res = await getJson<CapexFormListResponse>(`/admin/capitalization-forms?${q}`)
       setData(res)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to load forms")
+      if (!silent) toast.error(e instanceof Error ? e.message : "Failed to load forms")
     } finally {
       setLoading(false)
     }
@@ -105,11 +109,14 @@ export function CapexListPage() {
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
-      setSearch(searchInput)
-      setPage(1)
+      setSearch((prev) => {
+        if (prev === searchInput) return prev
+        setPage(1)
+        return searchInput
+      })
     }, 300)
     return () => window.clearTimeout(t)
-  }, [searchInput])
+  }, [searchInput, setPage])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
@@ -127,6 +134,19 @@ export function CapexListPage() {
 
   React.useEffect(() => {
     void load()
+  }, [load])
+
+  // Same reason as LIVE_LIST_QUERY_OPTIONS: other users' actions change Pending Action.
+  React.useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") void load(true)
+    }
+    const timer = window.setInterval(refresh, 30_000)
+    document.addEventListener("visibilitychange", refresh)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener("visibilitychange", refresh)
+    }
   }, [load])
 
   function clearFilters() {

@@ -236,7 +236,9 @@ def test_list_cost_center_custodians_maps_users():
 def test_submit_requires_configured_workflow():
     order = _order(STATUS_DRAFT, assets=[_asset()])
     svc = DisposalOrderService(MagicMock())
-    with patch("modules.disposals.service.get_workflow_for_action", return_value=None):
+    with patch("modules.disposals.service.get_workflow_for_action", return_value=None), patch.object(
+        svc, "_require_scrapyard_cost_center"
+    ):
         with pytest.raises(ConflictError, match="No active disposal approval workflow"):
             svc._submit(order, actor_user_id=1, assignee_user_id=2)
     assert order.status == STATUS_DRAFT
@@ -258,19 +260,36 @@ def test_create_marks_assets_pending_disposal():
     svc = DisposalOrderService(db)
     with patch.object(svc, "_load_assets", return_value=[asset]):
         with patch.object(svc, "_resolve_from_cost_center", return_value=None):
-            with patch.object(svc, "get_order", return_value="detail"):
-                result = svc.create_order(
-                    CreateDisposalOrderRequest(
-                        asset_ids=[1],
-                        remarks=None,
-                        requires_engineering=False,
-                        assignee_user_id=None,
-                        submit=False,
-                    ),
-                    actor_user_id=2,
-                )
+            with patch.object(
+                svc,
+                "_require_scrapyard_cost_center",
+                return_value=SimpleNamespace(id=5, code="CC-SCRAP"),
+            ):
+                with patch.object(svc, "get_order", return_value="detail"):
+                    result = svc.create_order(
+                        CreateDisposalOrderRequest(
+                            asset_ids=[1],
+                            remarks=None,
+                            requires_engineering=False,
+                            to_cost_center_id=5,
+                            assignee_user_id=None,
+                            submit=False,
+                        ),
+                        actor_user_id=2,
+                    )
     assert result == "detail"
     assert asset.lifecycle_status == LIFECYCLE_PENDING_DISPOSAL
+
+
+def test_create_draft_requires_scrapyard_cost_center():
+    svc = DisposalOrderService(MagicMock())
+    with patch.object(svc, "_load_assets", return_value=[_asset()]):
+        with patch.object(svc, "_resolve_from_cost_center", return_value=None):
+            with pytest.raises(ConflictError, match="Scrapyard Cost Center"):
+                svc.create_order(
+                    CreateDisposalOrderRequest(asset_ids=[1], submit=False),
+                    actor_user_id=2,
+                )
 
 
 def test_archive_draft_reactivates_assets():
@@ -321,45 +340,24 @@ def test_update_skips_audit_when_nothing_changed():
     db.commit.assert_called_once()
 
 
-def test_update_restores_removed_assets_and_marks_added_pending_disposal():
+def test_update_cannot_add_or_remove_assets_after_save():
     asset1 = _asset(1)
     asset1.lifecycle_status = LIFECYCLE_PENDING_DISPOSAL
-    asset2 = _asset(2)
     order = _order(STATUS_DRAFT, assets=[asset1], assigned_to=None)
     svc = DisposalOrderService(MagicMock())
     with patch.object(svc, "_load_order", return_value=order):
-        with patch.object(svc, "_load_assets", return_value=[asset2]):
-            with patch.object(svc, "_resolve_from_cost_center", return_value=None):
-                with patch.object(svc, "get_order", return_value="detail"):
+        with patch.object(svc, "get_order", return_value="detail"):
+            for ids in ([2], [1, 2], []):
+                with pytest.raises(ConflictError, match="cannot be added or removed"):
                     svc.update_order(
-                        1,
-                        UpdateDisposalOrderRequest(asset_ids=[2]),
-                        actor_user_id=2,
+                        1, UpdateDisposalOrderRequest(asset_ids=ids), actor_user_id=2
                     )
-    assert asset1.lifecycle_status == "active"
-    assert asset2.lifecycle_status == LIFECYCLE_PENDING_DISPOSAL
-
-
-def test_update_moves_order_plant_when_assets_change_plant():
-    asset1 = _asset(1)
-    asset1.lifecycle_status = LIFECYCLE_PENDING_DISPOSAL
-    asset2 = _asset(2)
-    asset2.location.plant_id = 9
-    order = _order(STATUS_DRAFT, assets=[asset1], assigned_to=None)
-    assert order.plant_id == 3
-    svc = DisposalOrderService(MagicMock())
-    with patch.object(svc, "_load_order", return_value=order):
-        with patch.object(svc, "_load_assets", return_value=[asset2]):
-            with patch.object(svc, "_resolve_from_cost_center", return_value=None):
-                with patch.object(svc, "get_order", return_value="detail"):
-                    svc.update_order(
-                        1,
-                        UpdateDisposalOrderRequest(asset_ids=[2]),
-                        actor_user_id=2,
-                    )
-    assert order.plant_id == 9
-    assert asset1.lifecycle_status == "active"
-    assert asset2.lifecycle_status == LIFECYCLE_PENDING_DISPOSAL
+            # The edit page re-sends the unchanged list on every save.
+            assert (
+                svc.update_order(1, UpdateDisposalOrderRequest(asset_ids=[1]), actor_user_id=2)
+                == "detail"
+            )
+    assert asset1.lifecycle_status == LIFECYCLE_PENDING_DISPOSAL
 
 
 def test_final_approval_hands_order_to_scrapyard_user():
@@ -553,8 +551,8 @@ def test_receive_relocates_assets_and_assigns_cf():
     assert asset.location.functional_location == "YARD-FL"
     assert asset.location.actual_location == "YARD-AL"
     assert asset.financial.cost_center == "CC-SCRAP"
-    # Assets stay usable until CF approves/closes the order.
-    assert asset.lifecycle_status == "active"
+    # Receive is the last confirmation before CF close, so assets are disposed here.
+    assert asset.lifecycle_status == "disposed"
 
 
 def test_receive_requires_cf_assignee():

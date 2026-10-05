@@ -132,6 +132,7 @@ class UserPublic(BaseModel):
     updated_at: datetime
 
     mfa_record: object | None = Field(default=None, exclude=True)
+    photo_content_type: str | None = Field(default=None, exclude=True)
     roles: list[RoleSummary] = Field(default_factory=list)
     org_units: list[OrgUnitSummary] = Field(default_factory=list)
     departments: list[OrgUnitSummary] = Field(default_factory=list)
@@ -141,6 +142,11 @@ class UserPublic(BaseModel):
     @property
     def is_locked(self) -> bool:
         return self.locked_at is not None
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def has_photo(self) -> bool:
+        return self.photo_content_type is not None
 
     @computed_field  # type: ignore[misc]
     @property

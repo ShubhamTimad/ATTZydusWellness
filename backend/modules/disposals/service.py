@@ -295,6 +295,7 @@ def _changed_item_locations(
         rows.append(
             {
                 "asset_code": (item.asset.asset_code if item.asset else str(item.asset_id)),
+                "asset_name": item.asset.asset_name if item.asset else None,
                 "to_functional_location": item.to_functional_location,
                 "to_actual_location": item.to_actual_location,
             }
@@ -351,6 +352,8 @@ def _apply_receive_assets(
         loc.functional_location = fl
         loc.actual_location = al
         _ensure_financial(asset).cost_center = cost_center_code
+        # Receive is the last stage before CF close; assets are disposed here, not at close.
+        mark_disposed(asset)
 
     shared = set(checked.values())
     return next(iter(shared)) if len(shared) == 1 else (None, None)
@@ -458,6 +461,7 @@ def _audit_payload_for_api(
         ("assigned_to", "assigned_to_name"),
         ("assignee_user_id", "assignee_name"),
         ("next_assignee_user_id", "next_assignee_name"),
+        ("receiver_user_id", "receiver_name"),
     ):
         if key in out:
             uid = out.get(key)
@@ -466,6 +470,11 @@ def _audit_payload_for_api(
                 if name:
                     out[name_key] = name
             out.pop(key, None)
+    if "to_cost_center_id" in out:
+        cc_id = out.pop("to_cost_center_id")
+        if "to_cost_center" not in out:
+            cc = db.get(CostCenterMaster, cc_id) if isinstance(cc_id, int) else None
+            out["to_cost_center"] = cc.code if cc else None
     return rewrite_audit_master_codes(db, out, plant_id=plant_id, cache=cache)
 
 
@@ -969,20 +978,16 @@ class DisposalOrderService:
         if plant_id is None:
             raise ConflictError("Selected assets must have a plant.")
         from_cc = self._resolve_from_cost_center(assets)
-        to_cc = None
-        if data.to_cost_center_id is not None:
-            to_cc = self._require_scrapyard_cost_center(
-                plant_id=int(plant_id), cost_center_id=int(data.to_cost_center_id)
-            )
-        if data.submit and to_cc is None:
-            raise ConflictError("Select a scrapyard cost center before submitting.")
-        if to_cc is None and (data.receiver_user_id is not None or data.item_custodians):
-            raise ConflictError("Select a scrapyard cost center before choosing a custodian.")
+        if data.to_cost_center_id is None:
+            raise ConflictError("Select a Scrapyard Cost Center.")
+        to_cc = self._require_scrapyard_cost_center(
+            plant_id=int(plant_id), cost_center_id=int(data.to_cost_center_id)
+        )
         order = AssetDisposalOrder(
             order_number=self._next_order_number(),
             plant_id=int(plant_id),
             from_cost_center_id=int(from_cc.id) if from_cc is not None else None,
-            to_cost_center_id=int(to_cc.id) if to_cc is not None else None,
+            to_cost_center_id=int(to_cc.id),
             requires_engineering=bool(data.requires_engineering),
             created_by=actor_user_id,
             status=STATUS_DRAFT,
@@ -1039,47 +1044,20 @@ class DisposalOrderService:
             order.requires_engineering = bool(patch["requires_engineering"])
         if "to_cost_center_id" in patch:
             if patch["to_cost_center_id"] is None:
-                order.to_cost_center_id = None
-            else:
-                to_cc = self._require_scrapyard_cost_center(
-                    plant_id=int(order.plant_id),
-                    cost_center_id=int(patch["to_cost_center_id"]),
-                )
-                order.to_cost_center_id = int(to_cc.id)
-        if patch.get("asset_ids") is not None:
-            previous_assets = self._order_assets(order)
-            assets = self._load_assets(patch["asset_ids"])
-            old_ids = {int(a.id) for a in previous_assets}
-            self._assert_assets_match_order_reservation(assets, reserved_asset_ids=old_ids)
-            plant_id = _asset_plant_id(assets[0])
-            if plant_id is None:
-                raise ConflictError("Selected assets must have a plant.")
-            # Rework/draft may move the order to another plant the actor can access.
-            order.plant_id = int(plant_id)
-            from_cc = self._resolve_from_cost_center(assets)
-            new_ids = {int(a.id) for a in assets}
-            removed_assets = [a for a in previous_assets if int(a.id) not in new_ids]
-            added_assets = [a for a in assets if int(a.id) not in old_ids]
-            self._restore_assets_active(removed_assets)
-            order.from_cost_center_id = int(from_cc.id) if from_cc is not None else None
-            # Plant may have changed — drop scrapyard if it no longer fits.
-            if order.to_cost_center_id is not None:
-                try:
-                    to_cc = self._require_scrapyard_cost_center(
-                        plant_id=int(order.plant_id),
-                        cost_center_id=int(order.to_cost_center_id),
-                    )
-                    order.to_cost_center_id = int(to_cc.id)
-                except ConflictError:
-                    order.to_cost_center_id = None
-            self._replace_items(order, assets)
-            self._mark_assets_pending_disposal(added_assets)
-        # Assets or the scrapyard may have just changed, so re-check custodians either way.
+                raise ConflictError("Select a Scrapyard Cost Center.")
+            to_cc = self._require_scrapyard_cost_center(
+                plant_id=int(order.plant_id),
+                cost_center_id=int(patch["to_cost_center_id"]),
+            )
+            order.to_cost_center_id = int(to_cc.id)
+        if patch.get("asset_ids") is not None and set(patch["asset_ids"]) != {
+            int(i.asset_id) for i in order.items
+        }:
+            raise ConflictError("Assets cannot be added or removed once the order is saved.")
         if (
             "item_custodians" in patch
             or "receiver_user_id" in patch
             or "to_cost_center_id" in patch
-            or patch.get("asset_ids") is not None
         ):
             self._resolve_item_custodians(
                 order,
@@ -1602,6 +1580,7 @@ class DisposalOrderService:
             saved.append(
                 {
                     "asset_code": item.asset.asset_code if item.asset else str(item.asset_id),
+                    "asset_name": item.asset.asset_name if item.asset else None,
                     "to_functional_location": fl,
                     "to_actual_location": al,
                 }
@@ -2704,11 +2683,12 @@ def finalize_disposal_approval(
 
 
 def _revert_disposal_assets_after_receive(order: AssetDisposalOrder) -> None:
-    """Restore cost center / locations from line-item snapshots taken at create."""
+    """Restore cost center / locations from line-item snapshots taken at create; undo disposed."""
     for item in order.items:
         asset = item.asset
         if asset is None:
             continue
+        mark_pending_disposal(asset)
         if item.from_cost_center_code:
             _ensure_financial(asset).cost_center = item.from_cost_center_code
         loc = _ensure_location(asset)

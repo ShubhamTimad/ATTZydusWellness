@@ -1,7 +1,55 @@
 import * as React from "react"
 import { useLocation, useSearchParams } from "react-router-dom"
 
+import { currentUserId } from "@/lib/permissions"
+
 const LIST_RETURN_PREFIX = "att:list-return:"
+const LIST_STATE_PREFIX = "att:list-state:"
+
+function listStateKey(key: string): string {
+  return `${LIST_STATE_PREFIX}${currentUserId() ?? "anon"}:${key}`
+}
+
+export function hasSessionState(key: string): boolean {
+  try {
+    return sessionStorage.getItem(listStateKey(key)) != null
+  } catch {
+    return false
+  }
+}
+
+/**
+ * `useState` mirrored to sessionStorage so list filters/search/sort survive
+ * opening a detail page and coming back. Stored objects are merged over
+ * `initial` so newly added filter keys still get their defaults.
+ */
+export function useSessionState<T>(
+  key: string,
+  initial: T,
+  restore = true,
+): [T, React.Dispatch<React.SetStateAction<T>>] {
+  const storageKey = listStateKey(key)
+  const [value, setValue] = React.useState<T>(() => {
+    if (!restore) return initial
+    try {
+      const raw = sessionStorage.getItem(storageKey)
+      if (raw == null) return initial
+      const stored = JSON.parse(raw) as T
+      const isObj = (v: unknown) => v != null && typeof v === "object" && !Array.isArray(v)
+      return isObj(initial) && isObj(stored) ? { ...initial, ...stored } : stored
+    } catch {
+      return initial
+    }
+  })
+  React.useEffect(() => {
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify(value))
+    } catch {
+      /* private mode */
+    }
+  }, [storageKey, value])
+  return [value, setValue]
+}
 
 function rememberListReturn(pathname: string, search: string) {
   try {

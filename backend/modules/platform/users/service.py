@@ -18,6 +18,7 @@ from modules.errors import NotFoundError, RbacSafetyError
 from modules.platform.auth.model import PasswordResetToken, UserSession
 from modules.platform.org_units.model import OrgUnit
 from modules.asset_masters.model import CostCenterMaster
+from modules.assets.service import validate_asset_image
 from modules.platform.rbac_audit.service import RbacAuditService
 from modules.rbac_safety import (
     assert_did_not_remove_last_role_based_admin,
@@ -190,6 +191,21 @@ class UserService:
             .where(PasswordResetToken.user_id == user_id, PasswordResetToken.used_at.is_(None))
             .values(used_at=now)
         )
+
+    def get_photo(self, user_id: int) -> tuple[bytes, str]:
+        user = self._db.get(User, user_id)
+        if user is None or not user.photo_data or not user.photo_content_type:
+            raise NotFoundError("User photo", user_id)
+        return bytes(user.photo_data), user.photo_content_type
+
+    def set_photo(self, user_id: int, data: bytes) -> None:
+        content_type = validate_asset_image(data, label="Profile photo")
+        user = self._db.get(User, user_id)
+        if user is None:
+            raise NotFoundError("User", user_id)
+        user.photo_data = data
+        user.photo_content_type = content_type
+        self._db.commit()
 
     def create_user(self, data: UserCreate, *, actor_user_id: int | None = None) -> User:
         phone = self._normalize_phone(data.phone)

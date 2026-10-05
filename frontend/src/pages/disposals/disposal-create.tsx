@@ -387,7 +387,7 @@ export function DisposalOrderCreatePage() {
       toast.error("Enter the disposal reason.")
       return
     }
-    if (submit && !toCostCenterId) {
+    if (!toCostCenterId) {
       toast.error("Select a Scrapyard Cost Center.")
       return
     }

@@ -2,12 +2,40 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from modules.assets.model import AssetMaster
+
+# entity_type → in-app page (approval mail must not use /dashboard/tasks).
+_ENTITY_ACTION_PATHS: dict[str, str] = {
+    "physical_order_creation": "/dashboard/orders/{id}",
+    "physical_order_closure": "/dashboard/orders/{id}",
+    "transfer_order": "/dashboard/transfer-orders/{id}",
+    "disposal_order": "/dashboard/disposal-orders/{id}",
+    "disposal_order_engineering": "/dashboard/disposal-orders/{id}",
+    "capitalization_request": "/dashboard/capitalization/{id}",
+    "capitalization_request_engineering": "/dashboard/capitalization/{id}",
+    "asset_creation": "/dashboard/assets/{id}",
+    "asset_import": "/dashboard/assets/{id}",
+    "user_creation": "/dashboard/users/{id}",
+}
+
+_ENTITY_LABELS: dict[str, str] = {
+    "physical_order_creation": "Order",
+    "physical_order_closure": "Order",
+    "transfer_order": "Transfer",
+    "disposal_order": "Disposal",
+    "disposal_order_engineering": "Disposal",
+    "capitalization_request": "Form",
+    "capitalization_request_engineering": "Form",
+    "asset_creation": "Asset",
+    "asset_import": "Asset",
+    "user_creation": "User",
+}
 
 # Canonical lifecycle values stored on ``asset_master.lifecycle_status``.
 LIFECYCLE_ACTIVE = "active"
@@ -154,7 +182,7 @@ def restore_from_pending_transfer(asset: AssetMaster) -> dict[str, Any]:
 
 
 def mark_disposed(asset: AssetMaster) -> dict[str, Any]:
-    """Terminal state set when a disposal order is closed by Central Finance."""
+    """Terminal state set when the scrapyard receives a disposal order (stage before CF close)."""
     before = {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status}
     asset.lifecycle_status = LIFECYCLE_DISPOSED
     asset.approval_status = "not_required"
@@ -289,6 +317,21 @@ def approval_task_title(entity_type: str, payload: dict[str, Any] | None) -> str
             return f"Approve asset transfer: {onum.strip()}"
         return "Approve asset transfer"
     return f"Approval: {entity_type.replace('_', ' ')}"
+
+
+def frontend_app_base() -> str:
+    return (
+        os.environ.get("FRONTEND_APP_URL") or os.environ.get("FRONTEND_ORIGIN") or "http://localhost:5173"
+    ).rstrip("/")
+
+
+def entity_label_for_type(entity_type: str) -> str:
+    return _ENTITY_LABELS.get(str(entity_type or ""), "Record")
+
+
+def approval_action_link(entity_type: str, entity_id: int) -> str:
+    path = _ENTITY_ACTION_PATHS.get(str(entity_type or ""), "/dashboard").format(id=int(entity_id))
+    return f"{frontend_app_base()}{path}"
 
 
 def entity_display_name(entity_type: str, payload: dict[str, Any] | None, entity_id: int) -> str:

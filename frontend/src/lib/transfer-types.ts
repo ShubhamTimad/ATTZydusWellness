@@ -138,18 +138,6 @@ export const TRANSFER_STATUS_TABS = [
   { key: "needs_action", label: "Pending Action" },
 ] as const
 
-/** Lifecycle status filter for the transfer list Status column (not inbox tabs). */
-export const TRANSFER_STATUS_FILTERS: { value: string; label: string }[] = [
-  { value: "draft", label: "Draft" },
-  { value: "pending_approval", label: "Pending Approval" },
-  { value: "approved_by_cf", label: "Pending Receive" },
-  { value: "received_by_cc2", label: "Received" },
-  { value: "confirmed_by_cf", label: "Confirmed by CF" },
-  { value: "closed", label: "Closed" },
-  { value: "rejected", label: "Rejected" },
-  { value: "cancelled", label: "Cancelled" },
-]
-
 export function transferTabEmptyMessage(tab: string): string {
   if (tab === "needs_action") return "No Pending Action Available"
   return "No Transfer Orders."
@@ -195,11 +183,11 @@ export function transferStatusPillTone(
     status === "pending_approval" ||
     status === "assigned_to_cf" ||
     status === "approved_by_cf" ||
-    status === "received_by_cc2"
+    status === "received_by_cc2" ||
+    status === "confirmed_by_cf"
   ) {
     return "warning"
   }
-  if (status === "confirmed_by_cf") return "primary"
   return "neutral"
 }
 

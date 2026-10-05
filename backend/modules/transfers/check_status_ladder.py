@@ -5,6 +5,7 @@ from __future__ import annotations
 from modules.transfers.constants import (
     ACTIVE_STATUSES,
     EDITABLE_STATUSES,
+    LEGACY_STATUS_ALIASES,
     REJECTABLE_STATUSES,
     RESUMABLE_STATUSES,
     STATUS_APPROVED_BY_CF,
@@ -13,6 +14,7 @@ from modules.transfers.constants import (
     STATUS_CONFIRMED_BY_CF,
     STATUS_DRAFT,
     STATUS_IN_REWORK,
+    STATUS_LABELS,
     STATUS_PENDING_APPROVAL,
     STATUS_RECEIVED_BY_CC2,
     STATUS_REJECTED,
@@ -66,6 +68,19 @@ def test_happy_path_statuses() -> None:
     # Plain draft → hard delete; editable with workflow history → archive (cancelled).
     assert STATUS_CANCELLED not in ACTIVE_STATUSES
     assert STATUS_CANCELLED not in EDITABLE_STATUSES
+    # Status filter: legacy codes fold into one current option each, in workflow order.
+    filter_options = [s for s in STATUS_LABELS if s not in LEGACY_STATUS_ALIASES]
+    assert filter_options == [
+        "draft",
+        "pending_approval",
+        "rejected",
+        "approved_by_cf",
+        "received_by_cc2",
+        "confirmed_by_cf",
+        "closed",
+        "cancelled",
+    ]
+    assert set(LEGACY_STATUS_ALIASES.values()) <= set(filter_options)
 
 
 def test_custodian_gate_message() -> None:

@@ -153,15 +153,17 @@ function transferAuditDetailLines(
           if (!row || typeof row !== "object") continue
           const rec = row as Record<string, unknown>
           const code = typeof rec.asset_code === "string" ? rec.asset_code : ""
+          const name = typeof rec.asset_name === "string" ? rec.asset_name.trim() : ""
+          const asset = name && code ? `${name} (${code})` : name || code
           const a1 = typeof rec.to_functional_location === "string" ? rec.to_functional_location : ""
           const a2 = typeof rec.to_actual_location === "string" ? rec.to_actual_location : ""
           const bits = [
             a1 && `Actual Location 1: ${a1}`,
             a2 && `Actual Location 2: ${a2}`,
           ].filter(Boolean)
-          if (code) lines.push(code)
+          if (asset) lines.push(`Asset: ${asset}`)
           if (bits.length) lines.push(...bits.map((bit) => `   ${bit}`))
-          else if (code) lines.push("   Locations cleared")
+          else if (asset) lines.push("   Locations cleared")
         }
       } else {
         if (loc1) lines.push(`Actual Location 1: ${loc1}`)

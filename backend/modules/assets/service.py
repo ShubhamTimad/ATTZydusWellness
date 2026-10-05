@@ -191,11 +191,11 @@ class InvalidAssetImageError(Exception):
 MAX_ASSET_IMAGE_BYTES = 5 * 1024 * 1024
 
 
-def validate_asset_image(data: bytes) -> str:
+def validate_asset_image(data: bytes, label: str = "Asset image") -> str:
     if not data:
         raise InvalidAssetImageError("Select an image to upload.")
     if len(data) > MAX_ASSET_IMAGE_BYTES:
-        raise InvalidAssetImageError("Asset image must be 5 MB or smaller.")
+        raise InvalidAssetImageError(f"{label} must be 5 MB or smaller.")
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
     if data.startswith(b"\xff\xd8\xff"):

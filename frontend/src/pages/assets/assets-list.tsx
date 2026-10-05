@@ -120,7 +120,7 @@ import {
   type ValidateTransferAssetsResponse,
 } from "@/lib/transfer-types"
 import { formatAppDate } from "@/lib/dates"
-import { useUrlPage, useUrlTab } from "@/lib/use-url-tab"
+import { hasSessionState, useSessionState, useUrlPage, useUrlTab } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 export type AssetListTab = "all" | "draft" | "pending" | "rejected" | "approved" | "fy"
@@ -600,21 +600,35 @@ export function AssetsListPage() {
     rfid_status: listTab !== "fy" ? validInitialRfid : "",
     approval_status: approvalTab?.approval_status ?? "",
   }
-  const [searchInput, setSearchInput] = React.useState("")
-  const [search, setSearch] = React.useState("")
+  const [searchInput, setSearchInput] = useSessionState("assets:searchInput", "")
+  const [search, setSearch] = useSessionState("assets:search", "")
   const [page, setPage] = useUrlPage()
-  const [filters, setFilters] = React.useState<AssetListFilters>(
+  // Saved filters carry tab-owned fields (approval_status, FY sort), so only restore
+  // them on the tab they were saved from; a `?rfid_status=` deep link always wins.
+  const [filtersTab, setFiltersTab] = useSessionState<string>("assets:filtersTab", listTab)
+  const restoreFilters = filtersTab === listTab && !validInitialRfid
+  const [filters, setFilters] = useSessionState<AssetListFilters>(
+    "assets:filters",
     listTab === "fy" ? DEFAULT_FY_FILTERS : initialAllFilters,
+    restoreFilters,
   )
-  const [draftFilters, setDraftFilters] = React.useState<AssetListFilters>(
+  const [draftFilters, setDraftFilters] = useSessionState<AssetListFilters>(
+    "assets:draftFilters",
     listTab === "fy" ? DEFAULT_FY_FILTERS : initialAllFilters,
+    restoreFilters,
   )
+  React.useEffect(() => setFiltersTab(listTab), [listTab, setFiltersTab])
   const [filtersOpen, setFiltersOpen] = React.useState(false)
   const [columnFiltersOpen, setColumnFiltersOpen] = React.useState(false)
-  const [columnFilterInputs, setColumnFilterInputs] =
-    React.useState<AssetColumnFilters>(DEFAULT_COLUMN_FILTERS)
-  const [columnFilters, setColumnFilters] =
-    React.useState<AssetColumnFilters>(DEFAULT_COLUMN_FILTERS)
+  const hadSavedColumnFilters = React.useRef(hasSessionState("assets:columnFilters")).current
+  const [columnFilterInputs, setColumnFilterInputs] = useSessionState<AssetColumnFilters>(
+    "assets:columnFilterInputs",
+    DEFAULT_COLUMN_FILTERS,
+  )
+  const [columnFilters, setColumnFilters] = useSessionState<AssetColumnFilters>(
+    "assets:columnFilters",
+    DEFAULT_COLUMN_FILTERS,
+  )
   const [costCenterOptions, setCostCenterOptions] = React.useState<
     { code: string; name: string | null }[]
   >([])
@@ -625,7 +639,7 @@ export function AssetsListPage() {
     { code: string; name: string | null }[]
   >([])
   // view_all + assigned CCs → pre-select one actionable CC once (user can clear to see all).
-  const defaultCcAppliedRef = React.useRef(false)
+  const defaultCcAppliedRef = React.useRef(hadSavedColumnFilters)
   const canViewAllAssets = hasPermission("asset.view_all")
   const [defaultCcReady, setDefaultCcReady] = React.useState(!canViewAllAssets)
 
@@ -922,11 +936,14 @@ export function AssetsListPage() {
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {
-      setSearch(searchInput)
-      setPage(1)
+      setSearch((prev) => {
+        if (prev === searchInput) return prev
+        setPage(1)
+        return searchInput
+      })
     }, 300)
     return () => window.clearTimeout(t)
-  }, [searchInput])
+  }, [searchInput, setPage])
 
   React.useEffect(() => {
     const t = window.setTimeout(() => {

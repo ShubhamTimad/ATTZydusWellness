@@ -22,7 +22,6 @@ from modules.transfers.constants import TRANSFER_ENTITY_TYPES
 from modules.rbac_association import user_role
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
-import os
 
 from modules.platform.emails.service import enqueue_trigger_events
 from modules.platform.mfa.policy_hooks import maybe_send_mfa_setup_for_user
@@ -471,7 +470,6 @@ class ApprovalEngineService:
         self._notify_approvers_for_task(task=task, req=req)
 
     def _notify_approvers_for_task(self, *, task: ApprovalTask, req: ApprovalRequest) -> None:
-        entity_name = self._entity_name_for_request(req)
         recipients: list[User] = []
         if task.assigned_user_id is not None:
             u = self._db.get(User, int(task.assigned_user_id))
@@ -482,15 +480,14 @@ class ApprovalEngineService:
 
             role_ids = step_role_ids(task.step) if task.step is not None else [int(task.assigned_role_id)]
             recipients = users_in_any_role(self._db, role_ids)
+        fields = self._approval_mail_fields(req, task_name=task.title or "Approval request")
         events = [
             (
                 "TASK_ASSIGNED",
                 {
                     "user_name": user.full_name,
                     "email": user.email,
-                    "task_name": task.title or "Approval task",
-                    "entity_name": entity_name,
-                    "task_link": self._task_link(int(task.id)),
+                    **fields,
                 },
             )
             for user in recipients
@@ -757,10 +754,7 @@ class ApprovalEngineService:
             self._notify_creator_and_peers(
                 creator_user_id=int(req.created_by) if req.created_by is not None else actor_user_id,
                 event_code="TASK_RESUBMITTED",
-                payload={
-                    "entity_name": self._entity_name_for_request(req),
-                    "task_link": self._task_link(int(new_task.id)),
-                },
+                payload=self._approval_mail_fields(req, task_name=new_task.title or "Approval request"),
             )
         except Exception:
             # Email notifications must not block resubmission.
@@ -770,16 +764,43 @@ class ApprovalEngineService:
         return reloaded, int(new_task.id)
 
     @staticmethod
-    def _task_link(task_id: int) -> str:
-        base = (os.environ.get("FRONTEND_APP_URL") or os.environ.get("FRONTEND_ORIGIN") or "http://localhost:5173").rstrip("/")
-        return f"{base}/dashboard/tasks/{int(task_id)}"
-
-    @staticmethod
     def _entity_name_for_request(req: ApprovalRequest) -> str:
         from modules.assets.lifecycle import entity_display_name
 
         payload = req.payload if isinstance(req.payload, dict) else {}
         return entity_display_name(str(req.entity_type), payload, int(req.entity_id))
+
+    def _approval_mail_fields(self, req: ApprovalRequest, *, task_name: str | None = None) -> dict[str, Any]:
+        from modules.assets.lifecycle import approval_action_link, entity_label_for_type
+
+        name = self._entity_name_for_request(req)
+        link = approval_action_link(str(req.entity_type), int(req.entity_id))
+        return {
+            "entity_name": name,
+            "entity_label": entity_label_for_type(str(req.entity_type)),
+            "task_name": task_name or name,
+            "action_link": link,
+            "task_link": link,
+            "rejection_reason": "",
+        }
+
+    def _notify_request_outcome(
+        self,
+        req: ApprovalRequest,
+        event_code: str,
+        *,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        if req.created_by is None:
+            return
+        try:
+            self._notify_creator_and_peers(
+                creator_user_id=int(req.created_by),
+                event_code=event_code,
+                payload={**self._approval_mail_fields(req), **(extra or {})},
+            )
+        except Exception:
+            pass
 
     def _notify_creator_and_peers(self, *, creator_user_id: int, event_code: str, payload: dict[str, Any]) -> None:
         """Email the creator and same-role peers. SMTP runs after this call so reject/resubmit stay fast."""
@@ -913,7 +934,7 @@ class ApprovalEngineService:
 
         if act == "reject":
             # Transfer: reject on approve (→ creator) or confirm (→ receiver redo receive).
-            # CapEx close stays non-rejectable. Disposal close reject returns to receiver.
+            # CapEx and disposal close steps are non-rejectable.
             transfer_step_kind = (
                 _step_kind(task.step) if str(req.entity_type) in TRANSFER_ENTITY_TYPES else None
             )
@@ -921,13 +942,13 @@ class ApprovalEngineService:
                 raise ApprovalError(
                     "Reject is only available on approval or confirm steps for transfers."
                 )
-            capex_step_kind = (
+            close_guarded_kind = (
                 _step_kind(task.step)
                 if str(req.entity_type)
-                in ("capitalization_request", "capitalization_request_engineering")
+                in ("capitalization_request", "capitalization_request_engineering", *DISPOSAL_ENTITY_TYPES)
                 else None
             )
-            if capex_step_kind == "close":
+            if close_guarded_kind == "close":
                 raise ApprovalError("Reject is not available on the Close step.")
             now = _now_utc()
             task.status = "rejected"
@@ -1016,6 +1037,16 @@ class ApprovalEngineService:
                 "physical_order_closure",
             ) or transfer_return_to == "creator" or disposal_return_to == "creator":
                 req.status = "rejected"
+                # Physical orders already send ORDER_REJECTED from reject_order_approval.
+                if str(req.entity_type) not in (
+                    "physical_order_creation",
+                    "physical_order_closure",
+                ):
+                    self._notify_request_outcome(
+                        req,
+                        "TASK_REJECTED",
+                        extra={"rejection_reason": comment or "Rejected"},
+                    )
                 self._db.commit()
                 return self.get_request(req.id)
 
@@ -1045,15 +1076,13 @@ class ApprovalEngineService:
                     return self.get_request(req.id)
                 receiver_id: int | None = None
                 if transfer_return_to == "receiver":
+                    from modules.transfers.service import assigned_receiver_id
+
                     order = self._db.get(AssetTransferOrder, int(req.entity_id))
-                    receiver_id = (
-                        int(order.to_asset_custodian_id)
-                        if order is not None and order.to_asset_custodian_id is not None
-                        else None
-                    )
+                    receiver_id = assigned_receiver_id(self._db, order) if order is not None else None
                     if receiver_id is None:
                         raise ApprovalError(
-                            "Destination custodian is missing; cannot return this transfer to the receiver."
+                            "Receiver is missing; cannot return this transfer for re-receive."
                         )
                 else:
                     order = self._db.get(AssetDisposalOrder, int(req.entity_id))
@@ -1146,9 +1175,8 @@ class ApprovalEngineService:
                         creator_user_id=int(req.created_by),
                         event_code="TASK_REWORK_REQUIRED",
                         payload={
-                            "entity_name": self._entity_name_for_request(req),
+                            **self._approval_mail_fields(req, task_name=rework_task.title or "Rework required"),
                             "rejection_reason": comment or "Rejected",
-                            "task_link": self._task_link(int(rework_task.id)),
                         },
                     )
                 except Exception:
@@ -1272,6 +1300,12 @@ class ApprovalEngineService:
                 step=step,
                 next_assigned_user_id=next_assigned_user_id,
             )
+            # Capex already sends CAPITALIZATION_APPROVED to creator + CC users.
+            if str(req.entity_type) not in (
+                "capitalization_request",
+                "capitalization_request_engineering",
+            ):
+                self._notify_request_outcome(req, "TASK_APPROVED")
             self._db.commit()
             return self.get_request(req.id)
 
