@@ -463,7 +463,7 @@ export function DisposalOrderDetailPage() {
     panel?.next_assignee_role_id ? `&role_id=${panel.next_assignee_role_id}` : ""
   }`
   const decisionConfirmLabel =
-    stepKind === "receive" ? "Receive & assign next" : stepKind === "close" ? "Close" : "Approve"
+    stepKind === "receive" ? "Receive" : stepKind === "close" ? "Close" : "Approve"
 
   const savedAssetIds = (order.items ?? []).map((i) => i.asset_id).slice().sort((a, b) => a - b)
   const editAssetIds = editAssets.map((a) => a.asset_id).slice().sort((a, b) => a - b)
@@ -680,7 +680,7 @@ export function DisposalOrderDetailPage() {
                   setDecisionOpen(true)
                 }}
               >
-                {engineReceive ? "Receive & assign next" : engineClose ? "Close" : "Approve"}
+                {engineReceive ? "Receive" : engineClose ? "Close" : "Approve"}
               </AdminPrimaryButton>
             </>
           ) : null}
@@ -874,6 +874,9 @@ export function DisposalOrderDetailPage() {
                   <AdminTableHeadCell className="min-w-[12rem] !font-bold !text-black">
                     Asset Name
                   </AdminTableHeadCell>
+                  <AdminTableHeadCell className="min-w-[8rem] !font-bold !text-black">
+                    Asset Code
+                  </AdminTableHeadCell>
                   <AdminTableHeadCell className="min-w-[11rem] !font-bold !text-black">
                     Source Cost Center
                   </AdminTableHeadCell>
@@ -900,7 +903,7 @@ export function DisposalOrderDetailPage() {
               </TableHeader>
               <TableBody>
                   {editAssets.length === 0 ? (
-                    <AdminTableEmptyRow colSpan={5 + (showLocations ? 2 : 0)}>
+                    <AdminTableEmptyRow colSpan={6 + (showLocations ? 2 : 0)}>
                       No Assets
                     </AdminTableEmptyRow>
                   ) : (
@@ -912,13 +915,11 @@ export function DisposalOrderDetailPage() {
                       )
                       return (
                       <AdminTableBodyRow key={item.asset_id} interactive={false}>
-                        <AdminTableCell className="min-h-0 min-w-0 px-4 py-2 text-sm !text-black">
-                          <div className="truncate font-medium" title={item.asset_code || undefined}>
-                            {item.asset_code || "—"}
-                          </div>
-                          <div className="truncate text-xs text-muted-foreground" title={item.asset_name || undefined}>
-                            {item.asset_name || "—"}
-                          </div>
+                        <AdminTableCell className="min-w-0 truncate px-4 py-2 !text-black">
+                          {item.asset_name || "—"}
+                        </AdminTableCell>
+                        <AdminTableCell className="min-w-0 truncate px-4 py-2 !text-black">
+                          {item.asset_code || "—"}
                         </AdminTableCell>
                         <AdminTableCell className="min-w-0 truncate px-4 py-2 !text-black">
                           {formatCostCenterWithCode(
@@ -1067,11 +1068,12 @@ export function DisposalOrderDetailPage() {
             ? (panel?.next_step_role_name ?? "Next Approver")
             : "Approver"
         }
+        title={pickerMode === "receive" ? "Receive Assets" : "Submit for Approval"}
         confirmLabel={
           pickerMode === "receive"
             ? engineReceive
-              ? "Receive & assign next"
-              : "Receive & assign CF"
+              ? "Receive"
+              : "Receive"
             : "Submit"
         }
         busy={busy}
@@ -1132,9 +1134,9 @@ export function DisposalOrderDetailPage() {
           decisionMode === "reject"
             ? "Reject"
             : stepKind === "close"
-              ? "Close disposal"
+              ? "Close Disposal"
               : stepKind === "receive"
-                ? "Receive assets"
+                ? "Receive Assets"
                 : "Approve"
         }
         confirmLabel={decisionMode === "reject" ? "Reject" : decisionConfirmLabel}

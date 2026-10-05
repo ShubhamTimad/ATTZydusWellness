@@ -21,6 +21,7 @@ import {
   assetClassLabel,
   assetConditionLabel,
   assetCustodianLabel,
+  categoryLabel,
   tagColorLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
@@ -104,6 +105,7 @@ export function AssetImportPage() {
         value: c.code,
         label: assetClassLabel(c),
       })),
+      category_code: masters.categories.map((c) => ({ value: c.code, label: categoryLabel(c) })),
       plant_code: masters.plants.map((p) => ({ value: p.code, label: p.code })),
       plant_name: masters.plants
         .filter((p) => Boolean(p.name?.trim()))
@@ -118,6 +120,7 @@ export function AssetImportPage() {
       masters.custodianUsers,
       masters.assetConditions,
       masters.assetClasses,
+      masters.categories,
       masters.plants,
       allCostCenters,
     ],
@@ -623,6 +626,10 @@ export function AssetImportPage() {
               <p className="shrink-0 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                 Cells with errors are highlighted in red. Edit or delete rows, then click{" "}
                 <strong>Re-validate</strong>. Submit is enabled only when every row is valid.
+              </p>
+            ) : preview.rows.length === 0 ? (
+              <p className="shrink-0 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                No asset data found in the uploaded file.
               </p>
             ) : (
               <p className="shrink-0 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground">

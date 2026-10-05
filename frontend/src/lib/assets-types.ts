@@ -216,6 +216,7 @@ export type AssetListResponse = {
   total_rfid_assets?: number | null
   rfid_tagged_total?: number | null
   rfid_not_tagged_total?: number | null
+  tab_counts?: Record<string, number>
 }
 
 export type FinancialYearOption = {

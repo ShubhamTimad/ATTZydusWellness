@@ -667,6 +667,7 @@ export function CapexDetailPage() {
         onOpenChange={setSubmitAssignOpen}
         assigneesUrl={`/admin/capitalization-forms/assignees?requires_engineering=${(form?.requires_engineering ?? detail?.requires_engineering) ? "true" : "false"}${costCenterParam}`}
         roleLabel="Approver"
+        title="Submit for Approval"
         confirmLabel="Submit"
         busy={saving}
         onConfirm={submitWithAssignee}

@@ -32,12 +32,14 @@ def _backfill_mobile_bulk_verify_grants(db: Session) -> int:
     return added
 
 
-def _backfill_dashboard_section_grants(db: Session) -> int:
+def _backfill_dashboard_section_grants(db: Session, new_codes: set[str]) -> int:
     """
-    Grant dashboard section perms to roles that already have related domain access,
-    so existing roles keep seeing the dashboard after the catalog gains dashboard.*.
-    IT is auto-granted when a role already has ``users.view``.
+    When the catalog gains a dashboard tile permission, grant it to roles that already had
+    the related access, so existing roles keep seeing the same dashboard.
+    Only codes created in this sync run are granted; later admin removals must stick.
     """
+    if not new_codes:
+        return 0
     pairs = [
         ("order.view", ("dashboard.view", "dashboard.orders.view")),
         (
@@ -47,6 +49,12 @@ def _backfill_dashboard_section_grants(db: Session) -> int:
         ("users.view", ("dashboard.view", "dashboard.it.view")),
         ("transfer.view", ("dashboard.view", "dashboard.transfers.view")),
         ("disposal.view", ("dashboard.view", "dashboard.disposals.view")),
+        # Summary strip tiles were split out of their big card.
+        ("dashboard.orders.view", ("dashboard.summary_orders.view",)),
+        ("dashboard.transfers.view", ("dashboard.summary_transfers.view",)),
+        ("dashboard.disposals.view", ("dashboard.summary_disposals.view",)),
+        ("dashboard.assets.view", ("dashboard.summary_assets.view",)),
+        ("dashboard.it.view", ("dashboard.summary_users.view",)),
     ]
     by_code = {p.code: p for p in db.scalars(select(Permission)).all() if p.code}
     added = 0
@@ -57,7 +65,7 @@ def _backfill_dashboard_section_grants(db: Session) -> int:
             if trigger not in have and trigger.replace(".", ":", 1) not in have:
                 continue
             for code in grant_codes:
-                if code in have:
+                if code in have or code not in new_codes:
                     continue
                 perm = by_code.get(code)
                 if perm is None:
@@ -80,6 +88,7 @@ def sync_all_modules_to_db(db: Session) -> dict[str, int]:
     created_features = 0
     updated_codes = 0
     created_permissions = 0
+    new_codes: set[str] = set()
 
     for mod in MODULE_CONFIG:
         module_key = mod["key"].strip().lower()
@@ -125,6 +134,7 @@ def sync_all_modules_to_db(db: Session) -> dict[str, int]:
                         )
                     )
                     created_permissions += 1
+                    new_codes.add(code)
                 else:
                     if perm.code != code:
                         conflict = db.scalar(
@@ -137,7 +147,7 @@ def sync_all_modules_to_db(db: Session) -> dict[str, int]:
                         perm.description = "Bulk-verify order assets from a single RFID scan on mobile"
 
     db.flush()
-    dashboard_grants_added = _backfill_dashboard_section_grants(db)
+    dashboard_grants_added = _backfill_dashboard_section_grants(db, new_codes)
     bulk_verify_grants_added = _backfill_mobile_bulk_verify_grants(db)
     db.commit()
     invalidate_permission_cache(None)

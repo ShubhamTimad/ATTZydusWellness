@@ -87,6 +87,7 @@ IMPORT_COLUMN_ALIASES: dict[str, list[str]] = {
         "condition code",
         "asset_condition",
         "asset_condition_code",
+        "physical condition of assets",
     ],
     "sub_location": ["sub location", "sub_location", "sublocation"],
     "cost_center": [
@@ -478,7 +479,7 @@ ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
     "physical_order_status": "Order Status",
     "current_apc_igaap": "Current APC-IGAAP",
     "rfid_code": "RFID Code",
-    "asset_condition_code": "Physical Condition Of Assets",
+    "asset_condition_code": "Asset Physical Condition",
     "life_span": "Useful life",
     "gross_block": "APC-IGAAP",
 }

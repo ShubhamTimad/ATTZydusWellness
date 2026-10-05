@@ -1,8 +1,10 @@
 import * as React from "react"
 
+import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPrimaryButton, adminSelectClass } from "@/components/layout/admin-ui"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { ApiError, getJson } from "@/lib/api"
 import type { CapexAssigneeListResponse, CapexAssigneeOption } from "@/lib/capex-types"
 import { toast } from "sonner"
@@ -17,6 +19,8 @@ type Props = {
   /** Hide this user from the list (e.g. current assignee on reassign). */
   excludeUserId?: number | null
   roleLabel: string
+  /** Action headline (e.g. "Submit for Approval"); defaults to confirmLabel. */
+  title?: string
   confirmLabel?: string
   busy?: boolean
   onConfirm: (userId: number) => void | Promise<void>
@@ -29,6 +33,7 @@ export function CapexAssigneePickerDialog({
   assigneesUrl,
   excludeUserId,
   roleLabel,
+  title,
   confirmLabel = "Continue",
   busy = false,
   onConfirm,
@@ -96,28 +101,33 @@ export function CapexAssigneePickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="gap-0 p-0 sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Select {titleRole}</DialogTitle>
+          <DialogTitle>{title ?? confirmLabel}</DialogTitle>
         </DialogHeader>
         <div className="dialog-body">
-          <select
-            id="capex_assignee_picker"
-            className={adminSelectClass}
-            value={selectedId}
-            disabled={loading || busy}
-            onChange={(e) => setSelectedId(e.target.value)}
-            autoFocus
-            aria-label={`Select ${titleRole}`}
-          >
-            <option value="">{loading ? "Loading…" : "Select User"}</option>
-            {items.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.full_name}
-              </option>
-            ))}
-          </select>
-          {!loading && items.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No users in this role.</p>
-          ) : null}
+          <div className="app-form-field">
+            <Label htmlFor="capex_assignee_picker" className="app-form-label">
+              Select {titleRole}
+              <RequiredFieldMark />
+            </Label>
+            <select
+              id="capex_assignee_picker"
+              className={adminSelectClass}
+              value={selectedId}
+              disabled={loading || busy}
+              onChange={(e) => setSelectedId(e.target.value)}
+              autoFocus
+            >
+              <option value="">{loading ? "Loading…" : "Select User"}</option>
+              {items.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.full_name}
+                </option>
+              ))}
+            </select>
+            {!loading && items.length === 0 ? (
+              <p className="mt-1 text-xs text-muted-foreground">No users in this role.</p>
+            ) : null}
+          </div>
         </div>
         <div className="dialog-footer-actions">
           <Button

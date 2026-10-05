@@ -24,7 +24,7 @@ const FILTER_LABELS: Record<string, string> = {
   fy_start_year: "Financial year",
   plant_id: "Plant",
   category_id: "Category",
-  fy_status: "Verification",
+  fy_status: "Verification Status",
   status: "Order status",
 }
 
@@ -154,7 +154,7 @@ function resolveFilterOptions(
             { value: "all", label: "All" },
             ...masters.costCenters.map((cc) => ({
               value: cc.code,
-              label: masterOptionLabel(cc.code, cc.name),
+              label: cc.name?.trim() ? `${cc.code} — ${cc.name.trim()}` : cc.code,
             })),
           ]
         : [],

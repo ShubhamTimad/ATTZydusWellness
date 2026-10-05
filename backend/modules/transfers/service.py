@@ -1814,20 +1814,18 @@ class TransferOrderService:
     ) -> TransferOrderListResponse:
         self._normalize_legacy_rework_orders()
         tab_key = (tab or "needs_action").strip().lower()
-        where = self._list_orders_where(tab_key, viewer_user_id=viewer_user_id)
-        where.extend(
-            self._list_filter_clauses(
-                search=search,
-                order_number=order_number,
-                plant_id=plant_id,
-                from_cost_center_id=from_cost_center_id,
-                to_cost_center_id=to_cost_center_id,
-                status=status,
-                asset_count=asset_count,
-                assigned_to=assigned_to,
-                created_on=created_on,
-            )
+        filters = self._list_filter_clauses(
+            search=search,
+            order_number=order_number,
+            plant_id=plant_id,
+            from_cost_center_id=from_cost_center_id,
+            to_cost_center_id=to_cost_center_id,
+            status=status,
+            asset_count=asset_count,
+            assigned_to=assigned_to,
+            created_on=created_on,
         )
+        where = [*self._list_orders_where(tab_key, viewer_user_id=viewer_user_id), *filters]
         total = int(
             self._db.scalar(
                 select(func.count()).select_from(AssetTransferOrder).where(*where)
@@ -1907,7 +1905,7 @@ class TransferOrderService:
             total=total,
             page=page,
             page_size=page_size,
-            tab_counts=self._list_tab_counts(viewer_user_id=viewer_user_id),
+            tab_counts=self._list_tab_counts(viewer_user_id=viewer_user_id, filters=filters),
         )
 
     def _list_filter_clauses(
@@ -2088,10 +2086,12 @@ class TransferOrderService:
             return [AssetTransferOrder.status.in_(ACTIVE_STATUSES)]
         return [AssetTransferOrder.status.in_(statuses)]
 
-    def _list_tab_counts(self, *, viewer_user_id: int | None) -> dict[str, int]:
+    def _list_tab_counts(
+        self, *, viewer_user_id: int | None, filters: list | None = None
+    ) -> dict[str, int]:
         counts: dict[str, int] = {}
         for key in ("needs_action", "done", "all"):
-            where = self._list_orders_where(key, viewer_user_id=viewer_user_id)
+            where = [*self._list_orders_where(key, viewer_user_id=viewer_user_id), *(filters or [])]
             counts[key] = int(
                 self._db.scalar(
                     select(func.count()).select_from(AssetTransferOrder).where(*where)

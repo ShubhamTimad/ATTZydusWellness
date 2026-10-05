@@ -24,6 +24,7 @@ from modules.reports.pdf_chrome import (
     XLSX_LEFT_PAD_COLS,
     apply_xlsx_data_layout,
     apply_xlsx_print_chrome,
+    app_now,
     format_generated_at,
     write_xlsx_header,
     xlsx_pad_row,
@@ -414,7 +415,7 @@ def report_filename(
 ) -> str:
     """{Report name}_{DD-MM-YYYY}.ext"""
     _ = financial_year
-    stamp = datetime.now().strftime("%d-%m-%Y")
+    stamp = app_now().strftime("%d-%m-%Y")
     ext = "xlsx" if fmt == "xlsx" else "pdf"
     name = _filename_token(report_name or report_key.replace("_", " ").title())
     return f"{name}_{stamp}.{ext}"

@@ -730,6 +730,7 @@ export function DisposalOrderCreatePage() {
         onOpenChange={setPickerOpen}
         assigneesUrl={assigneesUrl}
         roleLabel="Approver"
+        title="Submit for Approval"
         confirmLabel="Submit"
         busy={busy}
         onConfirm={async (userId) => {

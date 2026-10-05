@@ -191,7 +191,7 @@ class InvalidAssetImageError(Exception):
 MAX_ASSET_IMAGE_BYTES = 5 * 1024 * 1024
 
 
-def validate_asset_image(data: bytes, label: str = "Asset image") -> str:
+def validate_asset_image(data: bytes, label: str = "Asset Image") -> str:
     if not data:
         raise InvalidAssetImageError("Select an image to upload.")
     if len(data) > MAX_ASSET_IMAGE_BYTES:
@@ -347,6 +347,28 @@ def _asset_list_sort_expression(sort_by: str):
     }
     if key in direct:
         return direct[key]
+
+    if key == "last_action_at":
+        from modules.platform.approvals.model import ApprovalRequest
+
+        audit_at = (
+            select(func.max(AssetAuditEvent.created_at))
+            .where(AssetAuditEvent.asset_id == AssetMaster.id)
+            .correlate(AssetMaster)
+            .scalar_subquery()
+        )
+        # Step approvals that only hand the asset to the next approver leave no asset audit row.
+        step_at = (
+            select(func.max(ApprovalTask.acted_at))
+            .join(ApprovalRequest, ApprovalRequest.id == ApprovalTask.request_id)
+            .where(
+                ApprovalRequest.entity_type.in_(("asset_creation", "asset_import")),
+                ApprovalRequest.entity_id == AssetMaster.id,
+            )
+            .correlate(AssetMaster)
+            .scalar_subquery()
+        )
+        return func.greatest(AssetMaster.created_at, AssetMaster.updated_at, audit_at, step_at)
 
     if key == "category_name":
         return (
@@ -706,7 +728,7 @@ class AssetMasterService:
     def get_asset_image(self, asset_id: int) -> tuple[bytes, str, str]:
         asset = self._load_asset(asset_id)
         if not asset.image_data or not asset.image_content_type:
-            raise NotFoundError("Asset image", asset_id)
+            raise NotFoundError("Asset Image", asset_id)
         return (
             bytes(asset.image_data),
             asset.image_content_type,
@@ -2364,21 +2386,11 @@ class AssetMasterService:
         search_columns = (
             self.get_asset_list_columns(viewer_user_id) if viewer_user_id is not None else None
         )
-        (
-            base,
-            _fy_mode,
-            scan_window,
-            fy_summary,
-            verified_ids,
-            rfid_summary_tagged,
-            rfid_summary_not_tagged,
-            rfid_list_total,
-        ) = self._asset_list_base_query(
+        query_kwargs = dict(
             search=search,
             plant_id=plant_id,
             category_id=category_id,
             lifecycle_status=lifecycle_status,
-            approval_status=approval_status,
             physical_order_status=physical_order_status,
             rfid_status=rfid_status,
             fy_verification=fy_verification,
@@ -2390,6 +2402,21 @@ class AssetMasterService:
                 scope, view_all=self._can_view_all_assets(viewer_user_id)
             ),
             search_columns=search_columns,
+        )
+        (
+            base,
+            _fy_mode,
+            scan_window,
+            fy_summary,
+            verified_ids,
+            rfid_summary_tagged,
+            rfid_summary_not_tagged,
+            rfid_list_total,
+        ) = self._asset_list_base_query(approval_status=approval_status, **query_kwargs)
+        tab_counts = (
+            self._approval_tab_counts(query_kwargs, lifecycle_status=lifecycle_status)
+            if scan_window is None
+            else {}
         )
         current_period = financial_year_period_for()
         fy_mode = (fy_verification or "").strip().lower()
@@ -2520,7 +2547,40 @@ class AssetMasterService:
             total_rfid_assets=fy_summary["total_rfid_assets"] if fy_summary else None,
             rfid_tagged_total=rfid_summary_tagged,
             rfid_not_tagged_total=rfid_summary_not_tagged,
+            tab_counts=tab_counts,
         )
+
+    def _approval_tab_counts(
+        self, query_kwargs: dict[str, Any], *, lifecycle_status: str | None
+    ) -> dict[str, int]:
+        """Approval-tab badges under the same filters as the list (mirrors the approval_status filter)."""
+        base, *_ = self._asset_list_base_query(approval_status=None, **query_kwargs)
+        status = AssetMaster.approval_status
+        approved = status == APPROVAL_APPROVED
+        if not (lifecycle_status or "").strip():
+            approved = and_(
+                approved,
+                func.lower(AssetMaster.lifecycle_status).notin_(
+                    tuple(APPROVED_LIST_HIDDEN_LIFECYCLES)
+                ),
+            )
+        n = func.count(func.distinct(AssetMaster.id))
+        all_, appr, draft, pending, rejected = self._db.execute(
+            base.with_only_columns(
+                n,
+                n.filter(approved),
+                n.filter(status == APPROVAL_DRAFT),
+                n.filter(status == APPROVAL_PENDING),
+                n.filter(status == APPROVAL_REJECTED),
+            ).order_by(None)
+        ).one()
+        return {
+            "all": int(all_ or 0),
+            "approved": int(appr or 0),
+            "draft": int(draft or 0),
+            "pending": int(pending or 0),
+            "rejected": int(rejected or 0),
+        }
 
     def export_assets(
         self,
@@ -3647,7 +3707,10 @@ class AssetMasterService:
         )
 
     def preview_import(self, *, filename: str | None, content: bytes) -> ImportPreviewResponse:
-        rows = apply_import_validation(self._db, parse_upload_file(filename=filename, content=content))
+        parsed = parse_upload_file(filename=filename, content=content)
+        if not parsed:
+            raise ValueError("No asset data found in the uploaded file.")
+        rows = apply_import_validation(self._db, parsed)
         return ImportPreviewResponse(**build_preview_response(filename=filename, rows=rows))
 
     def validate_import_rows(

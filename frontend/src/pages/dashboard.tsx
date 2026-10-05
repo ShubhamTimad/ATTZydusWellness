@@ -22,18 +22,24 @@ import type {
   FinancialYearDashboardModule,
   ItDashboardModule,
 } from "@/lib/assets-types"
-import {
-  DASHBOARD_ASSETS_VIEW,
-  DASHBOARD_DISPOSALS_VIEW,
-  DASHBOARD_FY_VIEW,
-  DASHBOARD_IT_VIEW,
-  DASHBOARD_ORDERS_VIEW,
-  DASHBOARD_TRANSFERS_VIEW,
-} from "@/lib/dashboard-permissions"
 import type { OrdersDashboardModule } from "@/lib/orders-types"
-import { hasPermission } from "@/lib/permissions"
+
+type DashboardSection =
+  | "orders"
+  | "assets"
+  | "financial_year"
+  | "transfers"
+  | "disposals"
+  | "it"
+  | "summary_orders"
+  | "summary_transfers"
+  | "summary_disposals"
+  | "summary_assets"
+  | "summary_users"
 
 type DashboardSummary = {
+  /** Live role grants per tile; the login-time permission snapshot can be stale. */
+  visible_sections?: Partial<Record<DashboardSection, boolean>>
   modules: {
     orders?: OrdersDashboardModule
     assets?: AssetsDashboardModule
@@ -118,13 +124,6 @@ function DashboardSummaryStrip({
 }
 
 export function DashboardPage() {
-  const canOrders = hasPermission(DASHBOARD_ORDERS_VIEW)
-  const canAssets = hasPermission(DASHBOARD_ASSETS_VIEW)
-  const canFy = hasPermission(DASHBOARD_FY_VIEW)
-  const canTransfers = hasPermission(DASHBOARD_TRANSFERS_VIEW)
-  const canDisposals = hasPermission(DASHBOARD_DISPOSALS_VIEW)
-  const canIt = hasPermission(DASHBOARD_IT_VIEW)
-
   const [summary, setSummary] = React.useState<DashboardSummary | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -149,13 +148,24 @@ export function DashboardPage() {
     }
   }, [])
 
-  const orders = canOrders ? summary?.modules?.orders : undefined
-  const assets = canAssets ? summary?.modules?.assets : undefined
-  const fy = canFy ? summary?.modules?.financial_year : undefined
-  const transfers = canTransfers ? summary?.modules?.transfers : undefined
-  const disposals = canDisposals ? summary?.modules?.disposals : undefined
-  const it = canIt ? summary?.modules?.it : undefined
-  const hasAny = Boolean(orders || assets || fy || transfers || disposals || it)
+  const visible = summary?.visible_sections ?? {}
+  const mods = summary?.modules
+  const orders = visible.orders ? mods?.orders : undefined
+  const assets = visible.assets ? mods?.assets : undefined
+  const fy = visible.financial_year ? mods?.financial_year : undefined
+  const transfers = visible.transfers ? mods?.transfers : undefined
+  const disposals = visible.disposals ? mods?.disposals : undefined
+  const it = visible.it ? mods?.it : undefined
+  const strip = {
+    orders: visible.summary_orders ? mods?.orders : undefined,
+    transfers: visible.summary_transfers ? mods?.transfers : undefined,
+    disposals: visible.summary_disposals ? mods?.disposals : undefined,
+    assets: visible.summary_assets ? mods?.assets : undefined,
+    it: visible.summary_users ? mods?.it : undefined,
+  }
+  const hasAny = Boolean(
+    orders || assets || fy || transfers || disposals || it || Object.values(strip).some(Boolean),
+  )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto">
@@ -189,13 +199,7 @@ export function DashboardPage() {
                 <DashboardFyBadge data={fy} />
               </div>
             ) : null}
-            <DashboardSummaryStrip
-              orders={orders}
-              transfers={transfers}
-              disposals={disposals}
-              assets={assets}
-              it={it}
-            />
+            <DashboardSummaryStrip {...strip} />
           </div>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:[&>:last-child:nth-child(odd)]:col-span-2">
             {fy ? <FinancialYearDashboard key="fy" data={fy} /> : null}

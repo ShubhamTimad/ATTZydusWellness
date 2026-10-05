@@ -1522,7 +1522,7 @@ export function OrderDetailPage() {
           totalPages={assetTotalPages}
           total={assetTotal}
           pageSize={ORDER_ASSETS_PAGE_SIZE}
-          itemLabel="Asset List"
+          itemLabel={assetTotal === 1 ? "Asset" : "Assets"}
           onPageChange={setAssetPage}
         />
       </AdminPanel>

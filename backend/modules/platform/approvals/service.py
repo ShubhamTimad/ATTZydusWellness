@@ -1169,16 +1169,36 @@ class ApprovalEngineService:
                         new_value={"request_id": int(req.id)},
                     )
                 )
-                # Email creator + same-role peers.
+                # Email creator + same-role peers (CapEx: creator + the form's Cost Center Users).
                 try:
-                    self._notify_creator_and_peers(
-                        creator_user_id=int(req.created_by),
-                        event_code="TASK_REWORK_REQUIRED",
-                        payload={
-                            **self._approval_mail_fields(req, task_name=rework_task.title or "Rework required"),
-                            "rejection_reason": comment or "Rejected",
-                        },
-                    )
+                    payload = {
+                        **self._approval_mail_fields(req, task_name=rework_task.title or "Rework required"),
+                        "rejection_reason": comment or "Rejected",
+                    }
+                    if str(req.entity_type) in (
+                        "capitalization_request",
+                        "capitalization_request_engineering",
+                    ):
+                        from modules.capex.model import CapitalizationForm
+                        from modules.capex.service import capex_outcome_recipients
+
+                        form = self._db.get(CapitalizationForm, int(req.entity_id))
+                        users = capex_outcome_recipients(self._db, form) if form is not None else []
+                        enqueue_trigger_events(
+                            [
+                                (
+                                    "TASK_REWORK_REQUIRED",
+                                    {"user_name": u.full_name or u.email, "email": u.email, **payload},
+                                )
+                                for u in users
+                            ]
+                        )
+                    else:
+                        self._notify_creator_and_peers(
+                            creator_user_id=int(req.created_by),
+                            event_code="TASK_REWORK_REQUIRED",
+                            payload=payload,
+                        )
                 except Exception:
                     pass
 

@@ -345,7 +345,7 @@ export function PhysicalOrderCreatePage() {
             totalPages={totalPages}
             total={filtered.length}
             pageSize={PAGE_SIZE}
-            itemLabel="Asset List"
+            itemLabel={filtered.length === 1 ? "Asset" : "Assets"}
             onPageChange={setPage}
           />
         </AdminPanel>

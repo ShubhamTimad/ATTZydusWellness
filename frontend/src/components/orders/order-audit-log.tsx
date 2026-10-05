@@ -84,9 +84,14 @@ function ActivityCell({
               className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-[11px]"
             >
               <div className="min-w-0">
-                <span className="font-mono font-medium text-foreground">{asset.asset_code}</span>
+                <p className="text-black">
+                  <span className="font-bold">Asset Code:</span>{" "}
+                  <span className="font-mono font-medium text-foreground">{asset.asset_code}</span>
+                </p>
                 {asset.asset_name ? (
-                  <span className="text-black"> · {asset.asset_name}</span>
+                  <p className="text-black">
+                    <span className="font-bold">Asset Name:</span> {asset.asset_name}
+                  </p>
                 ) : null}
                 {asset.rfid_code ? (
                   <p className="font-mono text-[10px] text-black">

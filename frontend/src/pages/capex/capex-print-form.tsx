@@ -362,7 +362,7 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
           </div>
         </div>
         <div class="meta">
-          <div>Generated At: <strong>${escapeHtml(printedAt)}</strong></div>
+          <div>Generated On: <strong>${escapeHtml(printedAt)}</strong></div>
         </div>
       </div>
     </header>

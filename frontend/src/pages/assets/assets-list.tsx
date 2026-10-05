@@ -265,7 +265,7 @@ const DEFAULT_FILTERS: AssetListFilters = {
   fy_start_year: "",
   fy_scan_from: "",
   fy_scan_to: "",
-  sort_by: "created_at",
+  sort_by: "last_action_at",
   sort_dir: "desc",
   source_type: "",
 }
@@ -2131,11 +2131,17 @@ export function AssetsListPage() {
             className="shrink-0"
           >
             <WorkspaceTabsList>
-              {ASSET_APPROVAL_STATUS_TABS.map((t) => (
-                <WorkspaceTabsTrigger key={t.key} value={t.key}>
-                  {t.key === "all" ? "All" : t.label}
-                </WorkspaceTabsTrigger>
-              ))}
+              {ASSET_APPROVAL_STATUS_TABS.map((t) => {
+                const count = data?.tab_counts?.[t.key]
+                return (
+                  <WorkspaceTabsTrigger key={t.key} value={t.key}>
+                    {t.key === "all" ? "All" : t.label}
+                    {typeof count === "number" ? (
+                      <span className="ml-1.5 tabular-nums text-muted-foreground">({count})</span>
+                    ) : null}
+                  </WorkspaceTabsTrigger>
+                )
+              })}
               <WorkspaceTabsTrigger value="fy">Physical Verification</WorkspaceTabsTrigger>
             </WorkspaceTabsList>
           </WorkspaceTabs>
@@ -2335,7 +2341,6 @@ export function AssetsListPage() {
           {selected.size > 0 ? (
             <AssetActionsMenu
               actions={listActions}
-              selectedCount={selected.size}
               busy={bulkActionBusy || orderValidateBusy}
               onAction={handleListAction}
             />
@@ -2478,6 +2483,7 @@ export function AssetsListPage() {
                   value={draftFilters.sort_by}
                   onChange={(e) => setDraftFilters((f) => ({ ...f, sort_by: e.target.value }))}
                 >
+                  <option value="last_action_at">Latest Action</option>
                   {ASSET_LIST_COLUMNS.map((column) => (
                     <option key={column.key} value={column.key}>
                       {column.label}
@@ -2608,7 +2614,7 @@ export function AssetsListPage() {
             total={total}
             pageSize={pageSize}
             loading={loading}
-            itemLabel="Asset"
+            itemLabel={total === 1 ? "Asset" : "Assets"}
             selectedCount={selected.size}
             onPageChange={setPage}
           />
@@ -2981,6 +2987,7 @@ export function AssetsListPage() {
         onOpenChange={setSubmitAssignOpen}
         assigneesUrl={bulkSubmitAssigneesUrl}
         roleLabel="Approver"
+        title="Submit for Approval"
         confirmLabel={
           submitEligibleRows.length > 1
             ? "Submit"

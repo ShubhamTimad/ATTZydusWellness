@@ -154,6 +154,16 @@ _AUDIT_LABELS: dict[str, str] = {
     "unarchived": "Form Unarchived",
 }
 
+# Keep in sync with frontend capexStatusLabel.
+_STATUS_LABELS: dict[str, str] = {
+    "draft": "Draft",
+    "pending_approval": "Pending Approval",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "in_rework": "Rejected",
+    STATUS_CANCELLED: "Archived",
+}
+
 
 def _fmt_val(value: Any) -> str:
     if value is None:
@@ -666,6 +676,7 @@ class CapexFormService:
         def _like(value: str) -> str:
             return f"%{value.strip()}%"
 
+        filters: list = []
         if search and search.strip():
             q = _like(search)
             search_parts = [
@@ -679,34 +690,25 @@ class CapexFormService:
             status_codes = status_codes_matching_search(search)
             if status_codes:
                 search_parts.append(CapitalizationForm.status.in_(status_codes))
-            search_clause = or_(*search_parts)
-            stmt = stmt.where(search_clause)
-            count_stmt = count_stmt.where(search_clause)
+            filters.append(or_(*search_parts))
 
         if form_number and form_number.strip():
-            clause = CapitalizationForm.form_number.ilike(_like(form_number))
-            stmt = stmt.where(clause)
-            count_stmt = count_stmt.where(clause)
+            filters.append(CapitalizationForm.form_number.ilike(_like(form_number)))
         if asset_name and asset_name.strip():
-            clause = CapitalizationForm.asset_name.ilike(_like(asset_name))
-            stmt = stmt.where(clause)
-            count_stmt = count_stmt.where(clause)
+            filters.append(CapitalizationForm.asset_name.ilike(_like(asset_name)))
         if department and department.strip():
-            clause = CapitalizationForm.department.ilike(_like(department))
-            stmt = stmt.where(clause)
-            count_stmt = count_stmt.where(clause)
+            filters.append(CapitalizationForm.department.ilike(_like(department)))
         status_q = (status or "").strip().lower()
         if status_q:
             if status_q in (STATUS_REJECTED, STATUS_IN_REWORK):
-                clause = CapitalizationForm.status.in_((STATUS_REJECTED, STATUS_IN_REWORK))
+                filters.append(CapitalizationForm.status.in_((STATUS_REJECTED, STATUS_IN_REWORK)))
             else:
-                clause = CapitalizationForm.status == status_q
-            stmt = stmt.where(clause)
-            count_stmt = count_stmt.where(clause)
+                filters.append(CapitalizationForm.status == status_q)
         if created_by and created_by.strip():
-            clause = CapitalizationForm.creator.has(User.full_name.ilike(_like(created_by)))
-            stmt = stmt.where(clause)
-            count_stmt = count_stmt.where(clause)
+            filters.append(CapitalizationForm.creator.has(User.full_name.ilike(_like(created_by))))
+        if filters:
+            stmt = stmt.where(*filters)
+            count_stmt = count_stmt.where(*filters)
 
         total = int(self._db.scalar(count_stmt) or 0)
         order_col = _capex_list_sort_expr(sort_by)
@@ -750,7 +752,7 @@ class CapexFormService:
         tab_counts: dict[str, int] = {}
         if not available_for_asset:
             for key in ("all", "needs_action", "done"):
-                w = self._list_forms_where(key, viewer_user_id=viewer_user_id)
+                w = [*self._list_forms_where(key, viewer_user_id=viewer_user_id), *filters]
                 tab_counts[key] = int(
                     self._db.scalar(select(func.count()).select_from(CapitalizationForm).where(*w))
                     or 0
@@ -1403,7 +1405,7 @@ class CapexFormService:
             elif ev.action in ("submitted", "resubmitted"):
                 role = (nv.get("role_name") or "").strip() or None
                 who = (nv.get("assignee_name") or "").strip() or None
-                nxt = role or (who if who and who != "—" else None)
+                nxt = (who if who and who != "—" else None) or role
                 detail = f"Next: {nxt}" if nxt else None
             elif ev.action == "reassigned":
                 old_who = ov.get("assignee_name") or "—"
@@ -1418,7 +1420,7 @@ class CapexFormService:
                 nxt = (nv.get("next_assignee_name") or "").strip() or None
                 parts = []
                 if nxt_role or nxt:
-                    parts.append(f"Next: {nxt_role or nxt}")
+                    parts.append(f"Next: {nxt or nxt_role}")
                 if nv.get("comment"):
                     parts.append(f"Comment: {nv['comment']}")
                 detail = "\n".join(parts) if parts else None
@@ -1441,6 +1443,12 @@ class CapexFormService:
             elif ev.action == "created":
                 if nv.get("form_number"):
                     detail = str(nv["form_number"])
+            elif ev.action in ("archived", "unarchived"):
+                old_s, new_s = ov.get("status"), nv.get("status")
+                if old_s and new_s:
+                    detail = (
+                        f"Status: {_STATUS_LABELS.get(old_s, old_s)} → {_STATUS_LABELS.get(new_s, new_s)}"
+                    )
 
             out.append(
                 CapexAuditEventPublic(
@@ -1489,14 +1497,19 @@ def approval_success_recipients(
     return out
 
 
-def notify_capitalization_approved(db: Session, form: CapitalizationForm) -> None:
+def capex_outcome_recipients(db: Session, form: CapitalizationForm) -> list[User]:
+    """Creator + Cost Center Users of the form's cost center (approve / reject mails)."""
     creator = db.get(User, int(form.created_by)) if form.created_by is not None else None
     cc_users: list[User] = []
     if form.cost_center_id is not None:
         role = db.scalar(select(Role).where(Role.name == ROLE_COST_CENTER_USER))
         if role is not None:
             cc_users = _users_in_role(db, int(role.id), cost_center_id=form.cost_center_id)
-    recipients = approval_success_recipients(creator=creator, cost_center_users=cc_users)
+    return approval_success_recipients(creator=creator, cost_center_users=cc_users)
+
+
+def notify_capitalization_approved(db: Session, form: CapitalizationForm) -> None:
+    recipients = capex_outcome_recipients(db, form)
     if not recipients:
         return
     cc = form.cost_center

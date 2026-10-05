@@ -23,6 +23,7 @@ from modules.orders.asset_order_audit import (
     log_asset_physically_verified,
 )
 from modules.orders.audit import log_order_event
+from modules.orders.conflicts import order_conflict_block_clause
 from modules.orders.constants import (
     ACTION_COMPLETE,
     ACTIVE_ORDER_STATUSES,
@@ -31,7 +32,6 @@ from modules.orders.constants import (
     ITEM_STATUS_APPROVED,
     ITEM_STATUS_PENDING,
     ITEM_STATUS_REJECTED,
-    ORDER_CONFLICT_BLOCK_STATUSES,
     ORDER_STATUS_APPROVED,
     ORDER_STATUS_ASSIGNED,
     ORDER_STATUS_CANCELLED,
@@ -912,14 +912,7 @@ class PhysicalOrderService:
             .join(AssetMaster, AssetMaster.id == PhysicalOrderItem.asset_id)
             .where(
                 PhysicalOrderItem.asset_id.in_(asset_ids),
-                or_(
-                    PhysicalOrder.status.in_(tuple(ORDER_CONFLICT_BLOCK_STATUSES)),
-                    # Early `approved` (creation-approved, work not done) still blocks.
-                    and_(
-                        PhysicalOrder.status == ORDER_STATUS_APPROVED,
-                        PhysicalOrder.completed_at.is_(None),
-                    ),
-                ),
+                order_conflict_block_clause(),
             )
         ).all()
         # Mid-workflow conflicts are hard blocks — deselect before creating a new order.
@@ -1965,7 +1958,84 @@ class PhysicalOrderService:
             base = base.where(PhysicalOrder.status.in_(active_statuses))
 
         base = self._apply_viewer_org_scope(base, viewer_user_id=viewer_id)
+        filter_kwargs = dict(
+            search=search,
+            plant_id=plant_id,
+            cost_center_id=cost_center_id,
+            order_number=order_number,
+            status=status,
+            asset_count=asset_count,
+            created_on=created_on,
+            assigned_to=assigned_to,
+            created_by=created_by,
+        )
+        base = self._apply_list_filters(base, **filter_kwargs)
+        status_q = (status or "").strip().lower()
 
+        total = int(
+            self._db.scalar(
+                base.options()
+                .with_only_columns(func.count(func.distinct(PhysicalOrder.id)))
+                .order_by(None)
+            )
+            or 0
+        )
+        sorted_base = apply_sort_dir(
+            base,
+            _physical_list_sort_expr(sort_by),
+            sort_dir=sort_dir,
+            tiebreaker=PhysicalOrder.id,
+            pin_last=archived_last_expr(PhysicalOrder.status, status_filter=status_q),
+        )
+        rows = list(
+            self._db.scalars(
+                sorted_base.offset((page - 1) * page_size).limit(page_size)
+            )
+            .unique()
+            .all()
+        )
+        # List GET stays read-only — promote/handoff heal runs on detail fetch.
+        has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
+        asset_counts = self._asset_counts_for_orders([int(o.id) for o in rows])
+        items = [
+            self._to_list_item(
+                o,
+                has_closure_workflow=has_closure_workflow,
+                action_label=self._row_action_label(o, int(viewer_id), pending_ids),
+                asset_count=asset_counts.get(int(o.id), 0),
+            )
+            for o in rows
+        ]
+        tab_counts = self._order_tab_counts(
+            viewer_id=viewer_id,
+            pending_req_ids=pending_ids,
+            skip=(tab,),
+            filter_kwargs=filter_kwargs,
+        )
+        if tab in ("all", "needs_action", "done"):
+            tab_counts[tab] = total
+        return PhysicalOrderListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            tab_counts=tab_counts,
+        )
+
+    def _apply_list_filters(
+        self,
+        base,
+        *,
+        search: str | None = None,
+        plant_id: int | None = None,
+        cost_center_id: int | None = None,
+        order_number: str | None = None,
+        status: str | None = None,
+        asset_count: int | None = None,
+        created_on: date | None = None,
+        assigned_to: str | None = None,
+        created_by: str | None = None,
+    ):
         if plant_id is not None:
             base = base.where(PhysicalOrder.plant_id == int(plant_id))
         if cost_center_id is not None:
@@ -2038,68 +2108,7 @@ class PhysicalOrderService:
                 .outerjoin(assignee_s, assignee_s.id == PhysicalOrder.assigned_to)
                 .where(or_(*search_parts))
             )
-
-        total = int(
-            self._db.scalar(
-                base.options()
-                .with_only_columns(func.count(func.distinct(PhysicalOrder.id)))
-                .order_by(None)
-            )
-            or 0
-        )
-        sorted_base = apply_sort_dir(
-            base,
-            _physical_list_sort_expr(sort_by),
-            sort_dir=sort_dir,
-            tiebreaker=PhysicalOrder.id,
-            pin_last=archived_last_expr(PhysicalOrder.status, status_filter=status_q),
-        )
-        rows = list(
-            self._db.scalars(
-                sorted_base.offset((page - 1) * page_size).limit(page_size)
-            )
-            .unique()
-            .all()
-        )
-        # List GET stays read-only — promote/handoff heal runs on detail fetch.
-        has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
-        asset_counts = self._asset_counts_for_orders([int(o.id) for o in rows])
-        items = [
-            self._to_list_item(
-                o,
-                has_closure_workflow=has_closure_workflow,
-                action_label=self._row_action_label(o, int(viewer_id), pending_ids),
-                asset_count=asset_counts.get(int(o.id), 0),
-            )
-            for o in rows
-        ]
-        extra_filters = any(
-            (
-                search and search.strip(),
-                plant_id is not None,
-                cost_center_id is not None,
-                order_number and order_number.strip(),
-                status and status.strip(),
-                asset_count is not None,
-                created_on is not None,
-                assigned_to and assigned_to.strip(),
-                created_by and created_by.strip(),
-            )
-        )
-        tab_counts = self._order_tab_counts(
-            viewer_id=viewer_id,
-            pending_req_ids=pending_ids,
-            skip=() if extra_filters else (tab,),
-        )
-        if not extra_filters and tab in ("all", "needs_action", "done"):
-            tab_counts[tab] = total
-        return PhysicalOrderListResponse(
-            items=items,
-            total=total,
-            page=page,
-            page_size=page_size,
-            tab_counts=tab_counts,
-        )
+        return base
 
     def _asset_counts_for_orders(self, order_ids: list[int]) -> dict[int, int]:
         if not order_ids:
@@ -2117,6 +2126,7 @@ class PhysicalOrderService:
         viewer_id: int,
         pending_req_ids: set[int] | None = None,
         skip: tuple[str, ...] = (),
+        filter_kwargs: dict | None = None,
     ) -> dict[str, int]:
         """Tab badge counts without wrapping full entity selects."""
         out: dict[str, int] = {}
@@ -2127,6 +2137,7 @@ class PhysicalOrderService:
             stmt = self._list_orders_base_for_tab(
                 key, viewer_id=viewer_id, pending_req_ids=pending_req_ids
             )
+            stmt = self._apply_list_filters(stmt, **(filter_kwargs or {}))
             out[key] = int(
                 self._db.scalar(
                     stmt.with_only_columns(func.count(func.distinct(PhysicalOrder.id))).order_by(

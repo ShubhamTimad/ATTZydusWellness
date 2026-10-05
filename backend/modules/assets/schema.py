@@ -271,6 +271,7 @@ class AssetListResponse(BaseModel):
     total_rfid_assets: int | None = None
     rfid_tagged_total: int | None = None
     rfid_not_tagged_total: int | None = None
+    tab_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class AssetListColumnsPreference(BaseModel):

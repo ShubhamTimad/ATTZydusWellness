@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import io
+import os
 from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from reportlab.lib import colors
 from reportlab.lib.units import inch
@@ -53,6 +55,10 @@ def logo_file_path() -> Path | None:
     return None
 
 
+# Servers/containers usually run in UTC; reports must show the business time zone.
+APP_TZ = ZoneInfo(os.environ.get("APP_TIMEZONE", "").strip() or "Asia/Kolkata")
+
+
 def format_app_date(value: date | datetime | None) -> str:
     """Match frontend formatAppDate: DD/MM/YY."""
     if value is None:
@@ -65,14 +71,19 @@ def format_app_datetime(value: datetime | None) -> str:
     """Match frontend formatAppDateTime: DD/MM/YY h:mm AM/PM."""
     if value is None:
         return ""
-    local = value.astimezone() if value.tzinfo else value
+    # Naive values are read as server-local time, then shown in the app time zone.
+    local = value.astimezone(APP_TZ)
     hour12 = local.hour % 12 or 12
     suffix = "AM" if local.hour < 12 else "PM"
     return f"{format_app_date(local)} {hour12}:{local.strftime('%M')} {suffix}"
 
 
+def app_now() -> datetime:
+    return datetime.now(APP_TZ)
+
+
 def format_generated_at(when: datetime | None = None) -> str:
-    return format_app_datetime(when or datetime.now())
+    return format_app_datetime(when or app_now())
 
 
 def logo_png_bytes() -> bytes | None:
@@ -367,7 +378,7 @@ def draw_header(
     if generated_at:
         canvas.setFillColor(MUTED)
         canvas.setFont("Helvetica", 8)
-        canvas.drawRightString(right, top - 6, f"Generated: {generated_at}")
+        canvas.drawRightString(right, top - 6, f"Generated On: {generated_at}")
 
     rule_y = top - HEADER_BAND + 10
     canvas.setStrokeColor(BRAND_RED)

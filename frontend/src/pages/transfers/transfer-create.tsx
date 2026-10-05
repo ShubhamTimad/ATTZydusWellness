@@ -950,6 +950,7 @@ export function TransferOrderCreatePage() {
         assigneesUrl="/admin/transfer-orders/assignees?for_submit=true"
         excludeUserId={viewerId}
         roleLabel="Approver"
+        title="Submit for Approval"
         confirmLabel="Submit"
         busy={busy}
         onConfirm={async (userId) => {

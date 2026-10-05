@@ -41,6 +41,20 @@ DASHBOARD_FY_VIEW = "dashboard.financial_year.view"
 DASHBOARD_IT_VIEW = "dashboard.it.view"
 DASHBOARD_TRANSFERS_VIEW = "dashboard.transfers.view"
 DASHBOARD_DISPOSALS_VIEW = "dashboard.disposals.view"
+# visible_sections key -> tile permission (keep in sync with MODULE_CONFIG "dashboard").
+DASHBOARD_TILE_CODES = {
+    "orders": DASHBOARD_ORDERS_VIEW,
+    "assets": DASHBOARD_ASSETS_VIEW,
+    "financial_year": DASHBOARD_FY_VIEW,
+    "it": DASHBOARD_IT_VIEW,
+    "transfers": DASHBOARD_TRANSFERS_VIEW,
+    "disposals": DASHBOARD_DISPOSALS_VIEW,
+    "summary_orders": "dashboard.summary_orders.view",
+    "summary_transfers": "dashboard.summary_transfers.view",
+    "summary_disposals": "dashboard.summary_disposals.view",
+    "summary_assets": "dashboard.summary_assets.view",
+    "summary_users": "dashboard.summary_users.view",
+}
 # Orders list tab badges also call this endpoint.
 _ORDER_LIST_COMPAT = "order.view"
 _TRANSFER_LIST_COMPAT = "transfer.view"
@@ -453,20 +467,19 @@ def get_dashboard_summary(
     viewer_id = int(current.subject)
     grants = set(get_flat_permission_codes_for_user(db, viewer_id))
 
-    can_orders = _grants_any(grants, DASHBOARD_ORDERS_VIEW, _ORDER_LIST_COMPAT)
-    can_assets = _grants_any(grants, DASHBOARD_ASSETS_VIEW)
-    can_fy = _grants_any(grants, DASHBOARD_FY_VIEW)
-    can_it = _grants_any(grants, DASHBOARD_IT_VIEW)
-    can_transfers = _grants_any(grants, DASHBOARD_TRANSFERS_VIEW, _TRANSFER_LIST_COMPAT)
-    can_disposals = _grants_any(grants, DASHBOARD_DISPOSALS_VIEW, _DISPOSAL_LIST_COMPAT)
-    can_page = (
-        _grants_any(grants, DASHBOARD_VIEW)
-        or can_orders
-        or can_assets
-        or can_fy
-        or can_it
-        or can_transfers
-        or can_disposals
+    tiles = {key: _grants_any(grants, code) for key, code in DASHBOARD_TILE_CODES.items()}
+    can_orders = tiles["orders"] or tiles["summary_orders"] or _grants_any(grants, _ORDER_LIST_COMPAT)
+    can_assets = tiles["assets"] or tiles["summary_assets"]
+    can_fy = tiles["financial_year"]
+    can_it = tiles["it"] or tiles["summary_users"]
+    can_transfers = (
+        tiles["transfers"] or tiles["summary_transfers"] or _grants_any(grants, _TRANSFER_LIST_COMPAT)
+    )
+    can_disposals = (
+        tiles["disposals"] or tiles["summary_disposals"] or _grants_any(grants, _DISPOSAL_LIST_COMPAT)
+    )
+    can_page = _grants_any(grants, DASHBOARD_VIEW) or any(
+        (can_orders, can_assets, can_fy, can_it, can_transfers, can_disposals)
     )
 
     if not can_page:
@@ -491,13 +504,7 @@ def get_dashboard_summary(
         modules["it"] = _it_module(db)
 
     return {
-        "visible_sections": {
-            "orders": can_orders and _grants_any(grants, DASHBOARD_ORDERS_VIEW),
-            "assets": can_assets,
-            "financial_year": can_fy,
-            "transfers": can_transfers and _grants_any(grants, DASHBOARD_TRANSFERS_VIEW),
-            "disposals": can_disposals and _grants_any(grants, DASHBOARD_DISPOSALS_VIEW),
-            "it": can_it,
-        },
+        # Per-tile visibility: strictly the dashboard tile grants (list-view compat only feeds data).
+        "visible_sections": tiles,
         "modules": modules,
     }

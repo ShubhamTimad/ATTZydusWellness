@@ -1263,6 +1263,7 @@ export function AssetDetailPage() {
         onOpenChange={setSubmitAssignOpen}
         assigneesUrl={asset ? `/admin/assets/${asset.id}/assignees` : undefined}
         roleLabel="Approver"
+        title="Submit for Approval"
         confirmLabel="Submit"
         busy={saving}
         onConfirm={submitWithAssignee}

@@ -573,6 +573,19 @@ class DisposalOrderService:
             raise ConflictError(
                 f"Only active, approved assets can be disposed: {sample}{more}."
             )
+        from modules.orders.conflicts import blocking_physical_orders
+
+        held = blocking_physical_orders(self._db, [int(a.id) for a in assets])
+        if held:
+            busy = [a for a in assets if int(a.id) in held]
+            sample = ", ".join(
+                f"{a.asset_code or a.id} ({held[int(a.id)]})" for a in busy[:5]
+            )
+            more = "…" if len(busy) > 5 else ""
+            raise ConflictError(
+                f"Asset is on an active Physical Verification Order: {sample}{more}. "
+                "Create the disposal order after that order is approved."
+            )
 
     def _assert_assets_match_order_reservation(
         self, assets: list[AssetMaster], *, reserved_asset_ids: set[int]
@@ -1996,19 +2009,17 @@ class DisposalOrderService:
     ) -> DisposalOrderListResponse:
         self._normalize_legacy_rework_orders()
         tab_key = (tab or "needs_action").strip().lower()
-        where = self._list_orders_where(tab_key, viewer_user_id=viewer_user_id)
-        where.extend(
-            self._list_filter_clauses(
-                search=search,
-                order_number=order_number,
-                plant_id=plant_id,
-                from_cost_center_id=from_cost_center_id,
-                status=status,
-                asset_count=asset_count,
-                assigned_to=assigned_to,
-                created_on=created_on,
-            )
+        filters = self._list_filter_clauses(
+            search=search,
+            order_number=order_number,
+            plant_id=plant_id,
+            from_cost_center_id=from_cost_center_id,
+            status=status,
+            asset_count=asset_count,
+            assigned_to=assigned_to,
+            created_on=created_on,
         )
+        where = [*self._list_orders_where(tab_key, viewer_user_id=viewer_user_id), *filters]
         total = int(
             self._db.scalar(select(func.count()).select_from(AssetDisposalOrder).where(*where)) or 0
         )
@@ -2084,7 +2095,7 @@ class DisposalOrderService:
             total=total,
             page=page,
             page_size=page_size,
-            tab_counts=self._list_tab_counts(viewer_user_id=viewer_user_id),
+            tab_counts=self._list_tab_counts(viewer_user_id=viewer_user_id, filters=filters),
         )
 
     def _list_filter_clauses(
@@ -2195,10 +2206,12 @@ class DisposalOrderService:
             AssetDisposalOrder.status != STATUS_CLOSED,
         ]
 
-    def _list_tab_counts(self, *, viewer_user_id: int | None) -> dict[str, int]:
+    def _list_tab_counts(
+        self, *, viewer_user_id: int | None, filters: list | None = None
+    ) -> dict[str, int]:
         counts: dict[str, int] = {}
         for key in ("all", "needs_action", "done"):
-            where = self._list_orders_where(key, viewer_user_id=viewer_user_id)
+            where = [*self._list_orders_where(key, viewer_user_id=viewer_user_id), *(filters or [])]
             counts[key] = int(
                 self._db.scalar(
                     select(func.count()).select_from(AssetDisposalOrder).where(*where)

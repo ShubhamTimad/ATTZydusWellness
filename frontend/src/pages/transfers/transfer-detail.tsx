@@ -902,6 +902,9 @@ export function TransferOrderDetailPage() {
                   <AdminTableHeadCell className="min-w-[12rem] !text-black">
                     Asset Name
                   </AdminTableHeadCell>
+                  <AdminTableHeadCell className="min-w-[8rem] !text-black">
+                    Asset Code
+                  </AdminTableHeadCell>
                   <AdminTableHeadCell className="min-w-[11rem] !text-black">
                     Source Cost Center
                   </AdminTableHeadCell>
@@ -929,7 +932,7 @@ export function TransferOrderDetailPage() {
               <TableBody>
                 {order.items.length === 0 ? (
                   <AdminTableEmptyRow
-                    colSpan={5 + (showLocations ? 2 : 0)}
+                    colSpan={6 + (showLocations ? 2 : 0)}
                   >
                     No Assets
                   </AdminTableEmptyRow>
@@ -942,13 +945,11 @@ export function TransferOrderDetailPage() {
                     )
                     return (
                     <AdminTableBodyRow key={item.id} interactive={false}>
-                      <AdminTableCell className="min-h-0 min-w-0 px-4 py-2 text-sm text-foreground">
-                        <div className="truncate font-medium" title={item.asset_name || undefined}>
-                          {item.asset_name || "—"}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground" title={item.asset_code || undefined}>
-                          {item.asset_code || "—"}
-                        </div>
+                      <AdminTableCell className="min-w-0 truncate px-4 py-2">
+                        {item.asset_name || "—"}
+                      </AdminTableCell>
+                      <AdminTableCell className="min-w-0 truncate px-4 py-2">
+                        {item.asset_code || "—"}
                       </AdminTableCell>
                       <AdminTableCell className="min-w-0 truncate px-4 py-2">
                         {formatCostCenterWithCode(
@@ -1098,12 +1099,13 @@ export function TransferOrderDetailPage() {
             ? (panel?.next_step_role_name ?? "Next Approver")
             : "Approver"
         }
+        title={pickerMode === "submit" ? "Submit for Approval" : "Receive Assets"}
         confirmLabel={
           pickerMode === "submit"
             ? "Submit"
             : engineReceive
-              ? "Receive & Assign"
-              : "Receive & Assign"
+              ? "Receive"
+              : "Receive"
         }
         busy={busy}
         onConfirm={async (userId) => {
@@ -1169,9 +1171,9 @@ export function TransferOrderDetailPage() {
           decisionMode === "reject"
             ? "Reject"
             : stepKind === "confirm"
-              ? "Confirm receive"
+              ? "Confirm Receive"
               : stepKind === "close"
-                ? "Close transfer"
+                ? "Close Transfer"
                 : "Approve"
         }
         confirmLabel={decisionMode === "reject" ? "Reject" : decisionConfirmLabel}

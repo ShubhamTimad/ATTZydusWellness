@@ -103,8 +103,15 @@ const ImportCell = React.memo(function ImportCell({
   return (
     <div className="relative">
       <input
-        type={colKind === "date" ? "date" : "text"}
+        type={colKind === "date" && value ? "date" : "text"}
         value={value}
+        placeholder="—"
+        onFocus={(e) => {
+          if (colKind === "date") e.currentTarget.type = "date"
+        }}
+        onBlur={(e) => {
+          if (colKind === "date" && !e.currentTarget.value) e.currentTarget.type = "text"
+        }}
         onChange={(e) =>
           onChange(
             isAssetNumberField(colKey) ? sanitizeAssetNumberInput(e.target.value) : e.target.value,

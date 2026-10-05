@@ -54,6 +54,7 @@ export function CapexDecisionDialog({
   const [items, setItems] = React.useState<CapexAssigneeOption[]>([])
   const [loadingUsers, setLoadingUsers] = React.useState(false)
   const [selectedId, setSelectedId] = React.useState("")
+  const [loadedRoleName, setLoadedRoleName] = React.useState("")
 
   const showNextPicker =
     mode === "approve" && needsNextAssignee && Boolean(assigneesUrl)
@@ -66,6 +67,7 @@ export function CapexDecisionDialog({
   }, [open, mode])
 
   React.useEffect(() => {
+    setLoadedRoleName("")
     if (!open || !showNextPicker) {
       setItems([])
       return
@@ -84,7 +86,10 @@ export function CapexDecisionDialog({
     void (async () => {
       try {
         const res = await getJson<CapexAssigneeListResponse>(url)
-        if (!cancelled) setItems(res.items)
+        if (!cancelled) {
+          setItems(res.items)
+          setLoadedRoleName((res.role_name || "").trim())
+        }
       } catch (e) {
         if (!cancelled) {
           setItems([])
@@ -132,7 +137,7 @@ export function CapexDecisionDialog({
           {showNextPicker ? (
             <div className="app-form-field">
               <Label htmlFor="capex_decision_next" className="app-form-label">
-                Select {nextStepRoleName || "User"}
+                Select {loadedRoleName || nextStepRoleName || "User"}
                 <RequiredFieldMark />
               </Label>
               <select

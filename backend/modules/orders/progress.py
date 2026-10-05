@@ -22,6 +22,7 @@ from modules.orders.constants import (
     ORDER_STATUS_PENDING_APPROVAL,
     ORDER_STATUS_PENDING_CLOSURE,
     ORDER_STATUS_REJECTED,
+    SEARCH_STATUS_LABELS,
 )
 from modules.orders.model import PhysicalOrder, PhysicalOrderAudit
 from modules.orders.model import PhysicalOrderItem
@@ -58,8 +59,8 @@ _AUDIT_LABELS: dict[str, str] = {
     "execution_items_rejected": "Assets Rejected",
     "closure_items_rejected": "Assets Rejected",
     "closure_items_approved": "Assets Approved",
-    "archived": "Order Archived",
-    "unarchived": "Order Unarchived",
+    "archived": "Archived",
+    "unarchived": "Unarchived",
     "item_remark_updated": "Remark added",
 }
 
@@ -72,6 +73,11 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
     old_value = old_value or {}
     if action == "order_created":
         return None
+    if action in ("archived", "unarchived"):
+        old_s, new_s = old_value.get("status"), new_value.get("status")
+        if not old_s or not new_s:
+            return None
+        return f"Status: {SEARCH_STATUS_LABELS.get(old_s, old_s)} → {SEARCH_STATUS_LABELS.get(new_s, new_s)}"
     if action == "assignment_changed":
         assignee = new_value.get("assigned_to")
         if assignee is not None:

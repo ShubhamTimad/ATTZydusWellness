@@ -287,7 +287,7 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
                 <option value="">{plantId ? "All" : "Select Plant First"}</option>
                 {masters.costCenters.map((cc) => (
                   <option key={cc.id} value={cc.code}>
-                    {masterOptionLabel(cc.code, cc.name)}
+                    {cc.name?.trim() ? `${cc.code} — ${cc.name.trim()}` : cc.code}
                   </option>
                 ))}
               </select>

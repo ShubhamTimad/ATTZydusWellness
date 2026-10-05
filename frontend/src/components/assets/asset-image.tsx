@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
 export const MAX_ASSET_IMAGE_BYTES = 5 * 1024 * 1024
 
-export function validateAssetImageFile(file: File, label = "Asset image"): string | null {
+export function validateAssetImageFile(file: File, label = "Asset Image"): string | null {
   if (!ACCEPTED_IMAGE_TYPES.has(file.type)) return "Select a PNG, JPEG, or WebP image."
   if (file.size > MAX_ASSET_IMAGE_BYTES) return `${label} must be 5 MB or smaller.`
   return null
@@ -96,7 +96,7 @@ export function AssetImage({
                 </Button>
               ) : null}
             </div>
-            <p className="text-xs text-muted-foreground">PNG, JPEG, or WebP · max 5 MB</p>
+            {src ? null : <p className="text-xs text-muted-foreground">PNG, JPEG, or WebP · max 5 MB</p>}
           </div>
         ) : null}
       </div>
