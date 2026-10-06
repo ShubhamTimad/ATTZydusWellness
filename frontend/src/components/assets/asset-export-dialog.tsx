@@ -60,7 +60,7 @@ type AssetRegisterReportProps = AssetExportDialogBaseProps & {
 
 export type AssetExportDialogProps = AssetExportListProps | AssetRegisterReportProps
 
-export function buildAssetExportPath(
+function buildAssetExportPath(
   fields: string[],
   opts: {
     filters: AssetExportFilterState

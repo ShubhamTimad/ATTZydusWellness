@@ -455,9 +455,6 @@ ASSET_EXPORT_FIELDS: list[str] = [
     "pm_equipment_id",
     "cost_center_name",
     "capitalization_form_number",
-    "fy_verification_count",
-    "physical_order_id",
-    "physical_order_status",
     "current_apc_igaap",
 ]
 
@@ -474,9 +471,6 @@ ASSET_EXPORT_FIELD_LABELS: dict[str, str] = {
     "source_type": "Source Type",
     "serial_no": "Serial No.",
     "pm_equipment_id": "PM Equipment ID",
-    "fy_verification_count": "Verifications This FY",
-    "physical_order_id": "Physical Order ID",
-    "physical_order_status": "Order Status",
     "current_apc_igaap": "Current APC-IGAAP",
     "rfid_code": "RFID Code",
     "asset_condition_code": "Asset Physical Condition",

@@ -104,9 +104,6 @@ def asset_export_value(
         "pm_equipment_id": asset.information.pm_equipment_id if asset.information else None,
         "cost_center_name": cc_name,
         "capitalization_form_number": None,
-        "fy_verification_count": None,
-        "physical_order_id": None,
-        "physical_order_status": None,
         "lifecycle_status": asset.lifecycle_status,
         "approval_status": asset.approval_status,
         "source_type": asset.source_type,
@@ -170,13 +167,13 @@ def build_asset_export_pdf(
 ) -> bytes:
     from modules.reports.export import ReportDocument, build_pdf
 
-    headers = ["Sr. No."] + [
+    headers = [
         ASSET_REGISTER_PDF_LABELS.get(key) or ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title())
         for key in fields
     ]
     rows: list[list[str]] = []
-    for idx, asset in enumerate(assets, start=1):
-        row = [str(idx)]
+    for asset in assets:
+        row: list[str] = []
         for key in fields:
             cell = _format_cell(
                 asset_export_value(asset, key, cc_desc=cc_desc, fl_desc=fl_desc, al_desc=al_desc)

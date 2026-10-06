@@ -361,8 +361,11 @@ const DETAIL_TO_EXPORT_KEY: Record<string, string> = {
   plant_id: "plant_name",
 }
 
+/** Shown on asset details but never exported. */
+const NON_EXPORT_KEYS = new Set(["fy_verification_count", "physical_order_id", "physical_order_status"])
+
 function exportKeysForSection(sec: AssetViewSectionConfig): string[] {
-  const keys = sec.keys.map((k) => DETAIL_TO_EXPORT_KEY[k] ?? k)
+  const keys = sec.keys.filter((k) => !NON_EXPORT_KEYS.has(k)).map((k) => DETAIL_TO_EXPORT_KEY[k] ?? k)
   if (sec.id === "information") {
     const custAt = keys.indexOf("asset_custodian_code")
     if (custAt >= 0) keys.splice(custAt + 1, 0, "capitalization_form_number")

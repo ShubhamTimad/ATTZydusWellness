@@ -231,11 +231,13 @@ def _pdf_data_table(
     styles: dict[str, ParagraphStyle],
     available_width: float,
 ) -> Table:
-    col_widths = _column_widths(document.headers, document.rows, available_width)
-    header_row = [Paragraph(_clean_pdf_text(h), styles["header"]) for h in document.headers]
+    headers = ["Sr. No.", *document.headers]
+    rows = [[str(idx), *row] for idx, row in enumerate(document.rows, start=1)]
+    col_widths = _column_widths(headers, rows, available_width)
+    header_row = [Paragraph(_clean_pdf_text(h), styles["header"]) for h in headers]
     body_rows = [
         [Paragraph(_clean_pdf_text(cell), styles["cell"]) for cell in row]
-        for row in document.rows
+        for row in rows
     ]
     table = Table([header_row, *body_rows], colWidths=col_widths, repeatRows=1)
     table.setStyle(
@@ -370,6 +372,9 @@ def build_pdf(document: ReportDocument) -> bytes:
         rightMargin=PDF_MARGIN,
         topMargin=PDF_MARGIN + HEADER_BAND,
         bottomMargin=bottom,
+        title=document.title,
+        author=document.generated_by,
+        subject=document.subtitle,
     )
     styles = _pdf_styles()
     available_width = page_size[0] - pdf.leftMargin - pdf.rightMargin
