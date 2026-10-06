@@ -32,6 +32,7 @@ def create_feature(
 @router.get("", response_model=list[FeaturePublic])
 def list_features(
     svc: Annotated[FeatureService, Depends(get_feature_service)],
+    _: Annotated[object, Depends(require_permission("features.view"))],
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[Feature]:
@@ -42,6 +43,7 @@ def list_features(
 def get_feature(
     feature_id: int,
     svc: Annotated[FeatureService, Depends(get_feature_service)],
+    _: Annotated[object, Depends(require_permission("features.view"))],
 ) -> Feature:
     try:
         return svc.get_feature(feature_id)
@@ -54,6 +56,7 @@ def update_feature(
     feature_id: int,
     payload: FeatureUpdate,
     svc: Annotated[FeatureService, Depends(get_feature_service)],
+    _: Annotated[object, Depends(require_permission("features.update"))],
 ) -> Feature:
     try:
         return svc.update_feature(feature_id, payload)
@@ -67,6 +70,7 @@ def update_feature(
 def delete_feature(
     feature_id: int,
     svc: Annotated[FeatureService, Depends(get_feature_service)],
+    _: Annotated[object, Depends(require_permission("features.delete"))],
 ) -> None:
     try:
         svc.delete_feature(feature_id)

@@ -11,7 +11,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from core.security import decode_access_token
-from core.session_idle import SessionIdleExpiredError, touch_session_from_access_claims
+from core.session_idle import (
+    SessionIdleExpiredError,
+    SessionRevokedError,
+    touch_session_from_access_claims,
+)
 from db.session import SessionLocal
 
 _SKIP_PREFIXES = (
@@ -68,6 +72,12 @@ class SessionIdleMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "session_idle"},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except SessionRevokedError:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "session_revoked"},
                 headers={"WWW-Authenticate": "Bearer"},
             )
         finally:

@@ -34,13 +34,14 @@ def _noisy_jpeg(width: int, height: int, quality: int = 95) -> bytes:
 
 
 def test_large_photo_is_resized_and_smaller() -> None:
-    original = _noisy_jpeg(4000, 3000)
+    original = _noisy_jpeg(3000, 2000, quality=30)
+    assert len(original) <= MAX_UPLOAD_BYTES
     out, ctype = prepare_login_background(original)
     assert ctype == "image/jpeg"
     assert out.startswith(b"\xff\xd8\xff")
-    assert len(out) < len(original)
     check = Image.open(BytesIO(out))
     assert max(check.size) <= MAX_EDGE_PX
+    assert max(check.size) < max(Image.open(BytesIO(original)).size)
 
 
 def test_version_changes_when_bytes_change() -> None:

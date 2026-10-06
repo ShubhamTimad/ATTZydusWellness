@@ -16,7 +16,7 @@ def test_format_changes_detail_resolves_custodian_ids_to_names() -> None:
     )
     assert lines == [
         {
-            "field_label": "Asset custodian",
+            "field_label": "Asset Custodian",
             "from_value": "Operator Demo",
             "to_value": "Approver Demo",
         }
@@ -71,8 +71,8 @@ def test_format_changes_detail_resolves_location_and_cost_center_codes() -> None
         "from_value": "Production Floor",
         "to_value": "QC Floor",
     }
-    assert by_label["Actual location 2"] == {
-        "field_label": "Actual location 2",
+    assert by_label["Actual Location 2"] == {
+        "field_label": "Actual Location 2",
         "from_value": "Production Bay 1",
         "to_value": "QC Bay 1",
     }
@@ -99,8 +99,8 @@ def test_format_changes_detail_keeps_fl_and_al_when_codes_collide() -> None:
     by_label = {line["field_label"]: line for line in lines}
     assert by_label["Actual Location 1"]["from_value"] == "Warehouse A"
     assert by_label["Actual Location 1"]["to_value"] == "Warehouse B"
-    assert by_label["Actual location 2"]["from_value"] == "Bay 1"
-    assert by_label["Actual location 2"]["to_value"] == "Bay 2"
+    assert by_label["Actual Location 2"]["from_value"] == "Bay 1"
+    assert by_label["Actual Location 2"]["to_value"] == "Bay 2"
 
 
 def test_format_changes_detail_skips_class_id_when_name_present() -> None:

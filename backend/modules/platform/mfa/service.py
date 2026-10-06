@@ -36,7 +36,7 @@ class MfaService:
     def create_setup_token(self, user_id: int) -> str:
         raw = secrets.token_urlsafe(32)
         now = datetime.now(timezone.utc)
-        exp_min = int((os.environ.get("MFA_SETUP_TOKEN_EXPIRE_MINUTES") or "10080").strip() or "10080")
+        exp_min = int((os.environ.get("MFA_SETUP_TOKEN_EXPIRE_MINUTES") or "60").strip() or "60")
         if exp_min < 15:
             exp_min = 15
         row = MfaSetupToken(
@@ -82,6 +82,15 @@ class MfaService:
             )
         )
         return row
+
+    def record_otp_failure(self, ch: MfaChallenge, *, limit: int = 5) -> bool:
+        """Count a wrong code. Returns True when the challenge is burned."""
+        ch.attempts = int(ch.attempts or 0) + 1
+        burned = ch.attempts >= limit
+        if burned:
+            ch.used_at = datetime.now(timezone.utc)
+        self._db.commit()
+        return burned
 
     def mark_challenge_used(self, ch: MfaChallenge) -> None:
         ch.used_at = datetime.now(timezone.utc)

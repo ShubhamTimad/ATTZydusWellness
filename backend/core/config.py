@@ -25,6 +25,10 @@ def get_settings() -> Settings:
         raise RuntimeError(
             "JWT_SECRET_KEY is required. Set it in .env at the project root or in the environment."
         )
+    if len(secret) < 32 or "change-me" in secret.lower() or secret.lower().startswith("replace-with"):
+        raise RuntimeError(
+            "JWT_SECRET_KEY is too weak. Use at least 32 random characters and not a placeholder."
+        )
     algorithm = os.environ.get("JWT_ALGORITHM", "HS256").strip() or "HS256"
     raw_minutes = os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", "30").strip()
     try:

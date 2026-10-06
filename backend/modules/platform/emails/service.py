@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 import re
 import threading
 from dataclasses import dataclass
 from typing import Any
 
-from jinja2 import Environment, StrictUndefined, TemplateError
+from jinja2 import StrictUndefined, TemplateError
+from jinja2.sandbox import SandboxedEnvironment
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,7 +35,10 @@ def _missing_vars(required: list[str], payload: dict[str, Any]) -> list[str]:
     return missing
 
 
-_env = Environment(autoescape=True, undefined=StrictUndefined)
+logger = logging.getLogger(__name__)
+
+# Sandbox: templates are edited in admin and must not reach Python internals.
+_env = SandboxedEnvironment(autoescape=True, undefined=StrictUndefined)
 
 
 def render_template(content: str, payload: dict[str, Any]) -> str:
@@ -61,14 +66,12 @@ class EmailSender:
     ) -> None:
         if cfg is None:
             if not is_email_delivery_enabled():
-                print(f"[email-engine] (delivery disabled) to={to_email} subject={subject!r}\n{body}\n")
+                logger.info("email_not_sent", extra={"reason": "delivery_disabled", "to": to_email})
                 return
 
             cfg = get_smtp_config()
             if cfg is None:
-                print(
-                    f"[email-engine] (SMTP not configured) to={to_email} subject={subject!r}\n{body}\n"
-                )
+                logger.info("email_not_sent", extra={"reason": "smtp_not_configured", "to": to_email})
                 return
 
         send_via_smtp(cfg, to_email=to_email, subject=subject, body=body)
@@ -90,7 +93,7 @@ def enqueue_trigger_events(events: list[tuple[str, dict[str, Any]]]) -> None:
                 try:
                     svc.trigger_event(event_code=code, payload=payload)
                 except Exception:
-                    pass
+                    logger.exception("email_event_failed", extra={"event_code": code})
         finally:
             db.close()
 
@@ -189,6 +192,8 @@ class EmailNotificationService:
         missing_variables: list[str] | None = None,
     ) -> TriggerResult:
         to_email = str(payload.get("email") or payload.get("to_email") or "").strip() or "—"
+        if event_code == "FORGOT_PASSWORD":
+            body = "[redacted]"
         # Write email logs on a separate session so we never commit the caller's unit of work.
         from db.session import SessionLocal
 

@@ -41,7 +41,7 @@ import { CapexCreatePage, CapexDetailPage, CapexListPage } from "@/pages/capex"
 import { ReportsPage } from "@/pages/reports"
 import * as React from "react"
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom"
-import { getJson } from "@/lib/api"
+import { endServerSession, getJson } from "@/lib/api"
 import { AccessDenied } from "@/components/admin/access-denied"
 import { ScreenLoader } from "@/components/ui/page-loader"
 import { SessionIdleWatcher } from "@/components/session-idle-watcher"
@@ -422,6 +422,7 @@ function hasToken() {
 }
 
 function clearTokens() {
+  endServerSession()
   localStorage.removeItem("access_token")
   localStorage.removeItem("refresh_token")
   clearSharedLastActive()

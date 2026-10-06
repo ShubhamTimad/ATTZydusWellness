@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from core.mfa_crypto import reveal_stored_secret
 from modules.platform.settings.lookup import get_setting
 from modules.platform.settings.schema import SsoSettingsPublic
 
@@ -64,7 +65,7 @@ def get_sso_config() -> SsoConfig | None:
     issuer = normalize_issuer(_setting_or_env("sso.issuer", "SSO_ISSUER"))
     client_id = _setting_or_env("sso.client_id", "SSO_CLIENT_ID")
     redirect_uri = _setting_or_env("sso.redirect_uri", "SSO_REDIRECT_URI")
-    secret = _setting_or_env("sso.client_secret", "SSO_CLIENT_SECRET") or None
+    secret = reveal_stored_secret(_setting_or_env("sso.client_secret", "SSO_CLIENT_SECRET")) or None
     if not issuer or not client_id or not redirect_uri or not secret:
         return None
     return SsoConfig(

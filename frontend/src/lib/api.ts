@@ -44,6 +44,17 @@ function getRefreshToken() {
   }
 }
 
+export function endServerSession(): void {
+  const token = getAccessToken()
+  if (!token) return
+  const url = `${API_BASE_URL}/logout`
+  void fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    keepalive: true,
+  }).catch(() => {})
+}
+
 function storeTokens(pair: TokenPair) {
   localStorage.setItem("access_token", pair.access_token)
   localStorage.setItem("refresh_token", pair.refresh_token)
@@ -185,7 +196,14 @@ function parseErrorMessage(data: unknown, status: number): string {
   return `Request failed (${status})`
 }
 
-const AUTH_PATHS_SKIP_LOGOUT = ["/login", "/refresh", "/forgot-password", "/reset-password"]
+const AUTH_PATHS_SKIP_LOGOUT = [
+  "/login",
+  "/refresh",
+  "/logout",
+  "/forgot-password",
+  "/reset-password",
+  "/auth/sso",
+]
 
 function shouldLogoutOn401(path: string): boolean {
   const normalized = path.startsWith("/") ? path : `/${path}`

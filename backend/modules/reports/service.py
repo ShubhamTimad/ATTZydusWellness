@@ -230,7 +230,7 @@ class ReportService:
             "Plant",
             "Cost center",
             "Status",
-            "Assets",
+            "Asset Count",
             "Assignee",
             "Created by",
             "Created at",

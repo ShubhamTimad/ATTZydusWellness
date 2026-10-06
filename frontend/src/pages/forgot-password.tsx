@@ -56,11 +56,7 @@ export function ForgotPasswordPage() {
     } catch (err) {
       let message = "Request failed. Try again later."
       if (err instanceof ApiError) {
-        if (err.status === 404) {
-          message = "No account found with this email address."
-        } else if (err.status === 403) {
-          message = err.message
-        } else if (err.status === 422) {
+        if (err.status === 422) {
           message = "Enter a valid email address."
         } else {
           message = err.message

@@ -1304,6 +1304,12 @@ class ApprovalEngineService:
             None,
         )
         # Same-role Close is the order Close button, not another named handoff.
+        # CapEx keeps Close as its own step; the success mail goes out on the
+        # last approve step, before that Close.
+        is_capex = str(req.entity_type) in (
+            "capitalization_request",
+            "capitalization_request_engineering",
+        )
         if is_physical_closure and physical_same_role_close(step, next_approval):
             next_approval = None
         if next_approval is None:
@@ -1314,11 +1320,18 @@ class ApprovalEngineService:
                     "Select the receiver before giving final approval."
                 )
             req.status = "approved"
+            # Already mailed when the last approve step moved on to Close.
+            send_capex_mail = not (
+                is_capex
+                and kind == "close"
+                and any(_step_kind(s) == "approve" for s in steps_sorted[:idx])
+            )
             self._finalize_request(
                 req,
                 comment=comment,
                 step=step,
                 next_assigned_user_id=next_assigned_user_id,
+                send_capex_success_mail=send_capex_mail,
             )
             # Capex already sends CAPITALIZATION_APPROVED to creator + CC users.
             if str(req.entity_type) not in (
@@ -1332,10 +1345,6 @@ class ApprovalEngineService:
         # Move to next step.
         next_step = next_approval
         req.current_step = next_step.step_order
-        is_capex = str(req.entity_type) in (
-            "capitalization_request",
-            "capitalization_request_engineering",
-        )
         needs_named_next_approver = is_disposal or is_capex or is_physical_closure
         if needs_named_next_approver:
             cur_role = self._db.get(Role, int(step.approver_role_id))
@@ -1383,6 +1392,26 @@ class ApprovalEngineService:
         else:
             self._create_tasks_for_step(req, next_step)
         self._db.commit()
+        if is_capex:
+            from modules.capex.constants import capex_sends_approval_success
+            from modules.capex.model import CapitalizationForm
+            from modules.capex.service import notify_capitalization_approved
+
+            if capex_sends_approval_success(
+                step_kind=_step_kind(step),
+                later_step_kinds=[_step_kind(s) for s in steps_sorted[idx + 1 :]],
+            ):
+                form = self._db.get(CapitalizationForm, int(req.entity_id))
+                if form is not None:
+                    try:
+                        notify_capitalization_approved(self._db, form)
+                    except Exception:
+                        import logging
+
+                        logging.getLogger(__name__).exception(
+                            "capitalization_approval_email_failed",
+                            extra={"form_id": int(req.entity_id)},
+                        )
         return self.get_request(req.id)
 
     def _advance_transfer_after_step(
@@ -1620,6 +1649,7 @@ class ApprovalEngineService:
         comment: str | None = None,
         step: ApprovalStep | None = None,
         next_assigned_user_id: int | None = None,
+        send_capex_success_mail: bool = True,
     ) -> None:
         if req.entity_type in ("asset_creation", "asset_import"):
             from modules.assets.service import activate_asset_after_approval
@@ -1667,6 +1697,7 @@ class ApprovalEngineService:
                 approver_user_id=approver_id,
                 step_role_name=step_role,
                 comment=comment,
+                send_success_mail=send_capex_success_mail,
             )
             return
         if req.entity_type in DISPOSAL_ENTITY_TYPES:

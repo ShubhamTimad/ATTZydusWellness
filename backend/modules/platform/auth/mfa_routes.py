@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 
 from modules.platform.auth.login_result import MobileAccessDeniedError
 from sqlalchemy.orm import Session
 
+from core.login_rate_limit import check_bucket
 from db.session import get_db
 from modules.platform.auth.schema import TokenPair
 from modules.platform.auth.service import AuthService
@@ -52,10 +53,12 @@ class MfaSetupVerifyBody(BaseModel):
 
 @router.post("/mfa/verify", response_model=TokenPair)
 def verify_mfa_otp(
+    request: Request,
     payload: MfaVerifyRequest,
     svc: Annotated[AuthService, Depends(get_auth_service)],
     db: Annotated[Session, Depends(get_db)],
 ) -> TokenPair:
+    check_bucket(request, "mfa-verify", max_hits=20, window_sec=600)
     mfa = MfaService(db)
     ch = mfa.verify_login_challenge(payload.challenge_token)
     if ch is None:
@@ -64,6 +67,11 @@ def verify_mfa_otp(
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user")
     if not mfa.verify_totp_for_user(int(user.id), payload.otp):
+        if mfa.record_otp_failure(ch):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Too many incorrect codes. Sign in again.",
+            )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OTP")
     try:
         svc.assert_client_access(user, payload.client_type)

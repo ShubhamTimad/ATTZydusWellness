@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { getJson } from "@/lib/api"
+import { endServerSession, getJson, postJson } from "@/lib/api"
 import { clearAuthProfile, persistAuthFromMe } from "@/lib/permissions"
 import { clearSharedLastActive, clearStoredAuthMethod, writeStoredAuthMethod } from "@/lib/session-idle-events"
 
@@ -25,35 +25,11 @@ type SsoHandoff = {
 }
 
 const HANDOFF_KEY = "sso_handoff"
+const CODE_KEY = "sso_exchange_code"
 
-function readHandoffFromUrl(): SsoHandoff | null {
-  const hash = window.location.hash.replace(/^#/, "")
-  const query = window.location.search.replace(/^\?/, "")
-  const params = new URLSearchParams(hash || query)
-  const access_token = params.get("access_token")
-  const refresh_token = params.get("refresh_token")
-  if (!access_token || !refresh_token) return null
-  return {
-    access_token,
-    refresh_token,
-    portal: params.get("portal") === "admin" ? "admin" : "user",
-  }
-}
+let exchangeInFlight: Promise<SsoHandoff | null> | null = null
 
-function takeHandoff(): SsoHandoff | null {
-  // Prefer URL once; stash so React Strict Mode remount still sees tokens.
-  const fromUrl = readHandoffFromUrl()
-  if (fromUrl) {
-    try {
-      sessionStorage.setItem(HANDOFF_KEY, JSON.stringify(fromUrl))
-    } catch {
-      /* ignore quota / private mode */
-    }
-    if (window.location.hash || window.location.search) {
-      window.history.replaceState(null, "", window.location.pathname)
-    }
-    return fromUrl
-  }
+function readStoredHandoff(): SsoHandoff | null {
   try {
     const raw = sessionStorage.getItem(HANDOFF_KEY)
     if (!raw) return null
@@ -76,9 +52,53 @@ function takeHandoff(): SsoHandoff | null {
   return null
 }
 
+function takeExchangeCode(): string | null {
+  const params = new URLSearchParams(window.location.search)
+  const fromUrl = params.get("code")
+  if (fromUrl) {
+    try {
+      sessionStorage.setItem(CODE_KEY, fromUrl)
+    } catch {
+      /* ignore */
+    }
+    window.history.replaceState(null, "", window.location.pathname)
+    return fromUrl
+  }
+  try {
+    return sessionStorage.getItem(CODE_KEY)
+  } catch {
+    return null
+  }
+}
+
+async function takeHandoff(): Promise<SsoHandoff | null> {
+  const stored = readStoredHandoff()
+  if (stored) return stored
+  const code = takeExchangeCode()
+  if (!code) return null
+  if (!exchangeInFlight) {
+    exchangeInFlight = postJson<SsoHandoff>("/auth/sso/exchange", { code })
+      .then((handoff) => {
+        try {
+          sessionStorage.setItem(HANDOFF_KEY, JSON.stringify(handoff))
+          sessionStorage.removeItem(CODE_KEY)
+        } catch {
+          /* ignore */
+        }
+        return handoff
+      })
+      .catch((error: unknown) => {
+        exchangeInFlight = null
+        throw error
+      })
+  }
+  return exchangeInFlight
+}
+
 function clearHandoff() {
   try {
     sessionStorage.removeItem(HANDOFF_KEY)
+    sessionStorage.removeItem(CODE_KEY)
   } catch {
     /* ignore */
   }
@@ -92,7 +112,7 @@ export function SsoCallbackPage() {
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const handoff = takeHandoff()
+      const handoff = await takeHandoff()
       if (!handoff) {
         if (!cancelled) setError("Missing SSO tokens. Try signing in again.")
         return
@@ -109,6 +129,7 @@ export function SsoCallbackPage() {
         clearHandoff()
         if (handoff.portal === "admin") {
           if (!me.is_superuser) {
+            endServerSession()
             localStorage.removeItem("access_token")
             localStorage.removeItem("refresh_token")
             clearStoredAuthMethod()
@@ -126,6 +147,7 @@ export function SsoCallbackPage() {
         navigate("/dashboard", { replace: true })
       } catch (e) {
         clearHandoff()
+        endServerSession()
         localStorage.removeItem("access_token")
         localStorage.removeItem("refresh_token")
         clearStoredAuthMethod()

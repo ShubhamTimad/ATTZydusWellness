@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from modules.platform.auth.model import UserSession
@@ -13,6 +13,10 @@ from modules.platform.settings.session_idle import idle_policy_for_auth_method
 
 class SessionIdleExpiredError(Exception):
     """Refresh or access use after configured idle period."""
+
+
+class SessionRevokedError(Exception):
+    """Access token whose server session was revoked or never issued."""
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -55,7 +59,7 @@ def touch_session_from_access_claims(db: Session, claims: dict) -> None:
         )
     )
     if row is None:
-        return
+        raise SessionRevokedError
     idle_seconds = _idle_seconds_for_row(row)
     if idle_seconds is None:
         row.last_activity_at = now
@@ -68,6 +72,15 @@ def touch_session_from_access_claims(db: Session, claims: dict) -> None:
         raise SessionIdleExpiredError
     row.last_activity_at = now
     db.commit()
+
+
+def revoke_all_sessions(db: Session, user_id: int) -> None:
+    now = datetime.now(timezone.utc)
+    db.execute(
+        update(UserSession)
+        .where(UserSession.user_id == int(user_id), UserSession.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
 
 
 def assert_refresh_session_active(db: Session, row: UserSession) -> None:

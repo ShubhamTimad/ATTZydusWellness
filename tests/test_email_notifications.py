@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from db.base import Base
 from modules.platform.emails.model import EmailLog, EmailTemplate, EmailTemplateMapping
+from modules.platform.mfa.model import UserMfa  # noqa: F401  registers User.mfa_record
 from modules.platform.emails.service import EmailNotificationService
 
 
@@ -26,7 +27,7 @@ def db() -> Session:
         yield session
 
 
-def test_trigger_event_falls_back_to_active_template_without_mapping(db: Session) -> None:
+def test_trigger_event_skips_when_no_mapping(db: Session) -> None:
     template = EmailTemplate(
         name="Forgot password v1",
         event_code="FORGOT_PASSWORD",
@@ -48,17 +49,8 @@ def test_trigger_event_falls_back_to_active_template_without_mapping(db: Session
         },
     )
 
-    assert result.status == "sent"
-    assert sender.calls == [
-        {
-            "to_email": "alice@example.com",
-            "subject": "Reset your password",
-            "body": "<p>Hello Alice</p><p><a href='https://example.com/reset?t=1'>Reset</a></p>",
-        }
-    ]
-    logs = db.scalars(select(EmailLog)).all()
-    assert len(logs) == 1
-    assert logs[0].status == "sent"
+    assert result.status == "skipped"
+    assert sender.calls == []
 
 
 def test_trigger_event_prefers_explicit_mapping_when_present(db: Session) -> None:

@@ -38,7 +38,7 @@ PDF_HEADER_FONT = 7.5
 MIN_COL_WIDTH = 28
 MAX_COL_WIDTH = 110
 
-_COMPACT_HEADERS = frozenset({"plant", "status", "scans in period", "scans", "fy status"})
+_COMPACT_HEADERS = frozenset({"plant", "status", "scans in period", "scans", "fy status", "sr. no."})
 _MEDIUM_HEADERS = frozenset({"asset code", "rfid code", "rfid", "last verification", "scan time", "created at", "completed at"})
 _ID_HEADERS = frozenset({
     "asset class",

@@ -4,6 +4,7 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -751,9 +752,11 @@ async def import_preview(
     _: Annotated[object, Depends(require_permission("asset.import"))],
     file: UploadFile = File(...),
 ) -> ImportPreviewResponse:
-    content = await file.read()
+    content = await file.read(10 * 1024 * 1024 + 1)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Import file must be 10 MB or smaller.")
     try:
-        return svc.preview_import(filename=file.filename, content=content)
+        return await run_in_threadpool(svc.preview_import, filename=file.filename, content=content)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

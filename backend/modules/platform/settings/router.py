@@ -48,6 +48,7 @@ def get_settings_service(db: Session = Depends(get_db)) -> SettingsService:
 @router.get("/password-policy", response_model=PasswordPolicyPublic)
 def get_password_policy(
     svc: Annotated[SettingsService, Depends(get_settings_service)],
+    _: SettingsRead,
 ) -> PasswordPolicyPublic:
     return svc.get_password_policy()
 

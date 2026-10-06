@@ -19,6 +19,13 @@ from modules.platform.permissions.service import PermissionService
 
 router = APIRouter(prefix="/permissions", tags=["admin", "permissions"])
 
+_PERM_READ = require_any_permission(
+    "permissions.view",
+    "roles.view",
+    "roles.create",
+    "roles.update",
+)
+
 
 def get_permission_service(db: Session = Depends(get_db)) -> PermissionService:
     return PermissionService(db)
@@ -27,6 +34,7 @@ def get_permission_service(db: Session = Depends(get_db)) -> PermissionService:
 @router.get("/catalog", response_model=PermissionCatalogPublic)
 def permission_catalog(
     svc: Annotated[PermissionService, Depends(get_permission_service)],
+    _: Annotated[object, Depends(_PERM_READ)],
 ) -> PermissionCatalogPublic:
     """Grouped permission definitions merged with database ids (for admin UI)."""
     return svc.build_permission_catalog()
@@ -59,6 +67,7 @@ def create_permission(
 @router.get("", response_model=list[PermissionPublic])
 def list_permissions(
     svc: Annotated[PermissionService, Depends(get_permission_service)],
+    _: Annotated[object, Depends(_PERM_READ)],
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     feature_id: int | None = Query(default=None),
@@ -70,6 +79,7 @@ def list_permissions(
 def get_permission(
     permission_id: int,
     svc: Annotated[PermissionService, Depends(get_permission_service)],
+    _: Annotated[object, Depends(_PERM_READ)],
 ) -> Permission:
     try:
         return svc.get_permission(permission_id)

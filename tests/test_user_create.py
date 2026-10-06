@@ -44,7 +44,7 @@ def test_create_user_assigns_role_and_org(db: Session) -> None:
             phone="9876543210",
             email="alice@example.com",
             role_id=role.id,
-            org_unit_id=plant.id,
+            org_unit_ids=[plant.id],
         )
     )
     assert user.id > 0
@@ -71,7 +71,7 @@ def test_duplicate_phone_fails(db: Session) -> None:
             phone="9876543211",
             email="a@example.com",
             role_id=role.id,
-            org_unit_id=plant.id,
+            org_unit_ids=[plant.id],
         )
     )
     with pytest.raises(DuplicatePhoneError):
@@ -82,7 +82,7 @@ def test_duplicate_phone_fails(db: Session) -> None:
                 phone="9876543211",
                 email="b@example.com",
                 role_id=role.id,
-                org_unit_id=plant.id,
+                org_unit_ids=[plant.id],
             )
         )
 
@@ -103,7 +103,7 @@ def test_create_user_writes_rbac_audit(db: Session) -> None:
             phone="9123456789",
             email="audit@example.com",
             role_id=role.id,
-            org_unit_id=plant.id,
+            org_unit_ids=[plant.id],
         ),
         actor_user_id=1,
     )
@@ -129,7 +129,7 @@ def test_invalid_phone_fails_validation() -> None:
             phone="123",
             email="bad@example.com",
             role_id=1,
-            org_unit_id=1,
+            org_unit_ids=[1],
         )
 
     with pytest.raises(ValidationError):
@@ -139,7 +139,7 @@ def test_invalid_phone_fails_validation() -> None:
             phone="5123456789",
             email="land@example.com",
             role_id=1,
-            org_unit_id=1,
+            org_unit_ids=[1],
         )
 
 
@@ -160,7 +160,7 @@ def test_missing_role_fails(db: Session) -> None:
                 phone="9876543212",
                 email="missingrole@example.com",
                 role_id=999,
-                org_unit_id=plant.id,
+                org_unit_ids=[plant.id],
             )
         )
 

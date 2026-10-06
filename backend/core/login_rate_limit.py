@@ -16,6 +16,8 @@ _failures_by_ip: dict[str, deque[float]] = {}
 # Monotonic time until IP is blocked (failed-attempt lockout).
 _locked_until_mono: dict[str, float] = {}
 
+_buckets: dict[tuple[str, str], deque[float]] = {}
+
 _MAX_ATTEMPTS_PER_MINUTE = 30
 _ATTEMPT_WINDOW_SEC = 60.0
 _MAX_FAILURES = 10
@@ -65,6 +67,26 @@ def record_login_failure(ip: str) -> None:
         dq.append(now)
         if len(dq) >= _MAX_FAILURES:
             _locked_until_mono[ip] = now + _LOCKOUT_SEC
+
+
+def check_bucket(request: Request, bucket: str, *, max_hits: int, window_sec: float) -> None:
+    """Per-IP counter. In-memory and per process (ponytail: not shared across uvicorn workers)."""
+    ip = _client_ip(request)
+    now = time.monotonic()
+    key = (bucket, ip)
+    with _LOCK:
+        dq = _buckets.setdefault(key, deque())
+        while dq and dq[0] < now - window_sec:
+            dq.popleft()
+        if not dq:
+            _buckets.pop(key, None)
+            dq = _buckets.setdefault(key, deque())
+        if len(dq) >= max_hits:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many requests. Try again later.",
+            )
+        dq.append(now)
 
 
 def clear_login_failures(ip: str) -> None:

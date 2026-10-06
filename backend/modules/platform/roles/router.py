@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
-from core.permissions import require_permission
+from core.permissions import require_any_permission, require_permission
 from db.session import get_db
 from modules.errors import ConflictError, NotFoundError, RbacSafetyError
 from modules.platform.roles.model import Role
@@ -12,6 +12,17 @@ from modules.platform.roles.schema import RoleCreate, RoleDetail, RoleListItem, 
 from modules.platform.roles.service import RoleService
 
 router = APIRouter(prefix="/roles", tags=["admin", "roles"])
+
+# User forms and workflow assignment load the role list as a picker.
+_ROLE_READ = require_any_permission(
+    "roles.view",
+    "roles.update",
+    "users.view",
+    "users.create",
+    "users.update",
+    "approval.view",
+    "approval.manage",
+)
 
 
 def get_role_service(db: Session = Depends(get_db)) -> RoleService:
@@ -38,6 +49,7 @@ def create_role(
 @router.get("", response_model=list[RoleListItem])
 def list_roles(
     svc: Annotated[RoleService, Depends(get_role_service)],
+    _: Annotated[object, Depends(_ROLE_READ)],
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[RoleListItem]:
@@ -57,6 +69,7 @@ def list_roles(
 @router.get("/page", response_model=RoleListPage)
 def list_roles_page(
     svc: Annotated[RoleService, Depends(get_role_service)],
+    _: Annotated[object, Depends(_ROLE_READ)],
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
 ) -> RoleListPage:
@@ -82,6 +95,7 @@ def list_roles_page(
 def get_role(
     role_id: int,
     svc: Annotated[RoleService, Depends(get_role_service)],
+    _: Annotated[object, Depends(_ROLE_READ)],
 ) -> Role:
     try:
         return svc.get_role(role_id)

@@ -6,6 +6,7 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -18,7 +19,9 @@ from modules.platform.auth.sso_oidc import (
     SsoUserNotAuthorizedError,
     build_authorize_redirect,
     complete_sso_callback,
+    consume_sso_exchange_code,
     frontend_sso_error_url,
+    issue_sso_exchange_code,
     frontend_sso_silent_miss_url,
     frontend_sso_success_url,
     is_silent_miss_error,
@@ -29,6 +32,22 @@ from modules.platform.auth.sso_oidc import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth/sso", tags=["auth", "sso"])
+
+
+class SsoExchangeBody(BaseModel):
+    code: str = Field(min_length=10, max_length=256)
+
+
+@router.post("/exchange")
+def sso_exchange(
+    body: SsoExchangeBody,
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, str]:
+    found = consume_sso_exchange_code(db, body.code)
+    if found is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired SSO code.")
+    access_token, refresh_token, portal = found
+    return {"access_token": access_token, "refresh_token": refresh_token, "portal": portal}
 
 
 @router.get("/login")
@@ -198,7 +217,8 @@ def sso_callback(
         )
 
     logger.info("sso_callback_ok", extra={"event": "sso_callback_ok", "portal": portal})
+    code = issue_sso_exchange_code(db, tokens, portal)
     return RedirectResponse(
-        url=frontend_sso_success_url(portal=portal, tokens=tokens),
+        url=frontend_sso_success_url(portal=portal, code=code),
         status_code=status.HTTP_302_FOUND,
     )

@@ -1,7 +1,7 @@
 """Import models so SQLAlchemy registers them on Base.metadata."""
 
 from modules.platform.audit.model import AuditLog
-from modules.platform.auth.model import PasswordResetToken, UserSession
+from modules.platform.auth.model import PasswordResetToken, SsoExchangeCode, UserSession
 from modules.platform.auth_policy.model import AuthPolicy
 from modules.platform.mfa.model import MfaChallenge, MfaSetupToken, UserMfa
 from modules.platform.features.model import Feature

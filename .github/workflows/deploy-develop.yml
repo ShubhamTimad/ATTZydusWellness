@@ -32,6 +32,17 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest -q tests
+
   announce-pending:
     name: Notify Teams — deploy pending
     needs: build
@@ -100,7 +111,7 @@ jobs:
 
   deploy:
     name: Deploy to server
-    needs: [announce-pending]
+    needs: [build, backend-tests, announce-pending]
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
@@ -182,8 +193,11 @@ jobs:
               echo "External TLS proxy mode — core stack only (db/backend/frontend)"
             fi
 
-            docker compose --env-file .env.docker --profile https down --remove-orphans
+            # Backup while the current database is still up, then build before
+            # stopping containers so the site stays up during the image build.
+            ./scripts/backup-db.sh || echo "WARNING: database backup failed — continuing"
             docker compose --env-file .env.docker build
+            docker compose --env-file .env.docker --profile https down --remove-orphans
             # shellcheck disable=SC2086
             docker compose --env-file .env.docker $COMPOSE_HTTPS up -d
 
@@ -219,8 +233,8 @@ jobs:
               echo "Frontend HTTP check failed (127.0.0.1:${APP_PORT})"
               FAILED=1
             fi
-            if ! curl -fsS -o /dev/null --max-time 15 "http://127.0.0.1:${APP_PORT}/api/docs"; then
-              echo "API docs HTTP check failed (127.0.0.1:${APP_PORT})"
+            if ! curl -fsS -o /dev/null --max-time 15 "http://127.0.0.1:${APP_PORT}/api/health"; then
+              echo "API health check failed (127.0.0.1:${APP_PORT})"
               FAILED=1
             fi
 
@@ -234,30 +248,9 @@ jobs:
             fi
 
             if [ "$FAILED" -ne 0 ]; then
-              echo "Deploy unhealthy — reverting to $PREVIOUS_SHA"
-              if [ "$PREVIOUS_SHA" = "$NEW_SHA" ]; then
-                echo "No previous distinct commit to revert to"
-                exit 1
-              fi
-              if ! git cat-file -t "$PREVIOUS_SHA" >/dev/null 2>&1; then
-                echo "Previous SHA $PREVIOUS_SHA is not in this repo — not reverting onto a foreign commit"
-                exit 1
-              fi
-
-              git checkout "$PREVIOUS_SHA"
-              COMPOSE_HTTPS=""
-              if grep -qE '^ENABLE_EDGE_PROXY=(true|1|yes)$' .env.docker; then
-                COMPOSE_HTTPS="--profile https"
-              fi
-              docker compose --env-file .env.docker --profile https down --remove-orphans
-              docker compose --env-file .env.docker build
-              # shellcheck disable=SC2086
-              docker compose --env-file .env.docker $COMPOSE_HTTPS up -d
-              sleep 20
-              # shellcheck disable=SC2086
-              docker compose --env-file .env.docker $COMPOSE_HTTPS ps
-
-              echo "Reverted to $PREVIOUS_SHA because new deploy failed"
+              echo "Deploy unhealthy. Not rolling code back: migrations may already have run."
+              echo "Restore the newest file in ./backups if you need the previous database."
+              echo "Previous commit was $PREVIOUS_SHA"
               exit 1
             fi
 
@@ -331,8 +324,8 @@ jobs:
 
   notify-teams-failure:
     name: Notify Teams on failure
-    needs: [build, announce-pending, deploy]
-    if: ${{ always() && (needs.build.result == 'failure' || needs.announce-pending.result == 'failure' || needs.deploy.result == 'failure') }}
+    needs: [build, backend-tests, announce-pending, deploy]
+    if: ${{ always() && (needs.build.result == 'failure' || needs.backend-tests.result == 'failure' || needs.announce-pending.result == 'failure' || needs.deploy.result == 'failure') }}
     runs-on: ubuntu-latest
     steps:
       - name: Post failure to Teams

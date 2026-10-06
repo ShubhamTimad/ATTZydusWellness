@@ -13,7 +13,11 @@ from sqlalchemy.orm import Session, selectinload
 from core.captcha import captcha_is_valid
 from core.config import get_settings
 from core.request_context import set_user_id
-from core.session_idle import SessionIdleExpiredError, assert_refresh_session_active
+from core.session_idle import (
+    SessionIdleExpiredError,
+    assert_refresh_session_active,
+    revoke_all_sessions,
+)
 from core.password_policy import PasswordExpiredError, is_password_expired
 from core.password_policy import validate_password
 from core.security import (
@@ -216,10 +220,6 @@ class AuthService:
         set_user_id(int(user.id))
         self.assert_client_access(user, data.client_type)
 
-        if user.is_superuser:
-            logger.info("login_ok", extra={"event": "login_ok", "outcome": "tokens", "auth_method": "password"})
-            return LoginOutcomeTokens(tokens=self._issue_token_pair(user))
-
         pol = get_global_policy(self._db)
         if not pol.password_enabled:
             logger.warning(
@@ -246,7 +246,7 @@ class AuthService:
             if pol.mfa_enforced:
                 msvc = MfaService(self._db)
                 raw = msvc.create_setup_token(int(user.id))
-                exp_min = int((os.environ.get("MFA_SETUP_TOKEN_EXPIRE_MINUTES") or "10080").strip() or "10080")
+                exp_min = int((os.environ.get("MFA_SETUP_TOKEN_EXPIRE_MINUTES") or "60").strip() or "60")
                 logger.info("login_ok", extra={"event": "login_ok", "outcome": "mfa_setup"})
                 return LoginOutcomeMfaSetup(setup_token=raw, expires_in_seconds=max(60, exp_min * 60))
             logger.info("login_ok", extra={"event": "login_ok", "outcome": "tokens", "auth_method": "password"})
@@ -277,7 +277,22 @@ class AuthService:
             )
         )
         if row is None:
-            logger.warning("refresh_failed", extra={"event": "refresh_failed", "reason": "session_missing"})
+            dead = self._db.scalar(select(UserSession).where(UserSession.refresh_jti == jti))
+            if dead is not None and dead.revoked_at is not None:
+                revoked_at = dead.revoked_at
+                if revoked_at.tzinfo is None:
+                    revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+                # A second tab can refresh with the same token within a few seconds.
+                # Only a later reuse (stolen token) ends every session.
+                if (now - revoked_at).total_seconds() > 15:
+                    revoke_all_sessions(self._db, int(dead.user_id))
+                    self._db.commit()
+                    logger.warning(
+                        "refresh_reuse",
+                        extra={"event": "refresh_reuse", "user_id": int(dead.user_id)},
+                    )
+            else:
+                logger.warning("refresh_failed", extra={"event": "refresh_failed", "reason": "session_missing"})
             raise InvalidRefreshTokenError
         try:
             assert_refresh_session_active(self._db, row)
@@ -445,6 +460,7 @@ class AuthService:
         user.hashed_password = hash_password(new_password)
         user.password_changed_at = now
         row.used_at = now
+        revoke_all_sessions(self._db, int(user.id))
         self._db.commit()
 
         if user.email:

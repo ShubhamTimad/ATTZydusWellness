@@ -120,11 +120,23 @@ function assetEditSnapshot(a: AssetDetail): string {
 
 type SummaryItem = { label: string; value: React.ReactNode; mono?: boolean }
 
+function summaryDisplay(value: React.ReactNode): { text: React.ReactNode; title?: string } {
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (!trimmed) return { text: "—", title: "—" }
+    return { text: trimmed, title: trimmed }
+  }
+  if (value == null || value === false) return { text: "—", title: "—" }
+  return { text: value }
+}
+
 function SummaryStrip({ items }: { items: SummaryItem[] }) {
   return (
     <div className="app-panel overflow-x-auto overscroll-x-contain">
       <div className="flex min-w-full flex-nowrap divide-x divide-border/60">
-        {items.map((item) => (
+        {items.map((item) => {
+          const shown = summaryDisplay(item.value)
+          return (
           <div
             key={item.label}
             className="min-w-0 flex-1 basis-0 px-3 py-2 first:pl-4 last:pr-4"
@@ -137,12 +149,13 @@ function SummaryStrip({ items }: { items: SummaryItem[] }) {
                 "mt-0.5 truncate text-sm font-normal text-foreground",
                 item.mono && "font-normal",
               )}
-              title={typeof item.value === "string" ? item.value : undefined}
+              title={shown.title}
             >
-              {item.value}
+              {shown.text}
             </p>
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

@@ -237,6 +237,32 @@ def _decode_id_token(
     return jwt.decode(id_token, key_data, **kwargs)
 
 
+def _issuer_matches(token_iss: str, cfg_iss: str) -> bool:
+    """Same issuer, allowing only a trailing slash or Entra /v2.0 suffix difference."""
+    left = (token_iss or "").rstrip("/")
+    right = (cfg_iss or "").rstrip("/")
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    suffix = "/v2.0"
+    if left.endswith(suffix) and left[: -len(suffix)] == right:
+        return True
+    if right.endswith(suffix) and right[: -len(suffix)] == left:
+        return True
+    return False
+
+
+def _configured_tenant(issuer: str) -> str | None:
+    match = re.search(r"login\.microsoftonline\.com/([^/]+)", issuer or "")
+    if match is None:
+        return None
+    tenant = match.group(1)
+    if tenant in {"common", "organizations", "consumers"}:
+        return None
+    return tenant
+
+
 def _verify_id_token(cfg: SsoConfig, discovery: dict[str, Any], id_token: str) -> dict[str, Any]:
     jwks_uri = discovery.get("jwks_uri")
     if not jwks_uri:
@@ -267,22 +293,19 @@ def _verify_id_token(cfg: SsoConfig, discovery: dict[str, Any], id_token: str) -
     except JWTError as exc:
         try:
             unverified = jwt.get_unverified_claims(id_token)
-            token_iss = str(unverified.get("iss") or "").rstrip("/")
-            cfg_iss = cfg.issuer.rstrip("/")
-            if token_iss and (
-                token_iss == cfg_iss
-                or token_iss.startswith(cfg_iss + "/")
-                or cfg_iss.startswith(token_iss)
-                or "login.microsoftonline.com" in token_iss
-            ):
+        except JWTError as exc2:
+            raise SsoProtocolError("ID token validation failed.") from exc2
+        token_iss = str(unverified.get("iss") or "")
+        if _issuer_matches(token_iss, cfg.issuer):
+            try:
                 return _decode_id_token(
                     id_token,
                     key_data=key_data,
                     audience=cfg.client_id,
-                    issuer=None,
+                    issuer=token_iss.rstrip("/"),
                 )
-        except JWTError as exc2:
-            raise SsoProtocolError("ID token validation failed.") from exc2
+            except JWTError as exc2:
+                raise SsoProtocolError("ID token validation failed.") from exc2
         raise SsoProtocolError("ID token validation failed.") from exc
     except Exception as exc:
         logger.exception("SSO ID token verification failed")
@@ -329,8 +352,26 @@ def _unique_username(db: Session, email: str) -> str:
     return candidate
 
 
+def _subject_candidates(cfg: SsoConfig, claims: dict[str, Any]) -> list[str]:
+    found: list[str] = []
+    for name in (cfg.subject_claim, "oid", "sub"):
+        value = _claim_str(claims, name)
+        if value and value not in found:
+            found.append(value)
+    return found
+
+
+def _tenant_allows_email_link(cfg: SsoConfig, claims: dict[str, Any]) -> bool:
+    """Refuse cross-tenant email linking (Entra nOAuth). Non-Entra issuers have no tid pin."""
+    expected = _configured_tenant(cfg.issuer)
+    if expected is None:
+        return True
+    return str(claims.get("tid") or "") == expected
+
+
 def _resolve_or_create_user(db: Session, cfg: SsoConfig, claims: dict[str, Any]) -> User:
-    subject = _claim_str(claims, cfg.subject_claim) or _claim_str(claims, "sub")
+    subjects = _subject_candidates(cfg, claims)
+    subject = subjects[0] if subjects else None
     email = _email_from_claims(cfg, claims)
     if not subject:
         raise SsoProtocolError("ID token missing subject claim.")
@@ -342,10 +383,10 @@ def _resolve_or_create_user(db: Session, cfg: SsoConfig, claims: dict[str, Any])
 
     user = db.scalar(
         select(User)
-        .where(User.external_subject == subject)
+        .where(User.external_subject.in_(subjects))
         .options(selectinload(User.mfa_record), selectinload(User.org_units))
     )
-    if user is None:
+    if user is None and _tenant_allows_email_link(cfg, claims):
         user = db.scalar(
             select(User)
             .where(User.email == email)
@@ -354,6 +395,9 @@ def _resolve_or_create_user(db: Session, cfg: SsoConfig, claims: dict[str, Any])
         if user is not None and not user.external_subject:
             user.external_subject = subject
             db.commit()
+
+    if user is None and not _tenant_allows_email_link(cfg, claims):
+        raise SsoUserNotAuthorizedError
 
     if user is None:
         if not cfg.allow_jit:
@@ -432,16 +476,48 @@ def portal_from_state(state: str | None) -> str:
         return "user"
 
 
-def frontend_sso_success_url(*, portal: str, tokens: TokenPair) -> str:
-    path = "/sso/callback"
-    # Use query (not hash): many browsers drop Location fragments on 302 redirects.
-    qs = urlencode(
-        {
-            "access_token": tokens.access_token,
-            "refresh_token": tokens.refresh_token,
-            "portal": portal,
-        }
+def issue_sso_exchange_code(db: Session, tokens: TokenPair, portal: str) -> str:
+    from modules.platform.auth.model import SsoExchangeCode
+
+    raw = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    db.add(
+        SsoExchangeCode(
+            code_hash=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+            access_token=tokens.access_token,
+            refresh_token=tokens.refresh_token,
+            portal=portal if portal in ("user", "admin") else "user",
+            expires_at=now + timedelta(seconds=60),
+        )
     )
+    db.commit()
+    return raw
+
+
+def consume_sso_exchange_code(db: Session, code: str) -> tuple[str, str, str] | None:
+    from modules.platform.auth.model import SsoExchangeCode
+
+    raw = (code or "").strip()
+    if not raw:
+        return None
+    now = datetime.now(timezone.utc)
+    row = db.scalar(
+        select(SsoExchangeCode).where(
+            SsoExchangeCode.code_hash == hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+            SsoExchangeCode.used_at.is_(None),
+            SsoExchangeCode.expires_at > now,
+        )
+    )
+    if row is None:
+        return None
+    row.used_at = now
+    db.commit()
+    return row.access_token, row.refresh_token, row.portal
+
+
+def frontend_sso_success_url(*, portal: str, code: str) -> str:
+    path = "/sso/callback"
+    qs = urlencode({"code": code, "portal": portal})
     return f"{_frontend_base()}{path}?{qs}"
 
 
@@ -474,4 +550,11 @@ if __name__ == "__main__":
     assert is_silent_miss_error("interaction_required")
     assert not is_silent_miss_error("access_denied")
     assert "sso_skip=1" in frontend_sso_silent_miss_url(portal="user")
+    assert _issuer_matches("https://login.example/v2.0", "https://login.example")
+    assert not _issuer_matches(
+        "https://login.microsoftonline.com/other/v2.0",
+        "https://login.microsoftonline.com/mine/v2.0",
+    )
+    assert "code=" in frontend_sso_success_url(portal="user", code="abc")
+    assert "access_token" not in frontend_sso_success_url(portal="user", code="abc")
     print("sso_oidc ok")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -57,6 +58,8 @@ from modules.platform.tasks.service import (
     _split_approval_task_runs,
     build_workflow_preview_steps,
 )
+
+logger = logging.getLogger(__name__)
 
 CAPEX_PRIOR_RUNS_KEY = "_capex_prior_runs"
 
@@ -1482,11 +1485,12 @@ def approval_success_recipients(
     *,
     creator: User | None,
     cost_center_users: list[User],
+    submitter: User | None = None,
 ) -> list[User]:
     """Submitter plus Cost Center Users covering the form's cost center, de-duplicated."""
     seen: set[int] = set()
     out: list[User] = []
-    for user in (creator, *cost_center_users):
+    for user in (submitter, creator, *cost_center_users):
         if user is None or user.id is None:
             continue
         uid = int(user.id)
@@ -1498,14 +1502,21 @@ def approval_success_recipients(
 
 
 def capex_outcome_recipients(db: Session, form: CapitalizationForm) -> list[User]:
-    """Creator + Cost Center Users of the form's cost center (approve / reject mails)."""
+    """Submitter, draft creator, and Cost Center Users of the form's cost center."""
     creator = db.get(User, int(form.created_by)) if form.created_by is not None else None
+    submitter: User | None = None
+    if form.approval_request_id is not None:
+        req = db.get(ApprovalRequest, int(form.approval_request_id))
+        if req is not None and req.created_by is not None:
+            submitter = db.get(User, int(req.created_by))
     cc_users: list[User] = []
     if form.cost_center_id is not None:
         role = db.scalar(select(Role).where(Role.name == ROLE_COST_CENTER_USER))
         if role is not None:
             cc_users = _users_in_role(db, int(role.id), cost_center_id=form.cost_center_id)
-    return approval_success_recipients(creator=creator, cost_center_users=cc_users)
+    return approval_success_recipients(
+        creator=creator, submitter=submitter, cost_center_users=cc_users
+    )
 
 
 def notify_capitalization_approved(db: Session, form: CapitalizationForm) -> None:
@@ -1544,6 +1555,7 @@ def finalize_capex_approval(
     approver_user_id: int | None,
     step_role_name: str | None = None,
     comment: str | None = None,
+    send_success_mail: bool = True,
 ) -> None:
     form = db.get(CapitalizationForm, form_id)
     if form is None:
@@ -1561,11 +1573,13 @@ def finalize_capex_approval(
         },
     )
     db.commit()
+    if not send_success_mail:
+        return
     try:
         notify_capitalization_approved(db, form)
     except Exception:
         # Approval is already committed; a mail failure must not undo it.
-        pass
+        logger.exception("capitalization_approval_email_failed", extra={"form_id": form_id})
 
 
 def reject_capex_approval(

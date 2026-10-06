@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from core.mfa_crypto import reveal_stored_secret
 from modules.platform.settings.lookup import get_setting
 from modules.platform.settings.schema import EmailDeliveryPublic
 
@@ -68,7 +69,7 @@ def get_smtp_config() -> SmtpConfig | None:
         port = 587
 
     user = _setting_or_env("smtp.username", "SMTP_USERNAME") or None
-    password = _setting_or_env("smtp.password", "SMTP_PASSWORD") or None
+    password = reveal_stored_secret(_setting_or_env("smtp.password", "SMTP_PASSWORD")) or None
     use_tls = _truthy(_setting_or_env("smtp.use_tls", "SMTP_USE_TLS", "true"))
     from_email = _setting_or_env("smtp.from_email", "SMTP_FROM_EMAIL") or (user or "")
     from_name = _setting_or_env("smtp.from_name", "SMTP_FROM_NAME")

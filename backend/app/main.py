@@ -1,4 +1,5 @@
 import os
+import hmac
 import json
 import logging
 import urllib.error
@@ -31,7 +32,23 @@ def _request_id(request: Request) -> str:
 # must fetch /api/openapi.json; without root_path it requests /openapi.json and
 # gets the SPA HTML → "definition does not specify a valid version field".
 _root_path = (os.getenv("ROOT_PATH") or "").strip().rstrip("/")
-app = FastAPI(root_path=_root_path)
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+# Docs stay on for local dev. Compose sets ENABLE_API_DOCS=false.
+_docs_enabled = _env_flag("ENABLE_API_DOCS", True)
+app = FastAPI(
+    root_path=_root_path,
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
+)
 app.add_middleware(AdminAuditMiddleware)
 app.add_middleware(SessionIdleMiddleware)
 app.add_middleware(
@@ -90,11 +107,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     )
 
 
-def _env_flag(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+@app.get("/health", include_in_schema=False)
+def health() -> dict[str, str]:
+    return {"status": "ok"}
 
 
 @app.get("/admin", include_in_schema=False)
@@ -117,13 +132,16 @@ def admin_login_redirect() -> RedirectResponse:
 
 
 @app.get("/deploy-now", include_in_schema=False)
-def deploy_now(token: str = Query(default="")) -> HTMLResponse:
+@app.post("/deploy-now", include_in_schema=False)
+def deploy_now(request: Request, token: str = Query(default="")) -> HTMLResponse:
     """
     Trigger a develop deploy from Teams (optional).
     Requires DEPLOY_NOW_TOKEN + GH_PAT (Actions: write) + GITHUB_REPOSITORY.
     """
     expected = (os.getenv("DEPLOY_NOW_TOKEN") or "").strip()
-    if not expected or token != expected:
+    header_token = (request.headers.get("x-deploy-token") or "").strip()
+    presented = header_token or token
+    if not expected or not presented or not hmac.compare_digest(presented, expected):
         raise HTTPException(status_code=404, detail="Not found")
 
     pat = (os.getenv("GH_PAT") or os.getenv("GITHUB_DEPLOY_PAT") or "").strip()

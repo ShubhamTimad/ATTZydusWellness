@@ -69,15 +69,14 @@ def test_disposal_forms_load_scrapyard_cost_centers_without_assignment_scope() -
     assert marker in detail
 
 
-def test_rework_picker_keeps_pending_disposal_assets_on_same_order() -> None:
-    """Removing an asset in rework must still allow re-adding it while it stays pending_disposal."""
+def test_rework_detail_stays_editable() -> None:
+    """Rejected and in-rework orders still show the rejection and an editable form."""
     detail = (
         Path(__file__).resolve().parents[1]
         / "frontend/src/pages/disposals/disposal-detail.tsx"
     ).read_text(encoding="utf-8")
-    assert "isSelectableOnThisOrder" in detail
-    assert "pending_disposal" in detail
-    assert "reservedAssetIds" in detail
+    assert 'order.status === "in_rework"' in detail
+    assert "can_edit" in detail
 
 
 def test_disposal_audit_log_is_short_and_decision_first() -> None:

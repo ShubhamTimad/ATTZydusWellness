@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
-import { ApiError, API_BASE_URL, getJson, postJson } from "@/lib/api"
+import { ApiError, API_BASE_URL, endServerSession, getJson, postJson } from "@/lib/api"
 import { loginRequestFields, validateLoginIdentifier } from "@/lib/login-identifier"
 import { clearAuthProfile, persistAuthFromMe } from "@/lib/permissions"
 import { clearSharedLastActive, clearStoredAuthMethod, writeStoredAuthMethod } from "@/lib/session-idle-events"
@@ -83,6 +83,7 @@ export function AppLoginPage() {
   }
 
   function clearTokens() {
+    endServerSession()
     localStorage.removeItem("access_token")
     localStorage.removeItem("refresh_token")
     clearSharedLastActive()

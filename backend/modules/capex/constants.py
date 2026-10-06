@@ -50,6 +50,17 @@ ROLE_ENGINEERING = "Engineering"
 ROLE_CENTRAL_FINANCE = "Central Finance"
 
 
+def capex_sends_approval_success(*, step_kind: str, later_step_kinds: list[str]) -> bool:
+    """True on the last approve step, including when Close still follows.
+
+    The success mail goes out after that approval and before Close.
+    """
+    kind = (step_kind or "approve").strip().lower()
+    if kind != "approve":
+        return False
+    return not any((k or "").strip().lower() == "approve" for k in later_step_kinds)
+
+
 def capex_needs_next_assignee(
     *,
     current_role_id: int | None,

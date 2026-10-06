@@ -29,6 +29,7 @@ engin/
 
 # Runtime / generated data
 backend/uploads/
+backups/
 *.sqlite
 *.sqlite3
 *.db

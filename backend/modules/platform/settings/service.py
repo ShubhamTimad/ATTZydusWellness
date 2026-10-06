@@ -5,6 +5,7 @@ import json
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from core.mfa_crypto import encrypt_secret, reveal_stored_secret
 from core.password_policy import password_policy_admin_view
 from modules.platform.settings.financial_year import financial_year_period_for, get_financial_year_config
 from modules.platform.settings.session_idle import (
@@ -207,7 +208,7 @@ class SettingsService:
             ("sso.allow_jit", "true" if payload.allow_jit else "false"),
         ]
         if payload.client_secret.strip():
-            mapping.append(("sso.client_secret", payload.client_secret.strip()))
+            mapping.append(("sso.client_secret", encrypt_secret(payload.client_secret.strip())))
         for key, value in mapping:
             self._upsert(key, value)
         self._db.commit()
@@ -260,7 +261,7 @@ class SettingsService:
             ("smtp.from_name", payload.smtp_from_name.strip()),
         ]
         if payload.smtp_password.strip():
-            mapping.append(("smtp.password", payload.smtp_password.strip()))
+            mapping.append(("smtp.password", encrypt_secret(payload.smtp_password.strip())))
         for key, value in mapping:
             self._upsert(key, value)
         self._db.commit()
@@ -404,7 +405,7 @@ class SettingsService:
         row = self._db.scalar(select(Setting).where(Setting.key == "smtp.password"))
         if row is None or row.value is None:
             return None
-        raw = str(row.value).strip()
+        raw = reveal_stored_secret(str(row.value).strip())
         return raw or None
 
     def send_test_email(

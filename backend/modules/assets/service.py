@@ -2639,12 +2639,13 @@ class AssetMasterService:
             selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
             selectinload(AssetMaster.financial),
             selectinload(AssetMaster.inventory),
+            selectinload(AssetMaster.information),
         )
 
         base = _apply_asset_list_sort(base, sort_by=sort_by, sort_dir=sort_dir)
 
         rows = list(self._db.scalars(base.limit(max_rows)).unique().all())
-        _cc_desc, fl_desc, al_desc = self._master_label_lookups(rows)
+        cc_desc, fl_desc, al_desc = self._master_label_lookups(rows)
         fmt = file_format.lower()
         generated_by = actor_display_name(self._db, viewer_user_id)
         fy_token = financial_year
@@ -2653,7 +2654,12 @@ class AssetMasterService:
         title = report_title or ("Asset Register Report" if fmt == "pdf" else "Asset Register Report")
         if fmt == "pdf":
             content = build_asset_export_pdf(
-                rows, export_fields, generated_by=generated_by, fl_desc=fl_desc, al_desc=al_desc
+                rows,
+                export_fields,
+                generated_by=generated_by,
+                cc_desc=cc_desc,
+                fl_desc=fl_desc,
+                al_desc=al_desc,
             )
             filename = report_filename(
                 "asset_register",
@@ -2663,7 +2669,12 @@ class AssetMasterService:
             )
             return content, filename, "application/pdf"
         content = build_asset_export_xlsx(
-            rows, export_fields, generated_by=generated_by, fl_desc=fl_desc, al_desc=al_desc
+            rows,
+            export_fields,
+            generated_by=generated_by,
+            cc_desc=cc_desc,
+            fl_desc=fl_desc,
+            al_desc=al_desc,
         )
         filename = report_filename(
             "asset_register",

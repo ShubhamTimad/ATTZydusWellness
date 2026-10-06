@@ -38,6 +38,7 @@ def asset_export_value(
     asset: AssetMaster,
     field: str,
     *,
+    cc_desc: dict[tuple[int, str], str] | None = None,
     fl_desc: dict[tuple[int, str], str] | None = None,
     al_desc: dict[tuple[int, str, str], str] | None = None,
 ) -> Any:
@@ -55,6 +56,8 @@ def asset_export_value(
     al_code = (loc.actual_location or "").strip() if loc else ""
     fl_name = fl_desc.get((pid, fl_code)) if fl_desc and pid and fl_code else None
     al_name = al_desc.get((pid, fl_code, al_code)) if al_desc and pid and fl_code and al_code else None
+    cc_code = (fin.cost_center or "").strip() if fin else ""
+    cc_name = cc_desc.get((pid, cc_code)) if cc_desc and pid and cc_code else None
 
     values: dict[str, Any] = {
         "asset_name": asset.asset_name,
@@ -67,11 +70,13 @@ def asset_export_value(
         "rfid_code": asset.rfid_code,
         "serial_no": asset.serial_no,
         "asset_description": asset.information.asset_description if asset.information else None,
-        "category_code": category.code if category else None,
+        "category_code": (category.name or category.code) if category else None,
         "category_name": category.name if category else None,
         "tag_color_code": tag.code if tag else None,
-        "asset_custodian_code": custodian.username if custodian else None,
-        "asset_condition_code": condition.code if condition else None,
+        "asset_custodian_code": (
+            (custodian.full_name or custodian.username) if custodian else None
+        ),
+        "asset_condition_code": (condition.name or condition.code) if condition else None,
         "sub_location": loc.sub_location if loc else None,
         "functional_location": location_display_name(fl_name, fl_code or None),
         "actual_location": location_display_name(al_name, al_code or None),
@@ -97,7 +102,7 @@ def asset_export_value(
         "last_verification_date": inv.last_verification_date if inv else None,
         "cap_date": fin.cap_date if fin else None,
         "pm_equipment_id": asset.information.pm_equipment_id if asset.information else None,
-        "cost_center_name": None,
+        "cost_center_name": cc_name,
         "capitalization_form_number": None,
         "fy_verification_count": None,
         "physical_order_id": None,
@@ -114,6 +119,7 @@ def build_asset_export_xlsx(
     fields: list[str],
     *,
     generated_by: str = "",
+    cc_desc: dict[tuple[int, str], str] | None = None,
     fl_desc: dict[tuple[int, str], str] | None = None,
     al_desc: dict[tuple[int, str, str], str] | None = None,
 ) -> bytes:
@@ -139,7 +145,10 @@ def build_asset_export_xlsx(
 
     for idx, asset in enumerate(assets, start=1):
         row = [idx] + [
-            _format_cell(asset_export_value(asset, key, fl_desc=fl_desc, al_desc=al_desc)) for key in fields
+            _format_cell(
+                asset_export_value(asset, key, cc_desc=cc_desc, fl_desc=fl_desc, al_desc=al_desc)
+            )
+            for key in fields
         ]
         ws.append(xlsx_pad_row(row, ncols=ncols))
 
@@ -155,20 +164,23 @@ def build_asset_export_pdf(
     fields: list[str],
     *,
     generated_by: str = "",
+    cc_desc: dict[tuple[int, str], str] | None = None,
     fl_desc: dict[tuple[int, str], str] | None = None,
     al_desc: dict[tuple[int, str, str], str] | None = None,
 ) -> bytes:
     from modules.reports.export import ReportDocument, build_pdf
 
-    headers = [
+    headers = ["Sr. No."] + [
         ASSET_REGISTER_PDF_LABELS.get(key) or ASSET_EXPORT_FIELD_LABELS.get(key, key.replace("_", " ").title())
         for key in fields
     ]
     rows: list[list[str]] = []
-    for asset in assets:
-        row: list[str] = []
+    for idx, asset in enumerate(assets, start=1):
+        row = [str(idx)]
         for key in fields:
-            cell = _format_cell(asset_export_value(asset, key, fl_desc=fl_desc, al_desc=al_desc))
+            cell = _format_cell(
+                asset_export_value(asset, key, cc_desc=cc_desc, fl_desc=fl_desc, al_desc=al_desc)
+            )
             row.append("" if cell is None else str(cell))
         rows.append(row)
     return build_pdf(

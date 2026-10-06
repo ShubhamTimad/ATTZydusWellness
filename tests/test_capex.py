@@ -144,23 +144,32 @@ def test_submit_switches_workflow_when_engineering_toggled():
         department=None,
         auc_code=None,
         rejection_comment="no",
+        cost_center_id=None,
     )
     existing = SimpleNamespace(
         id=9,
         entity_type=ENTITY_TYPE_WITH_ENGINEERING,
         workflow_id=99,
     )
-    wf = SimpleNamespace(id=88, steps=[SimpleNamespace(step_order=1)])
+    wf = SimpleNamespace(id=88, steps=[SimpleNamespace(step_order=1, approver_role_id=3)])
     db = MagicMock()
     db.scalar.return_value = existing
     svc = CapexFormService(db)
 
     with patch("modules.capex.service.get_workflow_for_action", return_value=wf):
-        with patch.object(svc, "_resubmit_with_workflow_switch") as switch:
-            svc._submit(form, actor_user_id=1, assignee_user_id=2)
-            switch.assert_called_once()
-            assert switch.call_args.kwargs["entity_type"] == ENTITY_TYPE
-            assert switch.call_args.kwargs["workflow"] is wf
+        with patch(
+            "modules.capex.service._first_step_role",
+            return_value=SimpleNamespace(id=3, name="HOD"),
+        ):
+            with patch(
+                "modules.capex.service._users_in_role",
+                return_value=[SimpleNamespace(id=2)],
+            ):
+                with patch.object(svc, "_resubmit_with_workflow_switch") as switch:
+                    svc._submit(form, actor_user_id=1, assignee_user_id=2)
+                    switch.assert_called_once()
+                    assert switch.call_args.kwargs["entity_type"] == ENTITY_TYPE
+                    assert switch.call_args.kwargs["workflow"] is wf
 
 
 def test_submit_form_applies_engineering_flag_before_workflow():

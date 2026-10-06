@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 
 import { SessionIdleProvider } from "@/context/session-idle-context"
+import { endServerSession } from "@/lib/api"
 import { clearAuthProfile } from "@/lib/permissions"
 import { clearSharedLastActive, clearStoredAuthMethod } from "@/lib/session-idle-events"
 
@@ -16,6 +17,7 @@ function hasToken() {
 }
 
 function clearTokens() {
+  endServerSession()
   localStorage.removeItem("access_token")
   localStorage.removeItem("refresh_token")
   clearSharedLastActive()

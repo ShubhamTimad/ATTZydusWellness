@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Annotated
 from urllib.parse import parse_qs
 
@@ -8,7 +9,12 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from core.auth import CurrentUser, get_current_user
-from core.login_rate_limit import check_login_allowed, clear_login_failures, record_login_failure
+from core.login_rate_limit import (
+    check_bucket,
+    check_login_allowed,
+    clear_login_failures,
+    record_login_failure,
+)
 from core.password_policy import PasswordExpiredError
 from db.session import get_db
 from modules.platform.auth.login_result import (
@@ -53,9 +59,10 @@ from modules.platform.auth.model import UserSession
 from core.security import decode_access_token
 from jose import JWTError
 from datetime import datetime, timezone
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 router = APIRouter(tags=["auth"])
+logger = logging.getLogger(__name__)
 
 
 def get_auth_service(db: Session = Depends(get_db)) -> AuthService:
@@ -269,7 +276,7 @@ async def get_login_payload(request: Request) -> LoginRequest:
         }
     },
 )
-async def login(
+def login(
     request: Request,
     payload: Annotated[LoginRequest, Depends(get_login_payload)],
     svc: Annotated[AuthService, Depends(get_auth_service)],
@@ -342,6 +349,28 @@ async def login(
     return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"error": "login_state"})
 
 
+_FORGOT_PASSWORD_MESSAGE = (
+    "If an account exists for that email, a password reset link has been sent."
+)
+
+
+@router.post("/logout")
+def logout(
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, bool]:
+    jti = current.claims.get("jti")
+    if isinstance(jti, str) and jti:
+        now = datetime.now(timezone.utc)
+        db.execute(
+            update(UserSession)
+            .where(UserSession.refresh_jti == jti, UserSession.revoked_at.is_(None))
+            .values(revoked_at=now)
+        )
+        db.commit()
+    return {"ok": True}
+
+
 @router.post("/refresh", response_model=TokenPair)
 def refresh_tokens(
     payload: RefreshRequest,
@@ -377,37 +406,27 @@ def me(
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)
 def forgot_password(
+    request: Request,
     payload: ForgotPasswordRequest,
     svc: Annotated[AuthService, Depends(get_auth_service)],
 ) -> ForgotPasswordResponse:
+    check_bucket(request, "forgot-password", max_hits=5, window_sec=3600)
     try:
         svc.forgot_password(email=str(payload.email))
-    except ForgotPasswordUserNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No account found with this email address.",
-        ) from None
-    except ForgotPasswordAccountInactiveError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account is inactive. Contact your administrator.",
-        ) from None
-    except ForgotPasswordDeliveryError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=exc.message,
-        ) from exc
-    return ForgotPasswordResponse(
-        ok=True,
-        message="A password reset link has been sent to your email.",
-    )
+    except (ForgotPasswordUserNotFoundError, ForgotPasswordAccountInactiveError):
+        pass
+    except ForgotPasswordDeliveryError:
+        logger.error("forgot_password_delivery_failed")
+    return ForgotPasswordResponse(ok=True, message=_FORGOT_PASSWORD_MESSAGE)
 
 
 @router.post("/reset-password", response_model=ResetPasswordResponse)
 def reset_password(
+    request: Request,
     payload: ResetPasswordRequest,
     svc: Annotated[AuthService, Depends(get_auth_service)],
 ) -> ResetPasswordResponse:
+    check_bucket(request, "reset-password", max_hits=10, window_sec=3600)
     try:
         svc.reset_password(token=payload.token, new_password=payload.new_password)
     except ValueError as exc:
