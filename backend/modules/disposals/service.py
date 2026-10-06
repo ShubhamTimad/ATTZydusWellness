@@ -587,34 +587,70 @@ class DisposalOrderService:
             raise ConflictError("All assets on a disposal order must belong to the same plant.")
         return assets
 
+    def _open_order_reasons(self, assets: list[AssetMaster]) -> dict[int, str]:
+        """asset_id -> why it is still held by a transfer, disposal, or physical order."""
+        from modules.orders.conflicts import (
+            blocking_physical_orders,
+            finish_existing_order_message,
+            holding_other_orders,
+        )
+
+        ids = [int(a.id) for a in assets]
+        reasons = {
+            int(aid): finish_existing_order_message(kind=kind, order_number=onum)
+            for aid, _oid, onum, _status, kind in holding_other_orders(self._db, ids)
+        }
+        for aid, onum in blocking_physical_orders(self._db, ids).items():
+            reasons.setdefault(
+                int(aid),
+                finish_existing_order_message(kind="Physical Verification", order_number=onum),
+            )
+        return reasons
+
+    def _raise_if_order_still_open(self, assets: list[AssetMaster]) -> None:
+        reasons = self._open_order_reasons(assets)
+        if reasons:
+            raise ConflictError(next(iter(reasons.values())))
+
+    def _not_free_for_disposal(self, assets: list[AssetMaster]) -> list[str]:
+        """Codes of assets that are not active/approved (released transfers count as free)."""
+        from modules.orders.conflicts import asset_free_for_new_order, released_transfer_asset_ids
+
+        self._raise_if_order_still_open(assets)
+        released = released_transfer_asset_ids(self._db, [int(a.id) for a in assets])
+        return [
+            asset.asset_code or str(asset.id)
+            for asset in assets
+            if (asset.approval_status or "").strip().lower() not in {"approved", "not_required"}
+            or not asset_free_for_new_order(asset.lifecycle_status, int(asset.id), released)
+        ]
+
+    def validate_assets(self, asset_ids: list[int]):
+        """Assets whose step before Close is not done yet."""
+        from modules.disposals.schema import DisposalInProgressAsset, ValidateDisposalAssetsResponse
+
+        assets = self._load_assets(asset_ids)
+        reasons = self._open_order_reasons(assets)
+        blocked = [
+            DisposalInProgressAsset(
+                asset_id=int(asset.id),
+                asset_code=str(asset.asset_code or asset.id),
+                asset_name=str(asset.asset_name or ""),
+                reason=reasons[int(asset.id)],
+            )
+            for asset in assets
+            if int(asset.id) in reasons
+        ]
+        return ValidateDisposalAssetsResponse(in_progress=blocked)
+
     def _assert_assets_disposable(self, assets: list[AssetMaster]) -> None:
         """Only operational (active, approved) assets can be sent for disposal."""
-        bad: list[str] = []
-        for asset in assets:
-            approval = (asset.approval_status or "").strip().lower()
-            if not is_operational(asset.lifecycle_status) or approval not in {
-                "approved",
-                "not_required",
-            }:
-                bad.append(asset.asset_code or str(asset.id))
+        bad = self._not_free_for_disposal(assets)
         if bad:
             sample = ", ".join(bad[:5])
             more = "…" if len(bad) > 5 else ""
             raise ConflictError(
                 f"Only active, approved assets can be disposed: {sample}{more}."
-            )
-        from modules.orders.conflicts import blocking_physical_orders
-
-        held = blocking_physical_orders(self._db, [int(a.id) for a in assets])
-        if held:
-            busy = [a for a in assets if int(a.id) in held]
-            sample = ", ".join(
-                f"{a.asset_code or a.id} ({held[int(a.id)]})" for a in busy[:5]
-            )
-            more = "…" if len(busy) > 5 else ""
-            raise ConflictError(
-                f"Asset is on an active Physical Verification Order: {sample}{more}. "
-                "Create the disposal order after that order is approved."
             )
 
     def _assert_assets_match_order_reservation(
@@ -625,17 +661,18 @@ class DisposalOrderService:
         but any newly added asset must still be active + approved.
         """
         bad: list[str] = []
+        added: list[AssetMaster] = []
         for asset in assets:
             approval = (asset.approval_status or "").strip().lower()
-            asset_id = int(asset.id)
-            if asset_id in reserved_asset_ids:
+            if int(asset.id) in reserved_asset_ids:
                 if not (
                     is_pending_disposal(asset.lifecycle_status) or is_operational(asset.lifecycle_status)
                 ) or approval not in {"approved", "not_required"}:
                     bad.append(asset.asset_code or str(asset.id))
                 continue
-            if not is_operational(asset.lifecycle_status) or approval not in {"approved", "not_required"}:
-                bad.append(asset.asset_code or str(asset.id))
+            added.append(asset)
+        if added:
+            bad.extend(self._not_free_for_disposal(added))
         if bad:
             sample = ", ".join(bad[:5])
             more = "…" if len(bad) > 5 else ""

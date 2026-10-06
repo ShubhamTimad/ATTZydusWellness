@@ -20,6 +20,7 @@ class ActiveOrderConflict(BaseModel):
     order_id: int
     order_number: str
     order_status: str
+    order_kind: str = ""
 
 
 class InvalidAssetRef(BaseModel):

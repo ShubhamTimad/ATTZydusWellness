@@ -59,9 +59,13 @@ export function canCreatePhysicalVerificationOrder(row: {
 }): boolean {
   const approval = (row.approval_status ?? "").trim().toLowerCase()
   if (approval !== "approved") return false
-  const lifecycle = (row.lifecycle_status ?? "").trim().toLowerCase()
-  if (lifecycle && lifecycle !== "active") return false
+  if (!mayRequestNewOrder(row.lifecycle_status)) return false
   return Boolean((row.rfid_code || "").trim())
+}
+
+/** Pending assets stay selectable; the backend explains which open order still holds them. */
+export function mayRequestNewOrder(lifecycle: string | null | undefined): boolean {
+  return ["", "active", "pending_transfer", "pending_disposal"].includes((lifecycle ?? "").trim().toLowerCase())
 }
 
 export function eligiblePhysicalOrderAssets(rows: AssetListItem[]): AssetListItem[] {

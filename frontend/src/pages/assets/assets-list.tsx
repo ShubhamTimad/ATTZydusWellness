@@ -72,6 +72,7 @@ import {
   eligiblePhysicalOrderAssets,
   eligibleReactivateAssets,
   eligibleSubmitAssets,
+  mayRequestNewOrder,
 } from "@/lib/asset-actions"
 import {
   asAssetListItem,
@@ -109,7 +110,6 @@ import {
   assetStatusFilterValue,
   assetStatusLabel,
   assetStatusPillTone,
-  isAssetPendingTransfer,
 } from "@/lib/asset-lifecycle"
 import { currentUserId, hasPermission, isSuperuser } from "@/lib/permissions"
 import type { ValidateAssetsResponse } from "@/lib/orders-types"
@@ -561,7 +561,8 @@ function collectOrderWarningRows(
     { ref: { asset_id: number; asset_code: string; asset_name: string }; parts: string[] }
   >()
   for (const c of res.active_order_conflicts) {
-    const part = `${c.order_number} (${orderStatusLabel(c.order_status)})`
+    const kind = c.order_kind ? `${c.order_kind} ` : ""
+    const part = `${kind}${c.order_number} (${orderStatusLabel(c.order_status)})`
     const cur = ordersByAsset.get(c.asset_id)
     if (cur) {
       if (!cur.parts.includes(part)) cur.parts.push(part)
@@ -572,7 +573,7 @@ function collectOrderWarningRows(
   for (const { ref, parts } of ordersByAsset.values()) {
     addIssue(
       ref,
-      `Still on ${parts.join(", ")}. A new order is allowed only after the last approval before Close.`,
+      `Still on ${parts.join(", ")}. Another order is allowed once the step before Close is done.`,
     )
   }
   for (const a of res.not_approved ?? []) addIssue(a, "Not approved")
@@ -770,7 +771,7 @@ export function AssetsListPage() {
   const [validationResult, setValidationResult] = React.useState<ValidateAssetsResponse | null>(null)
   const [transferBlockOpen, setTransferBlockOpen] = React.useState(false)
   const [transferBlockRows, setTransferBlockRows] = React.useState<
-    { assetId: number; number: string; name: string }[]
+    { assetId: number; number: string; name: string; reason: string }[]
   >([])
   const [rfidDialogOpen, setRfidDialogOpen] = React.useState(false)
   const [rfidDialogIsUpdate, setRfidDialogIsUpdate] = React.useState(false)
@@ -1454,8 +1455,7 @@ export function AssetsListPage() {
     const approved = selectedRows.filter((r) => {
       if (!canActOnAsset(r)) return false
       const approval = (r.approval_status ?? "").trim().toLowerCase()
-      const lifecycle = (r.lifecycle_status ?? "").trim().toLowerCase()
-      if (lifecycle && lifecycle !== "active") return false
+      if (!mayRequestNewOrder(r.lifecycle_status)) return false
       return approval === "approved" || approval === "not_required"
     })
     if (isSuperuser()) return approved
@@ -1823,27 +1823,24 @@ export function AssetsListPage() {
   }
 
   async function beginCreateTransferOrder() {
-    const localBlocked = selectedRows.filter((r) => isAssetPendingTransfer(r.lifecycle_status))
     const checkIds = selectedRows.map((r) => r.id)
     if (checkIds.length === 0) return
 
     setOrderValidateBusy(true)
     try {
-      const blocked = new Map<number, { assetId: number; number: string; name: string }>()
-      for (const r of localBlocked) {
-        const id = warningIdentity(
-          { asset_id: r.id, asset_code: r.asset_code, asset_name: r.asset_name },
-          selectedById,
-        )
-        blocked.set(r.id, { assetId: r.id, number: id.number, name: id.name })
-      }
+      const blocked = new Map<number, { assetId: number; number: string; name: string; reason: string }>()
       const res = await postJson<ValidateTransferAssetsResponse>(
         "/admin/transfer-orders/validate-assets",
         { asset_ids: checkIds },
       )
       for (const a of res.in_progress) {
         const id = warningIdentity(a, selectedById)
-        blocked.set(a.asset_id, { assetId: a.asset_id, number: id.number, name: id.name })
+        blocked.set(a.asset_id, {
+          assetId: a.asset_id,
+          number: id.number,
+          name: id.name,
+          reason: a.reason || TRANSFER_IN_PROGRESS_MESSAGE,
+        })
       }
       if (blocked.size > 0) {
         setTransferBlockRows([...blocked.values()])
@@ -1921,6 +1918,101 @@ export function AssetsListPage() {
     navigate(`/dashboard/transfer-orders/new?${q}`)
   }
 
+  async function beginCreateDisposalOrder() {
+    const checkIds = selectedRows.map((r) => r.id)
+    if (checkIds.length === 0) return
+    setOrderValidateBusy(true)
+    try {
+      const res = await postJson<ValidateTransferAssetsResponse>(
+        "/admin/disposal-orders/validate-assets",
+        { asset_ids: checkIds },
+      )
+      if (res.in_progress.length > 0) {
+        setTransferBlockRows(
+          res.in_progress.map((a) => {
+            const id = warningIdentity(a, selectedById)
+            return {
+              assetId: a.asset_id,
+              number: id.number,
+              name: id.name,
+              reason: a.reason || "This asset is still on an order.",
+            }
+          }),
+        )
+        setTransferBlockOpen(true)
+        return
+      }
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Validation failed.")
+      return
+    } finally {
+      setOrderValidateBusy(false)
+    }
+
+    if (transferEligibleRows.length === 0) {
+      toast.error("Only approved assets you custodiate can be disposed.")
+      return
+    }
+    if (transferEligibleRows.length < selectedRows.length) {
+      toast.error("Select only approved assets where you are the custodian.")
+      return
+    }
+    const plants = [
+      ...new Set(
+        transferEligibleRows.map((r) => r.plant_id).filter((id): id is number => id != null),
+      ),
+    ]
+    if (plants.length !== 1) {
+      toast.error("Select assets from the same plant.")
+      return
+    }
+    const costCenters = [
+      ...new Set(
+        transferEligibleRows
+          .map((r) => r.cost_center?.trim())
+          .filter((c): c is string => Boolean(c)),
+      ),
+    ]
+    if (costCenters.length !== 1) {
+      toast.error(
+        "Select assets from the same cost center. Create a separate disposal for each source cost center.",
+      )
+      return
+    }
+    try {
+      sessionStorage.setItem(
+        "disposal-order-draft-assets",
+        JSON.stringify(
+          transferEligibleRows.map((r) => ({
+            id: r.id,
+            asset_code: r.asset_code,
+            asset_name: r.asset_name,
+            plant_id: r.plant_id,
+            plant_name: r.plant_name,
+            cost_center: r.cost_center,
+            cost_center_description: r.cost_center_description,
+            functional_location: r.functional_location,
+            functional_location_description: r.functional_location_description,
+            actual_location: r.actual_location,
+            actual_location_description: r.actual_location_description,
+            asset_custodian_id: r.asset_custodian_id ?? null,
+            approval_status: r.approval_status,
+            lifecycle_status: r.lifecycle_status,
+          })),
+        ),
+      )
+    } catch {
+      /* ignore quota */
+    }
+    writeAssetMasterSelection(transferEligibleRows)
+    const q = new URLSearchParams({
+      asset_ids: transferEligibleRows.map((r) => r.id).join(","),
+      from: "assets",
+    })
+    q.set("plant_id", String(plants[0]))
+    navigate(`/dashboard/disposal-orders/new?${q}`)
+  }
+
   function handleListAction(actionId: string) {
     if (actionId === "attach-rfid") {
       openAttachRfidFromSelection()
@@ -1939,68 +2031,7 @@ export function AssetsListPage() {
       return
     }
     if (actionId === "create-disposal-order") {
-      if (transferEligibleRows.length === 0) {
-        toast.error("Only approved assets you custodiate can be disposed.")
-        return
-      }
-      if (transferEligibleRows.length < selectedRows.length) {
-        toast.error("Select only approved assets where you are the custodian.")
-        return
-      }
-      const plants = [
-        ...new Set(
-          transferEligibleRows.map((r) => r.plant_id).filter((id): id is number => id != null),
-        ),
-      ]
-      if (plants.length !== 1) {
-        toast.error("Select assets from the same plant.")
-        return
-      }
-      const costCenters = [
-        ...new Set(
-          transferEligibleRows
-            .map((r) => r.cost_center?.trim())
-            .filter((c): c is string => Boolean(c)),
-        ),
-      ]
-      if (costCenters.length !== 1) {
-        toast.error(
-          "Select assets from the same cost center. Create a separate disposal for each source cost center.",
-        )
-        return
-      }
-      try {
-        sessionStorage.setItem(
-          "disposal-order-draft-assets",
-          JSON.stringify(
-            transferEligibleRows.map((r) => ({
-              id: r.id,
-              asset_code: r.asset_code,
-              asset_name: r.asset_name,
-              plant_id: r.plant_id,
-              plant_name: r.plant_name,
-              cost_center: r.cost_center,
-              cost_center_description: r.cost_center_description,
-              functional_location: r.functional_location,
-              functional_location_description: r.functional_location_description,
-              actual_location: r.actual_location,
-              actual_location_description: r.actual_location_description,
-              asset_custodian_id: r.asset_custodian_id ?? null,
-              approval_status: r.approval_status,
-              lifecycle_status: r.lifecycle_status,
-            })),
-          ),
-        )
-      } catch {
-        /* ignore quota */
-      }
-      writeAssetMasterSelection(transferEligibleRows)
-      const q = new URLSearchParams({
-        asset_ids: transferEligibleRows.map((r) => r.id).join(","),
-        from: "assets",
-      })
-      q.set("plant_id", String(plants[0]))
-      navigate(`/dashboard/disposal-orders/new?${q}`)
+      void beginCreateDisposalOrder()
       return
     }
     if (actionId === "open") {
@@ -2917,7 +2948,10 @@ export function AssetsListPage() {
           <div className="dialog-body min-h-0 gap-3 overflow-y-auto">
             <p className="flex gap-2 text-sm text-foreground">
               <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" aria-hidden />
-              <span>{TRANSFER_IN_PROGRESS_MESSAGE}</span>
+              <span>
+                Another order cannot be created until the step before Close is done on the existing
+                order.
+              </span>
             </p>
             <div className="overflow-auto rounded-md border">
               <Table className="table-fixed">
@@ -2938,7 +2972,7 @@ export function AssetsListPage() {
                         {row.name}
                       </TableCell>
                       <TableCell className="h-auto whitespace-normal py-2.5 align-top text-muted-foreground">
-                        Transfer already in progress
+                        {row.reason}
                       </TableCell>
                     </TableRow>
                   ))}

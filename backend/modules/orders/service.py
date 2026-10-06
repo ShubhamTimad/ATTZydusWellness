@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session, aliased, selectinload
 
 from core.app_log import log_event
 from modules.asset_masters.model import CostCenterMaster
-from modules.assets.lifecycle import LIFECYCLE_ACTIVE
 from modules.assets.model import AssetFinancialInformation, AssetLocationInformation, AssetMaster
 from modules.errors import ConflictError, NotFoundError
 from modules.platform.org_units.model import OrgUnit
@@ -23,7 +22,12 @@ from modules.orders.asset_order_audit import (
     log_asset_physically_verified,
 )
 from modules.orders.audit import log_order_event
-from modules.orders.conflicts import order_conflict_block_clause
+from modules.orders.conflicts import (
+    asset_free_for_new_order,
+    holding_other_orders,
+    order_conflict_block_clause,
+    released_transfer_asset_ids,
+)
 from modules.orders.constants import (
     ACTION_COMPLETE,
     ACTIVE_ORDER_STATUSES,
@@ -929,6 +933,26 @@ class PhysicalOrderService:
             )
             blocked.add(int(aid))
 
+        assets_by_id = {int(a.id): a for a in assets}
+        for aid, oid, onum, ost, kind in holding_other_orders(self._db, asset_ids):
+            if int(aid) in blocked:
+                continue
+            asset = assets_by_id.get(int(aid))
+            if asset is None:
+                continue
+            active_conflicts.append(
+                ActiveOrderConflict(
+                    asset_id=int(aid),
+                    asset_code=_warning_asset_code(asset),
+                    asset_name=str(asset.asset_name),
+                    order_id=int(oid),
+                    order_number=str(onum),
+                    order_status=str(ost),
+                    order_kind=kind,
+                )
+            )
+            blocked.add(int(aid))
+
         plant_ids = set()
         cc_codes = set()
         for a in assets:
@@ -944,12 +968,13 @@ class PhysicalOrderService:
         ref_plant = next(iter(plant_ids)) if len(plant_ids) == 1 else None
         ref_cc = next(iter(cc_codes)) if len(cc_codes) == 1 else None
 
+        released_transfer = released_transfer_asset_ids(self._db, asset_ids)
         for a in assets:
             if int(a.id) in blocked:
                 continue
             approval = (a.approval_status or "").strip().lower()
-            lifecycle = (a.lifecycle_status or "").strip().lower()
-            if approval != "approved" or (lifecycle and lifecycle != LIFECYCLE_ACTIVE):
+            free = not a.lifecycle_status or asset_free_for_new_order(a.lifecycle_status, int(a.id), released_transfer)
+            if approval != "approved" or not free:
                 not_approved.append(
                     InvalidAssetRef(
                         asset_id=int(a.id),

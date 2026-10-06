@@ -147,7 +147,7 @@ export const TRANSFER_IN_PROGRESS_MESSAGE =
   "A Transfer Order is already in progress for this asset. Please complete the existing Transfer Order before creating a new one."
 
 export type ValidateTransferAssetsResponse = {
-  in_progress: { asset_id: number; asset_code: string; asset_name: string }[]
+  in_progress: { asset_id: number; asset_code: string; asset_name: string; reason?: string }[]
 }
 export function transferStatusLabel(
   status: string,

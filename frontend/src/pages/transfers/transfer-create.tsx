@@ -49,6 +49,7 @@ import {
   writeAssetMasterSelection,
 } from "@/lib/asset-master-selection"
 import { currentUserId, isSuperuser, persistAuthFromMe } from "@/lib/permissions"
+import { mayRequestNewOrder } from "@/lib/asset-actions"
 import { cn } from "@/lib/utils"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 
@@ -81,8 +82,7 @@ function isApprovedForTransfer(asset: {
   lifecycle_status?: string | null
 }): boolean {
   const approval = (asset.approval_status ?? "").trim().toLowerCase()
-  const lifecycle = (asset.lifecycle_status ?? "").trim().toLowerCase()
-  if (lifecycle && lifecycle !== "active") return false
+  if (!mayRequestNewOrder(asset.lifecycle_status)) return false
   return approval === "approved" || approval === "not_required"
 }
 

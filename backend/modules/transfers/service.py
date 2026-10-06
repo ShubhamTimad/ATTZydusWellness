@@ -12,6 +12,7 @@ from modules.asset_masters.location_lookup import (
 from modules.asset_masters.model import CostCenterAssetCustodian, CostCenterMaster
 from modules.assets.lifecycle import (
     LIFECYCLE_ACTIVE,
+    LIFECYCLE_PENDING_DISPOSAL,
     LIFECYCLE_PENDING_TRANSFER,
     mark_pending_transfer,
     restore_from_pending_transfer,
@@ -829,8 +830,8 @@ class TransferOrderService:
         Draft/resubmit: assets already on this order may stay pending_transfer.
         """
         reserved = reserved_asset_ids or set()
-        locked: list[str] = []
         bad: list[str] = []
+        fresh: list[AssetMaster] = []
         for asset in assets:
             lifecycle = (asset.lifecycle_status or "").strip().lower()
             approval = (asset.approval_status or "").strip().lower()
@@ -841,13 +842,17 @@ class TransferOrderService:
                 if lifecycle not in {LIFECYCLE_ACTIVE, LIFECYCLE_PENDING_TRANSFER}:
                     bad.append(asset.asset_code or str(asset.id))
                 continue
-            if lifecycle == LIFECYCLE_PENDING_TRANSFER:
-                locked.append(asset.asset_code or str(asset.id))
-                continue
-            if lifecycle != LIFECYCLE_ACTIVE:
-                bad.append(asset.asset_code or str(asset.id))
-        if locked:
-            raise ConflictError(TRANSFER_IN_PROGRESS_MESSAGE)
+            fresh.append(asset)
+        if fresh:
+            blocked = self._open_order_reasons(fresh)
+            if blocked:
+                raise ConflictError(next(iter(blocked.values())))
+            from modules.orders.conflicts import asset_free_for_new_order, released_transfer_asset_ids
+
+            released = released_transfer_asset_ids(self._db, [int(a.id) for a in fresh])
+            for asset in fresh:
+                if not asset_free_for_new_order(asset.lifecycle_status, int(asset.id), released):
+                    bad.append(asset.asset_code or str(asset.id))
         if bad:
             sample = ", ".join(bad[:5])
             more = "…" if len(bad) > 5 else ""
@@ -856,21 +861,51 @@ class TransferOrderService:
                 f"{sample}{more}."
             )
 
-    def validate_assets(self, asset_ids: list[int]) -> ValidateTransferAssetsResponse:
-        """Return assets that already have an open transfer — list-page check before create."""
-        assets = self._load_assets(asset_ids)
-        in_progress: list[TransferInProgressAsset] = []
+    def _open_order_reasons(self, assets: list[AssetMaster]) -> dict[int, str]:
+        """asset_id -> why it is still held by a transfer, disposal, or physical order."""
+        from modules.orders.conflicts import (
+            blocking_physical_orders,
+            finish_existing_order_message,
+            holding_other_orders,
+        )
+
+        ids = [int(a.id) for a in assets]
+        reasons = {
+            int(aid): finish_existing_order_message(kind=kind, order_number=onum)
+            for aid, _oid, onum, _status, kind in holding_other_orders(self._db, ids)
+        }
+        for aid, onum in blocking_physical_orders(self._db, ids).items():
+            reasons.setdefault(
+                int(aid),
+                finish_existing_order_message(kind="Physical Verification", order_number=onum),
+            )
+        from modules.orders.conflicts import released_transfer_asset_ids
+
+        released = released_transfer_asset_ids(self._db, ids)
         for asset in assets:
             lifecycle = (asset.lifecycle_status or "").strip().lower()
-            if lifecycle == LIFECYCLE_PENDING_TRANSFER:
-                in_progress.append(
-                    TransferInProgressAsset(
-                        asset_id=int(asset.id),
-                        asset_code=str(asset.asset_code or asset.id),
-                        asset_name=str(asset.asset_name or ""),
-                    )
+            if lifecycle == LIFECYCLE_PENDING_DISPOSAL:
+                reasons.setdefault(int(asset.id), "A Disposal Order is still open for this asset.")
+            elif lifecycle == LIFECYCLE_PENDING_TRANSFER and int(asset.id) not in released:
+                reasons.setdefault(int(asset.id), TRANSFER_IN_PROGRESS_MESSAGE)
+        return reasons
+
+    def validate_assets(self, asset_ids: list[int]) -> ValidateTransferAssetsResponse:
+        """Return assets still on an order whose step before Close is not done."""
+        assets = self._load_assets(asset_ids)
+        reasons = self._open_order_reasons(assets)
+        return ValidateTransferAssetsResponse(
+            in_progress=[
+                TransferInProgressAsset(
+                    asset_id=int(asset.id),
+                    asset_code=str(asset.asset_code or asset.id),
+                    asset_name=str(asset.asset_name or ""),
+                    reason=reasons[int(asset.id)],
                 )
-        return ValidateTransferAssetsResponse(in_progress=in_progress)
+                for asset in assets
+                if int(asset.id) in reasons
+            ]
+        )
 
     def _order_assets(self, order: AssetTransferOrder) -> list[AssetMaster]:
         assets = [item.asset for item in order.items if item.asset is not None]
@@ -1726,7 +1761,7 @@ class TransferOrderService:
         old_status = order.status
         order.status = STATUS_CLOSED
         order.closed_at = datetime.now(timezone.utc)
-        self._restore_assets_active(self._order_assets(order))
+        _restore_closed_transfer_assets(self._db, self._order_assets(order))
         _log(
             self._db,
             order_id=int(order.id),
@@ -2564,6 +2599,19 @@ def _can_operational_flag(
 # ------------------------------------------------- approval engine callbacks
 
 
+def _restore_closed_transfer_assets(db: Session, assets: list[AssetMaster]) -> None:
+    """Close is a formality: leave assets alone once a newer transfer or disposal holds them."""
+    from modules.orders.conflicts import holding_other_orders
+
+    held = {int(row[0]) for row in holding_other_orders(db, [int(a.id) for a in assets])}
+    for asset in assets:
+        if int(asset.id) in held:
+            continue
+        if (asset.lifecycle_status or "").strip().lower() != LIFECYCLE_PENDING_TRANSFER:
+            continue
+        restore_from_pending_transfer(asset)
+
+
 def _revert_transfer_assets_after_receive(order: AssetTransferOrder) -> None:
     """Restore cost center / locations / custodian from line-item snapshots."""
     for item in order.items:
@@ -2834,9 +2882,7 @@ def apply_transfer_close(
     old_status = order.status
     order.status = STATUS_CLOSED
     order.closed_at = datetime.now(timezone.utc)
-    for item in order.items:
-        if item.asset is not None:
-            restore_from_pending_transfer(item.asset)
+    _restore_closed_transfer_assets(db, [item.asset for item in order.items if item.asset is not None])
     _log(
         db,
         order_id=int(order.id),

@@ -7,6 +7,7 @@ export type ValidateAssetsResponse = {
     order_id: number
     order_number: string
     order_status: string
+    order_kind?: string
   }[]
   missing_rfid: {
     asset_id: number

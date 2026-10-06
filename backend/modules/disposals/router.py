@@ -12,6 +12,8 @@ from db.session import get_db
 from modules.disposals.schema import (
     CloseDisposalRequest,
     CreateDisposalOrderRequest,
+    ValidateDisposalAssetsRequest,
+    ValidateDisposalAssetsResponse,
     DisposalAssigneeListResponse,
     DisposalListFilterOptionsResponse,
     DisposalOrderAuditPublic,
@@ -174,6 +176,18 @@ def list_cost_center_users(
 ) -> DisposalAssigneeListResponse:
     try:
         return svc.list_cost_center_custodians(cost_center_id=cost_center_id)
+    except Exception as e:
+        raise _http(e) from e
+
+
+@router.post("/validate-assets", response_model=ValidateDisposalAssetsResponse)
+def validate_assets(
+    body: ValidateDisposalAssetsRequest,
+    svc: Annotated[DisposalOrderService, Depends(get_disposal_service)],
+    _: Annotated[object, Depends(require_permission("disposal.create"))],
+) -> ValidateDisposalAssetsResponse:
+    try:
+        return svc.validate_assets(body.asset_ids)
     except Exception as e:
         raise _http(e) from e
 

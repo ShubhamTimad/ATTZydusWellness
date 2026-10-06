@@ -12,6 +12,21 @@ class DisposalItemCustodian(BaseModel):
     to_asset_custodian_id: int
 
 
+class DisposalInProgressAsset(BaseModel):
+    asset_id: int
+    asset_code: str
+    asset_name: str
+    reason: str = ""
+
+
+class ValidateDisposalAssetsRequest(BaseModel):
+    asset_ids: list[int] = Field(min_length=1)
+
+
+class ValidateDisposalAssetsResponse(BaseModel):
+    in_progress: list[DisposalInProgressAsset] = []
+
+
 class CreateDisposalOrderRequest(BaseModel):
     asset_ids: list[int] = Field(min_length=1)
     remarks: str | None = None

@@ -60,6 +60,7 @@ class TransferInProgressAsset(BaseModel):
     asset_id: int
     asset_code: str
     asset_name: str
+    reason: str = ""
 
 
 class ValidateTransferAssetsResponse(BaseModel):

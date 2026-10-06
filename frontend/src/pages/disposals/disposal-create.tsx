@@ -39,6 +39,7 @@ import {
   plantLabel,
   useAssetMasterLookups,
 } from "@/lib/use-asset-masters"
+import { mayRequestNewOrder } from "@/lib/asset-actions"
 import { cn } from "@/lib/utils"
 import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 
@@ -47,8 +48,7 @@ function isDisposable(asset: {
   approval_status?: string | null
   lifecycle_status?: string | null
 }): boolean {
-  const lifecycle = (asset.lifecycle_status ?? "").trim().toLowerCase()
-  if (lifecycle && lifecycle !== "active") return false
+  if (!mayRequestNewOrder(asset.lifecycle_status)) return false
   const approval = (asset.approval_status ?? "").trim().toLowerCase()
   return approval === "approved" || approval === "not_required"
 }
