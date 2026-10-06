@@ -102,6 +102,41 @@ def load_viewer_org_scope(db: Session, user_id: int | None) -> ViewerOrgScope:
     )
 
 
+def viewer_can_see_org(
+    scope: ViewerOrgScope,
+    *,
+    plant_id: int | None,
+    cost_center_ids: tuple[int, ...] = (),
+) -> bool:
+    """Same rule as physical-order detail: cost centers win, else plants, else open."""
+    if scope.unrestricted:
+        return True
+    if scope.cost_center_ids is not None:
+        allowed = scope.cost_center_ids
+        return any(int(cid) in allowed for cid in cost_center_ids)
+    if scope.plant_ids is not None:
+        return plant_id is not None and int(plant_id) in scope.plant_ids
+    return True
+
+
+def org_scope_clause(scope: ViewerOrgScope, *, plant_column: object, cost_center_columns: tuple):
+    """SQL fragment for list queries. None means no extra filter."""
+    from sqlalchemy import false, or_
+
+    if scope.unrestricted:
+        return None
+    if scope.cost_center_ids is not None:
+        ids = tuple(int(i) for i in scope.cost_center_ids)
+        if not ids or not cost_center_columns:
+            return false()
+        return or_(*(col.in_(ids) for col in cost_center_columns))
+    if scope.plant_ids is not None:
+        if plant_column is None or not scope.plant_ids:
+            return false()
+        return plant_column.in_(tuple(int(i) for i in scope.plant_ids))
+    return None
+
+
 def effective_plant_id(scope: ViewerOrgScope, requested: int | None) -> int | None | object:
     """Return plant filter to apply, or a sentinel empty result.
 

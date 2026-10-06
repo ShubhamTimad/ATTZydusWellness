@@ -207,11 +207,12 @@ def get_order(
 @router.get("/{order_id}/audit", response_model=list[DisposalOrderAuditPublic])
 def list_order_audit(
     order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[DisposalOrderService, Depends(get_disposal_service)],
     _: Annotated[object, Depends(require_permission("disposal.view"))],
 ) -> list[DisposalOrderAuditPublic]:
     try:
-        return svc.list_audit(order_id)
+        return svc.list_audit(order_id, viewer_user_id=int(current.subject))
     except Exception as e:
         raise _http(e) from e
 

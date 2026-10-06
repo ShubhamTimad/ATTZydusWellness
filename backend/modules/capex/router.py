@@ -134,11 +134,12 @@ def get_form(
 @router.get("/{form_id}/audit", response_model=list[CapexAuditEventPublic])
 def list_form_audit(
     form_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[CapexFormService, Depends(get_capex_service)],
     _: Annotated[object, Depends(require_permission("capitalization.view"))],
 ) -> list[CapexAuditEventPublic]:
     try:
-        return svc.list_audit(form_id)
+        return svc.list_audit(form_id, viewer_user_id=int(current.subject))
     except NotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 

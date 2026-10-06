@@ -8,7 +8,7 @@ from modules.orders.model import PhysicalOrder, PhysicalOrderItem
 
 
 def order_conflict_block_clause():
-    """Physical order is still mid-workflow (not yet closure-approved)."""
+    """Asset is still on an open or rejected physical order."""
     return or_(
         PhysicalOrder.status.in_(tuple(ORDER_CONFLICT_BLOCK_STATUSES)),
         # Early `approved` (creation-approved, work not done) still blocks.

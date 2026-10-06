@@ -79,6 +79,7 @@ from modules.disposals.schema import (
     UpdateDisposalOrderRequest,
 )
 from modules.errors import ConflictError, NotFoundError
+from modules.platform.users.scope import load_viewer_org_scope, org_scope_clause, viewer_can_see_org
 from modules.list_sort import apply_sort_dir, archived_last_expr
 from modules.platform.approvals.assignment_service import get_workflow_for_action
 from modules.platform.approvals.list_inbox import (
@@ -501,7 +502,35 @@ class DisposalOrderService:
                 seq = 1
         return f"{prefix}{seq:04d}"
 
-    def _load_order(self, order_id: int) -> AssetDisposalOrder:
+    def _org_scope_clause(self, viewer_user_id: int | None):
+        if viewer_user_id is None:
+            return None
+        return org_scope_clause(
+            load_viewer_org_scope(self._db, viewer_user_id),
+            plant_column=AssetDisposalOrder.plant_id,
+            cost_center_columns=(
+                AssetDisposalOrder.from_cost_center_id,
+                AssetDisposalOrder.to_cost_center_id,
+            ),
+        )
+
+    def _assert_order_in_viewer_scope(
+        self, order: AssetDisposalOrder, *, viewer_user_id: int | None
+    ) -> None:
+        if viewer_user_id is None:
+            return
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        ids = tuple(
+            int(cid)
+            for cid in (order.from_cost_center_id, order.to_cost_center_id)
+            if cid is not None
+        )
+        if not viewer_can_see_org(scope, plant_id=int(order.plant_id), cost_center_ids=ids):
+            raise NotFoundError("Disposal order", int(order.id))
+
+    def _load_order(
+        self, order_id: int, *, viewer_user_id: int | None = None
+    ) -> AssetDisposalOrder:
         order = self._db.scalar(
             select(AssetDisposalOrder)
             .where(AssetDisposalOrder.id == order_id)
@@ -522,6 +551,7 @@ class DisposalOrderService:
         )
         if order is None:
             raise NotFoundError("Disposal order", order_id)
+        self._assert_order_in_viewer_scope(order, viewer_user_id=viewer_user_id)
         return order
 
     def _normalize_legacy_rework_orders(self) -> None:
@@ -902,7 +932,11 @@ class DisposalOrderService:
     ) -> DisposalAssigneeListResponse:
         from modules.platform.approvals.org_scope import ORG_SCOPE_DESTINATION
 
-        order = self._load_order(int(order_id)) if order_id is not None else None
+        order = (
+            self._load_order(int(order_id), viewer_user_id=actor_user_id)
+            if order_id is not None
+            else None
+        )
         step = self._picker_step_for_order(order) if order is not None else None
         if step is not None:
             rid: int | None = int(step.approver_role_id)
@@ -945,7 +979,11 @@ class DisposalOrderService:
         asset_ids: list[int] | None = None,
     ) -> DisposalAssigneeListResponse:
         """Users in the first step role of the workflow mapped to this disposal action."""
-        order = self._load_order(int(order_id)) if order_id is not None else None
+        order = (
+            self._load_order(int(order_id), viewer_user_id=actor_user_id)
+            if order_id is not None
+            else None
+        )
         step = (
             self._picker_step_for_order(order, first_step=True)
             if order is not None
@@ -1043,7 +1081,7 @@ class DisposalOrderService:
     def update_order(
         self, order_id: int, data: UpdateDisposalOrderRequest, *, actor_user_id: int
     ) -> DisposalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status not in EDITABLE_STATUSES:
             raise ConflictError(
                 "Disposal order can only be edited while draft. "
@@ -1116,7 +1154,7 @@ class DisposalOrderService:
         self, order_id: int, *, actor_user_id: int
     ) -> DisposalOrderDetail:
         """Rejected / legacy in_rework → draft so the creator starts approval from the beginning."""
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status not in RESUMABLE_STATUSES:
             raise ConflictError(
                 "Only a rejected or in-rework disposal order can be restarted."
@@ -1153,7 +1191,7 @@ class DisposalOrderService:
         self, order_id: int, *, actor_user_id: int
     ) -> DisposalOrderDetail:
         """Archive a draft disposal (same order id, kept for audit)."""
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status not in ARCHIVABLE_STATUSES:
             raise ConflictError(
                 "Only draft disposal orders can be archived."
@@ -1196,7 +1234,7 @@ class DisposalOrderService:
 
     def unarchive_order(self, order_id: int, *, actor_user_id: int) -> DisposalOrderDetail:
         """Restore an archived disposal to its pre-archive editable status."""
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != STATUS_CANCELLED:
             raise ConflictError("Only archived disposal orders can be unarchived.")
         if not _actor_may_discard_disposal(order, actor_user_id=actor_user_id, db=self._db):
@@ -1252,7 +1290,7 @@ class DisposalOrderService:
     def submit_order(
         self, order_id: int, data: SubmitDisposalOrderRequest, *, actor_user_id: int
     ) -> DisposalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if data.requires_engineering is not None and order.status in EDITABLE_STATUSES:
             order.requires_engineering = bool(data.requires_engineering)
             self._db.flush()
@@ -1392,7 +1430,7 @@ class DisposalOrderService:
         self, order_id: int, *, actor_user_id: int, assignee_user_id: int
     ) -> DisposalOrderDetail:
         """Move the current pending approval task to a different user in the same role."""
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != STATUS_PENDING_APPROVAL:
             raise ConflictError(
                 "Approver can only be reassigned while the order is pending approval."
@@ -1571,7 +1609,7 @@ class DisposalOrderService:
         self, order_id: int, data: SaveDisposalLocationsRequest, *, actor_user_id: int
     ) -> DisposalOrderDetail:
         """Park the receiver's progress: save the scrapyard locations picked so far, finish later."""
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         self._assert_actor_may_receive(order, actor_user_id=actor_user_id)
         by_asset = {int(row.asset_id): row for row in data.item_locations}
         saved: list[dict] = []
@@ -1613,7 +1651,7 @@ class DisposalOrderService:
     def receive_order(
         self, order_id: int, data: ReceiveDisposalRequest, *, actor_user_id: int
     ) -> DisposalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         self._assert_actor_may_receive(order, actor_user_id=actor_user_id)
 
         # Engine workflows: REST receive must advance the pending receive task (not leave it open).
@@ -1685,7 +1723,7 @@ class DisposalOrderService:
     def close_order(
         self, order_id: int, data: CloseDisposalRequest, *, actor_user_id: int
     ) -> DisposalOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != STATUS_PENDING_CF_CLOSE:
             raise ConflictError("Only disposal orders that have been received can be approved.")
         if not self._actor_may_act(order, actor_user_id=actor_user_id, permission=PERMISSION_CLOSE):
@@ -2158,19 +2196,25 @@ class DisposalOrderService:
 
     def _list_orders_where(self, tab: str, *, viewer_user_id: int | None) -> list:
         if tab == "needs_action":
-            if viewer_user_id is None:
-                return [AssetDisposalOrder.id < 0]
-            return self._needs_action_clauses(int(viewer_user_id))
-        if tab in ("done", "closed"):
-            return [AssetDisposalOrder.status.in_((STATUS_CLOSED, STATUS_CANCELLED))]
-        if tab == "all":
-            return []
-        statuses = _TAB_STATUSES.get(tab)
-        if statuses is None and tab in _TAB_STATUSES:
-            return []
-        if statuses is None:
-            return []
-        return [AssetDisposalOrder.status.in_(statuses)]
+            clauses = (
+                [AssetDisposalOrder.id < 0]
+                if viewer_user_id is None
+                else self._needs_action_clauses(int(viewer_user_id))
+            )
+        elif tab in ("done", "closed"):
+            clauses = [AssetDisposalOrder.status.in_((STATUS_CLOSED, STATUS_CANCELLED))]
+        elif tab == "all":
+            clauses = []
+        else:
+            statuses = _TAB_STATUSES.get(tab)
+            if statuses is None:
+                clauses = []
+            else:
+                clauses = [AssetDisposalOrder.status.in_(statuses)]
+        extra = self._org_scope_clause(viewer_user_id)
+        if extra is not None:
+            clauses = [*clauses, extra]
+        return clauses
 
     def _needs_action_clauses(self, viewer_user_id: int) -> list:
         uid = int(viewer_user_id)
@@ -2256,10 +2300,10 @@ class DisposalOrderService:
                 return "Approve"
         return None
 
-    def list_audit(self, order_id: int) -> list[DisposalOrderAuditPublic]:
-        order = self._db.get(AssetDisposalOrder, order_id)
-        if order is None:
-            raise NotFoundError("Disposal order", order_id)
+    def list_audit(
+        self, order_id: int, *, viewer_user_id: int | None = None
+    ) -> list[DisposalOrderAuditPublic]:
+        order = self._load_order(order_id, viewer_user_id=viewer_user_id)
         rows = list(
             self._db.scalars(
                 select(AssetDisposalOrderAudit)
@@ -2290,10 +2334,10 @@ class DisposalOrderService:
 
     def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> DisposalOrderDetail:
         self._normalize_legacy_rework_orders()
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=viewer_user_id)
         # Heal orders received via REST while an engine receive task was still open.
         if self._heal_stale_receive_task(order):
-            order = self._load_order(order_id)
+            order = self._load_order(order_id, viewer_user_id=viewer_user_id)
         # Heal legacy bounce rows that kept pending_receipt after CF reject.
         if (
             order.status == STATUS_PENDING_RECEIPT

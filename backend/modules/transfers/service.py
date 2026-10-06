@@ -40,6 +40,7 @@ from modules.platform.tasks.service import (
     build_workflow_preview_steps,
 )
 from modules.platform.users.model import User
+from modules.platform.users.scope import load_viewer_org_scope, org_scope_clause, viewer_can_see_org
 from modules.rbac_association import user_role
 from modules.transfers.constants import (
     ACTION_SUBMIT,
@@ -637,7 +638,11 @@ class TransferOrderService:
         actor_user_id: int | None = None,
     ) -> TransferAssigneeListResponse:
         """Users in a workflow step role — resolved from the order so a stale role id still works."""
-        order = self._load_order(int(order_id)) if order_id is not None else None
+        order = (
+            self._load_order(int(order_id), viewer_user_id=actor_user_id)
+            if order_id is not None
+            else None
+        )
         step = self._picker_step_for_order(order) if order is not None else None
         rid = int(step.approver_role_id) if step is not None else role_id
         if rid is None:
@@ -665,7 +670,11 @@ class TransferOrderService:
         actor_user_id: int | None = None,
     ) -> TransferAssigneeListResponse:
         """Users in the first step role of the workflow mapped to this transfer action."""
-        order = self._load_order(int(order_id)) if order_id is not None else None
+        order = (
+            self._load_order(int(order_id), viewer_user_id=actor_user_id)
+            if order_id is not None
+            else None
+        )
         step = (
             self._picker_step_for_order(order, first_step=True)
             if order is not None
@@ -945,7 +954,35 @@ class TransferOrderService:
                 "Destination cost center must be different from the assets' current cost center."
             )
 
-    def _load_order(self, order_id: int) -> AssetTransferOrder:
+    def _org_scope_clause(self, viewer_user_id: int | None):
+        if viewer_user_id is None:
+            return None
+        return org_scope_clause(
+            load_viewer_org_scope(self._db, viewer_user_id),
+            plant_column=AssetTransferOrder.plant_id,
+            cost_center_columns=(
+                AssetTransferOrder.from_cost_center_id,
+                AssetTransferOrder.to_cost_center_id,
+            ),
+        )
+
+    def _assert_order_in_viewer_scope(
+        self, order: AssetTransferOrder, *, viewer_user_id: int | None
+    ) -> None:
+        if viewer_user_id is None:
+            return
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        ids = tuple(
+            int(cid)
+            for cid in (order.from_cost_center_id, order.to_cost_center_id)
+            if cid is not None
+        )
+        if not viewer_can_see_org(scope, plant_id=int(order.plant_id), cost_center_ids=ids):
+            raise NotFoundError("Transfer order", int(order.id))
+
+    def _load_order(
+        self, order_id: int, *, viewer_user_id: int | None = None
+    ) -> AssetTransferOrder:
         order = self._db.scalar(
             select(AssetTransferOrder)
             .where(AssetTransferOrder.id == order_id)
@@ -968,6 +1005,7 @@ class TransferOrderService:
         )
         if order is None:
             raise NotFoundError("Transfer order", order_id)
+        self._assert_order_in_viewer_scope(order, viewer_user_id=viewer_user_id)
         return order
 
     def _normalize_legacy_rework_orders(self) -> None:
@@ -1122,7 +1160,7 @@ class TransferOrderService:
     def update_order(
         self, order_id: int, data: UpdateTransferOrderRequest, *, actor_user_id: int
     ) -> TransferOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status not in EDITABLE_STATUSES:
             raise ConflictError(
                 "Transfer order can only be edited while draft. "
@@ -1218,7 +1256,7 @@ class TransferOrderService:
 
     def archive_order(self, order_id: int, *, actor_user_id: int) -> TransferOrderDetail:
         """Archive a draft transfer (same order id, kept for audit)."""
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status not in ARCHIVABLE_STATUSES:
             raise ConflictError(
                 "Only draft transfer orders can be archived."
@@ -1260,7 +1298,7 @@ class TransferOrderService:
 
     def unarchive_order(self, order_id: int, *, actor_user_id: int) -> TransferOrderDetail:
         """Restore an archived transfer to its pre-archive editable status."""
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != STATUS_CANCELLED:
             raise ConflictError("Only archived transfer orders can be unarchived.")
         if not _actor_may_discard_transfer(order, actor_user_id=actor_user_id, db=self._db):
@@ -1312,7 +1350,7 @@ class TransferOrderService:
         self, order_id: int, *, actor_user_id: int
     ) -> TransferOrderDetail:
         """After CF reject returns to receiver: reopen same order as draft for full approve flow."""
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if not _is_returned_to_receiver(self._db, order):
             raise ConflictError(
                 "Only a transfer returned to the receiver after reject can be restarted."
@@ -1366,7 +1404,7 @@ class TransferOrderService:
         self, order_id: int, *, actor_user_id: int
     ) -> TransferOrderDetail:
         """Rejected / legacy in_rework → draft so the creator starts approval from the beginning."""
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status not in RESUMABLE_STATUSES:
             raise ConflictError(
                 "Only a rejected transfer order can be restarted."
@@ -1487,7 +1525,7 @@ class TransferOrderService:
     def submit_order(
         self, order_id: int, data: SubmitTransferOrderRequest, *, actor_user_id: int
     ) -> TransferOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         self._submit(
             order,
             actor_user_id=actor_user_id,
@@ -1521,7 +1559,7 @@ class TransferOrderService:
     def cf_reject(
         self, order_id: int, data: CfRejectTransferRequest, *, actor_user_id: int
     ) -> TransferOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status not in REJECTABLE_STATUSES:
             raise ConflictError(
                 "This transfer cannot be rejected after approval. "
@@ -1569,7 +1607,7 @@ class TransferOrderService:
         self, order_id: int, data: SaveReceiveLocationsRequest, *, actor_user_id: int
     ) -> TransferOrderDetail:
         """Park the receiver's progress: save the locations picked so far, finish later."""
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         self._assert_actor_may_receive(order, actor_user_id=actor_user_id)
         by_asset = {int(row.asset_id): row for row in data.item_locations}
         saved: list[dict] = []
@@ -1606,7 +1644,7 @@ class TransferOrderService:
     def cc2_assign_to_cf(
         self, order_id: int, data: Cc2AssignTransferRequest, *, actor_user_id: int
     ) -> TransferOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         self._assert_actor_may_receive(order, actor_user_id=actor_user_id)
         confirm_role_id = self._workflow_step_role_id(order, step_kind="confirm")
         if confirm_role_id is None:
@@ -1657,7 +1695,7 @@ class TransferOrderService:
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
     def cf_confirm(self, order_id: int, *, actor_user_id: int) -> TransferOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != STATUS_RECEIVED_BY_CC2:
             raise ConflictError("Only transfer orders received by CC2 can be confirmed by CF.")
         if order.assigned_to is not None and int(order.assigned_to) != int(actor_user_id):
@@ -1678,7 +1716,7 @@ class TransferOrderService:
         return self.get_order(order_id, viewer_user_id=actor_user_id)
 
     def cf_close(self, order_id: int, *, actor_user_id: int) -> TransferOrderDetail:
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
         if order.status != STATUS_CONFIRMED_BY_CF:
             raise ConflictError("Only transfer orders confirmed by CF can be closed.")
         if order.assigned_to is not None and int(order.assigned_to) != int(actor_user_id):
@@ -2066,25 +2104,32 @@ class TransferOrderService:
 
     def _list_orders_where(self, tab: str, *, viewer_user_id: int | None) -> list:
         if tab == "needs_action":
-            if viewer_user_id is None:
-                return [AssetTransferOrder.id < 0]
-            return self._needs_action_clauses(int(viewer_user_id))
-        if tab in ("done", "closed"):
-            return [
-                AssetTransferOrder.status.in_((STATUS_CLOSED, STATUS_CANCELLED)),
-            ]
-        if tab == "all":
-            return []
-        # Legacy status tabs still work for bookmarks / API clients.
-        statuses = _TAB_STATUSES.get(tab)
-        if statuses is None and tab in _TAB_STATUSES:
-            return []
-        if statuses is None:
-            # Unknown tab → same as needs_action when viewer known, else active open set.
-            if viewer_user_id is not None:
-                return self._needs_action_clauses(int(viewer_user_id))
-            return [AssetTransferOrder.status.in_(ACTIVE_STATUSES)]
-        return [AssetTransferOrder.status.in_(statuses)]
+            clauses = (
+                [AssetTransferOrder.id < 0]
+                if viewer_user_id is None
+                else self._needs_action_clauses(int(viewer_user_id))
+            )
+        elif tab in ("done", "closed"):
+            clauses = [AssetTransferOrder.status.in_((STATUS_CLOSED, STATUS_CANCELLED))]
+        elif tab == "all":
+            clauses = []
+        else:
+            # Legacy status tabs still work for bookmarks / API clients.
+            statuses = _TAB_STATUSES.get(tab)
+            if statuses is None and tab in _TAB_STATUSES:
+                clauses = []
+            elif statuses is None:
+                clauses = (
+                    self._needs_action_clauses(int(viewer_user_id))
+                    if viewer_user_id is not None
+                    else [AssetTransferOrder.status.in_(ACTIVE_STATUSES)]
+                )
+            else:
+                clauses = [AssetTransferOrder.status.in_(statuses)]
+        extra = self._org_scope_clause(viewer_user_id)
+        if extra is not None:
+            clauses = [*clauses, extra]
+        return clauses
 
     def _list_tab_counts(
         self, *, viewer_user_id: int | None, filters: list | None = None
@@ -2285,7 +2330,7 @@ class TransferOrderService:
 
     def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> TransferOrderDetail:
         self._normalize_legacy_rework_orders()
-        order = self._load_order(order_id)
+        order = self._load_order(order_id, viewer_user_id=viewer_user_id)
         audits = list(
             self._db.scalars(
                 select(AssetTransferOrderAudit)

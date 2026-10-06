@@ -5,7 +5,7 @@ import logging
 import urllib.error
 import urllib.request
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
@@ -18,7 +18,7 @@ from core.request_logging_middleware import RequestLoggingMiddleware
 from modules.platform.audit import AdminAuditMiddleware
 from modules.platform.auth.session_idle_middleware import SessionIdleMiddleware
 
-from db.session import SessionLocal
+from db.session import SessionLocal, engine
 from modules.rbac_sync import sync_all_modules_to_db
 
 configure_logging()
@@ -108,7 +108,15 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 
 @app.get("/health", include_in_schema=False)
-def health() -> dict[str, str]:
+def health():
+    from sqlalchemy import text
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("health_db_failed")
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
     return {"status": "ok"}
 
 
@@ -133,14 +141,13 @@ def admin_login_redirect() -> RedirectResponse:
 
 @app.get("/deploy-now", include_in_schema=False)
 @app.post("/deploy-now", include_in_schema=False)
-def deploy_now(request: Request, token: str = Query(default="")) -> HTMLResponse:
+def deploy_now(request: Request) -> HTMLResponse:
     """
-    Trigger a develop deploy from Teams (optional).
-    Requires DEPLOY_NOW_TOKEN + GH_PAT (Actions: write) + GITHUB_REPOSITORY.
+    Trigger a develop deploy.
+    Requires the X-Deploy-Token header, plus GH_PAT and GITHUB_REPOSITORY.
     """
     expected = (os.getenv("DEPLOY_NOW_TOKEN") or "").strip()
-    header_token = (request.headers.get("x-deploy-token") or "").strip()
-    presented = header_token or token
+    presented = (request.headers.get("x-deploy-token") or "").strip()
     if not expected or not presented or not hmac.compare_digest(presented, expected):
         raise HTTPException(status_code=404, detail="Not found")
 

@@ -52,6 +52,7 @@ from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, Appr
 from modules.platform.approvals.service import ApprovalEngineService, ApprovalError
 from modules.platform.roles.model import Role
 from modules.platform.users.model import User
+from modules.platform.users.scope import load_viewer_org_scope, viewer_can_see_org
 from modules.platform.tasks.schema import TaskApprovalStepLinePublic
 from modules.platform.tasks.service import (
     _build_workflow_steps_for_request,
@@ -268,7 +269,38 @@ class CapexFormService:
                 seq = 1
         return f"{prefix}{seq:05d}"
 
-    def _load(self, form_id: int) -> CapitalizationForm:
+    def _org_scope_clause(self, viewer_user_id: int | None):
+        if viewer_user_id is None:
+            return None
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        if scope.unrestricted:
+            return None
+        if scope.cost_center_ids is not None:
+            ids = tuple(int(i) for i in scope.cost_center_ids)
+            if not ids:
+                return CapitalizationForm.id < 0
+            return CapitalizationForm.cost_center_id.in_(ids)
+        if scope.plant_ids is not None:
+            plants = tuple(int(i) for i in scope.plant_ids)
+            if not plants:
+                return CapitalizationForm.id < 0
+            return CapitalizationForm.cost_center_id.in_(
+                select(CostCenterMaster.id).where(CostCenterMaster.plant_id.in_(plants))
+            )
+        return None
+
+    def _assert_form_in_viewer_scope(
+        self, form: CapitalizationForm, *, viewer_user_id: int | None
+    ) -> None:
+        if viewer_user_id is None:
+            return
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        plant_id = int(form.cost_center.plant_id) if form.cost_center is not None else None
+        cc_ids = (int(form.cost_center_id),) if form.cost_center_id is not None else ()
+        if not viewer_can_see_org(scope, plant_id=plant_id, cost_center_ids=cc_ids):
+            raise NotFoundError("CapitalizationForm", int(form.id))
+
+    def _load(self, form_id: int, *, viewer_user_id: int | None = None) -> CapitalizationForm:
         row = self._db.scalar(
             select(CapitalizationForm)
             .where(CapitalizationForm.id == form_id)
@@ -280,6 +312,7 @@ class CapexFormService:
         )
         if row is None:
             raise NotFoundError("CapitalizationForm", form_id)
+        self._assert_form_in_viewer_scope(row, viewer_user_id=viewer_user_id)
         return row
 
     def _validated_cost_center_id(self, cost_center_id: int | None) -> int | None:
@@ -670,6 +703,10 @@ class CapexFormService:
                 unused = or_(unused, CapitalizationForm.asset_id == int(for_asset_id))
             stmt = stmt.where(CapitalizationForm.status == STATUS_APPROVED, unused)
             count_stmt = count_stmt.where(CapitalizationForm.status == STATUS_APPROVED, unused)
+            extra = self._org_scope_clause(viewer_user_id)
+            if extra is not None:
+                stmt = stmt.where(extra)
+                count_stmt = count_stmt.where(extra)
         else:
             tab_where = self._list_forms_where(tab_key, viewer_user_id=viewer_user_id)
             if tab_where:
@@ -771,33 +808,41 @@ class CapexFormService:
     def _list_forms_where(self, tab: str, *, viewer_user_id: int | None) -> list:
         if tab == "needs_action":
             if viewer_user_id is None:
-                return [CapitalizationForm.id < 0]
-            uid = int(viewer_user_id)
-            pending_req_ids = pending_approval_request_ids_for_viewer(self._db, uid)
-            return [
-                or_(
-                    and_(
-                        CapitalizationForm.approval_request_id.is_not(None),
-                        CapitalizationForm.approval_request_id.in_(pending_req_ids),
+                clauses = [CapitalizationForm.id < 0]
+            else:
+                uid = int(viewer_user_id)
+                pending_req_ids = pending_approval_request_ids_for_viewer(self._db, uid)
+                clauses = [
+                    or_(
+                        and_(
+                            CapitalizationForm.approval_request_id.is_not(None),
+                            CapitalizationForm.approval_request_id.in_(pending_req_ids),
+                        ),
+                        and_(
+                            CapitalizationForm.created_by == uid,
+                            CapitalizationForm.status.in_(EDITABLE_STATUSES),
+                        ),
                     ),
-                    and_(
-                        CapitalizationForm.created_by == uid,
-                        CapitalizationForm.status.in_(EDITABLE_STATUSES),
-                    ),
-                ),
-                CapitalizationForm.status != STATUS_APPROVED,
-                CapitalizationForm.status != STATUS_CANCELLED,
-            ]
-        if tab == "done":
-            return [CapitalizationForm.status.in_((STATUS_APPROVED, STATUS_CANCELLED))]
-        if tab == "all" or not tab:
-            return []
-        if tab == STATUS_IN_REWORK:
-            return [CapitalizationForm.status.in_((STATUS_IN_REWORK, STATUS_REJECTED))]
-        return [CapitalizationForm.status == tab]
+                    CapitalizationForm.status != STATUS_APPROVED,
+                    CapitalizationForm.status != STATUS_CANCELLED,
+                ]
+        elif tab == "done":
+            clauses = [CapitalizationForm.status.in_((STATUS_APPROVED, STATUS_CANCELLED))]
+        elif tab == "all" or not tab:
+            clauses = []
+        elif tab == STATUS_IN_REWORK:
+            clauses = [CapitalizationForm.status.in_((STATUS_IN_REWORK, STATUS_REJECTED))]
+        else:
+            clauses = [CapitalizationForm.status == tab]
+        extra = self._org_scope_clause(viewer_user_id)
+        if extra is not None:
+            clauses = [*clauses, extra]
+        return clauses
 
     def get_form(self, form_id: int, *, viewer_user_id: int | None = None) -> CapexFormDetail:
-        return self._to_detail(self._load(form_id), viewer_user_id=viewer_user_id)
+        return self._to_detail(
+            self._load(form_id, viewer_user_id=viewer_user_id), viewer_user_id=viewer_user_id
+        )
 
     def list_assignees(
         self, *, level: str, cost_center_id: int | None = None
@@ -924,12 +969,14 @@ class CapexFormService:
             )
         else:
             self._db.commit()
-        return self._to_detail(self._load(int(form.id)), viewer_user_id=actor_user_id)
+        return self._to_detail(
+            self._load(int(form.id), viewer_user_id=actor_user_id), viewer_user_id=actor_user_id
+        )
 
     def update_form(
         self, form_id: int, data: CapexFormUpdateRequest, *, actor_user_id: int
     ) -> CapexFormDetail:
-        form = self._load(form_id)
+        form = self._load(form_id, viewer_user_id=actor_user_id)
         if form.status not in EDITABLE_STATUSES:
             raise ConflictError("Form can only be edited while draft, rejected, or in rework.")
         before = _snapshot_fields(form)
@@ -963,13 +1010,13 @@ class CapexFormService:
                 new_value={k: v["to"] for k, v in changes.items()},
             )
         self._db.commit()
-        return self._to_detail(self._load(form_id), viewer_user_id=actor_user_id)
+        return self._to_detail(self._load(form_id, viewer_user_id=actor_user_id), viewer_user_id=actor_user_id)
 
     def delete_draft_form(self, form_id: int, *, actor_user_id: int) -> None:
         raise ConflictError("Capitalization forms cannot be deleted. Archive the form instead.")
 
     def archive_form(self, form_id: int, *, actor_user_id: int) -> CapexFormDetail:
-        form = self._load(form_id)
+        form = self._load(form_id, viewer_user_id=actor_user_id)
         if form.status not in EDITABLE_STATUSES:
             raise ConflictError(
                 "Only draft, rejected, or in-rework capitalization forms can be archived."
@@ -1003,10 +1050,10 @@ class CapexFormService:
             new_value={"status": form.status},
         )
         self._db.commit()
-        return self._to_detail(self._load(form_id), viewer_user_id=actor_user_id)
+        return self._to_detail(self._load(form_id, viewer_user_id=actor_user_id), viewer_user_id=actor_user_id)
 
     def unarchive_form(self, form_id: int, *, actor_user_id: int) -> CapexFormDetail:
-        form = self._load(form_id)
+        form = self._load(form_id, viewer_user_id=actor_user_id)
         if form.status != STATUS_CANCELLED:
             raise ConflictError("Only archived capitalization forms can be unarchived.")
         if not _actor_may_discard_capex(form, actor_user_id=actor_user_id, db=self._db):
@@ -1024,7 +1071,7 @@ class CapexFormService:
             new_value={"status": form.status},
         )
         self._db.commit()
-        return self._to_detail(self._load(form_id), viewer_user_id=actor_user_id)
+        return self._to_detail(self._load(form_id, viewer_user_id=actor_user_id), viewer_user_id=actor_user_id)
 
     def _status_before_archive(self, form_id: int, *, allowed: frozenset[str]) -> str:
         row = self._db.scalar(
@@ -1050,18 +1097,18 @@ class CapexFormService:
         assignee_user_id: int,
         requires_engineering: bool | None = None,
     ) -> CapexFormDetail:
-        form = self._load(form_id)
+        form = self._load(form_id, viewer_user_id=actor_user_id)
         if requires_engineering is not None and form.status in EDITABLE_STATUSES:
             form.requires_engineering = bool(requires_engineering)
             self._db.flush()
         self._submit(form, actor_user_id=actor_user_id, assignee_user_id=assignee_user_id)
-        return self._to_detail(self._load(form_id), viewer_user_id=actor_user_id)
+        return self._to_detail(self._load(form_id, viewer_user_id=actor_user_id), viewer_user_id=actor_user_id)
 
     def reassign_approver(
         self, form_id: int, *, actor_user_id: int, assignee_user_id: int
     ) -> CapexFormDetail:
         """Move the current pending CapEx approval task to a different user in the same role."""
-        form = self._load(form_id)
+        form = self._load(form_id, viewer_user_id=actor_user_id)
         if form.status != STATUS_PENDING_APPROVAL:
             raise ConflictError("Approver can only be reassigned while the form is pending approval.")
         if form.approval_request_id is None:
@@ -1165,7 +1212,7 @@ class CapexFormService:
         except Exception:
             pass
         self._db.commit()
-        return self._to_detail(self._load(form_id), viewer_user_id=actor_user_id)
+        return self._to_detail(self._load(form_id, viewer_user_id=actor_user_id), viewer_user_id=actor_user_id)
 
     def _submit(
         self,
@@ -1348,10 +1395,10 @@ class CapexFormService:
         )
         return form
 
-    def list_audit(self, form_id: int) -> list[CapexAuditEventPublic]:
-        form = self._db.get(CapitalizationForm, form_id)
-        if form is None:
-            raise NotFoundError("CapitalizationForm", form_id)
+    def list_audit(
+        self, form_id: int, *, viewer_user_id: int | None = None
+    ) -> list[CapexAuditEventPublic]:
+        self._load(form_id, viewer_user_id=viewer_user_id)
         rows = list(
             self._db.scalars(
                 select(CapitalizationFormAudit)

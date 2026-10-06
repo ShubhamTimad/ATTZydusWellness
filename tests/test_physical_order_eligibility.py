@@ -92,6 +92,7 @@ def test_open_order_statuses_block_new_physical_order() -> None:
         ORDER_STATUS_ASSIGNED,
         ORDER_STATUS_IN_PROGRESS,
         ORDER_STATUS_COMPLETED,
+        ORDER_STATUS_REJECTED,
     ):
         assert status in ORDER_CONFLICT_BLOCK_STATUSES
     # Closure-approved (`approved` + completed_at) must not block; early approved is
@@ -100,7 +101,6 @@ def test_open_order_statuses_block_new_physical_order() -> None:
         ORDER_STATUS_APPROVED,
         ORDER_STATUS_CLOSED,
         ORDER_STATUS_CANCELLED,
-        ORDER_STATUS_REJECTED,
     ):
         assert status not in ORDER_CONFLICT_BLOCK_STATUSES
 
@@ -117,10 +117,15 @@ def _blocks_new_pvo(*, status: str, completed_at) -> bool:
 def test_closure_approved_does_not_block_new_pvo() -> None:
     from datetime import datetime, timezone
 
-    from modules.orders.constants import ORDER_STATUS_APPROVED, ORDER_STATUS_IN_PROGRESS
+    from modules.orders.constants import (
+        ORDER_STATUS_APPROVED,
+        ORDER_STATUS_IN_PROGRESS,
+        ORDER_STATUS_REJECTED,
+    )
 
     now = datetime.now(timezone.utc)
     assert _blocks_new_pvo(status=ORDER_STATUS_IN_PROGRESS, completed_at=None)
     assert _blocks_new_pvo(status=ORDER_STATUS_APPROVED, completed_at=None)
+    assert _blocks_new_pvo(status=ORDER_STATUS_REJECTED, completed_at=None)
     assert not _blocks_new_pvo(status=ORDER_STATUS_APPROVED, completed_at=now)
     assert not _blocks_new_pvo(status="closed", completed_at=now)
