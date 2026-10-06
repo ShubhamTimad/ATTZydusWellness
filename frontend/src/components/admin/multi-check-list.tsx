@@ -25,7 +25,7 @@ export function MultiCheckList({
 
   if (options.length === 0) {
     return (
-      <div className={cn(box, "px-3 py-3 text-center text-xs text-muted-foreground")}>
+      <div className={cn(box, "px-3 py-3 text-center text-xs text-muted-foreground", disabled && "bg-muted/20")}>
         {disabled
           ? emptyLabel
           : "No options for the selected plant"}

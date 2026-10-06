@@ -143,6 +143,13 @@ export function UserCreatePage() {
   })
 
   const plantIds = form.watch("org_unit_ids")
+  const plantChosen = plantIds.length > 0
+
+  React.useEffect(() => {
+    if (!plants || plants.length !== 1) return
+    if (form.getValues("org_unit_ids").length > 0) return
+    form.setValue("org_unit_ids", [String(plants[0].id)], { shouldDirty: false, shouldValidate: true })
+  }, [plants, form])
 
   React.useEffect(() => {
     if (!roles) return
@@ -371,7 +378,7 @@ export function UserCreatePage() {
           headerActions={<Building2 className="size-4 text-primary" aria-hidden />}
           contentClassName="px-5 py-5"
         >
-          <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
+          <div className="grid min-w-0 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 [&>*]:min-w-0">
             <FormField
               labelText="Plant"
               required
@@ -389,6 +396,35 @@ export function UserCreatePage() {
                 emptyLabel="No plants available."
               />
             </FormField>
+            <FormField labelText="Cost Center">
+              <MultiCheckList
+                options={costCenters.map((c) => ({
+                  id: c.id,
+                  label: c.code,
+                  title: `${c.code} — ${c.name}`,
+                }))}
+                values={form.watch("cost_center_ids")}
+                onChange={(next) => form.setValue("cost_center_ids", next, { shouldDirty: true })}
+                disabled={!plantChosen}
+                selectAll
+                emptyLabel={plantChosen ? "No cost centers available." : "Select a plant first"}
+              />
+            </FormField>
+            <FormField
+              labelText="Roles"
+              required
+              error={form.formState.errors.role_ids?.message}
+            >
+              <MultiCheckList
+                options={rolesForPlants(roles, plantIds).map((r) => ({ id: r.id, label: r.name }))}
+                values={form.watch("role_ids")}
+                onChange={(next) =>
+                  form.setValue("role_ids", next, { shouldDirty: true, shouldValidate: true })
+                }
+                disabled={!plantChosen}
+                emptyLabel={plantChosen ? "No roles available." : "Select a plant first"}
+              />
+            </FormField>
             {departments.length > 0 ? (
               <FormField labelText="Department">
                 <MultiCheckList
@@ -402,35 +438,6 @@ export function UserCreatePage() {
                 />
               </FormField>
             ) : null}
-            {costCenters.length > 0 ? (
-              <FormField labelText="Cost Center">
-                <MultiCheckList
-                  options={costCenters.map((c) => ({
-                    id: c.id,
-                    label: c.code,
-                    title: `${c.code} — ${c.name}`,
-                  }))}
-                  values={form.watch("cost_center_ids")}
-                  onChange={(next) => form.setValue("cost_center_ids", next, { shouldDirty: true })}
-                  selectAll
-                  emptyLabel="No cost centers available."
-                />
-              </FormField>
-            ) : null}
-            <FormField
-              labelText="Roles"
-              required
-              error={form.formState.errors.role_ids?.message}
-            >
-              <MultiCheckList
-                options={rolesForPlants(roles, plantIds).map((r) => ({ id: r.id, label: r.name }))}
-                values={form.watch("role_ids")}
-                onChange={(next) =>
-                  form.setValue("role_ids", next, { shouldDirty: true, shouldValidate: true })
-                }
-                emptyLabel="No roles available."
-              />
-            </FormField>
           </div>
         </AdminPanel>
 

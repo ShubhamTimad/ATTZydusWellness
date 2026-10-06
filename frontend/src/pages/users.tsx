@@ -3,6 +3,7 @@ import { Eye, ListFilter, Pencil, Plus, Search, X } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 
 import {
+  AdminPillBadge,
   AdminPrimaryButton,
   AdminRowAction,
   AdminRowActions,
@@ -85,6 +86,29 @@ const columnFilterControlClass = "h-8 w-full min-w-[6rem] text-xs"
 function joinNames(items: { name: string }[] | undefined, fallback: string | null | undefined): string {
   if (items && items.length > 0) return items.map((i) => i.name).join(", ")
   return fallback ?? "—"
+}
+
+function RolePills({
+  items,
+  fallback,
+}: {
+  items?: { id: number; name: string }[]
+  fallback?: string | null
+}) {
+  const list = items && items.length > 0 ? items : fallback ? [{ id: 0, name: fallback }] : []
+  if (list.length === 0) return <span className="text-muted-foreground">—</span>
+  const shown = list.slice(0, 3)
+  const hidden = list.length - shown.length
+  return (
+    <span className="inline-flex flex-col items-start gap-1" title={list.map((r) => r.name).join("\n")}>
+      {shown.map((role) => (
+        <AdminPillBadge key={role.id || role.name} tone="neutral">
+          {role.name}
+        </AdminPillBadge>
+      ))}
+      {hidden > 0 ? <AdminPillBadge tone="danger">+{hidden} more</AdminPillBadge> : null}
+    </span>
+  )
 }
 
 export function UsersPage() {
@@ -449,7 +473,9 @@ export function UsersPage() {
                     />
                   </AdminTableCell>
                   <AdminTableCell className="text-muted-foreground">{u.phone ?? "—"}</AdminTableCell>
-                  <AdminTableCell>{joinNames(u.roles, u.role?.name ?? null)}</AdminTableCell>
+                  <AdminTableCell>
+                    <RolePills items={u.roles} fallback={u.role?.name ?? null} />
+                  </AdminTableCell>
                   <AdminTableCell>
                     {joinNames(
                       u.org_units,

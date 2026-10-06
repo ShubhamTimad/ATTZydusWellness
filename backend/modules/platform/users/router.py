@@ -202,6 +202,18 @@ async def upload_user_photo(
         await file.close()
 
 
+@router.delete("/{user_id}/photo", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user_photo(
+    user_id: int,
+    svc: Annotated[UserService, Depends(get_user_service)],
+    _: Annotated[object, Depends(require_permission("users.update"))],
+) -> None:
+    try:
+        svc.clear_photo(user_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.post("/{user_id}/unlock")
 def unlock_user_account(
     user_id: int,

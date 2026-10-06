@@ -570,7 +570,10 @@ function collectOrderWarningRows(
     }
   }
   for (const { ref, parts } of ordersByAsset.values()) {
-    addIssue(ref, `Already on ${parts.join(", ")}`)
+    addIssue(
+      ref,
+      `Still on ${parts.join(", ")}. A new order is allowed only after the last approval before Close.`,
+    )
   }
   for (const a of res.not_approved ?? []) addIssue(a, "Not approved")
   for (const a of res.missing_rfid) addIssue(a, "No RFID tag")
@@ -2828,7 +2831,9 @@ export function AssetsListPage() {
                   />
                   <span>
                     {hasBlockingOrderMismatch(validationResult)
-                      ? "Deselect these assets and try again."
+                      ? validationResult.active_order_conflicts.length > 0
+                        ? "A new physical verification order cannot be created while these assets are still on an order."
+                        : "Deselect these assets and try again."
                       : "Review the warnings below before continuing."}
                   </span>
                 </p>

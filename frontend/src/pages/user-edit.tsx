@@ -7,6 +7,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { MultiCheckList } from "@/components/admin/multi-check-list"
+import { AssetImage, validateAssetImageFile } from "@/components/assets/asset-image"
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import { PageLoader } from "@/components/ui/page-loader"
@@ -20,7 +21,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ApiError, getJson, patchJson } from "@/lib/api"
+import { ApiError, deleteJson, getBlob, getJson, patchJson, putFormData } from "@/lib/api"
 import { phoneFieldSchema } from "@/lib/phone"
 import { canListOrgUnitsForAssignments, hasPermission } from "@/lib/permissions"
 import { cn } from "@/lib/utils"
@@ -69,6 +70,7 @@ type UserPublic = {
   org_unit: { id: number; name: string; type: string } | null
   department: { id: number; name: string; type: string; code?: string | null } | null
   cost_center: { id: number; code: string; name: string } | null
+  has_photo?: boolean
 }
 
 const editUserSchema = z.object({
@@ -140,6 +142,9 @@ export function UserEditPage() {
   const [costCenters, setCostCenters] = React.useState<CostCenterOption[]>([])
   const [error, setError] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
+  const [photoFile, setPhotoFile] = React.useState<File | null>(null)
+  const [photoUrl, setPhotoUrl] = React.useState<string | null>(null)
+  const [removePhoto, setRemovePhoto] = React.useState(false)
   const skipPlantReset = React.useRef(true)
 
   const canLoadPlantList = canListOrgUnitsForAssignments()
@@ -161,6 +166,31 @@ export function UserEditPage() {
   })
 
   const plantIds = form.watch("org_unit_ids")
+  const plantChosen = plantIds.length > 0
+
+  React.useEffect(() => {
+    setPhotoUrl(null)
+    if (!user?.id || !user.has_photo) return
+    let cancelled = false
+    let objectUrl: string | null = null
+    void getBlob(`/admin/users/${user.id}/photo`)
+      .then((blob) => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setPhotoUrl(objectUrl)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [user?.id, user?.has_photo])
+
+  React.useEffect(() => {
+    if (!plants || plants.length !== 1) return
+    if (form.getValues("org_unit_ids").length > 0) return
+    form.setValue("org_unit_ids", [String(plants[0].id)], { shouldDirty: false, shouldValidate: true })
+  }, [plants, form])
 
   React.useEffect(() => {
     if (!roles) return
@@ -313,6 +343,21 @@ export function UserEditPage() {
           .filter((n) => Number.isFinite(n) && n > 0),
         is_active: values.is_active,
       })
+      if (photoFile) {
+        const body = new FormData()
+        body.append("file", photoFile)
+        try {
+          await putFormData(`/admin/users/${user.id}/photo`, body)
+        } catch {
+          toast.error("User updated, but the photo could not be uploaded.")
+        }
+      } else if (removePhoto && user.has_photo) {
+        try {
+          await deleteJson(`/admin/users/${user.id}/photo`)
+        } catch {
+          toast.error("User updated, but the photo could not be removed.")
+        }
+      }
       toast.success("User updated", { id: "edit-user" })
       navigate(`../${user.id}`, { replace: true })
     } catch (e) {
@@ -430,6 +475,28 @@ export function UserEditPage() {
                     <option value="false">Inactive</option>
                   </select>
                 </FormField>
+                <FormField labelText="Photo">
+                  <AssetImage
+                    label="Photo"
+                    imageUrl={removePhoto ? null : photoUrl}
+                    file={photoFile}
+                    editable={!locked}
+                    busy={form.formState.isSubmitting}
+                    onFileChange={(file) => {
+                      const message = validateAssetImageFile(file, "Photo")
+                      if (message) {
+                        toast.error(message)
+                        return
+                      }
+                      setPhotoFile(file)
+                      setRemovePhoto(false)
+                    }}
+                    onRemove={() => {
+                      setPhotoFile(null)
+                      setRemovePhoto(true)
+                    }}
+                  />
+                </FormField>
               </div>
             </AdminPanel>
 
@@ -438,7 +505,7 @@ export function UserEditPage() {
               headerActions={<Building2 className="size-4 text-primary" aria-hidden />}
               contentClassName="px-5 py-5"
             >
-              <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]">
+              <div className="grid min-w-0 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 [&>*]:min-w-0">
                 <FormField
                   labelText="Plants"
                   required
@@ -454,33 +521,20 @@ export function UserEditPage() {
                     emptyLabel="No plants available."
                   />
                 </FormField>
-                {departments.length > 0 ? (
-                  <FormField labelText="Departments">
-                    <MultiCheckList
-                      options={departments.map((d) => ({ id: d.id, label: `${d.code} — ${d.name}` }))}
-                      values={form.watch("department_ids")}
-                      onChange={(next) => form.setValue("department_ids", next, { shouldDirty: true })}
-                      disabled={locked}
-                      emptyLabel="No departments available."
-                    />
-                  </FormField>
-                ) : null}
-                {costCenters.length > 0 ? (
-                  <FormField labelText="Cost Centers">
-                    <MultiCheckList
-                      options={costCenters.map((c) => ({
-                        id: c.id,
-                        label: c.code,
-                        title: `${c.code} — ${c.name}`,
-                      }))}
-                      values={form.watch("cost_center_ids")}
-                      onChange={(next) => form.setValue("cost_center_ids", next, { shouldDirty: true })}
-                      disabled={locked}
-                      selectAll
-                      emptyLabel="No cost centers available."
-                    />
-                  </FormField>
-                ) : null}
+                <FormField labelText="Cost Centers">
+                  <MultiCheckList
+                    options={costCenters.map((c) => ({
+                      id: c.id,
+                      label: c.code,
+                      title: `${c.code} — ${c.name}`,
+                    }))}
+                    values={form.watch("cost_center_ids")}
+                    onChange={(next) => form.setValue("cost_center_ids", next, { shouldDirty: true })}
+                    disabled={locked || !plantChosen}
+                    selectAll
+                    emptyLabel={plantChosen ? "No cost centers available." : "Select a plant first"}
+                  />
+                </FormField>
                 <FormField
                   labelText="Roles"
                   required
@@ -492,10 +546,21 @@ export function UserEditPage() {
                     onChange={(next) =>
                       form.setValue("role_ids", next, { shouldDirty: true, shouldValidate: true })
                     }
-                    disabled={locked}
-                    emptyLabel="No roles available."
+                    disabled={locked || !plantChosen}
+                    emptyLabel={plantChosen ? "No roles available." : "Select a plant first"}
                   />
                 </FormField>
+                {departments.length > 0 ? (
+                  <FormField labelText="Departments">
+                    <MultiCheckList
+                      options={departments.map((d) => ({ id: d.id, label: `${d.code} — ${d.name}` }))}
+                      values={form.watch("department_ids")}
+                      onChange={(next) => form.setValue("department_ids", next, { shouldDirty: true })}
+                      disabled={locked}
+                      emptyLabel="No departments available."
+                    />
+                  </FormField>
+                ) : null}
               </div>
             </AdminPanel>
 

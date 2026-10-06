@@ -207,6 +207,14 @@ class UserService:
         user.photo_content_type = content_type
         self._db.commit()
 
+    def clear_photo(self, user_id: int) -> None:
+        user = self._db.get(User, user_id)
+        if user is None:
+            raise NotFoundError("User", user_id)
+        user.photo_data = None
+        user.photo_content_type = None
+        self._db.commit()
+
     def create_user(self, data: UserCreate, *, actor_user_id: int | None = None) -> User:
         phone = self._normalize_phone(data.phone)
         existing_phone = self._db.scalar(select(User.id).where(User.phone == phone))
