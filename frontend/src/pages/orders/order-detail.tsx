@@ -254,6 +254,7 @@ export function OrderDetailPage() {
   const [executors, setExecutors] = React.useState<ExecutorUser[]>([])
   const [executorRoleName, setExecutorRoleName] = React.useState<string | null>(null)
   const [reassignTo, setReassignTo] = React.useState("")
+  const [reassignReason, setReassignReason] = React.useState("")
   const [assignTo, setAssignTo] = React.useState("")
   const [assignRemarks, setAssignRemarks] = React.useState("")
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
@@ -590,7 +591,8 @@ export function OrderDetailPage() {
     (item) => (item.verification_status || "").toLowerCase() === "approved",
   )
 
-  const canReassign = isAssigned && canReassignOrder && !isClosed
+  const canReassignRejected = isRejected && Boolean(order.can_reassign_rejected)
+  const canReassign = (isAssigned && canReassignOrder && !isClosed) || canReassignRejected
   const canClose =
     (isClosureApproved || (isCompleted && !hasClosureWorkflow)) && canApprove
 
@@ -849,6 +851,7 @@ export function OrderDetailPage() {
               disabled={busy}
               onClick={() => {
                 setReassignTo("")
+                setReassignReason("")
                 setReassignOpen(true)
               }}
             >
@@ -1644,15 +1647,35 @@ export function OrderDetailPage() {
                 ))}
               </select>
             </div>
+            {canReassignRejected ? (
+              <div className="space-y-2">
+                <Label htmlFor="reassign-reason">
+                  Reason for Reassign
+                  <RequiredFieldMark />
+                </Label>
+                <textarea
+                  id="reassign-reason"
+                  className={cn(adminTextareaClass, "min-h-[72px] resize-y")}
+                  value={reassignReason}
+                  onChange={(e) => setReassignReason(e.target.value)}
+                  rows={2}
+                  placeholder="Enter the reason for reassigning"
+                  disabled={busy}
+                />
+              </div>
+            ) : null}
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setReassignOpen(false)}>
                 Cancel
               </Button>
               <Button
                 type="button"
-                disabled={!reassignTo || busy}
+                disabled={!reassignTo || busy || (canReassignRejected && !reassignReason.trim())}
                 onClick={() => {
-                  void runAction("/reassign", { assigned_to: Number(reassignTo) }).then((ok) => {
+                  void runAction("/reassign", {
+                    assigned_to: Number(reassignTo),
+                    ...(canReassignRejected ? { reason: reassignReason.trim() } : {}),
+                  }).then((ok) => {
                     if (ok) setReassignOpen(false)
                   })
                 }}

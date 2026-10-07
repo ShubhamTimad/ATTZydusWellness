@@ -155,12 +155,14 @@ class DuplicateRfidError(Exception):
         rfid_code: str,
         existing_asset_id: int,
         existing_asset_code: str,
+        existing_deleted: bool = False,
     ) -> None:
         self.rfid_code = rfid_code
         self.existing_asset_id = existing_asset_id
         self.existing_asset_code = existing_asset_code
+        holder = "deleted asset" if existing_deleted else "asset"
         self.message = (
-            f"RFID code '{rfid_code}' is already assigned to asset "
+            f"RFID code '{rfid_code}' is already assigned to {holder} "
             f"{existing_asset_code} (id {existing_asset_id})."
         )
         super().__init__(self.message)
@@ -215,10 +217,10 @@ def _assert_rfid_available(
     rfid: str,
     exclude_asset_id: int | None,
 ) -> None:
-    stmt = select(AssetMaster.id, AssetMaster.asset_code).where(
-        AssetMaster.rfid_code == rfid,
-        AssetMaster.deleted_at.is_(None),
-    )
+    # rfid_code is unique across all rows, soft-deleted ones included.
+    stmt = select(
+        AssetMaster.id, AssetMaster.asset_code, AssetMaster.combined_asset_number, AssetMaster.deleted_at
+    ).where(AssetMaster.rfid_code == rfid)
     if exclude_asset_id is not None:
         stmt = stmt.where(AssetMaster.id != exclude_asset_id)
     row = db.execute(stmt).first()
@@ -226,7 +228,8 @@ def _assert_rfid_available(
         raise DuplicateRfidError(
             rfid_code=rfid,
             existing_asset_id=int(row[0]),
-            existing_asset_code=str(row[1]),
+            existing_asset_code=str(row[1] or row[2] or row[0]),
+            existing_deleted=row[3] is not None,
         )
 
 
@@ -1545,9 +1548,8 @@ class AssetMasterService:
             self._db.commit()
         except IntegrityError as exc:
             self._db.rollback()
-            msg = str(exc).lower()
-            if "rfid" in msg:
-                raise DuplicateRfidError() from exc
+            if "rfid" in str(exc).lower():
+                raise ConflictError("RFID code already exists.") from exc
             raise DuplicateCombinedAssetNumberError() from exc
         return self.get_asset(asset.id, viewer_user_id=actor_user_id)
 
@@ -3391,7 +3393,7 @@ class AssetMasterService:
         except IntegrityError as exc:
             self._db.rollback()
             if "rfid" in str(exc).lower():
-                raise DuplicateRfidError() from exc
+                raise ConflictError("RFID code already exists.") from exc
             raise DuplicateAssetCodeError() from exc
 
         self._log_rework_asset_update_if_any(
@@ -3748,12 +3750,7 @@ class AssetMasterService:
                 name = mapped.get("asset_name") or ""
                 rfid = mapped.get("rfid_code")
                 if rfid:
-                    if self._db.scalar(
-                        select(AssetMaster.id).where(
-                            AssetMaster.rfid_code == rfid,
-                            AssetMaster.deleted_at.is_(None),
-                        )
-                    ):
+                    if self._db.scalar(select(AssetMaster.id).where(AssetMaster.rfid_code == rfid)):
                         errors.append(f"Row {raw.row_number}: duplicate RFID.")
                         continue
                 if self._db.scalar(

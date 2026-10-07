@@ -621,8 +621,8 @@ def create_asset(
             status_code=status.HTTP_409_CONFLICT,
             detail="Combined Asset No already exists.",
         ) from None
-    except DuplicateRfidError:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="RFID code already exists.") from None
+    except DuplicateRfidError as exc:
+        raise _rfid_error_response(exc) from exc
     except InvalidTagColorError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -649,6 +649,8 @@ def update_asset(
 ) -> AssetDetailPublic:
     try:
         return svc.update_asset(asset_id, payload, actor_user_id=int(current.subject))
+    except DuplicateRfidError as exc:
+        raise _rfid_error_response(exc) from exc
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except PermissionDeniedError as exc:

@@ -414,6 +414,7 @@ def reassign_order(
             order_id,
             assigned_to=body.assigned_to,
             actor_user_id=int(current.subject),
+            reason=body.reason,
         )
     except (ConflictError, NotFoundError) as e:
         code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND

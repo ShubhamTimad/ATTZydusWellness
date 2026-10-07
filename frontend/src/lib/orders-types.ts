@@ -209,6 +209,8 @@ export type PhysicalOrderDetail = {
   can_unarchive?: boolean
   can_review_creation?: boolean
   can_review_closure?: boolean
+  /** Viewer rejected this order after work started and holds order.reassign. */
+  can_reassign_rejected?: boolean
   is_final_closure_step?: boolean
   needs_next_closure_assignee?: boolean
   next_closure_role_id?: number | null

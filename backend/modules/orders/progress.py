@@ -88,12 +88,17 @@ def _audit_detail(action: str, old_value: dict | None, new_value: dict | None) -
     if action == "reassigned":
         old_name = old_value.get("assigned_to_name")
         new_name = new_value.get("assigned_to_name")
-        if old_name and new_name:
-            return f"{old_name} → {new_name}"
-        if new_name:
-            return f"Assigned to: {new_name}"
         assignee = new_value.get("assigned_to")
-        return f"Assigned to: user #{assignee}" if assignee else None
+        if old_name and new_name:
+            text = f"{old_name} → {new_name}"
+        elif new_name:
+            text = f"Assigned to: {new_name}"
+        else:
+            text = f"Assigned to: user #{assignee}" if assignee else None
+        reason = (new_value.get("reason") or "").strip()
+        if reason:
+            return f"{text} · Reason: {reason}" if text else f"Reason: {reason}"
+        return text
     if action == "asset_verified":
         code = new_value.get("asset_code")
         rfid = new_value.get("rfid_code")

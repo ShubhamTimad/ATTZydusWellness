@@ -2544,6 +2544,13 @@ class PhysicalOrderService:
             ),
             can_review_creation=can_review_creation,
             can_review_closure=can_review_closure,
+            can_reassign_rejected=(
+                viewer_user_id is not None
+                and self._rejected_by(order) == int(viewer_user_id)
+                and _has_any_permission(
+                    _get_cached_permission_snapshot(self._db, int(viewer_user_id)), ("order.reassign",)
+                )
+            ),
             is_final_closure_step=bool(handoff["is_final_closure_step"]),
             needs_next_closure_assignee=bool(handoff["needs_next_closure_assignee"]),
             next_closure_role_id=handoff["next_closure_role_id"],
@@ -3225,17 +3232,37 @@ class PhysicalOrderService:
         )
         return self.get_order(order_id)
 
+    def _rejected_by(self, order: PhysicalOrder) -> int | None:
+        """Who rejected a fully rejected order after work started; None for any other state."""
+        if not self._execution_side_rejection(order):
+            return None
+        actor = self._db.scalar(
+            select(PhysicalOrderAudit.actor_user_id)
+            .where(PhysicalOrderAudit.order_id == int(order.id), PhysicalOrderAudit.action == "rejected")
+            .order_by(PhysicalOrderAudit.id.desc())
+            .limit(1)
+        )
+        return int(actor) if actor is not None else None
+
     def reassign_order(
         self,
         order_id: int,
         *,
         assigned_to: int,
         actor_user_id: int,
+        reason: str | None = None,
     ) -> PhysicalOrderDetail:
         order = self._load_order(order_id, viewer_user_id=actor_user_id)
-        if order.status == ORDER_STATUS_APPROVED and order.completed_at is not None:
+        cleaned_reason = (reason or "").strip()
+        if order.status == ORDER_STATUS_REJECTED:
+            # Rejected order: the rejecter may hand it to another executor instead of the last one.
+            if self._rejected_by(order) != int(actor_user_id):
+                raise ConflictError("Only the user who rejected this order can reassign it.")
+            if not cleaned_reason:
+                raise ConflictError("A reassign reason is required.")
+        elif order.status == ORDER_STATUS_APPROVED and order.completed_at is not None:
             raise ConflictError("Order can only be reassigned before work starts.")
-        if order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
+        elif order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
             raise ConflictError("Order can only be reassigned before work starts.")
         if assigned_to == order.assigned_to:
             raise ConflictError("Select a different executor to reassign this order.")
@@ -3262,6 +3289,7 @@ class PhysicalOrderService:
             new_value={
                 "assigned_to": assigned_to,
                 "assigned_to_name": new_name,
+                **({"reason": cleaned_reason} if cleaned_reason else {}),
             },
         )
         self._notify_assigned(order)

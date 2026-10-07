@@ -254,12 +254,7 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
             if len(rfids_in_file.get(rfid, [])) > 1:
                 field_errors["rfid_code"] = "Duplicate RFID in this file."
                 duplicate_rfid_code = True
-            elif db.scalar(
-                select(AssetMaster.id).where(
-                    AssetMaster.rfid_code == rfid,
-                    AssetMaster.deleted_at.is_(None),
-                )
-            ):
+            elif db.scalar(select(AssetMaster.id).where(AssetMaster.rfid_code == rfid)):
                 field_errors["rfid_code"] = "RFID already exists in the system."
                 duplicate_rfid_code = True
 

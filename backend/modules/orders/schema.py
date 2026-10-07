@@ -261,6 +261,7 @@ class PhysicalOrderDetail(BaseModel):
     can_unarchive: bool = False
     can_review_creation: bool = False
     can_review_closure: bool = False
+    can_reassign_rejected: bool = False
     is_final_closure_step: bool = True
     needs_next_closure_assignee: bool = False
     next_closure_role_id: int | None = None
@@ -286,6 +287,7 @@ class UpdatePhysicalOrderRequest(BaseModel):
     assigned_to: int | None = None
     remarks: str | None = None
     asset_ids: list[int] | None = None
+    reason: str | None = None
 
 
 class ItemIdsRequest(BaseModel):
