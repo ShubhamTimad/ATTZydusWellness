@@ -120,13 +120,13 @@ def test_receive_falls_back_to_locations_parked_earlier() -> None:
     assert shared == ("FL-A", "AL-A")
 
 
-def test_receive_names_the_asset_that_is_still_missing_a_location() -> None:
+def test_receive_requires_a_location_for_every_asset() -> None:
     a1, a2 = _asset(1), _asset(2)
     order = _order(a1, a2)
     order.items[0].to_functional_location = "FL-A"
     order.items[0].to_actual_location = "AL-A"
     with patch("modules.disposals.service.require_scrapyard_locations", _echo_locations):
-        with pytest.raises(ConflictError, match="A-2"):
+        with pytest.raises(ConflictError, match="Select Actual Location 1 and 2 before receiving the asset"):
             _apply_receive_assets(
                 MagicMock(),
                 order,

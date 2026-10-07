@@ -182,7 +182,7 @@ export function EmailTemplatesPage() {
     if (!canCreate) return
     const trimmedName = createName.trim()
     if (!trimmedName) {
-      toast.error("Template name is required.")
+      toast.error("Template Name is required.")
       return
     }
     if (!createSubject.trim() || !createBody.trim()) {

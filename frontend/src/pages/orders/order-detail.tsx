@@ -424,34 +424,16 @@ export function OrderDetailPage() {
         toast.success("Selected Assets approved successfully.")
       } else if (path === "/approval/reject-items") {
         toast.success(
-          res.status === "in_progress"
-            ? res.assigned_to_name
-              ? `Order returned to ${res.assigned_to_name} for rework.`
-              : "Order returned to executor for rework."
-            : res.status === "rejected"
-              ? res.assigned_to_name
-                ? `Order Rejected. ${res.assigned_to_name} can start verification again on rejected assets.`
-                : "Order Rejected."
-              : "Assets marked rejected.",
+          res.status === "in_progress" || res.status === "rejected"
+            ? "Physical Verification Order rejected for reverification."
+            : "Assets marked rejected.",
         )
       } else if (path === "/approval/reject-order") {
-        toast.success(
-          res.assigned_to_name
-            ? `Order Rejected. ${res.assigned_to_name} can start verification again on rejected assets.`
-            : "Order Rejected.",
-        )
+        toast.success("Physical Verification Order rejected for reverification.")
       } else if (path === "/approval/approve-all" && res.status === "rejected") {
-        toast.success(
-          res.assigned_to_name
-            ? `Order rejected and returned to ${res.assigned_to_name} for rework.`
-            : `Order rejected and returned for rework.`,
-        )
+        toast.success("Physical Verification Order rejected for reverification.")
       } else if (path === "/approval/approve-all" && res.status === "completed") {
-        toast.success(
-          res.assigned_to_name
-            ? `Approved. Assigned next to ${res.assigned_to_name}.`
-            : "Approved.",
-        )
+        toast.success("Physical Verification Order approved successfully.")
       } else if (path === "/start" && res.status === "in_progress") {
         toast.success(
           order?.status === "rejected"
@@ -695,11 +677,7 @@ export function OrderDetailPage() {
       if (latest.status === "approved") {
         toast.success("Physical Verification Order approved successfully.")
       } else if (latest.status === "rejected") {
-        toast.success(
-          latest.assigned_to_name
-            ? "Physical Verification Order rejected for reverification."
-            : "Physical Verification Order rejected for reverification.",
-        )
+        toast.success("Physical Verification Order rejected for reverification.")
       } else {
         toast.success("Review updated successfully.")
       }

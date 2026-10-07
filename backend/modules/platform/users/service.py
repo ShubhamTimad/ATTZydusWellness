@@ -82,7 +82,7 @@ class UserService:
 
     def _require_roles(self, role_ids: list[int]) -> list[Role]:
         if not role_ids:
-            raise ValueError("At least one role is required")
+            raise ValueError("Select at least one role.")
         roles: list[Role] = []
         for rid in role_ids:
             role = self._db.get(Role, int(rid))
@@ -97,7 +97,7 @@ class UserService:
 
     def _require_plants(self, org_unit_ids: list[int]) -> list[OrgUnit]:
         if not org_unit_ids:
-            raise ValueError("At least one plant is required")
+            raise ValueError("Select at least one plant.")
         return [self._require_plant(int(oid)) for oid in org_unit_ids]
 
     def _resolve_departments(
@@ -223,7 +223,7 @@ class UserService:
 
         username_norm = str(data.username).strip()
         if not username_norm:
-            raise ValueError("Username is required")
+            raise ValueError("Username is required.")
         existing_username = self._db.scalar(select(User.id).where(User.username == username_norm))
         if existing_username is not None:
             raise DuplicateUsernameError
@@ -523,7 +523,7 @@ class UserService:
         if "username" in updates and updates["username"] is not None:
             uname = str(updates["username"]).strip()
             if not uname:
-                raise ValueError("Username is required")
+                raise ValueError("Username is required.")
             existing = self._db.scalar(select(User.id).where(User.username == uname, User.id != user.id))
             if existing is not None:
                 raise DuplicateUsernameError

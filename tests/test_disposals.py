@@ -120,7 +120,7 @@ def test_submit_requires_disposal_reason():
     order = _order(STATUS_DRAFT, assets=[_asset()])
     order.remarks = None
     svc = DisposalOrderService(MagicMock())
-    with pytest.raises(ConflictError, match="Disposal reason is required"):
+    with pytest.raises(ConflictError, match="Disposal Reason is required"):
         svc._submit(order, actor_user_id=1, assignee_user_id=2)
 
 
@@ -128,7 +128,7 @@ def test_submit_requires_custodian():
     order = _order(STATUS_DRAFT, assets=[_asset()])
     order.receiver_user_id = None
     svc = DisposalOrderService(MagicMock())
-    with pytest.raises(ConflictError, match="Select a custodian"):
+    with pytest.raises(ConflictError, match="Asset Custodian is required"):
         svc._submit(order, actor_user_id=1, assignee_user_id=2)
 
 
@@ -175,11 +175,11 @@ def test_assets_left_unpicked_fall_back_to_the_order_custodian():
     assert [i.to_asset_custodian_id for i in order.items] == [11, 12]
 
 
-def test_submit_names_the_asset_that_is_missing_a_custodian():
+def test_submit_requires_a_custodian_for_every_asset():
     order = _order(STATUS_DRAFT, assets=[_asset(1), _asset(2)])
     svc = DisposalOrderService(MagicMock())
     with patch.object(svc, "_assert_cc_custodian", _custodians_of_yard(11)):
-        with pytest.raises(ConflictError, match="Select a custodian"):
+        with pytest.raises(ConflictError, match="Asset Custodian is required"):
             svc._resolve_item_custodians(
                 order,
                 item_custodians=[{"asset_id": 1, "to_asset_custodian_id": 11}],

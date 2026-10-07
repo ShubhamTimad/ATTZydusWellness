@@ -603,7 +603,7 @@ class AssetMastersService:
         except IntegrityError as exc:
             self._db.rollback()
             raise DuplicateMasterCodeError(
-                "Profit center code already exists for this cost center."
+                "Profit center code already exists for this plant."
             ) from exc
         self._db.refresh(row)
         return self._profit_center_public(row)
@@ -625,7 +625,7 @@ class AssetMastersService:
         except IntegrityError as exc:
             self._db.rollback()
             raise DuplicateMasterCodeError(
-                "Profit center code already exists for this cost center."
+                "Profit center code already exists for this plant."
             ) from exc
         self._db.refresh(row)
         return self._profit_center_public(row)

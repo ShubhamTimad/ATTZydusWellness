@@ -332,10 +332,7 @@ def _apply_receive_assets(
         if pair is None and all(fallback):
             pair = fallback  # type: ignore[assignment]
         if pair is None:
-            code = item.asset.asset_code if item.asset else str(item.asset_id)
-            raise ConflictError(
-                f"Actual Location 1 and Actual Location 2 are required for {code} before receiving."
-            )
+            raise ConflictError("Select Actual Location 1 and 2 before receiving the asset.")
         if pair not in checked:
             checked[pair] = require_scrapyard_locations(
                 db,
@@ -789,7 +786,7 @@ class DisposalOrderService:
             )
 
         if require_all and any(i.to_asset_custodian_id is None for i in order.items):
-            raise ConflictError("Select a custodian for every asset.")
+            raise ConflictError("Asset Custodian is required.")
         order.receiver_user_id = next(
             (
                 int(i.to_asset_custodian_id)
@@ -1363,11 +1360,11 @@ class DisposalOrderService:
             assets, reserved_asset_ids={int(a.id) for a in assets}
         )
         if order.to_cost_center_id is None:
-            raise ConflictError("Select a scrapyard cost center before submitting.")
+            raise ConflictError("Scrapyard Cost Center is required.")
         if not (order.remarks or "").strip():
-            raise ConflictError("Disposal reason is required.")
+            raise ConflictError("Disposal Reason is required.")
         if order.receiver_user_id is None:
-            raise ConflictError("Select a custodian for the scrapyard cost center.")
+            raise ConflictError("Asset Custodian is required.")
         self._require_scrapyard_cost_center(
             plant_id=int(order.plant_id), cost_center_id=int(order.to_cost_center_id)
         )
