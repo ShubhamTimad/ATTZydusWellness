@@ -73,7 +73,14 @@ export function ReportsPage() {
     try {
       const path = buildDownloadPath(report, format, filters)
       await downloadFile(path, `${report.key}.${format === "xlsx" ? "xlsx" : "pdf"}`)
-      toast.success(`${format.toUpperCase()} report downloaded`)
+      const fmt = format === "xlsx" ? "Excel" : "PDF"
+      const name =
+        report.key === "financial_year_verification"
+          ? "Physical Verification"
+          : report.key === "physical_orders_summary"
+            ? "Physical Order"
+            : report.title
+      toast.success(`${name} ${fmt} report downloaded successfully.`)
       setPending(null)
     } catch (e) {
       const message = e instanceof ApiError ? e.message : "Failed to generate report"

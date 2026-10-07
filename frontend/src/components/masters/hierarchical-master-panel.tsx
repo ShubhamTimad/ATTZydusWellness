@@ -49,12 +49,22 @@ function hierarchyNameLabel(kind: HierarchyKind): string {
 
 function hierarchyNameRequiredMessage(kind: HierarchyKind): string {
   const labels: Record<HierarchyKind, string> = {
-    "cost-center": "Enter a cost center name.",
-    "profit-center": "Enter a profit center name.",
-    "functional-location": "Enter a functional location name.",
-    "actual-location": "Enter an actual location name.",
+    "cost-center": "Cost center name is required.",
+    "profit-center": "Profit center name is required.",
+    "functional-location": "Functional location name is required.",
+    "actual-location": "Actual location name is required.",
   }
   return labels[kind]
+}
+
+function hierarchyCodeRequiredMessage(kind: HierarchyKind): string {
+  const labels: Record<HierarchyKind, string> = {
+    "cost-center": "Cost Center code is required.",
+    "profit-center": "Profit Center Code is required.",
+    "functional-location": "Code is required.",
+    "actual-location": "Actual Location Code is required.",
+  }
+  return labels[kind] ?? "Code is required."
 }
 
 function hierarchyDescriptionLabel(kind: HierarchyKind): string {
@@ -106,6 +116,7 @@ export function HierarchicalMasterPanel({
   kind,
   plants,
 }: HierarchicalMasterPanelProps) {
+  const entityLabel = title.charAt(0) + title.slice(1).toLowerCase()
   const [rows, setRows] = React.useState<Row[]>([])
   const [parentOptions, setParentOptions] = React.useState<ParentOption[]>([])
   const [createOpen, setCreateOpen] = React.useState(false)
@@ -264,7 +275,7 @@ export function HierarchicalMasterPanel({
 
   async function saveCreate() {
     if (!code.trim()) {
-      toast.error("Code is required.")
+      toast.error(hierarchyCodeRequiredMessage(kind))
       return
     }
     if (!name.trim()) {
@@ -286,7 +297,7 @@ export function HierarchicalMasterPanel({
     setSaving(true)
     try {
       await postJson(base, buildCreatePayload())
-      toast.success("Created.")
+      toast.success(`${entityLabel} created successfully.`)
       setCreateOpen(false)
       await load()
     } catch (e) {
@@ -299,7 +310,7 @@ export function HierarchicalMasterPanel({
   async function saveEdit() {
     if (!editRow) return
     if (!code.trim()) {
-      toast.error("Code is required.")
+      toast.error(hierarchyCodeRequiredMessage(kind))
       return
     }
     if (!name.trim()) {
@@ -309,7 +320,7 @@ export function HierarchicalMasterPanel({
     setSaving(true)
     try {
       await patchJson(`${base}/${editRow.id}`, buildUpdatePayload())
-      toast.success("Saved.")
+      toast.success(`${entityLabel} updated successfully.`)
       setEditRow(null)
       await load()
     } catch (e) {
@@ -331,7 +342,7 @@ export function HierarchicalMasterPanel({
     if (!ok) return
     try {
       await postJson(`${base}/${row.id}/set-active`, { is_active: isActive })
-      toast.success(isActive ? "Reactivated." : "Deactivated.")
+      toast.success(`${entityLabel} ${isActive ? "reactivated" : "deactivated"} successfully.`)
       await load()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Update failed")
@@ -348,7 +359,7 @@ export function HierarchicalMasterPanel({
     if (!ok) return
     try {
       await deleteJson(`${base}/${row.id}`)
-      toast.success("Deleted.")
+      toast.success(`${entityLabel} deleted successfully.`)
       if (editRow?.id === row.id) setEditRow(null)
       await load()
     } catch (e) {

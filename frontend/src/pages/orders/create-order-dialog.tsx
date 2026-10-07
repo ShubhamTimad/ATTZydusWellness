@@ -43,7 +43,7 @@ export function CreatePhysicalOrderDialog({
         submit: false,
         reset_verification_asset_ids: resetVerificationAssetIds,
       })
-      toast.success("Physical Verification Order created as draft.")
+      toast.success("Physical Verification Order saved as draft successfully.")
       void invalidateAssetLists()
       void invalidateOrderLists()
       onCreated(order)

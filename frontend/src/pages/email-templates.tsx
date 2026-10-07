@@ -182,7 +182,7 @@ export function EmailTemplatesPage() {
     if (!canCreate) return
     const trimmedName = createName.trim()
     if (!trimmedName) {
-      toast.error("Name is required.")
+      toast.error("Template name is required.")
       return
     }
     if (!createSubject.trim() || !createBody.trim()) {
@@ -199,7 +199,7 @@ export function EmailTemplatesPage() {
         body_text: null,
         is_active: true,
       })
-      toast.success("Template created.")
+      toast.success("Template created successfully.")
       setCreateOpen(false)
       setCreateName("")
       setCreateSubject("")
@@ -225,7 +225,7 @@ export function EmailTemplatesPage() {
         body_html: bodyHtml,
         is_active: isActive,
       })
-      toast.success("Saved.")
+      toast.success("Template saved successfully.")
       await loadTemplate(tpl.id)
       await loadList()
     } catch (e) {
@@ -240,7 +240,7 @@ export function EmailTemplatesPage() {
     if (!canDelete || !tpl) return
     try {
       await deleteJson(`/admin/email-templates/${tpl.id}`)
-      toast.success("Deleted.")
+      toast.success("Template deleted successfully.")
       await loadList()
       backToList()
     } catch (e) {

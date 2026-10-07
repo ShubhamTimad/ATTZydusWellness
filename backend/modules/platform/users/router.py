@@ -48,17 +48,17 @@ def create_user(
     except DuplicateEmailError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
+            detail="Email is already registered.",
         ) from None
     except DuplicateUsernameError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username already registered",
+            detail="Username is already registered.",
         ) from None
     except DuplicatePhoneError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Phone already registered",
+            detail="Phone number is already registered.",
         ) from None
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -152,17 +152,17 @@ def update_user(
     except DuplicateEmailError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
+            detail="Email is already registered.",
         ) from None
     except DuplicateUsernameError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username already registered",
+            detail="Username is already registered.",
         ) from None
     except DuplicatePhoneError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Phone already registered",
+            detail="Phone number is already registered.",
         ) from None
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

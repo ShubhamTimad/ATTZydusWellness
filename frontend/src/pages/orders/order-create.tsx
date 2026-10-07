@@ -303,7 +303,7 @@ export function PhysicalOrderCreatePage() {
               <TableBody>
                 {pageRows.length === 0 ? (
                   <AdminTableEmptyRow colSpan={10}>
-                    {q ? "No Assets match your search or filters." : "No Assets in this view."}
+                    {q ? "No assets found matching the search or filters." : "No Assets in this view."}
                   </AdminTableEmptyRow>
                 ) : (
                   pageRows.map((asset) => (

@@ -125,7 +125,7 @@ export function PlantsPage() {
         type: "PLANT",
         parent_id: null,
       })
-      toast.success("Plant created", { id: "create-plant-page" })
+      toast.success("Plant created successfully.", { id: "create-plant-page" })
       setCreateOpen(false)
       setCreateName("")
       setCreateCode("")
@@ -150,7 +150,7 @@ export function PlantsPage() {
     toast.loading("Deleting plant…", { id: "delete-plant-page" })
     try {
       await deleteJson(`/admin/org-units/${plant.id}`)
-      toast.success("Plant deleted", { id: "delete-plant-page" })
+      toast.success("Plant deleted successfully.", { id: "delete-plant-page" })
       if (editPlant?.id === plant.id) closeEdit()
       await load()
     } catch (e) {
@@ -178,7 +178,7 @@ export function PlantsPage() {
         name: plantName,
         code: plantCode,
       })
-      toast.success("Plant updated", { id: "save-plant-page" })
+      toast.success("Plant updated successfully.", { id: "save-plant-page" })
       closeEdit()
       await load()
     } catch (e) {

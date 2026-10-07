@@ -254,7 +254,7 @@ export function CostCenterCustodiansPanel({ plants }: { plants: PlantOption[] })
         `/admin/asset-masters/cost-centers/${manageCostCenterId}/custodians`,
         { user_ids: selected.map((id) => Number(id)) },
       )
-      toast.success("Cost center custodians saved.")
+      toast.success("Cost center custodians saved successfully.")
       setManageOpen(false)
       load()
     } catch (e) {

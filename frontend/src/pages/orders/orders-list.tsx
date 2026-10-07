@@ -532,7 +532,9 @@ export function OrdersListPage() {
                     <AdminTableLoadingRow colSpan={colSpan} label="Loading orders" />
                   ) : items.length === 0 ? (
                     <AdminTableEmptyRow colSpan={colSpan}>
-                      {orderTabEmptyMessage(tab)}
+                      {search.trim()
+                        ? "No Physical Verification Orders found matching the search criteria."
+                        : orderTabEmptyMessage(tab)}
                     </AdminTableEmptyRow>
                   ) : (
                     items.map((row) => (

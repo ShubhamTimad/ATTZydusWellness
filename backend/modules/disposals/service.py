@@ -647,10 +647,8 @@ class DisposalOrderService:
         """Only operational (active, approved) assets can be sent for disposal."""
         bad = self._not_free_for_disposal(assets)
         if bad:
-            sample = ", ".join(bad[:5])
-            more = "…" if len(bad) > 5 else ""
             raise ConflictError(
-                f"Only active, approved assets can be disposed: {sample}{more}."
+                "Only active and approved assets can be disposed."
             )
 
     def _assert_assets_match_order_reservation(
@@ -674,10 +672,8 @@ class DisposalOrderService:
         if added:
             bad.extend(self._not_free_for_disposal(added))
         if bad:
-            sample = ", ".join(bad[:5])
-            more = "…" if len(bad) > 5 else ""
             raise ConflictError(
-                f"Only active, approved assets can be disposed: {sample}{more}."
+                "Only active and approved assets can be disposed."
             )
 
     def _require_scrapyard_cost_center(

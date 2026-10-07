@@ -29,6 +29,7 @@ import { invalidateDisposalLists } from "@/lib/query-client"
 import { formatAppDateTime as formatWhen } from "@/lib/dates"
 import type { ActualLocationMaster, CostCenterMaster } from "@/lib/masters-types"
 import {
+  approvedSentToMessage,
   buildDisposalProgress,
   disposalStatusLabel,
   disposalStatusPillTone,
@@ -282,11 +283,11 @@ export function DisposalOrderDetailPage() {
   async function saveEdits(opts?: { quiet?: boolean }): Promise<boolean> {
     if (!order) return false
     if (editAssets.length === 0) {
-      toast.error("Keep at least one asset on the disposal order.")
+      toast.error("At least one asset is required in the Disposal Order.")
       return false
     }
     if (!toCostCenterId) {
-      toast.error("Select a scrapyard cost center.")
+      toast.error("Scrapyard Cost Center is required.")
       return false
     }
     const missing = assetsMissingCustodian()
@@ -295,7 +296,7 @@ export function DisposalOrderDetailPage() {
       return false
     }
     if (!remarks.trim()) {
-      toast.error("Enter the disposal reason.")
+      toast.error("Disposal Reason is required.")
       return false
     }
     setBusy(true)
@@ -309,7 +310,7 @@ export function DisposalOrderDetailPage() {
           ...custodianPayload(),
         }),
       )
-      if (!opts?.quiet) toast.success("Disposal order saved.")
+      if (!opts?.quiet) toast.success("Disposal Order saved successfully.")
       void invalidateDisposalLists()
       return true
     } catch (e) {
@@ -327,8 +328,8 @@ export function DisposalOrderDetailPage() {
       .map((a) => a.asset_code || String(a.asset_id))
   }
 
-  function warnMissingCustodian(missing: string[]) {
-    toast.error(`Select a custodian for ${missing.join(", ")}.`)
+  function warnMissingCustodian(_missing: string[]) {
+    toast.error("Asset Custodian is required.")
   }
 
   /** receiver_user_id mirrors the first asset so the workflow keeps one order-level receiver. */
@@ -354,8 +355,8 @@ export function DisposalOrderDetailPage() {
       .map((item) => item.asset_code || String(item.asset_id))
   }
 
-  function warnMissingLocations(missing: string[]) {
-    toast.error(`Select Actual Location 1 and 2 for ${missing.join(", ")} before receiving.`)
+  function warnMissingLocations(_missing: string[]) {
+    toast.error("Select Actual Location 1 and 2 before receiving the asset.")
   }
 
   function receiveLocationPayload() {
@@ -385,8 +386,8 @@ export function DisposalOrderDetailPage() {
           })),
         }),
       pending === 0
-        ? "Locations saved. You can receive this disposal now."
-        : `Locations saved. ${pending} asset${pending === 1 ? "" : "s"} still need Actual Location 1 and 2.`,
+        ? "Actual Location saved successfully."
+        : "Actual Location 1 and 2 are required.",
     )
   }
 
@@ -411,6 +412,7 @@ export function DisposalOrderDetailPage() {
     const taskId = order?.approval_panel?.my_pending_task_id
     if (!taskId) return
     const kind = (order?.approval_panel?.current_step_kind || "approve").toLowerCase()
+    const nextRoleName = order?.approval_panel?.next_step_role_name
     if (decisionMode === "approve" && kind === "receive") {
       const missing = assetsMissingLocations()
       if (missing.length > 0) {
@@ -431,12 +433,12 @@ export function DisposalOrderDetailPage() {
       setDecisionOpen(false)
       const ok =
         decisionMode === "reject"
-          ? "Rejected."
+          ? "Disposal Order rejected."
           : kind === "receive"
-            ? "Assets received."
+            ? "Disposal Order approved and sent to Central Finance successfully."
             : kind === "close"
-              ? "Disposal order closed."
-              : "Approved."
+              ? "Disposal Order closed successfully."
+              : approvedSentToMessage("Disposal Order", nextRoleName)
       toast.success(ok)
       void invalidateDisposalLists()
       await load()
@@ -609,7 +611,7 @@ export function DisposalOrderDetailPage() {
               onClick={() => {
                 void (async () => {
                   if (!toCostCenterId) {
-                    toast.error("Select a scrapyard cost center.")
+                    toast.error("Scrapyard Cost Center is required.")
                     return
                   }
                   const missing = assetsMissingCustodian()
@@ -618,7 +620,7 @@ export function DisposalOrderDetailPage() {
                     return
                   }
                   if (!remarks.trim()) {
-                    toast.error("Enter the disposal reason.")
+                    toast.error("Disposal Reason is required.")
                     return
                   }
                   if (isDirty) {
@@ -710,7 +712,7 @@ export function DisposalOrderDetailPage() {
                     postJson(`/admin/disposal-orders/${order.id}/close`, {
                       remarks: remarks.trim() || null,
                     }),
-                  "Disposal order approved. Assets marked disposed.",
+                  "Disposal Order approved successfully.",
                 )
               }
             >
@@ -1089,7 +1091,7 @@ export function DisposalOrderDetailPage() {
                   next_assigned_user_id: userId,
                   ...receiveLocationPayload(),
                 })
-                toast.success("Assets received.")
+                toast.success("Disposal Order approved and sent to Central Finance successfully.")
                 void invalidateDisposalLists()
                 setPickerMode(null)
                 await load()
@@ -1110,7 +1112,7 @@ export function DisposalOrderDetailPage() {
                   item_locations: locations.item_locations,
                   remarks: remarks.trim() || null,
                 }),
-              "Assets received. Assigned to Central Finance for final approval.",
+              "Disposal Order approved and sent to Central Finance successfully.",
             )
             return
           }
@@ -1144,6 +1146,7 @@ export function DisposalOrderDetailPage() {
         nextAssigneeLevel={null}
         nextStepRoleName={panel?.next_step_role_name ?? null}
         assigneesUrl={nextAssigneesUrl}
+        selectUserMessage="Select a user to approve the Disposal Order."
         onConfirm={confirmDecision}
       />
       {confirmDialog}

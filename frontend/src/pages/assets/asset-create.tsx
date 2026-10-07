@@ -366,7 +366,7 @@ export function AssetCreatePage() {
           toast.error("Asset created, but the image could not be uploaded. Add it from Edit.")
         }
       }
-      toast.success("Asset saved as Draft successfully. You can submit it for approval from the Asset Details page.")
+      toast.success("Asset saved as draft successfully.")
       void invalidateAssetLists()
       navigate(`/dashboard/assets/${created.id}`, { replace: true })
     } catch (e) {

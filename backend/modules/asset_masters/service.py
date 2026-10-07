@@ -302,7 +302,7 @@ class AssetMastersService:
             self._db.commit()
         except IntegrityError as exc:
             self._db.rollback()
-            raise DuplicateMasterCodeError("Asset class code already exists.") from exc
+            raise DuplicateMasterCodeError("Asset Class code already exists.") from exc
         self._db.refresh(row)
         return AssetClassPublic.model_validate(row)
 
@@ -320,7 +320,7 @@ class AssetMastersService:
             self._db.commit()
         except IntegrityError as exc:
             self._db.rollback()
-            raise DuplicateMasterCodeError("Asset class code already exists.") from exc
+            raise DuplicateMasterCodeError("Asset Class code already exists.") from exc
         self._db.refresh(row)
         return AssetClassPublic.model_validate(row)
 

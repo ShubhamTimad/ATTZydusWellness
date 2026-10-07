@@ -106,7 +106,7 @@ export function CapexCreatePage() {
 
   async function saveDraft() {
     if (!form.asset_name.trim()) {
-      toast.error("Asset name is required.")
+      toast.error("Asset Name is required.")
       return
     }
     setSaving(true)
@@ -117,7 +117,7 @@ export function CapexCreatePage() {
         ...payload,
         submit: false,
       })
-      toast.success("Draft saved.")
+      toast.success("Capitalization Form saved as draft successfully.")
       navigate(`/dashboard/capitalization/${created.id}`, { replace: true })
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Save failed.")
@@ -128,7 +128,7 @@ export function CapexCreatePage() {
 
   function requestSubmit() {
     if (!form.asset_name.trim()) {
-      toast.error("Asset name is required.")
+      toast.error("Asset Name is required.")
       return
     }
     if (!canSubmit) {
@@ -155,8 +155,8 @@ export function CapexCreatePage() {
       setAssignOpen(false)
       toast.success(
         payload.requires_engineering
-          ? "Form submitted with engineering approval."
-          : "Form submitted for approval.",
+          ? "Capitalization Form submitted successfully with Engineering approval."
+          : "Capitalization Form approved and sent to Central Finance successfully.",
       )
       navigate(`/dashboard/capitalization/${created.id}`, { replace: true })
     } catch (e) {

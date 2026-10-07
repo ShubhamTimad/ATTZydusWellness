@@ -178,7 +178,7 @@ def test_approved_line_cannot_be_scanned_even_without_scan_time() -> None:
         PhysicalOrderService._assert_item_can_be_scanned(svc, item)
         raise AssertionError("approved line must not be scannable")
     except ConflictError as exc:
-        assert "already approved" in str(exc).lower()
+        assert "only rejected assets are available to edit" in str(exc).lower()
 
     pending = _item("E2", ITEM_STATUS_PENDING, scan=False)
     PhysicalOrderService._assert_item_can_be_scanned(svc, pending)

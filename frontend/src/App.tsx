@@ -1,3 +1,5 @@
+import { toast } from "sonner"
+
 import { AdminLayout } from "@/components/layout/admin-layout"
 import { AppShellLayout } from "@/components/layout/app-shell-layout"
 import { AppToaster } from "@/components/app-toaster"
@@ -520,6 +522,7 @@ function AppRoute() {
         user={navbarUser}
         onSignOut={() => {
           clearTokens()
+          toast.success("Logged out successfully.")
           navigate("/login", { replace: true })
         }}
       >
@@ -633,6 +636,7 @@ function AdminRoute() {
         user={navbarUser}
         onSignOut={() => {
           clearTokens()
+          toast.success("Logged out successfully.")
           navigate("/admin/login", { replace: true })
         }}
       >

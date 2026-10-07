@@ -144,7 +144,7 @@ export function DepartmentsPage() {
         type: "DEPARTMENT",
         parent_id: parentId,
       })
-      toast.success("Department created", { id: "create-department" })
+      toast.success("Department created successfully.", { id: "create-department" })
       setCreateOpen(false)
       setCreateName("")
       setCreateCode("")
@@ -171,7 +171,7 @@ export function DepartmentsPage() {
     toast.loading("Deleting department…", { id: "delete-department" })
     try {
       await deleteJson(`/admin/org-units/${dept.id}`)
-      toast.success("Department deleted", { id: "delete-department" })
+      toast.success("Department deleted successfully.", { id: "delete-department" })
       if (editDept?.id === dept.id) closeEdit()
       await load()
     } catch (e) {
@@ -197,7 +197,7 @@ export function DepartmentsPage() {
     toast.loading("Saving department…", { id: "save-department" })
     try {
       await patchJson<OrgUnitPublic>(`/admin/org-units/${editDept.id}`, { name, code })
-      toast.success("Department updated", { id: "save-department" })
+      toast.success("Department updated successfully.", { id: "save-department" })
       closeEdit()
       await load()
     } catch (e) {

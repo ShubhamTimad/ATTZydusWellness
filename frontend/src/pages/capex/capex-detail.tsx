@@ -196,7 +196,7 @@ export function CapexDetailPage() {
   async function save() {
     if (!form || !detail) return
     if (!form.asset_name.trim()) {
-      toast.error("Asset name is required.")
+      toast.error("Asset Name is required.")
       return
     }
     setSaving(true)
@@ -236,7 +236,11 @@ export function CapexDetailPage() {
       setSubmitAssignOpen(false)
       setDetail(updated)
       setForm(detailToForm(updated))
-      toast.success("Form submitted for approval.")
+      toast.success(
+        updated.requires_engineering
+          ? "Capitalization Form submitted successfully with Engineering approval."
+          : "Capitalization Form approved and sent to Central Finance successfully.",
+      )
       await load()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Submit failed.")
@@ -255,6 +259,7 @@ export function CapexDetailPage() {
     nextAssignedUserId: number | null
   }) {
     if (!pendingTaskId) return
+    const nextLevel = detail?.approval_panel?.next_assignee_level
     setActing(true)
     try {
       await postJson(`/approvals/tasks/${pendingTaskId}/action`, {
@@ -266,7 +271,15 @@ export function CapexDetailPage() {
       })
       setDecisionOpen(false)
       toast.success(
-        decisionMode === "reject" ? "Rejected." : isCloseStep ? "Closed." : "Approved.",
+        decisionMode === "reject"
+          ? "Capitalization Form rejected."
+          : isCloseStep
+            ? "Closed."
+            : nextLevel === "engineering"
+              ? "Capitalization Form approved and sent to Engineering Department User successfully."
+              : nextLevel === "central_finance"
+                ? "Capitalization Form approved and sent to Central Finance successfully."
+                : "Capitalization Form approved successfully.",
       )
       await load()
     } catch (e) {
@@ -287,7 +300,7 @@ export function CapexDetailPage() {
       setReassignOpen(false)
       setDetail(updated)
       setForm(detailToForm(updated))
-      toast.success("Approver reassigned.")
+      toast.success("Approver reassigned successfully.")
       await load()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Reassign failed.")
@@ -347,7 +360,7 @@ export function CapexDetailPage() {
                   setDetail(
                     await postJson(`/admin/capitalization-forms/${detail.id}/archive`, {}),
                   )
-                  toast.success("Capitalization form archived.")
+                  toast.success("Capitalization Form archived successfully.")
                   navigate(listReturnTo("/dashboard/capitalization"))
                 } catch (e) {
                   toast.error(
@@ -685,6 +698,7 @@ export function CapexDetailPage() {
           decisionMode === "reject" ? "Reject" : isCloseStep ? "Close" : "Approve"
         }
         needsNextAssignee={needsNextAssignee}
+        selectUserMessage="Select a user to approve the Capitalization Form."
         nextAssigneeLevel={null}
         nextStepRoleName={nextStepRoleName}
         assigneesUrl={

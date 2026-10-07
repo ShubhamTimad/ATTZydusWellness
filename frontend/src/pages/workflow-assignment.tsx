@@ -321,7 +321,7 @@ export function WorkflowAssignmentPage() {
         entity_type: newEntityType.trim() || "user_creation",
         is_active: false,
       })
-      toast.success("Workflow created.")
+      toast.success("Workflow created successfully.")
       setCreateOpen(false)
       setNewWorkflowName("")
       setNewEntityType("user_creation")
@@ -476,7 +476,7 @@ export function WorkflowAssignmentPage() {
     setDeleting(true)
     try {
       await deleteJson(`/admin/approval-workflows/${wf.id}`)
-      toast.success("Workflow deleted.")
+      toast.success("Workflow deleted successfully.")
       if (selectedId === String(wf.id)) backToList()
       await load()
     } catch (e) {

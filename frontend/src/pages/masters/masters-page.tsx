@@ -70,6 +70,7 @@ export function MastersPage() {
             title="Asset Category"
             listUrl="/admin/asset-masters/categories?active_only=true"
             kind="category"
+            entityLabel="Category"
           />
         </WorkspaceTabsContent>
         <WorkspaceTabsContent value="asset-classes" className={TAB_PANEL}>
@@ -77,6 +78,7 @@ export function MastersPage() {
             title="Asset Class"
             listUrl="/admin/asset-masters/asset-classes?active_only=true"
             kind="code-name"
+            entityLabel="Asset Class"
           />
         </WorkspaceTabsContent>
         <WorkspaceTabsContent value="functional" className={TAB_PANEL}>
@@ -107,6 +109,7 @@ export function MastersPage() {
               title="Tag Color"
               listUrl="/admin/asset-masters/tag-colors?active_only=true"
               kind="tag-color"
+              entityLabel="Tag color"
             />
           </WorkspaceTabsContent>
           <WorkspaceTabsContent value="asset-conditions" className={TAB_PANEL}>
@@ -114,6 +117,7 @@ export function MastersPage() {
               title="Asset condition"
               listUrl="/admin/asset-masters/asset-conditions?active_only=true"
               kind="code-name"
+              entityLabel="Asset condition"
             />
           </WorkspaceTabsContent>
         </WorkspaceTabs>

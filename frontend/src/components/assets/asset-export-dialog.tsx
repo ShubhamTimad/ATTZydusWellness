@@ -204,7 +204,13 @@ export function AssetExportDialog(props: AssetExportDialogProps) {
         path,
         isPdf ? "asset-register.pdf" : isRegister ? "asset-register.xlsx" : "assets-export.xlsx",
       )
-      toast.success(isRegister ? "Report downloaded." : "Export downloaded.")
+      toast.success(
+        isRegister
+          ? isPdf
+            ? "Asset Register PDF downloaded successfully."
+            : "Asset Register Excel downloaded successfully."
+          : "Asset Master exported successfully.",
+      )
       props.onOpenChange(false)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : isRegister ? "Report failed." : "Export failed.")

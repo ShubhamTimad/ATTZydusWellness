@@ -1267,7 +1267,7 @@ export function AssetsListPage() {
       setVisibleColumnKeys(saved.columns)
       sessionStorage.setItem(ASSET_LIST_COLUMNS_CACHE_KEY, JSON.stringify(saved.columns))
       setColumnsOpen(false)
-      toast.success("Asset List Columns Saved")
+      toast.success("Asset list columns saved successfully.")
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save column preferences")
     } finally {
@@ -1318,7 +1318,7 @@ export function AssetsListPage() {
         `/admin/assets/fy-verification/export?${q.toString()}`,
         `fy-physical-verification.${format === "xlsx" ? "xlsx" : "pdf"}`,
       )
-      toast.success(`${format === "xlsx" ? "Excel" : "PDF"} report downloaded`)
+      toast.success(`Physical Verification ${format === "xlsx" ? "Excel" : "PDF"} report downloaded successfully.`)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Export failed")
     } finally {
@@ -1641,7 +1641,7 @@ export function AssetsListPage() {
     const ids = decisionEligibleRows.map((r) => r.id)
     const comment = (payload.comment || "").trim()
     if (!comment) {
-      toast.error(bulkDecisionMode === "approve" ? "Comment is required." : "Reason is required.")
+      toast.error(bulkDecisionMode === "approve" ? "Comment is required to approve the asset." : "Rejection reason is required.")
       return
     }
     if (ids.length === 0) return
@@ -1658,8 +1658,8 @@ export function AssetsListPage() {
       if (res.processed_count > 0) {
         toast.success(
           bulkDecisionMode === "approve"
-            ? `Approved.`
-            : `Rejected.`,
+            ? `Asset approved successfully.`
+            : `Asset rejected.`,
         )
         setBulkDecisionOpen(false)
         clearSelection()
@@ -1705,7 +1705,7 @@ export function AssetsListPage() {
         }
       }
       if (errors.length === 0) {
-        toast.success(`Deleted ${ids.length} Asset(s).`)
+        toast.success("Asset deleted successfully.")
       } else if (errors.length < ids.length) {
         toast.warning(`Deleted ${ids.length - errors.length} of ${ids.length}. Some failed.`)
       } else {
@@ -1859,7 +1859,7 @@ export function AssetsListPage() {
       return
     }
     if (transferEligibleRows.length < selectedRows.length) {
-      toast.error("Select only approved assets where you are the custodian.")
+      toast.error("Only custodian can select approved assets for transfer.")
       return
     }
     const plants = [
@@ -1880,7 +1880,7 @@ export function AssetsListPage() {
     ]
     if (costCenters.length !== 1) {
       toast.error(
-        "Select assets from the same cost center. Create a separate transfer for each source cost center.",
+        "Select assets from the same cost center.",
       )
       return
     }
@@ -1954,7 +1954,7 @@ export function AssetsListPage() {
       return
     }
     if (transferEligibleRows.length < selectedRows.length) {
-      toast.error("Select only approved assets where you are the custodian.")
+      toast.error("Only custodian can select approved assets for disposal.")
       return
     }
     const plants = [
@@ -1975,7 +1975,7 @@ export function AssetsListPage() {
     ]
     if (costCenters.length !== 1) {
       toast.error(
-        "Select assets from the same cost center. Create a separate disposal for each source cost center.",
+        "Select assets from the same cost center.",
       )
       return
     }
@@ -2699,9 +2699,9 @@ export function AssetsListPage() {
                 <AdminTableEmptyRow colSpan={tableColSpan}>
                   {isFyTab
                     ? fySubTab === "verified"
-                      ? "No physically verified assets for the current financial year."
-                      : "No RFID-tagged assets pending financial year verification."
-                    : "No Assets match your search or filters."}
+                      ? "No physically verified assets found for the selected financial year."
+                      : "No assets pending verification for the selected financial year."
+                    : "No assets found matching the search or filters."}
                 </AdminTableEmptyRow>
               ) : (
                 items.map((row) => {

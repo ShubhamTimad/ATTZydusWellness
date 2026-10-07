@@ -1100,7 +1100,7 @@ class TransferOrderService:
         missing = [i for i in asset_ids if i not in mapping]
         if missing:
             if fallback_id is None:
-                raise ConflictError("Select a destination asset custodian for every asset.")
+                raise ConflictError("Destination Asset Custodian is mandatory.")
             for i in missing:
                 mapping[i] = int(fallback_id)
         extra = set(mapping) - set(int(i) for i in asset_ids)

@@ -337,7 +337,7 @@ export function AssetDetailPage() {
       setEditBaseline(null)
       setEditing(false)
       void loadAudit(refreshed.id)
-      toast.success("Asset saved.")
+      toast.success("Asset details updated successfully.")
       void invalidateAssetLists()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Save failed.")
@@ -619,7 +619,7 @@ export function AssetDetailPage() {
         success ??
           (res.activated_count > 0
             ? `Asset ${asset.asset_code} activated — no approval workflow is configured.`
-            : `Asset ${asset.asset_code} submitted for approval.`),
+            : "Asset submitted for approval successfully."),
       )
       await load()
       void invalidateAssetLists()
@@ -644,7 +644,7 @@ export function AssetDetailPage() {
       })
       setAsset(updated)
       setReassignOpen(false)
-      toast.success("Approver reassigned.")
+      toast.success("Approver reassigned successfully.")
       void invalidateAssetLists()
       void loadAudit(asset.id)
     } catch (e) {
@@ -660,7 +660,7 @@ export function AssetDetailPage() {
   }) {
     if (!pendingTaskId) return
     if (decisionMode === "reject" && !(payload.comment || "").trim()) {
-      toast.error("Reason is required when rejecting.")
+      toast.error("Rejection reason is required.")
       return
     }
     setActing(true)
@@ -670,7 +670,7 @@ export function AssetDetailPage() {
         comment: payload.comment,
       })
       setDecisionOpen(false)
-      toast.success(decisionMode === "approve" ? "Approved." : "Rejected.")
+      toast.success(decisionMode === "approve" ? "Asset approved successfully." : "Asset rejected.")
       await load()
       void invalidateAssetLists()
       if (asset?.id) void loadAudit(asset.id)

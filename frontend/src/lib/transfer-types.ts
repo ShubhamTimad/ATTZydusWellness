@@ -139,7 +139,7 @@ export const TRANSFER_STATUS_TABS = [
 ] as const
 
 export function transferTabEmptyMessage(tab: string): string {
-  if (tab === "needs_action") return "No Pending Action Available"
+  if (tab === "needs_action") return "No pending action available."
   return "No Transfer Orders."
 }
 

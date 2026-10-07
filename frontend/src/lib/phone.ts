@@ -20,9 +20,9 @@ export function isValidIndianMobile(digits: string): boolean {
 
 export const phoneFieldSchema = z
   .string()
-  .min(1, "Phone is required")
+  .min(1, "Phone number is required.")
   .transform((value) => normalizePhoneDigits(value))
   .refine(
     (digits) => isValidIndianMobile(digits),
-    "Enter a valid 10-digit Indian mobile number (starting with 6, 7, 8, or 9)",
+    "Enter a valid 10-digit mobile number without country code.",
   )

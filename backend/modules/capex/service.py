@@ -1224,7 +1224,7 @@ class CapexFormService:
         if form.status not in SUBMITTABLE_STATUSES:
             raise ConflictError("Form cannot be submitted in its current status.")
         if not (form.asset_name or "").strip():
-            raise ConflictError("Asset name is required.")
+            raise ConflictError("Asset Name is required.")
         if assignee_user_id < 1:
             raise ConflictError("Select an approver before submitting.")
 

@@ -410,16 +410,16 @@ export function OrderDetailPage() {
         path === "/approval/approve-order" &&
         (res.status === "approved" || res.status === "assigned")
       ) {
-        toast.success("Order approved successfully.")
+        toast.success("Physical Verification Order approved successfully.")
       } else if (
         (path === "/approval/approve-all" ||
           path === "/closure/approve-order" ||
           path === "/approval/approve-items") &&
         res.status === "approved"
       ) {
-        toast.success("Order approved successfully.")
+        toast.success("Physical Verification Order approved successfully.")
       } else if (path === "/approval/approve-items" && res.status === "completed") {
-        toast.success("Order approved successfully.")
+        toast.success("Physical Verification Order approved successfully.")
       } else if (path === "/approval/approve-items" && res.status === "pending_closure_approval") {
         toast.success("Selected Assets approved successfully.")
       } else if (path === "/approval/reject-items") {
@@ -455,19 +455,17 @@ export function OrderDetailPage() {
       } else if (path === "/start" && res.status === "in_progress") {
         toast.success(
           order?.status === "rejected"
-            ? "Order Restarted successfully. Please start scanning asset tags."
-            : "Order Started successfully. Please start scanning asset tags.",
+            ? "Physical Verification Order restarted successfully. Please start scanning asset tags."
+            : "Physical Verification started successfully. Please start scanning asset tags.",
         )
       } else if (path === "/submit-closure") {
-        toast.success("Order completed successfully.")
+        toast.success("Physical Verification Order completed successfully.")
       } else if (path === "/submit") {
-        toast.success(
-          res.assigned_to_name
-            ? `Order assigned to ${res.assigned_to_name} successfully.`
-            : "Order assigned successfully.",
-        )
+        toast.success("Physical Verification Order assigned successfully.")
       } else if (path === "/reassign") {
-        toast.success("Order reassigned successfully.")
+        toast.success("Physical Verification Order reassigned successfully.")
+      } else if (path === "/close") {
+        toast.success("Physical Verification Order closed successfully.")
       } else {
         toast.success("Changes saved successfully.")
       }
@@ -502,7 +500,7 @@ export function OrderDetailPage() {
       await load()
       void invalidateOrderLists()
       void invalidateAssetLists()
-      toast.success(`Asset verified (${res.verified_count}/${res.total_count}).`)
+      toast.success(`Scan Success ${res.item.asset_code}`)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Scan failed.")
     } finally {
@@ -695,12 +693,12 @@ export function OrderDetailPage() {
       )
       setOrder(latest)
       if (latest.status === "approved") {
-        toast.success("Order approved successfully.")
+        toast.success("Physical Verification Order approved successfully.")
       } else if (latest.status === "rejected") {
         toast.success(
           latest.assigned_to_name
-            ? `Review completed. Rejected assets have been returned for rework.`
-            : "Review completed. Rejected assets have been returned for rework.",
+            ? "Physical Verification Order rejected for reverification."
+            : "Physical Verification Order rejected for reverification.",
         )
       } else {
         toast.success("Review updated successfully.")
@@ -791,7 +789,7 @@ export function OrderDetailPage() {
                   setOrder(
                     await postJson(`/admin/physical-orders/${order.id}/archive`, {}),
                   )
-                  toast.success("Physical order archived.")
+                  toast.success("Physical Verification Order archived successfully.")
                   void invalidateOrderLists()
                   void invalidateAssetLists()
                   navigate(listReturnTo("/dashboard/orders"))
@@ -827,7 +825,7 @@ export function OrderDetailPage() {
                   setOrder(
                     await postJson(`/admin/physical-orders/${order.id}/unarchive`, {}),
                   )
-                  toast.success("Physical order unarchived.")
+                  toast.success("Physical Verification Order unarchived successfully.")
                   void invalidateOrderLists()
                   void invalidateAssetLists()
                 } catch (e) {
@@ -1393,7 +1391,7 @@ export function OrderDetailPage() {
               {pagedItems.length === 0 ? (
                 <AdminTableEmptyRow colSpan={tableColSpan}>
                   {assetTotal === 0 && (assetSearch.trim() || activeAssetColumnFilterCount > 0)
-                    ? "No Assets match your search or filters."
+                    ? "No assets found matching the search or filters."
                     : "No Assets in this view."}
                 </AdminTableEmptyRow>
               ) : (

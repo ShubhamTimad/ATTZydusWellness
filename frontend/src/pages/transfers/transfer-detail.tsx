@@ -23,6 +23,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Table, TableBody, TableHeader } from "@/components/ui/table"
 import { ApiError, getJson, patchJson, postJson } from "@/lib/api"
 import { invalidateTransferLists } from "@/lib/query-client"
+import { approvedSentToMessage } from "@/lib/disposal-types"
 import { formatAppDateTime as formatDt } from "@/lib/dates"
 import type { ActualLocationMaster } from "@/lib/masters-types"
 import { hasPermission, persistAuthFromMe } from "@/lib/permissions"
@@ -288,9 +289,9 @@ export function TransferOrderDetailPage() {
       .map((item) => item.asset_code || String(item.asset_id))
   }
 
-  function warnMissingLocations(missing: string[]) {
+  function warnMissingLocations(_missing: string[]) {
     toast.error(
-      `Select Actual Location 1 and 2 for ${missing.join(", ")} before receiving.`,
+      "Select Actual Location 1 and 2 before receiving the asset.",
     )
   }
 
@@ -324,8 +325,8 @@ export function TransferOrderDetailPage() {
           })),
         }),
       pending === 0
-        ? "Locations saved. You can receive this transfer now."
-        : `Locations saved. ${pending} asset${pending === 1 ? "" : "s"} still need Actual Location 1 and 2.`,
+        ? "Actual Location saved successfully."
+        : "Actual Location 1 and 2 are required.",
     )
   }
 
@@ -336,6 +337,7 @@ export function TransferOrderDetailPage() {
     const taskId = myTaskId
     if (!taskId) return
     const kind = (order?.approval_panel?.current_step_kind || "approve").toLowerCase()
+    const nextRoleName = order?.approval_panel?.next_step_role_name
     setBusy(true)
     try {
       await postJson(`/approvals/tasks/${taskId}/action`, {
@@ -351,14 +353,14 @@ export function TransferOrderDetailPage() {
         decisionMode === "reject"
           ? kind === "confirm"
             ? "Rejected — returned to the receiver on this same order."
-            : "Rejected."
+            : "Transfer Order rejected."
           : kind === "receive"
-            ? "Assets received."
+            ? "Assets received and assigned to Central Finance for confirmation."
             : kind === "confirm"
-              ? "Receive confirmed."
+              ? "Transfer receipt confirmed successfully."
               : kind === "close"
-                ? "Transfer order closed."
-                : "Approved."
+                ? "Transfer Order closed successfully."
+                : approvedSentToMessage("Transfer Order", nextRoleName)
       toast.success(ok)
       void invalidateTransferLists()
       await load()
@@ -384,7 +386,7 @@ export function TransferOrderDetailPage() {
         next_assigned_user_id: nextUserId,
         ...receiveLocationPayload(),
       })
-      toast.success("Assets received. Assigned for confirmation.")
+      toast.success("Assets received and assigned to Central Finance for confirmation.")
       void invalidateTransferLists()
       setPickerMode(null)
       await load()
@@ -448,7 +450,7 @@ export function TransferOrderDetailPage() {
   async function saveDraftChanges() {
     if (!order || !isDirty) return
     if (!toCostCenterId) {
-      toast.error("Select destination cost center.")
+      toast.error("Destination Cost Center is required.")
       return
     }
     const destCc = plantCostCenters.find((cc) => String(cc.id) === toCostCenterId)
@@ -457,7 +459,7 @@ export function TransferOrderDetailPage() {
       return
     }
     if (order.items.some((item) => itemCustodians[item.asset_id] == null)) {
-      toast.error("Select a destination asset custodian for every asset.")
+      toast.error("Destination Asset Custodian is mandatory.")
       return
     }
     const firstCustodian = itemCustodians[order.items[0]!.asset_id]
@@ -473,7 +475,7 @@ export function TransferOrderDetailPage() {
           to_functional_location: null,
           to_actual_location: null,
         }),
-      "Transfer details saved.",
+      "Transfer details saved successfully.",
     )
   }
 
@@ -535,7 +537,7 @@ export function TransferOrderDetailPage() {
           {},
         ),
       )
-      toast.success("Transfer Restarted as Draft — update destination, then submit for approval.")
+      toast.success("Transfer Order restarted. Please update details and submit for approval.")
       void invalidateTransferLists()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Could not restart transfer")
@@ -617,7 +619,7 @@ export function TransferOrderDetailPage() {
                     ),
                   )
                   toast.success(
-                    "Transfer restarted as draft. Update details, then submit for approval.",
+                    "Transfer Order restarted. Please update details and submit for approval.",
                   )
                   void invalidateTransferLists()
                 } catch (e) {
@@ -650,7 +652,7 @@ export function TransferOrderDetailPage() {
               disabled={busy}
               onClick={() => {
                 if (order.items.some((item) => itemCustodians[item.asset_id] == null)) {
-                  toast.error("Select a destination asset custodian for every asset before submitting.")
+                  toast.error("Destination Asset Custodian is mandatory.")
                   return
                 }
                 setPickerMode("submit")
@@ -770,7 +772,7 @@ export function TransferOrderDetailPage() {
               onClick={() =>
                 void run(
                   () => postJson(`/admin/transfer-orders/${order.id}/cf/confirm`, {}),
-                  "Receive confirmed. Close the transfer order when ready.",
+                  "Transfer receipt confirmed successfully.",
                 )
               }
             >
@@ -784,7 +786,7 @@ export function TransferOrderDetailPage() {
               onClick={() =>
                 void run(
                   () => postJson(`/admin/transfer-orders/${order.id}/cf/close`, {}),
-                  "Transfer order closed.",
+                  "Transfer Order closed successfully.",
                 )
               }
             >
@@ -1114,7 +1116,7 @@ export function TransferOrderDetailPage() {
             try {
               if (order.can_edit) {
                 if (order.items.some((item) => itemCustodians[item.asset_id] == null)) {
-                  toast.error("Select a destination asset custodian for every asset.")
+                  toast.error("Destination Asset Custodian is mandatory.")
                   setBusy(false)
                   setPickerMode(null)
                   return
@@ -1135,7 +1137,7 @@ export function TransferOrderDetailPage() {
                 { assigned_to: userId },
               )
               applyOrder(res)
-              toast.success("Transfer order submitted for approval.")
+              toast.success("Transfer Order submitted for approval successfully.")
               void invalidateTransferLists()
             } catch (e) {
               toast.error(e instanceof ApiError ? e.message : "Action failed")
@@ -1156,7 +1158,7 @@ export function TransferOrderDetailPage() {
                   assigned_to: userId,
                   ...receiveLocationPayload(),
                 }),
-              "Assets received. Cost center, locations, and custodian updated. Assigned to CF for confirmation.",
+              "Assets received and assigned to Central Finance for confirmation.",
             )
           }
         }}
@@ -1181,6 +1183,7 @@ export function TransferOrderDetailPage() {
         nextAssigneeLevel={null}
         nextStepRoleName={panel?.next_step_role_name ?? null}
         assigneesUrl={nextAssigneesUrl}
+        selectUserMessage="Select a user to approve the Transfer Order."
         onConfirm={confirmDecision}
       />
       {confirmDialog}

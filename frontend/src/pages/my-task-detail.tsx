@@ -396,7 +396,12 @@ export function MyTaskDetailPage() {
         action,
         comment: actionComment.trim() ? actionComment.trim() : null,
       })
-      toast.success(action === "approve" ? "Approved." : "Rejected.")
+      const isAsset = ["asset_creation", "asset_import"].includes(task.approval?.entity_type ?? "")
+      toast.success(
+        action === "approve"
+          ? isAsset ? "Asset approved successfully." : "Approved."
+          : isAsset ? "Asset rejected." : "Rejected.",
+      )
       setActionComment("")
       await load(task.id)
     } catch (e) {

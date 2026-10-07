@@ -58,12 +58,12 @@ type UserPublic = {
 }
 
 const createUserSchema = z.object({
-  full_name: z.string().min(1, "Full name is required").max(255),
-  username: z.string().min(3, "Username is required").max(64),
+  full_name: z.string().min(1, "Full name is required.").max(255),
+  username: z.string().min(3, "Username is required.").max(64),
   phone: phoneFieldSchema,
-  email: z.string().email("Enter a valid email"),
-  role_ids: z.array(z.string()).min(1, "Select at least one role"),
-  org_unit_ids: z.array(z.string()).min(1, "Select at least one plant"),
+  email: z.string().email("Enter a valid email address."),
+  role_ids: z.array(z.string()).min(1, "Select at least one role."),
+  org_unit_ids: z.array(z.string()).min(1, "Select at least one plant."),
   department_ids: z.array(z.string()),
   cost_center_ids: z.array(z.string()),
   is_active: z.boolean(),
@@ -231,11 +231,11 @@ export function UserCreatePage() {
       const roleIds = values.role_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
       const orgUnitIds = values.org_unit_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
       if (roleIds.length === 0) {
-        toast.error("Select at least one role", { id: "create-user" })
+        toast.error("Select at least one role.", { id: "create-user" })
         return
       }
       if (orgUnitIds.length === 0) {
-        toast.error("Select at least one plant", { id: "create-user" })
+        toast.error("Select at least one plant.", { id: "create-user" })
         return
       }
       const created = await postJson<UserPublic>("/admin/users", {
@@ -260,7 +260,7 @@ export function UserCreatePage() {
           toast.error("User created, but the photo could not be uploaded.")
         }
       }
-      toast.success("User created", { id: "create-user" })
+      toast.success("User created successfully.", { id: "create-user" })
       navigate(`../${created.id}`, { replace: true })
     } catch (e) {
       const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to create user"

@@ -1,3 +1,4 @@
+import { toast } from "sonner"
 import { currentBrandLogoSrc } from "@/components/layout/app-brand-mark"
 import { getJson } from "@/lib/api"
 import {
@@ -425,6 +426,7 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
     try {
       win.focus()
       win.print()
+      toast.success("Capitalization Form printed successfully.")
     } catch {
       throw new Error("Unable to open the system print dialog.")
     } finally {

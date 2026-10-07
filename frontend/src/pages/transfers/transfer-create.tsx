@@ -582,7 +582,7 @@ export function TransferOrderCreatePage() {
       return
     }
     if (!toCostCenterId) {
-      toast.error("Select destination cost center.")
+      toast.error("Destination Cost Center is required.")
       return
     }
     const destCc = plantCostCenters.find((cc) => String(cc.id) === toCostCenterId)
@@ -591,7 +591,7 @@ export function TransferOrderCreatePage() {
       return
     }
     if (assets.some((a) => a.dest_custodian_id == null)) {
-      toast.error("Select a destination asset custodian for every asset.")
+      toast.error("Destination Asset Custodian is mandatory.")
       return
     }
     if (submit && assignedTo == null) {
@@ -626,8 +626,8 @@ export function TransferOrderCreatePage() {
       })
       toast.success(
         submit
-          ? `Transfer ${order.order_number} submitted for approval.`
-          : `${order.order_number} saved in draft.`,
+          ? "Transfer Order submitted for approval successfully."
+          : "Transfer Order saved as draft successfully.",
       )
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Failed to create transfer order.")

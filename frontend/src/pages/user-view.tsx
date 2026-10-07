@@ -158,7 +158,7 @@ export function UserViewPage() {
     setResendingWelcome(true)
     try {
       await postJson(`/admin/users/${user.id}/resend-welcome`, {})
-      toast.success("Welcome email queued (if email templates are configured).")
+      toast.success("Welcome email sent successfully.")
     } catch (e) {
       const message =
         e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Could not resend welcome email"
@@ -197,6 +197,7 @@ export function UserViewPage() {
     setError(null)
     try {
       await deleteJson(`/admin/users/${user.id}`)
+      toast.success("User deleted successfully.")
       navigate("..", { replace: true })
     } catch (e) {
       const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to delete user"

@@ -249,7 +249,7 @@ def test_submit_rejects_non_operational_assets():
     asset.lifecycle_status = "inactive"
     order = _order(STATUS_DRAFT, assets=[asset])
     svc = DisposalOrderService(MagicMock())
-    with pytest.raises(ConflictError, match="active, approved"):
+    with pytest.raises(ConflictError, match="active and approved"):
         svc._submit(order, actor_user_id=1, assignee_user_id=2)
 
 

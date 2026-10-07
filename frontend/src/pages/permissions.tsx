@@ -112,10 +112,8 @@ export function PermissionsPage() {
     toast.loading("Syncing permissions from config…", { id: "sync-perms-page" })
     try {
       const result = await postJson<PermissionCatalogSyncResult>("/admin/permissions/sync", {})
-      toast.success(
-        `Synced ${result.features_created + result.permissions_created + result.permission_codes_updated} change(s)`,
-        { id: "sync-perms-page" },
-      )
+      const n = result.features_created + result.permissions_created + result.permission_codes_updated
+      toast.success(`Synced ${n} ${n === 1 ? "change" : "changes"}.`, { id: "sync-perms-page" })
       await load()
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to sync permissions"

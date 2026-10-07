@@ -24,6 +24,6 @@ def normalize_phone(raw: str) -> str:
         digits = digits[1:]
     if not _INDIAN_MOBILE_RE.match(digits):
         raise ValueError(
-            "Enter a valid 10-digit Indian mobile number (must start with 6, 7, 8, or 9)"
+            "Enter a valid 10-digit mobile number without country code."
         )
     return digits

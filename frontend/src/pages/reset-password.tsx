@@ -66,7 +66,7 @@ export function ResetPasswordPage() {
     try {
       await postJson("/reset-password", { token, new_password: password })
       setSuccess(true)
-      toast.success("Your password was updated. You can sign in now.")
+      toast.success("Password has been updated successfully. You can sign in now.")
     } catch (err) {
       const message =
         err instanceof ApiError

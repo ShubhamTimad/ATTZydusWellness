@@ -166,8 +166,7 @@ def assert_functional_location_deletable(db: Session, row: FunctionalLocationMas
     )
     if _active_asset_count(child_count) > 0:
         raise MasterInUseError(
-            "Cannot delete this functional location while actual locations exist under it. "
-            "Remove child actual locations first."
+            "Cannot delete this functional location while actual locations exist under it."
         )
     asset_count = db.scalar(
         select(func.count())

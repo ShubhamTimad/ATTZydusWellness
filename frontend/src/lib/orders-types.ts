@@ -271,8 +271,8 @@ export const ORDER_STATUS_TABS: OrderListTab[] = [
 ]
 
 export function orderTabEmptyMessage(tab: string): string {
-  if (tab === "needs_action") return "No Pending Action Available"
-  return "No Physical Orders."
+  if (tab === "needs_action") return "No pending action available."
+  return "No Physical Verification Orders found."
 }
 
 const ORDER_STATUS_LABELS: Record<string, string> = {

@@ -50,6 +50,7 @@ type MasterCrudPanelProps = {
   listUrl: string
   kind: "simple" | "category" | "location" | "tag-color" | "code-name"
   plants?: PlantOption[]
+  entityLabel?: string
 }
 
 const listToolbarBtnClass = "h-9 shrink-0 gap-1.5 px-3"
@@ -68,7 +69,9 @@ export function MasterCrudPanel({
   listUrl,
   kind,
   plants = [],
+  entityLabel,
 }: MasterCrudPanelProps) {
+  const entityTitle = entityLabel?.replace(/\b\w/g, (c) => c.toUpperCase())
   const [rows, setRows] = React.useState<Row[]>([])
   const [createOpen, setCreateOpen] = React.useState(false)
   const [editRow, setEditRow] = React.useState<Row | null>(null)
@@ -186,9 +189,9 @@ export function MasterCrudPanel({
   }
 
   function validateForm(): string | null {
-    if (!code.trim()) return "Code is required."
+    if (!code.trim()) return entityTitle ? `${entityTitle} Code is required.` : "Code is required."
     if (kind === "category" || kind === "tag-color" || kind === "code-name") {
-      if (!name.trim()) return "Name is required."
+      if (!name.trim()) return entityTitle ? `${entityTitle} Name is required.` : "Name is required."
     } else if (!desc.trim()) {
       return "Description is required."
     }
@@ -205,7 +208,7 @@ export function MasterCrudPanel({
     setSaving(true)
     try {
       await postJson(listBase, buildPayload())
-      toast.success("Created.")
+      toast.success(entityLabel ? `${entityLabel} created successfully.` : "Created.")
       setCreateOpen(false)
       await load()
     } catch (e) {
@@ -226,7 +229,7 @@ export function MasterCrudPanel({
     const patchUrl = `${listBase}/${editRow.id}`
     try {
       await patchJson(patchUrl, buildPayload())
-      toast.success("Saved.")
+      toast.success(entityLabel ? `${entityLabel} updated successfully.` : "Saved.")
       setEditRow(null)
       await load()
     } catch (e) {
@@ -252,7 +255,13 @@ export function MasterCrudPanel({
     if (!ok) return
     try {
       await postJson(`${listBase}/${row.id}/set-active`, { is_active: isActive })
-      toast.success(isActive ? "Reactivated." : "Deactivated.")
+      toast.success(
+        entityLabel
+          ? `${entityLabel} ${isActive ? "reactivated" : "deactivated"} successfully.`
+          : isActive
+            ? "Reactivated."
+            : "Deactivated.",
+      )
       await load()
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "Update failed")
@@ -270,7 +279,7 @@ export function MasterCrudPanel({
     if (!ok) return
     try {
       await deleteJson(`${listBase}/${row.id}`)
-      toast.success("Deleted.")
+      toast.success(entityLabel ? `${entityLabel} deleted successfully.` : "Deleted.")
       if (editRow?.id === row.id) setEditRow(null)
       await load()
     } catch (e) {

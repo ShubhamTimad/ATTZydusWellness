@@ -182,7 +182,7 @@ export function AssetImportPage() {
     setDownloadingTemplate(true)
     try {
       await downloadFile("/admin/assets/import/template", "asset-import-template.xlsx")
-      toast.success("Import template downloaded.")
+      toast.success("Import template downloaded successfully.")
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to download template.")
     } finally {
@@ -217,10 +217,10 @@ export function AssetImportPage() {
       setStep("review")
       if (normalized.error_rows > 0) {
         toast.warning(
-          `${normalized.error_rows} row(s) have errors. Fix highlighted cells and re-validate.`,
+          `${normalized.error_rows} assets have duplicate records. Fix the highlighted cells and re-validate.`,
         )
       } else {
-        toast.success("All rows passed validation. You can submit the import.")
+        toast.success("File uploaded successfully.")
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Preview failed")
@@ -253,9 +253,9 @@ export function AssetImportPage() {
       const normalized = normalizePreview(data)
       setPreview(normalized)
       if (normalized.error_rows > 0) {
-        toast.warning(`${normalized.error_rows} row(s) still have errors.`)
+        toast.warning(`${normalized.error_rows} assets still have duplicate records. Fix the highlighted cells and re-validate.`)
       } else {
-        toast.success("All rows are valid. Submit when ready.")
+        toast.success("Ready to import.")
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Validation failed")
@@ -387,7 +387,7 @@ export function AssetImportPage() {
           `Imported ${totalCreated} assets with ${importErrors.length} row error(s). Check the batch for details.`,
         )
       } else {
-        toast.success(`Imported ${totalCreated} assets.`)
+        toast.success("Assets imported successfully.")
       }
     } catch (e) {
       if (importCancelledRef.current || (e instanceof DOMException && e.name === "AbortError")) {

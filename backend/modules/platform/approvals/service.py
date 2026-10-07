@@ -900,7 +900,7 @@ class ApprovalEngineService:
         if act not in ("approve", "reject"):
             raise ConflictError("action must be one of: approve, reject.")
         if act == "reject" and not (comment or "").strip():
-            raise ConflictError("Reason is required when rejecting.")
+            raise ConflictError("Rejection reason is required.")
 
         # Persist the action record first; then update task/request status depending on task type.
         self._db.add(

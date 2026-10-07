@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
+import { toast } from "sonner"
 
 import {
   AUTH_BUTTON_CLASS,
@@ -103,6 +104,7 @@ export function AppLoginPage() {
       return
     }
     persistAuthFromMe(me)
+    toast.success("Login successful.")
     navigate("/dashboard", { replace: true })
   }
 
@@ -154,7 +156,8 @@ export function AppLoginPage() {
         if (body?.error === "captcha_invalid") setError("Captcha verification failed.")
         else if (body?.error === "password_login_disabled") setError("Password sign-in is disabled for your organization.")
         else setError(err.message)
-      } else if (err instanceof Error) setError(err.message)
+      } else if (err instanceof TypeError) setError("Network issue. Please try again later.")
+      else if (err instanceof Error) setError(err.message)
       else setError("Login failed")
     } finally {
       setIsSubmitting(false)
@@ -185,6 +188,7 @@ export function AppLoginPage() {
       await completeSession(accessToken, refreshToken)
     } catch (err) {
       if (err instanceof ApiError) setError(err.message)
+      else if (err instanceof TypeError) setError("Network issue. Please try again later.")
       else if (err instanceof Error) setError(err.message)
       else setError("Verification failed")
     } finally {

@@ -152,7 +152,7 @@ class OrgUnitService:
         row = self.get_org_unit(org_unit_id)
         child = self._db.scalar(select(OrgUnit.id).where(OrgUnit.parent_id == org_unit_id).limit(1))
         if child is not None:
-            raise ValueError("Cannot delete this org unit while child departments still exist.")
+            raise ValueError("Cannot delete this organizational unit while child departments still exist.")
         self._db.delete(row)
         try:
             self._db.commit()

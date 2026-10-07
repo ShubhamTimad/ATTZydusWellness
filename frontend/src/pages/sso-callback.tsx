@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Link, useNavigate } from "react-router-dom"
+import { toast } from "sonner"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -137,9 +138,11 @@ export function SsoCallbackPage() {
             setError("Admin SSO requires a superuser account.")
             return
           }
+          toast.success("Login successful.")
           navigate("/admin", { replace: true })
           return
         }
+        toast.success("Login successful.")
         if (me.is_superuser) {
           navigate("/admin", { replace: true })
           return

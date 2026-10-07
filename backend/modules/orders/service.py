@@ -214,7 +214,7 @@ class PhysicalOrderService:
     def _assert_item_can_be_scanned(self, item: PhysicalOrderItem) -> None:
         if self._is_line_locked_after_approval(item):
             raise ConflictError(
-                f"Asset {self._item_asset_code(item)} was already approved and cannot be verified again."
+                "Only rejected Assets are available to edit."
             )
         if self._is_physically_verified(item):
             raise ConflictError(
@@ -3435,7 +3435,7 @@ class PhysicalOrderService:
         if not rfid:
             raise ConflictError("Asset has no RFID code attached.")
         if rfid != val:
-            raise ConflictError("Scanned RFID does not match this asset's RFID code.")
+            raise ConflictError("Invalid Tag scanned. Please scan the right tag.")
 
         now = _now_utc()
         # Scan locks physical verification only; line approval is a separate reviewer action.
@@ -3539,7 +3539,7 @@ class PhysicalOrderService:
                 failures.append(
                     BulkScanAssetFailure(
                         scan_value=val,
-                        message=f"Asset {self._item_asset_code(item)} was already approved and cannot be verified again",
+                        message="Only rejected Assets are available to edit.",
                     )
                 )
                 continue
@@ -3571,7 +3571,7 @@ class PhysicalOrderService:
                 failures.append(
                     BulkScanAssetFailure(
                         scan_value=val,
-                        message="Scanned RFID does not match this asset's RFID code",
+                        message="Invalid Tag scanned. Please scan the right tag.",
                     )
                 )
                 continue

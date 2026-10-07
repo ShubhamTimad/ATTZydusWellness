@@ -333,7 +333,7 @@ export function DisposalOrderCreatePage() {
       return
     }
     if (!isDisposable(row)) {
-      toast.error("Only active, approved assets can be disposed.")
+      toast.error("Only active and approved assets can be disposed.")
       return
     }
     setSelected((prev) => [...prev, row])
@@ -384,17 +384,17 @@ export function DisposalOrderCreatePage() {
       return
     }
     if (!remarks.trim()) {
-      toast.error("Enter the disposal reason.")
+      toast.error("Disposal Reason is required.")
       return
     }
     if (!toCostCenterId) {
-      toast.error("Select a Scrapyard Cost Center.")
+      toast.error("Scrapyard Cost Center is required.")
       return
     }
     const missingCustodian = selected.filter((a) => itemCustodians[a.id] == null)
     if (submit && missingCustodian.length > 0) {
       toast.error(
-        `Select a custodian for ${missingCustodian.map((a) => a.asset_code).join(", ")}.`,
+        "Asset Custodian is required.",
       )
       return
     }
@@ -419,7 +419,7 @@ export function DisposalOrderCreatePage() {
       toast.success(
         submit
           ? `Disposal ${order.order_number} Submitted For Approval.`
-          : `Draft ${order.order_number} saved.`,
+          : "Disposal Order saved as draft successfully.",
       )
       void invalidateDisposalLists()
       try {

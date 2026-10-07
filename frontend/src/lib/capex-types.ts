@@ -164,7 +164,7 @@ export const CAPEX_STATUS_FILTERS: { value: string; label: string }[] = [
 ]
 
 export function capexTabEmptyMessage(tab: string): string {
-  if (tab === "needs_action") return "No Pending Action Available."
+  if (tab === "needs_action") return "No pending action available."
   return "No Capitalization Forms."
 }
 

@@ -72,18 +72,9 @@ export type AssetRfidAttachResult = {
 
 /** User-facing success toast after attach/update RFID. */
 export function formatRfidAttachSuccess(res: AssetRfidAttachResult): string {
-  const asset =
-    res.asset_name?.trim() && res.asset_name.trim() !== res.asset_code
-      ? `${res.asset_code} (${res.asset_name.trim()})`
-      : res.asset_code
-
-  if (res.operation === "updated") {
-    if (res.previous_rfid_code && res.previous_rfid_code !== res.rfid_code) {
-      return `RFID on asset ${asset} updated to ${res.rfid_code} (was ${res.previous_rfid_code}).`
-    }
-    return `RFID on asset ${asset} updated to ${res.rfid_code}.`
-  }
-  return `RFID ${res.rfid_code} attached to asset ${asset}.`
+  return res.operation === "updated"
+    ? "Tag updated successfully."
+    : "Tag linked to the asset successfully."
 }
 
 type RfidErrorDetail = {
@@ -158,13 +149,9 @@ export function formatSubmitForApprovalSuccess(
 
   if (res.submitted_count > 0) {
     if (res.submitted_count === 1) {
-      parts.push(
-        asset
-          ? `Asset ${asset} submitted for approval`
-          : "Asset submitted for approval",
-      )
+      parts.push("Asset submitted for approval successfully")
     } else {
-      parts.push(`${res.submitted_count} assets submitted for approval`)
+      parts.push("Assets submitted for approval successfully")
     }
   }
 

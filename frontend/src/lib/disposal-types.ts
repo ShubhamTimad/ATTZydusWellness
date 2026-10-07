@@ -127,8 +127,23 @@ export const DISPOSAL_STATUS_FILTERS: { value: string; label: string }[] = [
 ]
 
 export function disposalTabEmptyMessage(tab: string): string {
-  if (tab === "needs_action") return "No Pending Action Available"
+  if (tab === "needs_action") return "No pending action available."
   return "No Disposal Orders."
+}
+
+const SENT_TO_LABEL: Record<string, string> = {
+  Engineering: "Engineering Department User",
+  CFM: "Central Finance Manager",
+  MD: "Managing Director",
+  "Store Person": "Store user",
+}
+
+/** Success toast after an approval; `nextRoleName` is the role of the step that follows. */
+export function approvedSentToMessage(entity: string, nextRoleName: string | null | undefined): string {
+  const next = (nextRoleName || "").trim()
+  return next
+    ? `${entity} approved and sent to ${SENT_TO_LABEL[next] ?? next} successfully.`
+    : `${entity} approved successfully.`
 }
 
 /** Compact badge token: Central Finance → CF, Department HOD → HOD. */

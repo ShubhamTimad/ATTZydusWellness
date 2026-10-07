@@ -309,7 +309,7 @@ export function RolesPage() {
         permission_ids: [],
         org_unit_ids: Array.from(createOrgUnitIds.values()),
       })
-      toast.success("Role created", { id: "create-role" })
+      toast.success("Role created successfully.", { id: "create-role" })
       closeCreate()
       setSelectedRoleId(created.id)
       if (page !== 1) setPage(1)
@@ -350,7 +350,7 @@ export function RolesPage() {
         name,
         description: editDescription.trim() ? editDescription.trim() : null,
       })
-      toast.success("Role updated", { id: "edit-role" })
+      toast.success("Role updated successfully.", { id: "edit-role" })
       closeEdit()
       await loadBase()
       await loadRole(selectedRoleId)
@@ -372,7 +372,7 @@ export function RolesPage() {
     toast.loading("Saving…", { id: "save-perms" })
     try {
       await patchJson<RoleDetail>(`/admin/roles/${selectedRoleId}`, body)
-      toast.success("Saved", { id: "save-perms" })
+      toast.success("Permissions saved successfully.", { id: "save-perms" })
       await loadRole(selectedRoleId)
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to save"
@@ -393,7 +393,7 @@ export function RolesPage() {
     toast.loading("Deleting role…", { id: "delete-role" })
     try {
       await deleteJson(`/admin/roles/${selectedRole.id}`)
-      toast.success("Role deleted", { id: "delete-role" })
+      toast.success("Role deleted successfully.", { id: "delete-role" })
       closeEdit()
       setSelectedRole(null)
       setSelectedRoleId(null)

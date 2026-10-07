@@ -29,6 +29,7 @@ type Props = {
   nextStepRoleName?: string | null
   /** Assignees API path for the next-approver pool (prefer role_id from workflow). */
   assigneesUrl?: string
+  selectUserMessage?: string
   onConfirm: (payload: {
     comment: string | null
     nextAssignedUserId: number | null
@@ -48,6 +49,7 @@ export function CapexDecisionDialog({
   nextAssigneeLevel = null,
   nextStepRoleName = null,
   assigneesUrl,
+  selectUserMessage = "Select a user.",
   onConfirm,
 }: Props) {
   const [comment, setComment] = React.useState("")
@@ -108,15 +110,17 @@ export function CapexDecisionDialog({
     if (commentRequired && !comment.trim()) {
       toast.error(
         mode === "reject"
-          ? "Reason is required when rejecting."
-          : fieldLabel
-            ? `${fieldLabel} is required.`
-            : "Reason is required.",
+          ? "Rejection reason is required."
+          : fieldLabel === "Comment"
+            ? "Comment is required to approve the asset."
+            : fieldLabel
+              ? `${fieldLabel} is required.`
+              : "Reason is required.",
       )
       return
     }
     if (showNextPicker && !selectedId) {
-      toast.error("Select a user.")
+      toast.error(selectUserMessage)
       return
     }
     await onConfirm({
