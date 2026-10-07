@@ -21,6 +21,8 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 PROFILE="$(./scripts/compose-profile.sh "$ENV_FILE")"
+export APP_VERSION="${APP_VERSION:-$(./scripts/app-version.sh)}"
+echo "==> Version $APP_VERSION"
 # shellcheck disable=SC2086
 compose() {
   docker compose --env-file "$ENV_FILE" $PROFILE "$@"

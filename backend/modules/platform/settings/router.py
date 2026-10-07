@@ -12,7 +12,6 @@ from db.session import get_db
 from modules.platform.settings.brand_logo import InvalidBrandLogoError
 from modules.platform.settings.login_background import InvalidLoginBackgroundError
 from modules.platform.settings.schema import (
-    AppVersionPublic,
     AuthPolicyPublic,
     DocumentFormatPublic,
     EmailDeliveryPublic,
@@ -152,23 +151,6 @@ def put_session_idle(
     _: SettingsWrite,
 ) -> SessionIdleSettingsPublic:
     return svc.put_session_idle(payload)
-
-
-@router.get("/app-version", response_model=AppVersionPublic)
-def get_app_version(
-    svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: SettingsRead,
-) -> AppVersionPublic:
-    return svc.get_app_version()
-
-
-@router.put("/app-version", response_model=AppVersionPublic)
-def put_app_version(
-    payload: AppVersionPublic,
-    svc: Annotated[SettingsService, Depends(get_settings_service)],
-    _: SettingsWrite,
-) -> AppVersionPublic:
-    return svc.put_app_version(payload)
 
 
 @router.get("/login-background/meta", response_model=LoginBackgroundMetaPublic)

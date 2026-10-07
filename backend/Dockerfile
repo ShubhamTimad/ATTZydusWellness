@@ -24,6 +24,9 @@ COPY frontend/public/logo.png frontend/public/logo.svg ./frontend/public/
 
 RUN mkdir -p /app/backend/uploads && chmod +x /app/backend/docker-entrypoint.sh
 
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
 EXPOSE 9005
 
 HEALTHCHECK --interval=20s --timeout=5s --start-period=60s --retries=10 \

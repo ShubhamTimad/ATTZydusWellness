@@ -37,7 +37,6 @@ from modules.platform.settings.login_background import (
 from modules.platform.settings.lookup import clear_setting_cache
 from modules.platform.settings.model import Setting
 from modules.platform.settings.schema import (
-    AppVersionPublic,
     AuthPolicyPublic,
     DocumentFormatPublic,
     EmailDeliveryPublic,
@@ -290,20 +289,6 @@ class SettingsService:
             apply_to_sso=apply,
             idle_enabled=True,
         )
-
-    def get_app_version(self) -> AppVersionPublic:
-        from modules.platform.settings.app_version import get_app_version
-
-        return AppVersionPublic(version=get_app_version())
-
-    def put_app_version(self, payload: AppVersionPublic) -> AppVersionPublic:
-        from modules.platform.settings.app_version import SETTING_KEY
-
-        version = payload.version.strip() or "1.0.0"
-        self._upsert(SETTING_KEY, version[:64])
-        self._db.commit()
-        clear_setting_cache(SETTING_KEY)
-        return self.get_app_version()
 
     def get_login_background_meta(self) -> LoginBackgroundMetaPublic:
         served = get_login_background_served()
