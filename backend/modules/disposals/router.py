@@ -96,6 +96,7 @@ def list_orders(
 
 @router.get("/assignees", response_model=DisposalAssigneeListResponse)
 def list_assignees(
+    current: Annotated[CurrentUser, Depends(get_current_user)],
     svc: Annotated[DisposalOrderService, Depends(get_disposal_service)],
     _: Annotated[object, Depends(require_permission("disposal.view"))],
     level: str | None = Query(
@@ -142,6 +143,7 @@ def list_assignees(
                 order_id=order_id,
                 source_cost_center_id=from_cost_center_id,
                 destination_cost_center_id=to_cost_center_id,
+                actor_user_id=int(current.subject),
             )
         if requires_engineering is not None:
             action_code, _entity = action_and_entity_for_order(
@@ -153,6 +155,7 @@ def list_assignees(
                 source_cost_center_id=from_cost_center_id,
                 destination_cost_center_id=to_cost_center_id,
                 asset_ids=asset_id,
+                actor_user_id=int(current.subject),
             )
         return svc.list_assignees(level=level or "hod")
     except Exception as e:

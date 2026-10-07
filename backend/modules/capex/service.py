@@ -315,14 +315,21 @@ class CapexFormService:
         self._assert_form_in_viewer_scope(row, viewer_user_id=viewer_user_id)
         return row
 
-    def _validated_cost_center_id(self, cost_center_id: int | None) -> int | None:
+    def _validated_cost_center_id(
+        self, cost_center_id: int | None, *, actor_user_id: int
+    ) -> int | None:
+        scope = load_viewer_org_scope(self._db, actor_user_id)
         if cost_center_id is None:
+            if not viewer_can_see_org(scope, plant_id=None):
+                raise ConflictError("Select a cost center within your assigned scope.")
             return None
         cc = self._db.get(CostCenterMaster, int(cost_center_id))
         if cc is None:
             raise NotFoundError("CostCenterMaster", cost_center_id)
         if not bool(cc.is_active):
             raise ConflictError(f"Cost center {cc.code!r} is inactive.")
+        if not viewer_can_see_org(scope, plant_id=int(cc.plant_id), cost_center_ids=(int(cc.id),)):
+            raise ConflictError(f"Cost center {cc.code!r} is outside your assigned scope.")
         return int(cc.id)
 
     def _approval_panel(
@@ -947,7 +954,9 @@ class CapexFormService:
             auc_code=_strip_or_none(data.auc_code),
             useful_life=_strip_or_none(data.useful_life),
             requires_engineering=bool(data.requires_engineering),
-            cost_center_id=self._validated_cost_center_id(data.cost_center_id),
+            cost_center_id=self._validated_cost_center_id(
+                data.cost_center_id, actor_user_id=actor_user_id
+            ),
             created_by=actor_user_id,
         )
         self._db.add(form)
@@ -989,7 +998,9 @@ class CapexFormService:
             elif key == "installation_date":
                 form.installation_date = value
             elif key == "cost_center_id":
-                form.cost_center_id = self._validated_cost_center_id(value)
+                form.cost_center_id = self._validated_cost_center_id(
+                    value, actor_user_id=actor_user_id
+                )
             elif isinstance(value, str) or value is None:
                 setattr(form, key, _strip_or_none(value) if isinstance(value, str) else None)
             else:

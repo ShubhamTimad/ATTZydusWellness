@@ -962,6 +962,7 @@ class DisposalOrderService:
         order_id: int | None = None,
         source_cost_center_id: int | None = None,
         destination_cost_center_id: int | None = None,
+        actor_user_id: int | None = None,
     ) -> DisposalAssigneeListResponse:
         from modules.platform.approvals.org_scope import ORG_SCOPE_DESTINATION
 
@@ -1010,6 +1011,7 @@ class DisposalOrderService:
         source_cost_center_id: int | None = None,
         destination_cost_center_id: int | None = None,
         asset_ids: list[int] | None = None,
+        actor_user_id: int | None = None,
     ) -> DisposalAssigneeListResponse:
         """Users in the first step role of the workflow mapped to this disposal action."""
         order = (
