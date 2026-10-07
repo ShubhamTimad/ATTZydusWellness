@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
-import { getJson, postJson, API_BASE_URL } from "@/lib/api"
+import { getJson, postJson, API_BASE_URL, NETWORK_ERROR_MESSAGE } from "@/lib/api"
 import { loginRequestFields, validateLoginIdentifier } from "@/lib/login-identifier"
 import { persistAuthFromMe } from "@/lib/permissions"
 import { writeStoredAuthMethod } from "@/lib/session-idle-events"
@@ -139,7 +139,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
       }>("/me")
       persistAuthFromMe(me)
 
-      toast.success("Signed in", { id: "login" })
+      toast.success("Login successful.", { id: "login" })
       onLoggedIn?.({ accessToken, refreshToken })
     } catch (e) {
       const message = e instanceof Error ? e.message : "Login failed"
@@ -166,7 +166,7 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
       writeStoredAuthMethod("password")
       const me = await getJson<{ is_superuser?: boolean; permissions?: string[] }>("/me")
       persistAuthFromMe(me)
-      toast.success("Signed in", { id: "mfa" })
+      toast.success("Login successful.", { id: "mfa" })
       onLoggedIn?.({ accessToken, refreshToken })
     } catch (e) {
       const message = e instanceof Error ? e.message : "Verification failed"
@@ -195,8 +195,14 @@ export function LoginPage({ onLoggedIn }: LoginPageProps) {
       >
         {serverError ? (
           <Alert variant="destructive">
-            <AlertTitle>Couldn&apos;t sign in</AlertTitle>
-            <AlertDescription>{serverError}</AlertDescription>
+            {serverError === NETWORK_ERROR_MESSAGE ? (
+              <AlertTitle>{serverError}</AlertTitle>
+            ) : (
+              <>
+                <AlertTitle>Sign-In Failed</AlertTitle>
+                <AlertDescription>{serverError}</AlertDescription>
+              </>
+            )}
           </Alert>
         ) : null}
 

@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PasswordInput } from "@/components/ui/password-input"
-import { ApiError, API_BASE_URL, endServerSession, getJson, postJson } from "@/lib/api"
+import { ApiError, API_BASE_URL, endServerSession, getJson, NETWORK_ERROR_MESSAGE, postJson } from "@/lib/api"
 import { loginRequestFields, validateLoginIdentifier } from "@/lib/login-identifier"
 import { clearAuthProfile, persistAuthFromMe } from "@/lib/permissions"
 import { clearSharedLastActive, clearStoredAuthMethod, writeStoredAuthMethod } from "@/lib/session-idle-events"
@@ -156,7 +156,7 @@ export function AppLoginPage() {
         if (body?.error === "captcha_invalid") setError("Captcha verification failed.")
         else if (body?.error === "password_login_disabled") setError("Password sign-in is disabled for your organization.")
         else setError(err.message)
-      } else if (err instanceof TypeError) setError("Network issue. Please try again later.")
+      } else if (err instanceof TypeError) setError(NETWORK_ERROR_MESSAGE)
       else if (err instanceof Error) setError(err.message)
       else setError("Login failed")
     } finally {
@@ -188,7 +188,7 @@ export function AppLoginPage() {
       await completeSession(accessToken, refreshToken)
     } catch (err) {
       if (err instanceof ApiError) setError(err.message)
-      else if (err instanceof TypeError) setError("Network issue. Please try again later.")
+      else if (err instanceof TypeError) setError(NETWORK_ERROR_MESSAGE)
       else if (err instanceof Error) setError(err.message)
       else setError("Verification failed")
     } finally {
@@ -208,8 +208,14 @@ export function AppLoginPage() {
       >
         {error ? (
           <Alert variant="destructive">
-            <AlertTitle>Sign-In Failed</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+            {error === NETWORK_ERROR_MESSAGE ? (
+              <AlertTitle>{error}</AlertTitle>
+            ) : (
+              <>
+                <AlertTitle>Sign-In Failed</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </>
+            )}
           </Alert>
         ) : null}
 

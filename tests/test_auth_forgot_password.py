@@ -65,3 +65,21 @@ def test_forgot_password_includes_expiry_minutes_in_email_payload(
     assert payload["email"] == "alice@example.com"
     assert payload["expiry_minutes"] == 45
     assert payload["reset_link"].startswith("https://app.example.com/reset-password?token=")
+
+
+def test_forgot_password_route_reports_unregistered_email(
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    from fastapi import HTTPException
+
+    from modules.platform.auth.routes import forgot_password
+    from modules.platform.auth.schema import ForgotPasswordRequest
+
+    monkeypatch.setenv("RATE_LIMIT_STATE_PATH", str(tmp_path / "limits.json"))
+    request = SimpleNamespace(client=SimpleNamespace(host="203.0.113.9"))
+    with pytest.raises(HTTPException) as exc:
+        forgot_password(request, ForgotPasswordRequest(email="nobody@example.com"), AuthService(db))
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "No account found with this email address."

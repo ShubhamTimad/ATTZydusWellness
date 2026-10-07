@@ -413,7 +413,12 @@ def forgot_password(
     check_bucket(request, "forgot-password", max_hits=5, window_sec=3600)
     try:
         svc.forgot_password(email=str(payload.email))
-    except (ForgotPasswordUserNotFoundError, ForgotPasswordAccountInactiveError):
+    except ForgotPasswordUserNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No account found with this email address.",
+        ) from None
+    except ForgotPasswordAccountInactiveError:
         pass
     except ForgotPasswordDeliveryError:
         logger.error("forgot_password_delivery_failed")

@@ -258,6 +258,18 @@ type FetchWithAuthOptions = {
   allowRefresh?: boolean
 }
 
+export const NETWORK_ERROR_MESSAGE = "Network issue. Please try again later."
+
+/** fetch() rejects with a TypeError ("Failed to fetch") when the server is unreachable. */
+async function fetchOrNetworkError(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (err) {
+    if (err instanceof TypeError) throw new TypeError(NETWORK_ERROR_MESSAGE)
+    throw err
+  }
+}
+
 async function fetchWithAuth({
   path,
   init,
@@ -271,7 +283,7 @@ async function fetchWithAuth({
     ...(init?.headers ?? {}),
   })
 
-  let res = await fetch(url, {
+  let res = await fetchOrNetworkError(url, {
     ...init,
     headers: buildHeaders(token),
   })
@@ -282,7 +294,7 @@ async function fetchWithAuth({
     if (!isSessionIdleResponse(data)) {
       const newToken = await refreshAccessToken()
       if (newToken) {
-        res = await fetch(url, {
+        res = await fetchOrNetworkError(url, {
           ...init,
           headers: buildHeaders(newToken),
         })
