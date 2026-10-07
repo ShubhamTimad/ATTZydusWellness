@@ -15,6 +15,8 @@ Ops/debug logs for the API process. Separate from **business audit** (who change
 |-----|---------|---------|
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FORMAT` | `text` on TTY, else `json` | `json` or `text` |
+| `ERROR_ALERT_EMAILS` | unset (off) | Comma-separated addresses. Every `ERROR`/`CRITICAL` log line is emailed (see below) |
+| `ERROR_ALERT_THROTTLE_SECONDS` | `900` | Same error is emailed at most once per window; the next email reports how many repeats were skipped |
 | `LOG_FILE` | unset locally; `logs/app.log` in Docker | Optional path; same events also always go to stdout. Rotates at 10 MB × 5 |
 
 Examples:
@@ -28,6 +30,17 @@ LOG_LEVEL=INFO
 LOG_FORMAT=json
 LOG_FILE=logs/app.log
 ```
+
+## Error email alerts
+
+Set `ERROR_ALERT_EMAILS=ops@example.com,dev@example.com` in `.env.docker` and restart the backend.
+
+- Uses the SMTP settings from **Admin → Settings → Email delivery**, falling back to `SMTP_*` env. If the database is down, `SMTP_*` env is used so that outage still alerts — set `SMTP_*` in `.env.docker` for that case.
+- Email contains environment, time, message, logger, source line, request ID, user ID, method/path, and the full traceback.
+- Sent from a background thread; a slow SMTP server never delays the user's request.
+- Same error (exception type + line) → one email per throttle window. Hard cap: 30 emails per hour per worker.
+- If sending fails, a line `error_alert_not_sent: …` is written to stderr (`docker compose logs backend`).
+- Covers backend errors only. Browser-side (React) errors are not sent to the backend.
 
 ## Reading logs
 

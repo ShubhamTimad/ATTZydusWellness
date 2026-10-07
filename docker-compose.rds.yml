@@ -1,0 +1,15 @@
+# External PostgreSQL (e.g. AWS RDS) instead of the bundled db container.
+#
+# scripts/docker-*.sh add this file automatically when DATABASE_URL is set in .env.docker.
+# Manual:
+#   docker compose -f docker-compose.yml -f docker-compose.rds.yml --env-file .env.docker up -d
+#
+# Needs Docker Compose 2.24+ (for !reset).
+services:
+  db:
+    profiles: ["bundled-db"]
+
+  backend:
+    depends_on: !reset []
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.docker}

@@ -29,3 +29,4 @@ dist-ssr/
 engin/
 *.log
 backups/
+backend/check_*.py

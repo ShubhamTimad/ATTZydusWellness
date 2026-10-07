@@ -189,6 +189,76 @@ docker compose --env-file .env.docker exec backend \
 ./scripts/docker-up.sh
 ```
 
+## Takeda servers: dev (HTTP) → prod (HTTPS)
+
+Open inbound ports: **8069, 8090, 8091** (web), outbound SMTP **25 / 465 / 587**. Use **8090** for the app (8069 is Odoo's default — check it is free with `sudo ss -ltnp`). Backend port 9005 stays internal.
+
+**Dev — plain HTTP, no SSO** (`.env.docker`):
+
+```env
+APP_HOST_BIND=0.0.0.0
+APP_PORT=8090
+FRONTEND_ORIGIN=http://SERVER:8090
+FRONTEND_APP_URL=http://SERVER:8090
+FRONTEND_ADMIN_URL=http://SERVER:8090/admin
+SSO_ENABLED=false
+```
+
+**Prod — HTTPS terminated by Takeda's load balancer / reverse proxy** (corporate cert) forwarding to `SERVER:8090`. No code change; only these values change:
+
+```env
+FRONTEND_ORIGIN=https://APP_DOMAIN
+FRONTEND_APP_URL=https://APP_DOMAIN
+FRONTEND_ADMIN_URL=https://APP_DOMAIN/admin
+SSO_ENABLED=true
+SSO_REDIRECT_URI=https://APP_DOMAIN/api/auth/sso/callback
+# Only the load balancer should reach :8090 — restrict it in the security group.
+```
+
+Ask Takeda IT for the load balancer to:
+- forward `X-Forwarded-Proto: https` and `X-Forwarded-For` (frontend nginx passes them through to the API),
+- allow request bodies up to 50 MB (asset imports / images) and a 300 s timeout (large exports),
+- register `https://APP_DOMAIN/api/auth/sso/callback` as the redirect URI in the Entra app registration.
+
+**SMTP** (from Takeda IT; set as `SMTP_*` in `.env.docker` so error alerts work even when the DB is down):
+
+| Port | Settings |
+|------|----------|
+| 587 | `SMTP_USE_TLS=true` + username/password |
+| 465 | implicit SSL, picked automatically by port |
+| 25 | internal relay: `SMTP_USE_TLS=false`, usually no username/password |
+
+Also confirm outbound access from the server to RDS on its port (5442).
+
+## External database (AWS RDS)
+
+Same branch, same images — only `.env.docker` on that server changes.
+
+1. **Check the server can reach RDS** (security group must allow this server's IP):
+   ```bash
+   psql "host=RDS_HOST port=5442 dbname=DB_NAME user=APP_USER sslmode=require"
+   ```
+   A timeout here is a network/security-group problem, not an app problem.
+2. **Use an app user, not the RDS master user.** It must own the database (migrations create tables); no extensions or superuser rights are needed.
+3. **Set `DATABASE_URL`** in `.env.docker` (URL-encode the password; see `.env.docker.example`):
+   ```env
+   DATABASE_URL=postgresql+psycopg2://APP_USER:URL_ENCODED_PASSWORD@RDS_HOST:5442/DB_NAME?sslmode=require
+   ```
+   `POSTGRES_*` are then ignored.
+4. **Start** with the usual scripts — they add `docker-compose.rds.yml` automatically when `DATABASE_URL` is set, so no `db` container starts:
+   ```bash
+   ./scripts/docker-rebuild.sh
+   ```
+   Manual equivalent:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.rds.yml --env-file .env.docker up -d --build
+   ```
+   Requires Docker Compose **2.24+** (`docker compose version`).
+5. **Empty database:** the first backend start runs all migrations, seeds email templates, and creates the `BOOTSTRAP_SUPERUSER_*` admin. Watch it with `docker compose -f docker-compose.yml -f docker-compose.rds.yml --env-file .env.docker logs -f backend`.
+
+**Backups:** `scripts/backup-db.sh` only dumps the bundled container and refuses to run when `DATABASE_URL` is set. Use RDS automated backups (check the retention period) and take a manual snapshot before deploys that add migrations.
+
+**Secret rotation:** if the password lives in AWS Secrets Manager with automatic rotation, new DB connections fail after each rotation until `.env.docker` is updated and the backend restarted — disable rotation for the app user or plan that restart.
 ## Local Docker (development)
 
 Same `docker-compose.yml`; set in `.env.docker`:

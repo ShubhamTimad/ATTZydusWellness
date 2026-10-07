@@ -12,6 +12,12 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+if grep -qE '^DATABASE_URL=.+' "$ENV_FILE"; then
+  echo "External database (DATABASE_URL set): there is no db container to dump." >&2
+  echo "Use RDS automated backups / manual snapshots instead." >&2
+  exit 1
+fi
+
 POSTGRES_USER="$(grep -E '^POSTGRES_USER=' "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'")"
 POSTGRES_DB="$(grep -E '^POSTGRES_DB=' "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'")"
 POSTGRES_USER="${POSTGRES_USER:-takeda}"

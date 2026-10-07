@@ -5,6 +5,7 @@ Env:
   LOG_LEVEL   — DEBUG | INFO | WARNING | ERROR (default INFO)
   LOG_FORMAT  — json | text (default json when not a TTY, else text)
   LOG_FILE    — optional path; same events also always go to stdout
+  ERROR_ALERT_EMAILS — optional comma-separated addresses; ERROR+ records are emailed (core.error_alerts)
 """
 
 from __future__ import annotations
@@ -138,6 +139,14 @@ def configure_logging() -> None:
         file_handler.setFormatter(formatter)
         file_handler.addFilter(ctx)
         root.addHandler(file_handler)
+
+    alert_to = [e.strip() for e in (os.environ.get("ERROR_ALERT_EMAILS") or "").split(",") if e.strip()]
+    if alert_to:
+        from core.error_alerts import ErrorEmailHandler
+
+        alerts = ErrorEmailHandler(alert_to)
+        alerts.addFilter(ctx)
+        root.addHandler(alerts)
 
     # Quiet noisy libraries; keep WARNING+.
     for name in ("uvicorn.access", "httpx", "httpcore", "asyncio"):

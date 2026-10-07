@@ -23,6 +23,12 @@ python /app/scripts/ensure_system_email_templates.py
 echo "Ensuring bootstrap superuser (only if none exists)..."
 python /app/scripts/ensure_bootstrap_superuser.py
 
+# Importing app.main runs the permission sync when SYNC_MODULES_ON_STARTUP is on.
+# Do it once here; every uvicorn worker doing it races on inserts of new rows.
+echo "Syncing permission catalog..."
+python -c "import app.main"
+export SYNC_MODULES_ON_STARTUP=false
+
 mkdir -p /app/backend/uploads /app/logs
 chown -R app:app /app/backend/uploads /app/logs
 

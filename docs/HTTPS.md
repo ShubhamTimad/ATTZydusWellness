@@ -106,5 +106,4 @@ Only if host ports are free and you set `ENABLE_EDGE_PROXY=true`, then
 |------|------|
 | `.env.docker.example` | `ENABLE_EDGE_PROXY=false` + HTTPS public URLs |
 | `scripts/compose-profile.sh` | Adds `--profile https` only when edge proxy enabled |
-| `.github/workflows/deploy-develop.yml` | Same gate for CI |
 | `deploy/proxy/*` | Optional built-in edge (off by default) |

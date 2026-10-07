@@ -13,7 +13,8 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-takeda}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}
+      # Not ":?" so docker-compose.rds.yml works without it; postgres itself refuses an empty password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       POSTGRES_DB: ${POSTGRES_DB:-takeda_att}
     volumes:
       - takeda_att_db_data:/var/lib/postgresql/data
@@ -36,7 +37,7 @@ services:
     env_file:
       - .env.docker
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-takeda}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}@db:5432/${POSTGRES_DB:-takeda_att}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-takeda}:${POSTGRES_PASSWORD:-}@db:5432/${POSTGRES_DB:-takeda_att}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env.docker}
       ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
       UVICORN_WORKERS: ${UVICORN_WORKERS:-2}
@@ -66,6 +67,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       LOG_FILE: ${LOG_FILE:-logs/app.log}
+      ERROR_ALERT_EMAILS: ${ERROR_ALERT_EMAILS:-}
+      ERROR_ALERT_THROTTLE_SECONDS: ${ERROR_ALERT_THROTTLE_SECONDS:-900}
     expose:
       - "${BACKEND_PORT:-9005}"
     volumes:
