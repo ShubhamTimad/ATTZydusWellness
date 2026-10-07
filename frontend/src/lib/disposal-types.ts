@@ -185,8 +185,9 @@ export function disposalStatusPillTone(
   if (status === "rejected" || status === "in_rework") return "danger"
   if (status === "cancelled") return "neutral"
   if (status === "draft") return "neutral"
-  if (status === "pending_approval" || status === "pending_receipt") return "warning"
-  if (status === "pending_cf_close") return "primary"
+  if (status === "pending_approval" || status === "pending_receipt" || status === "pending_cf_close") {
+    return "warning"
+  }
   return "info"
 }
 

@@ -2608,6 +2608,7 @@ class AssetMasterService:
     ) -> tuple[bytes, str, str]:
         from modules.assets.export import build_asset_export_pdf, build_asset_export_xlsx
         from modules.assets.field_definitions import ASSET_EXPORT_FIELDS
+        from modules.capex.model import CapitalizationForm
         from modules.reports.export import actor_display_name, report_filename
 
         allowed = set(ASSET_EXPORT_FIELDS)
@@ -2648,6 +2649,16 @@ class AssetMasterService:
 
         rows = list(self._db.scalars(base.limit(max_rows)).unique().all())
         cc_desc, fl_desc, al_desc = self._master_label_lookups(rows)
+        capex_no: dict[int, str] = {}
+        if "capitalization_form_number" in export_fields and rows:
+            capex_no = {
+                int(asset_id): form_number
+                for asset_id, form_number in self._db.execute(
+                    select(CapitalizationForm.asset_id, CapitalizationForm.form_number).where(
+                        CapitalizationForm.asset_id.in_([int(a.id) for a in rows])
+                    )
+                )
+            }
         fmt = file_format.lower()
         generated_by = actor_display_name(self._db, viewer_user_id)
         fy_token = financial_year
@@ -2662,6 +2673,7 @@ class AssetMasterService:
                 cc_desc=cc_desc,
                 fl_desc=fl_desc,
                 al_desc=al_desc,
+                capex_no=capex_no,
             )
             filename = report_filename(
                 "asset_register",
@@ -2677,6 +2689,7 @@ class AssetMasterService:
             cc_desc=cc_desc,
             fl_desc=fl_desc,
             al_desc=al_desc,
+            capex_no=capex_no,
         )
         filename = report_filename(
             "asset_register",

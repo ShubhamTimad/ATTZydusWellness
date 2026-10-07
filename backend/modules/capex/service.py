@@ -875,13 +875,31 @@ class CapexFormService:
             ],
         )
 
+    def _form_step_for_role(self, form_id: int, role_id: int):
+        """Level of this form's workflow whose primary role is ``role_id`` (first match)."""
+        form = self._db.get(CapitalizationForm, int(form_id))
+        if form is None or form.approval_request_id is None:
+            return None
+        req = self._db.get(ApprovalRequest, int(form.approval_request_id))
+        if req is None or req.workflow is None:
+            return None
+        return next(
+            (
+                s
+                for s in sorted(req.workflow.steps or [], key=lambda s: int(s.step_order))
+                if int(s.approver_role_id) == int(role_id)
+            ),
+            None,
+        )
+
     def list_assignees_by_role_id(
-        self, *, role_id: int, cost_center_id: int | None = None
+        self, *, role_id: int, cost_center_id: int | None = None, form_id: int | None = None
     ) -> CapexAssigneeListResponse:
         """Users in a workflow step role — keyed by role id so renames do not break the picker."""
         from modules.platform.approvals.step_roles import picker_role_ids, role_names_label
 
-        role_ids = picker_role_ids(self._db, int(role_id))
+        step = self._form_step_for_role(form_id, role_id) if form_id is not None else None
+        role_ids = picker_role_ids(self._db, int(role_id), step)
         role = self._db.get(Role, int(role_ids[0]))
         if role is None:
             raise NotFoundError("Role", role_ids[0])

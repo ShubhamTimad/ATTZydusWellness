@@ -447,6 +447,14 @@ export function TransferOrderDetailPage() {
         )),
   )
 
+  const locationsDirty = Boolean(
+    order?.items.some(
+      (item) =>
+        (itemLoc1[item.asset_id] ?? "") !== (item.to_functional_location ?? order.to_functional_location ?? "") ||
+        (itemLoc2[item.asset_id] ?? "") !== (item.to_actual_location ?? order.to_actual_location ?? ""),
+    ),
+  )
+
   async function saveDraftChanges() {
     if (!order || !isDirty) return
     if (!toCostCenterId) {
@@ -703,7 +711,7 @@ export function TransferOrderDetailPage() {
               variant="outline"
               size="sm"
               className="h-9"
-              disabled={busy}
+              disabled={!locationsDirty || busy}
               onClick={() => void saveReceiveLocations()}
             >
               {busy ? "Saving…" : "Save"}

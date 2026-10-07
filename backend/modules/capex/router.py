@@ -87,10 +87,17 @@ def list_assignees(
         ge=1,
         description="Narrow the pool to users covering this cost center (the form's cost center).",
     ),
+    form_id: int | None = Query(
+        None,
+        ge=1,
+        description="Limit role_id to that form's workflow level (not other workflows sharing the role).",
+    ),
 ) -> CapexAssigneeListResponse:
     try:
         if role_id is not None:
-            return svc.list_assignees_by_role_id(role_id=role_id, cost_center_id=cost_center_id)
+            return svc.list_assignees_by_role_id(
+                role_id=role_id, cost_center_id=cost_center_id, form_id=form_id
+            )
         if requires_engineering is not None:
             action_code, _ = action_and_entity_for_form(
                 requires_engineering=bool(requires_engineering)

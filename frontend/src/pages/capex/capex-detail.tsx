@@ -703,7 +703,7 @@ export function CapexDetailPage() {
         nextStepRoleName={nextStepRoleName}
         assigneesUrl={
           nextAssigneeRoleId
-            ? `/admin/capitalization-forms/assignees?role_id=${nextAssigneeRoleId}${costCenterParam}`
+            ? `/admin/capitalization-forms/assignees?role_id=${nextAssigneeRoleId}&form_id=${formId}${costCenterParam}`
             : undefined
         }
         onConfirm={confirmDecision}
@@ -714,7 +714,7 @@ export function CapexDetailPage() {
         onOpenChange={setReassignOpen}
         assigneesUrl={
           reassignRoleId
-            ? `/admin/capitalization-forms/assignees?role_id=${reassignRoleId}${costCenterParam}`
+            ? `/admin/capitalization-forms/assignees?role_id=${reassignRoleId}&form_id=${formId}${costCenterParam}`
             : undefined
         }
         excludeUserId={detail.approval_panel?.current_assignee_user_id}

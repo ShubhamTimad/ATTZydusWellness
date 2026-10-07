@@ -483,6 +483,11 @@ export function DisposalOrderDetailPage() {
         (order.to_cost_center_id != null ? String(order.to_cost_center_id) : "") ||
       savedCustodianIds !== JSON.stringify(editAssets.map((a) => itemCustodians[a.asset_id] ?? null)) ||
       JSON.stringify(editAssetIds) !== JSON.stringify(savedAssetIds))
+  const locationsDirty = (order.items ?? []).some(
+    (item) =>
+      (itemLoc1[item.asset_id] ?? "") !== (item.to_functional_location ?? order.to_functional_location ?? "") ||
+      (itemLoc2[item.asset_id] ?? "") !== (item.to_actual_location ?? order.to_actual_location ?? ""),
+  )
 
   return (
     <AdminPage
@@ -640,7 +645,7 @@ export function DisposalOrderDetailPage() {
               variant="outline"
               size="sm"
               className="h-9"
-              disabled={busy}
+              disabled={!locationsDirty || busy}
               onClick={() => void saveReceiveLocations()}
             >
               Save

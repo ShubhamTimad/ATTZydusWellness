@@ -6,6 +6,7 @@ import base64
 import io
 import re
 import zlib
+from datetime import date
 from types import SimpleNamespace
 
 from openpyxl import load_workbook
@@ -83,6 +84,33 @@ def test_export_master_name_falls_back_to_code() -> None:
     asset.asset_condition = SimpleNamespace(code="GD", name=None)
     assert asset_export_value(asset, "category_code") == "CAT"
     assert asset_export_value(asset, "asset_condition_code") == "GD"
+
+
+def test_export_capex_number_and_app_date_format(monkeypatch) -> None:
+    import modules.reports.pdf_chrome as chrome
+
+    monkeypatch.setattr(chrome, "_chrome_strings", lambda: ("Takeda", "Confidential", "Takeda"))
+    monkeypatch.setattr(chrome, "logo_png_bytes", lambda: None)
+    asset = _asset()
+    asset.id = 7
+    asset.financial = SimpleNamespace(
+        cap_date=date(2026, 9, 1),
+        **{k: None for k in (
+            "cost_center", "party_details", "invoice_no", "invoice_date", "voucher_no", "voucher_date",
+            "grn_date", "grn_no", "put_to_use_date", "depreciation_rate", "gross_block", "life_span",
+            "profit_center",
+        )},
+    )
+    asset.inventory = SimpleNamespace(
+        last_verification_date=date(2026, 7, 28), inventory_count=1, physical_count=None
+    )
+    raw = build_asset_export_xlsx(
+        [asset],
+        ["capitalization_form_number", "cap_date", "last_verification_date"],
+        capex_no={7: "CAP-2026-0001"},
+    )
+    rows = list(load_workbook(io.BytesIO(raw)).active.iter_rows(values_only=True))
+    assert any(row and "CAP-2026-0001" in row and "01/09/26" in row and "28/07/26" in row for row in rows)
 
 
 def _named_asset() -> SimpleNamespace:

@@ -15,6 +15,7 @@ from modules.assets.model import AssetMaster
 from modules.reports.pdf_chrome import (
     apply_xlsx_data_layout,
     apply_xlsx_print_chrome,
+    format_app_date,
     write_xlsx_header,
     xlsx_pad_row,
 )
@@ -23,10 +24,8 @@ from modules.reports.pdf_chrome import (
 def _format_cell(value: Any) -> str | int | float | None:
     if value is None:
         return None
-    if isinstance(value, datetime):
-        return value.date().isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
+    if isinstance(value, (date, datetime)):
+        return format_app_date(value)
     if isinstance(value, Decimal):
         return float(value)
     if isinstance(value, bool):
@@ -41,6 +40,7 @@ def asset_export_value(
     cc_desc: dict[tuple[int, str], str] | None = None,
     fl_desc: dict[tuple[int, str], str] | None = None,
     al_desc: dict[tuple[int, str, str], str] | None = None,
+    capex_no: dict[int, str] | None = None,
 ) -> Any:
     loc = asset.location
     fin = asset.financial
@@ -103,7 +103,7 @@ def asset_export_value(
         "cap_date": fin.cap_date if fin else None,
         "pm_equipment_id": asset.information.pm_equipment_id if asset.information else None,
         "cost_center_name": cc_name,
-        "capitalization_form_number": None,
+        "capitalization_form_number": capex_no.get(asset.id) if capex_no else None,
         "lifecycle_status": asset.lifecycle_status,
         "approval_status": asset.approval_status,
         "source_type": asset.source_type,
@@ -119,6 +119,7 @@ def build_asset_export_xlsx(
     cc_desc: dict[tuple[int, str], str] | None = None,
     fl_desc: dict[tuple[int, str], str] | None = None,
     al_desc: dict[tuple[int, str, str], str] | None = None,
+    capex_no: dict[int, str] | None = None,
 ) -> bytes:
     wb = Workbook()
     ws = wb.active
@@ -143,7 +144,9 @@ def build_asset_export_xlsx(
     for idx, asset in enumerate(assets, start=1):
         row = [idx] + [
             _format_cell(
-                asset_export_value(asset, key, cc_desc=cc_desc, fl_desc=fl_desc, al_desc=al_desc)
+                asset_export_value(
+                    asset, key, cc_desc=cc_desc, fl_desc=fl_desc, al_desc=al_desc, capex_no=capex_no
+                )
             )
             for key in fields
         ]
@@ -164,6 +167,7 @@ def build_asset_export_pdf(
     cc_desc: dict[tuple[int, str], str] | None = None,
     fl_desc: dict[tuple[int, str], str] | None = None,
     al_desc: dict[tuple[int, str, str], str] | None = None,
+    capex_no: dict[int, str] | None = None,
 ) -> bytes:
     from modules.reports.export import ReportDocument, build_pdf
 
@@ -176,7 +180,9 @@ def build_asset_export_pdf(
         row: list[str] = []
         for key in fields:
             cell = _format_cell(
-                asset_export_value(asset, key, cc_desc=cc_desc, fl_desc=fl_desc, al_desc=al_desc)
+                asset_export_value(
+                    asset, key, cc_desc=cc_desc, fl_desc=fl_desc, al_desc=al_desc, capex_no=capex_no
+                )
             )
             row.append("" if cell is None else str(cell))
         rows.append(row)

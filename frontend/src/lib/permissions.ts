@@ -37,6 +37,9 @@ export function clearAuthProfile(): void {
     localStorage.removeItem(LS_PERMISSIONS)
     localStorage.removeItem(LS_IS_SUPERUSER)
     localStorage.removeItem(LS_USER_ID)
+    for (const k of Object.keys(sessionStorage)) {
+      if (k.startsWith("att:list-")) sessionStorage.removeItem(k)
+    }
   } catch {
     // ignore
   }
