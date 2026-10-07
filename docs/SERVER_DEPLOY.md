@@ -173,7 +173,7 @@ From the repo, at the commit you want to ship:
 ```bash
 git checkout develop && git pull
 PLATFORM=linux/amd64                   # m7i.  For m7g use linux/arm64
-export APP_VERSION=$(./scripts/app-version.sh)   # e.g. 1.0.0.0 — shown on the login screen (see DEPLOY_GUIDE.md)
+export APP_VERSION=$(./scripts/app-version.sh)   # e.g. 1.0.0 — shown on the login screen (see DEPLOY_GUIDE.md)
 VERSION=$APP_VERSION
 
 # .env.docker.example only satisfies compose's required-variable checks; nothing env-specific is baked in.
