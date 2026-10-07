@@ -11,7 +11,7 @@ Deeper reference (all env variables, troubleshooting): [SERVER_DEPLOY.md](./SERV
 
 - There is **no automatic deploy**. Pushing to `develop` only stores the code on GitHub.
 - The client server has **no internet**, so we build the Docker images on our laptop and copy them in.
-- Every build gets a **version number** (e.g. `1.0.2`) that is shown on the login screen and in
+- Every build gets a **version number** (e.g. `1.0.0.0`) that is shown on the login screen and in
   **Settings → Appearance**. That is how you confirm which release is running.
 
 | Step | Where | How often |
@@ -62,31 +62,16 @@ cd frontend && npm ci && cd ..
 
 ## Part 1 — Version numbers
 
-The version looks like **`MAJOR.MINOR.PATCH`**. The first release is **`1.0.0`**.
-
-| Part | Who sets it | When it changes |
-|---|---|---|
-| `MAJOR.MINOR` | You — the `VERSION` file at the repo root (starts at `1.0`) | New feature/module → `1.1`. Big release → `2.0` |
-| `PATCH` | Automatic — commits since `VERSION` was last changed | Every commit you push; back to `0` when you bump `VERSION` |
-
-| Event | `VERSION` file | Version shown |
-|---|---|---|
-| First release | `1.0` | `1.0.0` |
-| Next two pushes (fixes) | `1.0` | `1.0.1`, `1.0.2` |
-| New feature — you change `VERSION` | `1.1` | `1.1.0` |
-| Next push | `1.1` | `1.1.1` |
-| Big release — you change `VERSION` | `2.0` | `2.0.0` |
+The version is whatever is written in the **`VERSION`** file at the repo root. It is currently
+**`1.0.0.0`** and stays the same on every push until someone changes the file.
 
 ```bash
-./scripts/app-version.sh        # prints the version the next build will get, e.g. 1.0.2
+./scripts/app-version.sh        # prints the version the next build will get: 1.0.0.0
 ```
 
-- You **never type the patch number**. Each push makes it go up by itself.
-- To bump MAJOR/MINOR, edit `VERSION` (one line, e.g. `1.1`) and commit it with your change.
-- Always build from committed code — an uncommitted `VERSION` change gives a wrong number.
+- To release a new version, edit `VERSION` (one line, e.g. `1.0.0.1` or `1.1.0.0`) and commit it with your change.
 - The version is not stored in the database. It is baked into the backend image when it is built,
-  so the screen always shows the code that is really running.
-- Never force-push or rewrite `develop` history — that can make the number go down.
+  so the screen always shows the version of the code that is really running.
 
 ---
 
@@ -103,11 +88,7 @@ git pull origin develop
 
 **2.2 Make your changes** in the editor.
 
-**2.3 Decide the version bump**
-
-- Bug fix / small change → do nothing (PATCH goes up automatically).
-- New feature or module → edit `VERSION`, e.g. `1.0` → `1.1`.
-- Big release → edit `VERSION`, e.g. `1.4` → `2.0`.
+**2.3 Version** — leave `VERSION` as `1.0.0.0` for now. Change it only when a new version number is agreed.
 
 **2.4 Run the checks — both must pass**
 
@@ -152,7 +133,7 @@ git push origin develop
 **2.8 Note the version**
 
 ```bash
-./scripts/app-version.sh                     # e.g. 1.0.2 — this is the release you will deploy
+./scripts/app-version.sh                     # e.g. 1.0.0.0 — this is the release you will deploy
 ```
 
 ---
@@ -169,17 +150,17 @@ cd <repo path on server>
 git rev-parse --short HEAD                   # 2. note the current commit (for rollback)
 git checkout develop
 git pull --ff-only origin develop            # 3. get the code you just pushed
-./scripts/docker-rebuild.sh                  # 4. build + restart — prints "==> Version 1.0.2"
+./scripts/docker-rebuild.sh                  # 4. build + restart — prints "==> Version 1.0.0.0"
 ```
 
 Verify:
 
 ```bash
 curl -fsS http://127.0.0.1:8083/api/health             # {"status":"ok"}
-curl -fsS http://127.0.0.1:8083/api/auth/app-version   # {"version":"1.0.2"}
+curl -fsS http://127.0.0.1:8083/api/auth/app-version   # {"version":"1.0.0.0"}
 ```
 
-Open `https://assets.timadit.com` — the login screen shows **Version 1.0.2**. Log in and click through
+Open `https://assets.timadit.com` — the login screen shows **Version 1.0.0.0**. Log in and click through
 the changed screens. Rollback on Contabo: `git checkout <commit from step 2> && ./scripts/docker-rebuild.sh`.
 
 ---
@@ -203,7 +184,7 @@ git checkout develop && git pull origin develop
 git status                                   # must be clean — the release must match GitHub
 
 export APP_VERSION=$(./scripts/app-version.sh)
-echo $APP_VERSION                            # e.g. 1.0.2
+echo $APP_VERSION                            # e.g. 1.0.0.0
 PLATFORM=linux/amd64                         # from 4.1
 
 DOCKER_DEFAULT_PLATFORM=$PLATFORM docker compose --env-file .env.docker.example build backend frontend
@@ -402,7 +383,7 @@ Restore the RDS snapshot from 6.2 **only** if the new release damaged data (it r
 
 ## Quick checklist (every release)
 
-1. `git pull` on `develop` → make changes → bump `VERSION` if it is a feature/big release
+1. `git pull` on `develop` → make changes (leave `VERSION` at 1.0.0.0 unless a new number is agreed)
 2. `pytest -q tests` and `npm run build` pass
 3. `git commit` → `git push origin develop` → note `./scripts/app-version.sh`
 4. Contabo: backup → `git pull` → `./scripts/docker-rebuild.sh` → check version on login screen
