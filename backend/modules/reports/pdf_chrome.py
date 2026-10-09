@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import os
 from datetime import date, datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from reportlab.lib import colors
@@ -20,6 +19,8 @@ RULE = colors.HexColor("#D1D5DB")
 
 ORG_NAME = "Takeda"
 CONFIDENTIAL_LINE = "Confidential — internal use only"
+# Logo slot text until an admin uploads a logo in Settings (matches the frontend placeholder).
+LOGO_PLACEHOLDER = "Your Logo"
 
 
 def _chrome_strings():
@@ -36,23 +37,6 @@ PAGE_MARGIN = 36
 HEADER_BAND = 58
 FOOTER_BAND = 36
 SIG_BAND = 72
-
-# Bundled with the backend image (Docker does not copy frontend/public).
-_STATIC = Path(__file__).resolve().parent / "static"
-_PUBLIC = Path(__file__).resolve().parents[3] / "frontend" / "public"
-
-
-def _logo_dirs() -> tuple[Path, ...]:
-    return (_STATIC, _PUBLIC)
-
-
-def logo_file_path() -> Path | None:
-    for folder in _logo_dirs():
-        for name in ("logo.png", "logo.jpg"):
-            path = folder / name
-            if path.is_file():
-                return path
-    return None
 
 
 # Servers/containers usually run in UTC; reports must show the business time zone.
@@ -87,59 +71,14 @@ def format_generated_at(when: datetime | None = None) -> str:
 
 
 def logo_png_bytes() -> bytes | None:
-    """Raster logo for Excel/PDF. Settings upload first, then shipped PNG/JPG/SVG."""
+    """Logo uploaded in Settings, or None (callers then print ``LOGO_PLACEHOLDER``)."""
     try:
         from modules.platform.settings.brand_logo import get_brand_logo_bytes
 
         custom = get_brand_logo_bytes()
     except Exception:
         custom = None
-    if custom is not None:
-        return custom[0]
-    path = logo_file_path()
-    if path is not None:
-        return path.read_bytes()
-    if any((folder / "logo.svg").is_file() for folder in _logo_dirs()):
-        return _rasterize_takeda_mark()
-    return None
-
-
-def _rasterize_takeda_mark() -> bytes:
-    from PIL import Image, ImageDraw, ImageFont
-
-    w, h = 376, 112
-    img = Image.new("RGBA", (w, h), (255, 255, 255, 0))
-    draw = ImageDraw.Draw(img)
-    red = (225, 36, 42, 255)
-    scale = 2.0
-
-    def cubic(p0, p1, p2, p3, steps=28):
-        pts = []
-        for i in range(steps + 1):
-            t = i / steps
-            u = 1 - t
-            x = u**3 * p0[0] + 3 * u**2 * t * p1[0] + 3 * u * t**2 * p2[0] + t**3 * p3[0]
-            y = u**3 * p0[1] + 3 * u**2 * t * p1[1] + 3 * u * t**2 * p2[1] + t**3 * p3[1]
-            pts.append((x * scale, y * scale))
-        return pts
-
-    draw.line(cubic((30, 20), (54, 4), (134, 4), (158, 20)), fill=red, width=8, joint="curve")
-    draw.line(cubic((34, 38), (56, 50), (132, 50), (154, 38)), fill=red, width=6, joint="curve")
-    font = None
-    for candidate in (
-        "/System/Library/Fonts/Supplemental/Georgia.ttf",
-        "/Library/Fonts/Georgia.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf",
-    ):
-        if Path(candidate).is_file():
-            font = ImageFont.truetype(candidate, 54)
-            break
-    if font is None:
-        font = ImageFont.load_default()
-    draw.text((188 * scale, 32 * scale), "Takeda", fill=red, font=font, anchor="mm")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    return custom[0] if custom is not None else None
 
 
 XLSX_TOP_PAD_ROWS = 1
@@ -173,7 +112,6 @@ def write_xlsx_header(
 
     ncols = max(int(ncols), 4)
     last_data_col = XLSX_LEFT_PAD_COLS + ncols
-    org_name, _confidential, _brand = _chrome_strings()
     generated_at = format_generated_at()
     by = generated_by.strip()
 
@@ -211,8 +149,9 @@ def write_xlsx_header(
         img.height = 36
         ws.add_image(img, logo_anchor)
     else:
-        cell = ws.cell(title_row, logo_col, org_name)
-        cell.font = Font(name="Calibri", bold=True, size=14, color="E1242A")
+        cell = ws.cell(title_row, logo_col, LOGO_PLACEHOLDER.upper())
+        cell.font = Font(name="Calibri", bold=True, size=11, color="6B7280")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
 
     display_title = (title or "").strip()[:90]
     title_cell = ws.cell(title_row, text_col, display_title)
@@ -345,7 +284,6 @@ def draw_header(
     left = PAGE_MARGIN
     right = width - PAGE_MARGIN
 
-    org_name, _confidential, _footer = _chrome_strings()
     logo = logo_png_bytes()
     text_left = left
     if logo is not None:
@@ -361,9 +299,9 @@ def draw_header(
         )
         text_left = left + 1.38 * inch
     else:
-        canvas.setFillColor(BRAND_RED)
-        canvas.setFont("Helvetica-Bold", 13)
-        canvas.drawString(left, top - 14, org_name.upper())
+        canvas.setFillColor(MUTED)
+        canvas.setFont("Helvetica-Bold", 10)
+        canvas.drawString(left, top - 14, LOGO_PLACEHOLDER.upper())
         text_left = left + 72
 
     canvas.setFillColor(INK)

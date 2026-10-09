@@ -16,7 +16,11 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
-import { currentBrandLogoSrc, writeStoredBrandLogoVersion } from "@/components/layout/app-brand-mark"
+import {
+  BrandLogoPlaceholder,
+  currentBrandLogoSrc,
+  writeStoredBrandLogoVersion,
+} from "@/components/layout/app-brand-mark"
 import { AdminPage } from "@/components/layout/admin-page"
 import {
   AdminPanel,
@@ -151,6 +155,7 @@ export function SettingsPage() {
   const loginBgInputRef = React.useRef<HTMLInputElement>(null)
   const [logoMeta, setLogoMeta] = React.useState<LoginBackgroundMeta | null>(null)
   const [logoPreviewUrl, setLogoPreviewUrl] = React.useState<string | null>(null)
+  const shownLogoSrc = logoPreviewUrl ?? currentBrandLogoSrc()
   const [logoBusy, setLogoBusy] = React.useState(false)
   const logoInputRef = React.useRef<HTMLInputElement>(null)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -851,11 +856,15 @@ export function SettingsPage() {
             {logoMeta ? (
               <>
                 <div className="flex h-28 items-center justify-center overflow-hidden rounded-xl border border-border/70 bg-muted/30 px-4">
-                  <img
-                    src={logoPreviewUrl ?? currentBrandLogoSrc()}
-                    alt="Application logo preview"
-                    className="h-16 w-auto max-w-full object-contain"
-                  />
+                  {shownLogoSrc ? (
+                    <img
+                      src={shownLogoSrc}
+                      alt="Application logo preview"
+                      className="h-16 w-auto max-w-full object-contain"
+                    />
+                  ) : (
+                    <BrandLogoPlaceholder className="h-16 w-40 text-sm" />
+                  )}
                 </div>
                 <input
                   ref={logoInputRef}
@@ -1455,11 +1464,15 @@ export function SettingsPage() {
                     <div className="px-3 pt-3">
                       <div className="flex items-start justify-between gap-4 border-b-2 border-[#E1242A] px-3 py-3">
                         <div className="flex min-w-0 items-start gap-3">
-                          <img
-                            src={logoPreviewUrl ?? currentBrandLogoSrc()}
-                            alt=""
-                            className="h-9 w-auto max-w-[120px] object-contain object-left"
-                          />
+                          {shownLogoSrc ? (
+                            <img
+                              src={shownLogoSrc}
+                              alt=""
+                              className="h-9 w-auto max-w-[120px] object-contain object-left"
+                            />
+                          ) : (
+                            <BrandLogoPlaceholder className="h-9 w-24 shrink-0" />
+                          )}
                           <div className="min-w-0">
                             <p className="text-base font-semibold">Sample report</p>
                             <p className="text-xs text-muted-foreground">

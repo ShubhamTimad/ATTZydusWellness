@@ -1,5 +1,5 @@
 import { toast } from "sonner"
-import { currentBrandLogoSrc } from "@/components/layout/app-brand-mark"
+import { currentBrandLogoSrc, LOGO_PLACEHOLDER_TEXT } from "@/components/layout/app-brand-mark"
 import { getJson } from "@/lib/api"
 import {
   capexStatusLabel,
@@ -163,7 +163,10 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
   const generatedBy = escapeHtml((me.full_name || "").trim())
   const showSigns = chrome.signatures?.capex !== false
   const signs = showSigns ? buildSignBlocks(detail) : []
-  const logoUrl = new URL(currentBrandLogoSrc(), window.location.origin).href
+  const logoSrc = currentBrandLogoSrc()
+  const logoHtml = logoSrc
+    ? `<img src="${escapeHtml(new URL(logoSrc, window.location.origin).href)}" alt="" />`
+    : `<div class="logo-placeholder">${escapeHtml(LOGO_PLACEHOLDER_TEXT)}</div>`
   const status = escapeHtml(capexStatusLabel(detail.status))
 
   const tableRows = rows
@@ -257,6 +260,20 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
       object-fit: contain;
       object-position: left top;
       display: block;
+    }
+    .brand-logo .logo-placeholder {
+      height: 36px;
+      width: 96px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px dashed #9CA3AF;
+      border-radius: 4px;
+      color: #6B7280;
+      font-size: 8pt;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
     }
     .brand-text .title {
       font-size: 12pt;
@@ -355,7 +372,7 @@ export async function printCapexForm(detail: CapexFormDetail): Promise<void> {
       <div class="doc-header-row">
         <div class="brand">
           <div class="brand-logo">
-            <img src="${escapeHtml(logoUrl)}" alt="" />
+            ${logoHtml}
           </div>
           <div class="brand-text">
             <div class="title">Asset Capitalization Form</div>

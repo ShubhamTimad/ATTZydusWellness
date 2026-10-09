@@ -16,7 +16,7 @@ import {
   Users,
 } from "lucide-react"
 
-import { useBrandLogoSrc } from "@/components/layout/app-brand-mark"
+import { BrandLogoPlaceholder, useBrandLogoSrc } from "@/components/layout/app-brand-mark"
 import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -213,7 +213,11 @@ export function AdminLayout({
   const sidebarHeader = (
     <div className="flex items-center gap-3">
       <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent ring-1 ring-sidebar-border">
-        <img src={logoSrc} alt="" className="h-7 w-auto object-contain" />
+        {logoSrc ? (
+          <img src={logoSrc} alt="" className="h-7 w-auto object-contain" />
+        ) : (
+          <BrandLogoPlaceholder className="size-9 border-0 px-0.5 text-[8px]" />
+        )}
       </div>
       <div className="min-w-0 leading-tight">
         <p className="truncate text-sm font-semibold text-sidebar-foreground">Admin Console</p>

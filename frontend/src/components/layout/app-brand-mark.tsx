@@ -3,8 +3,8 @@ import * as React from "react"
 import { API_BASE_URL, getJson } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-/** Official fallback logo from `frontend/public/logo.svg`. */
-export const TAKEDA_LOGO_SRC = "/logo.svg"
+/** Shown wherever the logo goes until an admin uploads one in Settings. */
+export const LOGO_PLACEHOLDER_TEXT = "Your Logo"
 
 const LOGO_VERSION_KEY = "auth.brandLogo.version"
 const LOGO_CHANGED = "att:brand-logo-changed"
@@ -14,8 +14,8 @@ type BrandLogoMeta = {
   version: string | null
 }
 
-function brandLogoUrl(version: string | null | undefined) {
-  if (!version) return TAKEDA_LOGO_SRC
+function brandLogoUrl(version: string | null | undefined): string | null {
+  if (!version) return null
   const base = API_BASE_URL.replace(/\/+$/, "")
   return `${base}/auth/brand-logo?v=${encodeURIComponent(version)}`
 }
@@ -40,6 +40,20 @@ export function writeStoredBrandLogoVersion(version: string | null) {
 
 export function currentBrandLogoSrc() {
   return brandLogoUrl(readStoredBrandLogoVersion())
+}
+
+export function BrandLogoPlaceholder({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center justify-center rounded-md border border-dashed border-muted-foreground/50",
+        "px-2 text-center text-xs leading-tight font-semibold tracking-wide text-muted-foreground uppercase",
+        className,
+      )}
+    >
+      {LOGO_PLACEHOLDER_TEXT}
+    </span>
+  )
 }
 
 export function useBrandLogoSrc() {
@@ -115,13 +129,20 @@ export function AppBrandMark({
   onDark = false,
 }: AppBrandMarkProps) {
   const src = useBrandLogoSrc()
-  const logo = (
+  const logo = src ? (
     <img
       src={src}
-      alt="Takeda"
+      alt="Logo"
       className={cn(
         logoHeights[size],
         collapsed ? "mx-auto w-auto max-w-[3.5rem] object-contain" : cn("mx-auto w-auto object-contain", logoWidths[size]),
+      )}
+    />
+  ) : (
+    <BrandLogoPlaceholder
+      className={cn(
+        logoHeights[size],
+        collapsed ? "mx-auto flex max-w-[3.5rem] text-[9px]" : cn("mx-auto flex min-w-24", logoWidths[size]),
       )}
     />
   )
