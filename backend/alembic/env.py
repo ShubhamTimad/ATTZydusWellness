@@ -20,7 +20,7 @@ from modules.platform.roles.model import Role  # noqa: F401
 from modules.platform.settings.model import Setting  # noqa: F401
 from modules.platform.users.model import User  # noqa: F401
 
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
