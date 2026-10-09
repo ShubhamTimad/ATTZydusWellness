@@ -28,5 +28,6 @@ dist-ssr/
 .cursor/
 engin/
 *.log
+logs/
 backups/
 backend/check_*.py

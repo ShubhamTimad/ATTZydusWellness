@@ -4,23 +4,32 @@ Configure once at process start via ``configure_logging()``.
 Env:
   LOG_LEVEL   — DEBUG | INFO | WARNING | ERROR (default INFO)
   LOG_FORMAT  — json | text (default json when not a TTY, else text)
-  LOG_FILE    — optional path; same events also always go to stdout
+  LOG_DIR     — optional directory; daily files per category (see _LOG_FILES). stdout always on
+  LOG_RETENTION_DAYS — days of daily files to keep (default 30)
   ERROR_ALERT_EMAILS — optional comma-separated addresses; ERROR+ records are emailed (core.error_alerts)
 """
 
 from __future__ import annotations
 
+import glob
 import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
-from logging.handlers import RotatingFileHandler
+from datetime import date, datetime, timezone
 from typing import Any
 
 from core.request_context import get_request_id, get_user_id
 
 _CONFIGURED = False
+
+# (folder/file prefix, minimum level or None for LOG_LEVEL, logger-name prefixes or None for all)
+_LOG_FILES: tuple[tuple[str, int | None, tuple[str, ...] | None], ...] = (
+    ("all", None, None),
+    ("access", None, ("app.access",)),
+    ("error", logging.WARNING, None),
+    ("auth", None, ("modules.platform.auth", "core.captcha")),
+)
 
 
 class ContextFilter(logging.Filter):
@@ -90,6 +99,58 @@ class TextFormatter(logging.Formatter):
         )
 
 
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+class DailyFileHandler(logging.FileHandler):
+    """Append to ``<directory>/<prefix>-YYYY-MM-DD.log`` (UTC day).
+
+    Never renames files, so several uvicorn workers can safely append to the same file.
+    Files older than ``retention_days`` are deleted at startup and at each day change.
+    """
+
+    def __init__(self, directory: str, prefix: str, retention_days: int) -> None:
+        os.makedirs(directory, exist_ok=True)
+        self.directory = directory
+        self.prefix = prefix
+        self.retention_days = retention_days
+        self.day = _utc_today()
+        super().__init__(self._path(), encoding="utf-8", delay=True)
+        self._purge_old()
+
+    def _path(self) -> str:
+        return os.path.join(self.directory, f"{self.prefix}-{self.day.isoformat()}.log")
+
+    def emit(self, record: logging.LogRecord) -> None:
+        today = _utc_today()
+        if today != self.day:
+            if self.stream:
+                self.stream.close()
+                self.stream = None  # type: ignore[assignment]
+            self.day = today
+            self.baseFilename = os.path.abspath(self._path())
+            self._purge_old()
+        super().emit(record)
+
+    def _purge_old(self) -> None:
+        start = len(self.prefix) + 1
+        for path in glob.glob(os.path.join(self.directory, f"{self.prefix}-*.log")):
+            try:
+                day = date.fromisoformat(os.path.basename(path)[start:-4])
+                if (self.day - day).days >= self.retention_days:
+                    os.remove(path)
+            except (ValueError, OSError):
+                continue
+
+
+def _resolve_retention_days() -> int:
+    try:
+        return max(1, int((os.environ.get("LOG_RETENTION_DAYS") or "30").strip()))
+    except ValueError:
+        return 30
+
+
 def _resolve_level() -> int:
     raw = (os.environ.get("LOG_LEVEL") or "INFO").strip().upper()
     return getattr(logging, raw, logging.INFO)
@@ -124,21 +185,17 @@ def configure_logging() -> None:
     stdout.addFilter(ctx)
     root.addHandler(stdout)
 
-    log_file = (os.environ.get("LOG_FILE") or "").strip()
-    if log_file:
-        parent = os.path.dirname(log_file)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        file_handler = RotatingFileHandler(
-            log_file,
-            maxBytes=10 * 1024 * 1024,
-            backupCount=5,
-            encoding="utf-8",
-        )
-        file_handler.setLevel(level)
-        file_handler.setFormatter(formatter)
-        file_handler.addFilter(ctx)
-        root.addHandler(file_handler)
+    log_dir = (os.environ.get("LOG_DIR") or "").strip()
+    if log_dir:
+        retention_days = _resolve_retention_days()
+        for name, min_level, prefixes in _LOG_FILES:
+            file_handler = DailyFileHandler(os.path.join(log_dir, name), name, retention_days)
+            file_handler.setLevel(max(level, min_level or level))
+            file_handler.setFormatter(formatter)
+            file_handler.addFilter(ctx)
+            if prefixes:
+                file_handler.addFilter(lambda r, p=prefixes: r.name.startswith(p))
+            root.addHandler(file_handler)
 
     alert_to = [e.strip() for e in (os.environ.get("ERROR_ALERT_EMAILS") or "").split(",") if e.strip()]
     if alert_to:
@@ -155,5 +212,10 @@ def configure_logging() -> None:
     _CONFIGURED = True
     logging.getLogger(__name__).info(
         "logging_configured",
-        extra={"event": "logging_configured", "log_format": fmt_name, "log_level": logging.getLevelName(level)},
+        extra={
+            "event": "logging_configured",
+            "log_format": fmt_name,
+            "log_level": logging.getLevelName(level),
+            "log_dir": log_dir or None,
+        },
     )

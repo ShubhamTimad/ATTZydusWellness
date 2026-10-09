@@ -22,7 +22,7 @@ def main() -> None:
     ls._CONFIGURED = False
     os.environ["LOG_FORMAT"] = "json"
     os.environ["LOG_LEVEL"] = "INFO"
-    os.environ.pop("LOG_FILE", None)
+    os.environ.pop("LOG_DIR", None)
 
     buf = StringIO()
     handler = logging.StreamHandler(buf)

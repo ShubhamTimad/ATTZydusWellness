@@ -59,7 +59,8 @@ def _access_claims(request: Request) -> dict | None:
 
 class SessionIdleMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        path = request.url.path
+        # Behind uvicorn --root-path, url.path includes the prefix ("/api/health").
+        path = request.url.path.removeprefix(request.scope.get("root_path", ""))
         if request.method == "OPTIONS" or _should_skip(path):
             return await call_next(request)
         claims = _access_claims(request)

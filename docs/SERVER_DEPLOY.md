@@ -76,6 +76,18 @@ DATA_ENCRYPTION_KEY=<openssl rand -hex 32>                # set once, never chan
 Existing MFA / SMTP / SSO secrets keep working after adding `DATA_ENCRYPTION_KEY` (decryption tries
 both it and `JWT_SECRET_KEY`). Remove the old `DEPLOY_NOW_TOKEN`, `GH_PAT`, `GITHUB_REPOSITORY` lines — unused.
 
+**Log files (once, on the first deploy with per-day log folders):** logs now go to a server folder
+(`./logs` by default, or `LOG_HOST_DIR`) instead of the Docker volume `takeda_att_takeda_att_logs`. The old
+`LOG_FILE=` line in `.env.docker` is ignored and can be removed. To keep the old file, then drop the volume:
+
+```bash
+mkdir -p logs/legacy
+sudo cp -a "$(docker volume inspect -f '{{.Mountpoint}}' takeda_att_takeda_att_logs)/." logs/legacy/
+docker volume rm takeda_att_takeda_att_logs
+```
+
+The same applies on EC2 (run in `~/takeda-att`).
+
 ### 1.3 Deploy an update
 
 ```bash
@@ -425,6 +437,8 @@ published on `APP_HOST_BIND:APP_PORT`.
 | `ENABLE_API_DOCS` | `false` hides `/docs` |
 | `ERROR_ALERT_EMAILS` | Comma-separated addresses that get an email per backend error. See [LOGGING.md](./LOGGING.md) |
 | `ERROR_ALERT_THROTTLE_SECONDS` | Same error emailed at most once per window (default 900) |
+| `LOG_HOST_DIR` | Server folder for log files (default `./logs` next to `docker-compose.yml`). See [LOGGING.md](./LOGGING.md) |
+| `LOG_RETENTION_DAYS` | Days of daily log files to keep (default 30) |
 | `SMTP_*` | Fallback when Admin → Settings → Email delivery fields are empty |
 | `SSO_*` | Fallback when Admin → Settings → SSO fields are empty |
 | `ENFORCE_SUPERUSER_ON_ADMIN` | `false` = RBAC; `true` = superuser-only `/admin/*` |
@@ -441,8 +455,12 @@ Do **not** run these on any server — they insert demo plants, assets, orders a
 Contabo: `docker compose --env-file .env.docker ...` · EC2: `dc ...` (alias in 2.9).
 
 ```bash
-# Logs
+# Logs (stdout)
 docker compose --env-file .env.docker logs -f backend
+
+# Log files on the server — work even when Docker is down (folder = LOG_HOST_DIR, default ./logs)
+tail -f logs/error/error-$(date -u +%F).log     # errors only
+tail -f logs/all/all-$(date -u +%F).log         # everything, end-to-end
 
 # Migrations only (normally automatic on start)
 docker compose --env-file .env.docker exec backend alembic -c backend/alembic.ini upgrade head
@@ -472,6 +490,8 @@ docker compose --env-file .env.docker exec backend \
 | No error alert emails | `ERROR_ALERT_EMAILS` empty or SMTP broken: `logs backend \| grep error_alert_not_sent` |
 | 403 on `/api/admin/*` for non-superusers | `ENFORCE_SUPERUSER_ON_ADMIN=false`, restart backend, grant role permissions |
 | Disk full | `docker image prune -af && docker builder prune -af`. **Never** `docker volume prune` on Contabo — it deletes the database |
+| Backend keeps restarting / crashed | `docker inspect -f '{{.State.ExitCode}} OOM={{.State.OOMKilled}}' takeda_att-backend-1`, then the last lines of `logs/error/` and `logs/all/` |
+| Docker itself is down | Log files are still on disk in `LOG_HOST_DIR`. Why: `sudo journalctl -u docker --since "2 hours ago"`, `df -h`. Start: `sudo systemctl start docker` (containers come back) |
 
 ## Local Docker (development)
 
