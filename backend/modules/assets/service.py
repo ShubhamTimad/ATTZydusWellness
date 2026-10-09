@@ -2734,6 +2734,7 @@ class AssetMasterService:
             build_pdf,
             build_xlsx,
             content_type_for_format,
+            plant_label,
             report_filename,
         )
 
@@ -2795,11 +2796,11 @@ class AssetMasterService:
             ("Rows exported", str(len(all_items))),
         )
         headers = [
-            "Asset code",
-            "Asset name",
+            "Asset Number",
+            "Asset Name",
             "Plant",
-            "RFID code",
-            "Last verification",
+            "RFID Code",
+            "Last Verification",
             "Status",
         ]
         rows = []
@@ -2808,7 +2809,7 @@ class AssetMasterService:
                 [
                     item.asset_code,
                     item.asset_name,
-                    item.plant_name or "",
+                    plant_label(item.plant_name, item.plant_code),
                     item.rfid_code or "",
                     item.last_verification_date.isoformat() if item.last_verification_date else "",
                     "Verified" if item.fy_verified else "Pending",

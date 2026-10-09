@@ -22,7 +22,7 @@ from modules.orders.model import PhysicalOrder
 from modules.platform.org_units.model import OrgUnit
 from modules.assets.fy_verification import resolve_verification_window, verified_asset_ids_in_window
 from modules.platform.settings.financial_year import resolve_financial_year_period
-from modules.reports.export import ReportDocument
+from modules.reports.export import ReportDocument, plant_label
 from modules.reports.pdf_chrome import format_app_date, format_app_datetime, format_generated_at
 
 
@@ -99,7 +99,7 @@ class ReportService:
         plant = self._db.get(OrgUnit, plant_id)
         if plant is None:
             return "—"
-        return f"{plant.name} ({plant.code})"
+        return plant_label(plant.name, plant.code)
 
     def _order_status_filter_label(self, status: str | None) -> str:
         if not status:
@@ -145,13 +145,13 @@ class ReportService:
         verified_ids = verified_asset_ids_in_window(self._db, window, plant_id=plant_id)
 
         headers = [
-            "Asset code",
-            "Asset name",
+            "Asset Number",
+            "Asset Name",
             "Plant",
-            "RFID code",
-            "Last verification",
+            "RFID Code",
+            "Last Verification",
             "Status",
-            "Financial year",
+            "Financial Year",
         ]
         data = []
         for asset in rows:
@@ -168,7 +168,7 @@ class ReportService:
                 [
                     asset.asset_code,
                     asset.asset_name,
-                    loc.plant.name if loc and loc.plant else "",
+                    plant_label(loc.plant.name, loc.plant.code) if loc and loc.plant else "",
                     asset.rfid_code or "",
                     _fmt_date(last),
                     row_status,
@@ -245,7 +245,7 @@ class ReportService:
             data.append(
                 [
                     order.order_number,
-                    order.plant.name if order.plant else "",
+                    plant_label(order.plant.name, order.plant.code) if order.plant else "",
                     cc.code if cc else "",
                     _status_label(order.status),
                     str(asset_count),
