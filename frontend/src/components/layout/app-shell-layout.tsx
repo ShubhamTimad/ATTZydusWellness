@@ -27,6 +27,7 @@ import { Link, useLocation } from "react-router-dom"
 import { ProfileDialog } from "@/components/profile-dialog"
 import { AppBrandMark } from "@/components/layout/app-brand-mark"
 import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer"
+import { clearListState } from "@/lib/use-url-tab"
 import { SessionIdleNavbarBadge } from "@/components/session-idle-navbar-badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -334,6 +335,11 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
     })
   }
 
+  function onMenuClick(to: string, onNavigate?: () => void) {
+    if (!pathMatchesNav(location.pathname, to)) clearListState()
+    onNavigate?.()
+  }
+
   const navContent = (collapsed: boolean, onNavigate?: () => void) => (
     <nav
       className={cn("flex flex-col gap-3 px-2 py-3", collapsed && "px-1.5 gap-2")}
@@ -412,7 +418,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
                             )}
                             asChild
                           >
-                            <Link to={child.to} onClick={onNavigate}>
+                            <Link to={child.to} onClick={() => onMenuClick(child.to, onNavigate)}>
                               <ChildIcon
                                 className={cn(
                                   "size-4 shrink-0",
@@ -450,7 +456,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
                 )}
                 asChild
               >
-                <Link to={collapsedTarget} onClick={onNavigate}>
+                <Link to={collapsedTarget} onClick={() => onMenuClick(collapsedTarget, onNavigate)}>
                   <Icon
                     className={cn(
                       "size-4 shrink-0",
@@ -479,6 +485,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
       >
         <Link
           to="/dashboard"
+          onClick={() => onMenuClick("/dashboard")}
           className={cn(
             "group flex w-full shrink-0 items-center border-b border-border/70 bg-gradient-to-br from-card via-card to-[color-mix(in_srgb,var(--brand)_6%,var(--card))] transition-colors hover:to-[color-mix(in_srgb,var(--brand)_10%,var(--card))]",
             isSidebarCollapsed ? "h-16 justify-center px-2" : "h-[4.75rem] justify-center px-4 py-3",

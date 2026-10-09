@@ -10,6 +10,24 @@ function listStateKey(key: string): string {
   return `${LIST_STATE_PREFIX}${currentUserId() ?? "anon"}:${key}`
 }
 
+/**
+ * Forget every list's saved filters/search/sort and Back-return page.
+ * Called when the user picks a different page from the menu, so lists keep
+ * their state across list → detail → back but start fresh after a page change.
+ */
+export function clearListState(): void {
+  try {
+    for (let i = sessionStorage.length - 1; i >= 0; i--) {
+      const key = sessionStorage.key(i)
+      if (key?.startsWith(LIST_STATE_PREFIX) || key?.startsWith(LIST_RETURN_PREFIX)) {
+        sessionStorage.removeItem(key)
+      }
+    }
+  } catch {
+    /* private mode */
+  }
+}
+
 export function hasSessionState(key: string): boolean {
   try {
     return sessionStorage.getItem(listStateKey(key)) != null
