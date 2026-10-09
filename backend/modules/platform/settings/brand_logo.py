@@ -1,4 +1,4 @@
-"""Application logo (admin-uploadable branding). Falls back to the shipped logo when unset."""
+"""Application logo (admin-uploadable branding). Unset means the UI shows a "Your Logo" placeholder."""
 
 from __future__ import annotations
 
@@ -19,7 +19,8 @@ MAX_EDGE_PX = 512
 
 _lock: Final[threading.Lock] = threading.Lock()
 _served: tuple[bytes, str, str] | None = None
-_served_ready = False
+# Setting value _served was decoded from; re-decode only when the stored value changes.
+_served_raw: str | None = None
 
 
 class InvalidBrandLogoError(Exception):
@@ -83,8 +84,8 @@ def _parse_payload(raw: str | None) -> dict[str, Any] | None:
     }
 
 
-def _load_served() -> tuple[bytes, str, str] | None:
-    payload = _parse_payload(get_setting(SETTING_KEY))
+def _load_served(stored: str | None) -> tuple[bytes, str, str] | None:
+    payload = _parse_payload(stored)
     if payload is None:
         return None
     try:
@@ -99,14 +100,12 @@ def _load_served() -> tuple[bytes, str, str] | None:
 
 def get_brand_logo_served() -> tuple[bytes, str, str] | None:
     """Return (bytes, content_type, version) or None when unset."""
-    global _served, _served_ready
+    global _served, _served_raw
+    stored = get_setting(SETTING_KEY)
     with _lock:
-        if _served_ready and _served is not None:
-            return _served
-        served = _load_served()
-        _served = served
-        _served_ready = served is not None
-        return served
+        if stored != _served_raw:
+            _served, _served_raw = _load_served(stored), stored
+        return _served
 
 
 def get_brand_logo_bytes() -> tuple[bytes, str] | None:
@@ -128,10 +127,9 @@ def encode_brand_logo(data: bytes, content_type: str) -> str:
 
 
 def clear_brand_logo_cache() -> None:
-    global _served, _served_ready
+    global _served, _served_raw
     with _lock:
-        _served = None
-        _served_ready = False
+        _served, _served_raw = None, None
     clear_setting_cache(SETTING_KEY)
 
 

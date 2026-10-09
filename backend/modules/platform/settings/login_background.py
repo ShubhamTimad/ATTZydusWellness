@@ -22,7 +22,8 @@ JPEG_QUALITY = 80
 _lock: Final[threading.Lock] = threading.Lock()
 # (bytes, content_type, version) once prepared for this process; None = unset.
 _served: tuple[bytes, str, str] | None = None
-_served_ready = False
+# Setting value _served was prepared from; re-prepare only when the stored value changes.
+_served_raw: str | None = None
 
 
 class InvalidLoginBackgroundError(Exception):
@@ -101,8 +102,8 @@ def _decode_payload(payload: dict[str, Any]) -> tuple[bytes, str] | None:
     return raw, str(payload["content_type"])
 
 
-def _load_served() -> tuple[bytes, str, str] | None:
-    payload = _parse_payload(get_setting(SETTING_KEY))
+def _load_served(stored: str | None) -> tuple[bytes, str, str] | None:
+    payload = _parse_payload(stored)
     if payload is None:
         return None
     decoded = _decode_payload(payload)
@@ -121,15 +122,12 @@ def _load_served() -> tuple[bytes, str, str] | None:
 
 def get_login_background_served() -> tuple[bytes, str, str] | None:
     """Return (bytes, content_type, version) of the image we actually send to browsers."""
-    global _served, _served_ready
+    global _served, _served_raw
+    stored = get_setting(SETTING_KEY)
     with _lock:
-        # Do not cache a miss — a first 404 must not hide a background saved later.
-        if _served_ready and _served is not None:
-            return _served
-        served = _load_served()
-        _served = served
-        _served_ready = served is not None
-        return served
+        if stored != _served_raw:
+            _served, _served_raw = _load_served(stored), stored
+        return _served
 
 
 def get_login_background_bytes() -> tuple[bytes, str] | None:
@@ -157,10 +155,9 @@ def encode_login_background(data: bytes, content_type: str) -> str:
 
 
 def clear_login_background_cache() -> None:
-    global _served, _served_ready
+    global _served, _served_raw
     with _lock:
-        _served = None
-        _served_ready = False
+        _served, _served_raw = None, None
     clear_setting_cache(SETTING_KEY)
 
 
