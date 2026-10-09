@@ -526,14 +526,14 @@ Migration `036_asset_master_excel_fields` adds columns used by the Excel templat
 
 Row 1 headers (case-insensitive aliases supported):
 
-`Asset Name` · `Asset Class` · `Asset Type` · `Asset Category` · `Asset Code` · `RFID Code` · `Sub Location` · `Cost Center` · `Party Details` · `Invoice No.` · `Invoice Date` · `Inventory Count` · `Voucher No` · `Voucher Date` · `GRN Date` · `GRN No` · `Put to Use` · `Rate Of Depreciation` · `Gross Block` · `Life Span` · `Plant Name`
+`Asset Name` · `Asset Class` · `Asset Type` · `Asset Category` · `Asset Number` · `RFID Code` · `Sub Location` · `Cost Center` · `Party Details` · `Invoice No.` · `Invoice Date` · `Inventory Count` · `Voucher No` · `Voucher Date` · `GRN Date` · `GRN No` · `Put to Use` · `Rate Of Depreciation` · `Gross Block` · `Life Span` · `Plant Name`
 
 | Excel header | Storage |
 |--------------|---------|
 | Asset Name | `asset_master.asset_name` |
 | Asset Class / Type | `asset_master.asset_class`, `asset_type` |
 | Asset Category | category code → `asset_category_id` |
-| Asset Code / RFID | `asset_code`, `rfid_code` |
+| Asset Number / RFID | `asset_code`, `rfid_code` |
 | Sub Location | `asset_location_information.sub_location` |
 | Plant Name | plant code → `plant_id` |
 | Cost Center, Party Details, Invoice*, Voucher*, GRN*, Put to Use, Depreciation, Gross Block, Life Span | `asset_financial_information.*` |

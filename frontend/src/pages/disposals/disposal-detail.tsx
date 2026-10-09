@@ -882,7 +882,7 @@ export function DisposalOrderDetailPage() {
                     Asset Name
                   </AdminTableHeadCell>
                   <AdminTableHeadCell className="min-w-[8rem] !font-bold !text-black">
-                    Asset Code
+                    Asset Number
                   </AdminTableHeadCell>
                   <AdminTableHeadCell className="min-w-[11rem] !font-bold !text-black">
                     Source Cost Center

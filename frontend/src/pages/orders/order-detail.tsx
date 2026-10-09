@@ -1212,7 +1212,7 @@ export function OrderDetailPage() {
             <TableHeader>
               <AdminTableHeaderRow>
                 <AdminTableHeadCell className="!text-black">Asset Name</AdminTableHeadCell>
-                <AdminTableHeadCell className="!text-black">Asset Code</AdminTableHeadCell>
+                <AdminTableHeadCell className="!text-black">Asset Number</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">RFID Code</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">Cost Center</AdminTableHeadCell>
                 <AdminTableHeadCell className="!text-black">Inventory Count</AdminTableHeadCell>
@@ -1251,8 +1251,8 @@ export function OrderDetailPage() {
                       onChange={(e) =>
                         setAssetColumnFilterInputs((f) => ({ ...f, asset_code: e.target.value }))
                       }
-                      aria-label="Filter asset code"
-                      placeholder="Asset Code"
+                      aria-label="Filter asset Number"
+                      placeholder="Asset Number"
                       className={columnFilterControlClass}
                     />
                   </AdminTableHeadCell>

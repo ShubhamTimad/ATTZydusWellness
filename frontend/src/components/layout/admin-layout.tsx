@@ -34,6 +34,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { SessionIdleNavbarBadge } from "@/components/session-idle-navbar-badge"
 import { hasPermission } from "@/lib/permissions"
 import { navbarDisplayName, navbarInitials, type NavbarUser } from "@/lib/navbar-user"
+import { clearListState } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
 type NavPerm = string | string[] | null
@@ -204,6 +205,7 @@ export function AdminLayout({
   }
 
   function handleNavigate(id: AdminNavId) {
+    if (id !== activeId) clearListState()
     onNavigate(id)
     setMobileNavOpen(false)
   }

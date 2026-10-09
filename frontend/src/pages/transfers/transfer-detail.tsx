@@ -913,7 +913,7 @@ export function TransferOrderDetailPage() {
                     Asset Name
                   </AdminTableHeadCell>
                   <AdminTableHeadCell className="min-w-[8rem] !text-black">
-                    Asset Code
+                    Asset Number
                   </AdminTableHeadCell>
                   <AdminTableHeadCell className="min-w-[11rem] !text-black">
                     Source Cost Center

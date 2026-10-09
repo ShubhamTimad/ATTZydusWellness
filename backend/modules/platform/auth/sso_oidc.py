@@ -141,15 +141,19 @@ def authorize_query_params(
 
 
 def build_authorize_redirect(*, portal: str, prompt: str | None = None) -> str:
-    """Start OIDC authorize. Use prompt='none' for silent SSO (existing IdP session)."""
+    """Start OIDC authorize. Use prompt='none' for silent SSO (existing IdP session).
+
+    Defaults to select_account so the IdP always shows its account picker (or the sign-in
+    form when there is no session) instead of silently reusing the browser's session.
+    """
     cfg = get_sso_config()
     if cfg is None:
         raise SsoNotConfiguredError
     if portal not in ("user", "admin"):
         portal = "user"
-    prompt_norm = (prompt or "").strip().lower() or None
-    if prompt_norm and prompt_norm not in ("none", "login", "consent", "select_account"):
-        prompt_norm = None
+    prompt_norm = (prompt or "").strip().lower() or "select_account"
+    if prompt_norm not in ("none", "login", "consent", "select_account"):
+        prompt_norm = "select_account"
     silent = prompt_norm == "none"
     discovery = _fetch_discovery(cfg)
     authorize = discovery.get("authorization_endpoint")

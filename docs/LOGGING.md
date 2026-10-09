@@ -4,7 +4,7 @@ Ops/debug logs for the API process. Separate from **business audit** (who change
 
 ## Design
 
-- **One stream** for the whole app (stdout; rotating file on the Docker volume). **Not** one file per user.
+- **One stream** for the whole app on stdout, plus daily files split by concern (below). **Not** one file per user or module.
 - Every line carries `request_id` and `user_id` (when known) so you can filter one flow end-to-end.
 - Responses include `X-Request-ID` and JSON errors include `request_id`.
 - Prefer structured `event=` fields via `core.app_log.log_event` for lifecycle breadcrumbs.
@@ -17,7 +17,9 @@ Ops/debug logs for the API process. Separate from **business audit** (who change
 | `LOG_FORMAT` | `text` on TTY, else `json` | `json` or `text` |
 | `ERROR_ALERT_EMAILS` | unset (off) | Comma-separated addresses. Every `ERROR`/`CRITICAL` log line is emailed (see below) |
 | `ERROR_ALERT_THROTTLE_SECONDS` | `900` | Same error is emailed at most once per window; the next email reports how many repeats were skipped |
-| `LOG_FILE` | unset locally; `logs/app.log` in Docker | Optional path; same events also always go to stdout. Rotates at 10 MB × 5 |
+| `LOG_DIR` | unset locally (stdout only); `/app/logs` in Docker | Directory for the daily files below. stdout stays on either way |
+| `LOG_RETENTION_DAYS` | `30` | Daily files older than this are deleted (at startup and at each UTC day change) |
+| `LOG_HOST_DIR` | `./logs` (next to `docker-compose.yml`) | Docker only: server folder mounted at `/app/logs`, e.g. `/var/log/takeda-att` |
 
 Examples:
 
@@ -25,11 +27,25 @@ Examples:
 # Local readable
 LOG_LEVEL=DEBUG LOG_FORMAT=text uvicorn app.main:app --app-dir backend --reload
 
-# Docker / production style (compose sets these + mounts takeda_att_logs → /app/logs)
-LOG_LEVEL=INFO
-LOG_FORMAT=json
-LOG_FILE=logs/app.log
+# Local with files
+LOG_DIR=logs uvicorn app.main:app --app-dir backend --reload
 ```
+
+## Log files
+
+```text
+<LOG_HOST_DIR>/              (= /app/logs inside the backend container)
+├── all/     all-YYYY-MM-DD.log      # end-to-end: every line from every logger
+├── access/  access-YYYY-MM-DD.log   # one line per HTTP request (logger app.access)
+├── error/   error-YYYY-MM-DD.log    # WARNING and above from every logger
+└── auth/    auth-YYYY-MM-DD.log     # login, refresh, SSO, captcha (modules.platform.auth.*, core.captcha)
+```
+
+- Dates are UTC. A new file starts at UTC midnight; files are never renamed, so all uvicorn workers append safely to the same file.
+- Lines in `access/`, `error/` and `auth/` are also in `all/`.
+- The folder is a bind mount on the server, so logs survive container/image removal, `docker compose down -v`, and Docker being stopped (read them straight from disk).
+- Docker's own stdout copy (`docker compose logs`) is capped at 5 × 20 MB per container.
+- Successful health checks are not logged (`/health` → DEBUG). A failing health check is logged as WARNING/ERROR and lands in `error/`. The frontend nginx does not log its own container health check either.
 
 ## Error email alerts
 
@@ -48,17 +64,21 @@ Set `ERROR_ALERT_EMAILS=ops@example.com,dev@example.com` in `.env.docker` and re
 # Docker stdout
 docker compose logs -f backend
 
-# Durable file inside the backend container (survives recreate via takeda_att_logs volume)
-docker compose exec backend tail -f logs/app.log
+# Files on the server (default ./logs next to docker-compose.yml, or LOG_HOST_DIR)
+tail -f logs/error/error-$(date -u +%F).log
+tail -f logs/all/all-$(date -u +%F).log
 
 # One request end-to-end
-docker compose logs backend | grep 'a1b2c3d4'
+grep -h 'a1b2c3d4' logs/all/all-*.log
 
 # One user (JSON)
-docker compose logs backend | grep '"user_id": "42"'
+grep -h '"user_id": "42"' logs/all/all-$(date -u +%F).log
+
+# Failed logins today
+grep -h login_failed logs/auth/auth-$(date -u +%F).log
 
 # Physical order lifecycle
-docker compose logs backend | grep physical_order_
+grep -h physical_order_ logs/all/all-*.log
 ```
 
 ## What is logged
@@ -78,10 +98,11 @@ docker compose logs backend | grep physical_order_
 | Technical logs | Audit tables |
 |----------------|--------------|
 | Debug failures & latency | Compliance / who changed what |
-| stdout / `LOG_FILE` | Postgres + UI timelines |
+| stdout / `LOG_DIR` files | Postgres + UI timelines |
 
 ## Self-check
 
 ```bash
 PYTHONPATH=backend python -m core.logging_check
+pytest -q tests/test_log_files.py
 ```

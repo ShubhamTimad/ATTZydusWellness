@@ -85,7 +85,7 @@ function ActivityCell({
             >
               <div className="min-w-0">
                 <p className="text-black">
-                  <span className="font-bold">Asset Code:</span>{" "}
+                  <span className="font-bold">Asset Number:</span>{" "}
                   <span className="font-mono font-medium text-foreground">{asset.asset_code}</span>
                 </p>
                 {asset.asset_name ? (

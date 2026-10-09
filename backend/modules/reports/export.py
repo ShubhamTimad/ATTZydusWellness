@@ -97,6 +97,15 @@ def actor_display_name(db, user_id: int | None) -> str:
     return (user.full_name or user.email or "").strip()
 
 
+def plant_label(name: str | None, code: str | None) -> str:
+    """Plant as shown in reports: "Name (Code)", or whichever part exists."""
+    name = (name or "").strip()
+    code = (code or "").strip()
+    if name and code:
+        return f"{name} ({code})"
+    return name or code
+
+
 def _safe_cell(value: str | None) -> str:
     if value is None:
         return ""

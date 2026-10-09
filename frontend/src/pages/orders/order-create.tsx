@@ -289,7 +289,7 @@ export function PhysicalOrderCreatePage() {
               <TableHeader>
                 <AdminTableHeaderRow>
                   <AdminTableHeadCell className="!text-black">Asset Name</AdminTableHeadCell>
-                  <AdminTableHeadCell className="!text-black">Asset Code</AdminTableHeadCell>
+                  <AdminTableHeadCell className="!text-black">Asset Number</AdminTableHeadCell>
                   <AdminTableHeadCell className="!text-black">RFID Code</AdminTableHeadCell>
                   <AdminTableHeadCell className="!text-black">Cost Center</AdminTableHeadCell>
                   <AdminTableHeadCell className="!text-black">Inventory Count</AdminTableHeadCell>

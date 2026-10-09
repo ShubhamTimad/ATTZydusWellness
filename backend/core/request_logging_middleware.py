@@ -89,12 +89,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "duration_ms": duration_ms,
             }
             msg = f"{request.method} {request.url.path} → {status_code} {duration_ms}ms"
-            if _is_quiet(request.url.path):
-                logger.debug(msg, extra=extra)
-            elif status_code >= 500:
+            # Behind uvicorn --root-path, url.path is "/api/health"; match quiet paths without the prefix.
+            route_path = request.url.path.removeprefix(request.scope.get("root_path", ""))
+            if status_code >= 500:
                 logger.error(msg, extra=extra)
             elif status_code >= 400:
                 logger.warning(msg, extra=extra)
+            elif _is_quiet(route_path):
+                logger.debug(msg, extra=extra)
             else:
                 logger.info(msg, extra=extra)
             clear_request_context()
