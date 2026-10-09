@@ -1,6 +1,6 @@
 import * as React from "react"
-import { FileText, Link2 } from "lucide-react"
-import { Link, useNavigate, useParams } from "react-router-dom"
+import { FileText } from "lucide-react"
+import { useNavigate, useParams } from "react-router-dom"
 import { toast } from "sonner"
 
 import { RequiredFieldMark } from "@/components/assets/required-field-mark"
@@ -651,26 +651,6 @@ export function CapexDetailPage() {
             </FormField>
           </div>
         </AdminPanel>
-
-        {detail.asset_id ? (
-          <AdminPanel
-            title="Linked asset"
-            description="This form has been used to create an asset."
-            className="shrink-0"
-            headerActions={<Link2 className="size-4 text-muted-foreground" aria-hidden />}
-            contentClassName="px-5 py-5"
-          >
-            <p className="text-sm">
-              Linked to asset{" "}
-              <Link
-                className="font-medium text-primary hover:underline"
-                to={`/dashboard/assets/${detail.asset_id}`}
-              >
-                {detail.asset_code ?? `#${detail.asset_id}`}
-              </Link>
-            </p>
-          </AdminPanel>
-        ) : null}
 
         <CapexAuditLog events={auditEvents} loading={auditLoading} fillHeight />
       </div>

@@ -152,11 +152,12 @@ _AUDIT_LABELS: dict[str, str] = {
     "step_approved": "Step Approved",
     "approved": "Approved",
     "rejected": "Rejected",
-    "linked_to_asset": "Linked to Asset",
-    "unlinked_from_asset": "Unlinked from Asset",
     "archived": "Form Archived",
     "unarchived": "Form Unarchived",
 }
+
+# Still recorded in capitalization_form_audit, but not shown in the form's audit trail.
+_HIDDEN_AUDIT_ACTIONS = ("linked_to_asset", "unlinked_from_asset")
 
 # Keep in sync with frontend capexStatusLabel.
 _STATUS_LABELS: dict[str, str] = {
@@ -1431,7 +1432,10 @@ class CapexFormService:
         rows = list(
             self._db.scalars(
                 select(CapitalizationFormAudit)
-                .where(CapitalizationFormAudit.form_id == form_id)
+                .where(
+                    CapitalizationFormAudit.form_id == form_id,
+                    CapitalizationFormAudit.action.not_in(_HIDDEN_AUDIT_ACTIONS),
+                )
                 .options(selectinload(CapitalizationFormAudit.actor))
                 .order_by(CapitalizationFormAudit.id.desc())
             ).all()
@@ -1515,10 +1519,6 @@ class CapexFormService:
                     label = f"Approved · {role}"
                 if nv.get("comment"):
                     detail = f"Comment: {nv['comment']}"
-            elif ev.action == "linked_to_asset":
-                code = nv.get("asset_code") or (f"#{nv['asset_id']}" if nv.get("asset_id") else None)
-                if code:
-                    detail = str(code)
             elif ev.action == "created":
                 if nv.get("form_number"):
                     detail = str(nv["form_number"])

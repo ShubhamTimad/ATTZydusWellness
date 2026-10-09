@@ -57,6 +57,18 @@ def test_link_to_asset_rejects_unapproved():
         svc.link_to_asset(1, asset_id=99)
 
 
+def test_list_audit_hides_asset_link_events():
+    db = MagicMock()
+    db.scalars.return_value.all.return_value = []
+    svc = CapexFormService(db)
+    with patch.object(svc, "_load"):
+        assert svc.list_audit(1) == []
+    stmt = db.scalars.call_args[0][0]
+    sql = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert "NOT IN" in sql
+    assert "'linked_to_asset'" in sql and "'unlinked_from_asset'" in sql
+
+
 def test_submit_requires_workflow_no_auto_approve():
     form = SimpleNamespace(
         id=1,
