@@ -554,6 +554,7 @@ class ApprovalEngineService:
             raise NotFoundError("User", actor_user_id)
         # Assets: any user with submit permission may resubmit after edits (router enforces asset.create).
         # Transfers: original submitter, destination custodian (after CF return), or superuser.
+        # Physical order closure: currently assigned executor (or superuser).
         # Other entity types: only the original submitter (or superuser).
         if str(req.entity_type) not in ("asset_creation", "asset_import"):
             if req.created_by != actor_user_id and not bool(actor.is_superuser):
@@ -564,7 +565,24 @@ class ApprovalEngineService:
 
                     xfer = self._db.get(AssetTransferOrder, int(req.entity_id))
                     allowed = xfer is not None and _is_destination_actor(xfer, actor_user_id)
+                elif str(req.entity_type) == "physical_order_closure":
+                    from modules.orders.model import PhysicalOrder
+
+                    order = self._db.get(PhysicalOrder, int(req.entity_id))
+                    allowed = (
+                        order is not None
+                        and order.assigned_to is not None
+                        and int(order.assigned_to) == actor_user_id
+                    )
                 if not allowed:
+                    raise ApprovalError(
+                        "Only the person who submitted this request can resubmit it."
+                    )
+            elif str(req.entity_type) == "physical_order_closure" and not bool(actor.is_superuser):
+                from modules.orders.model import PhysicalOrder
+
+                order = self._db.get(PhysicalOrder, int(req.entity_id))
+                if order is not None and order.assigned_to is not None and int(order.assigned_to) != actor_user_id:
                     raise ApprovalError(
                         "Only the person who submitted this request can resubmit it."
                     )
