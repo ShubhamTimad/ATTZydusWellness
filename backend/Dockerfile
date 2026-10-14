@@ -1,4 +1,14 @@
-FROM python:3.11-slim
+FROM python:3.14-slim AS wheels
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r /tmp/requirements.txt
+
+# Runtime image: no compilers or -dev headers (they only add CVE surface).
+FROM python:3.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -9,12 +19,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential libpq-dev curl util-linux \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends curl util-linux libpq5 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --create-home app
 
 COPY requirements.txt ./requirements.txt
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN --mount=type=bind,from=wheels,source=/wheels,target=/wheels \
+    pip install --no-index --find-links=/wheels -r requirements.txt
 
 COPY backend ./backend
 COPY create_superuser.py ./create_superuser.py

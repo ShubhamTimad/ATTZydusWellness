@@ -40,6 +40,10 @@ done
 echo "==> Using env file: $ENV_FILE${PROFILE:+ ($PROFILE)}"
 
 if [ "$BUILD" -eq 1 ]; then
+  if grep -qE '^IMAGE_REGISTRY=.+' "$ENV_FILE"; then
+    echo "IMAGE_REGISTRY is set: this server runs CI-built images and must not build. Use ./scripts/docker-up.sh" >&2
+    exit 1
+  fi
   if [ -n "$SERVICE" ]; then
     echo "==> Rebuilding: $SERVICE"
     compose up -d --build "$SERVICE"

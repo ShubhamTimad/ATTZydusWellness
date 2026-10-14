@@ -10,6 +10,9 @@ Deeper reference (all env variables, troubleshooting): [SERVER_DEPLOY.md](./SERV
 ```
 
 - There is **no automatic deploy**. Pushing to `develop` only stores the code on GitHub.
+- CI (`.github/workflows/ci.yml`) runs the tests, the frontend build and both image builds on every push
+  and PR. On `main` it also pushes the images to the registry in `IMAGE_REGISTRY` — the path for the
+  Takeda TEC servers, see [TAKEDA_ARCHITECTURE.md](./TAKEDA_ARCHITECTURE.md).
 - The client server has **no internet**, so we build the Docker images on our laptop and copy them in.
 - Every build gets a **version number** (e.g. `1.0.0`) that is shown on the login screen and in
   **Settings → Appearance**. That is how you confirm which release is running.
@@ -34,8 +37,8 @@ Deeper reference (all env variables, troubleshooting): [SERVER_DEPLOY.md](./SERV
 | Tool | Check | Notes |
 |---|---|---|
 | Git | `git --version` | |
-| Python 3.11 | `python3.11 --version` | Same as the backend image |
-| Node.js 20 | `node --version` | Same as the frontend image |
+| Python 3.14 | `python3.14 --version` | Same as the backend image |
+| Node.js 24 | `node --version` | Same as the frontend build image |
 | Docker Desktop | `docker compose version` → 2.24 or newer | Needed only to build client releases (Part 4) |
 
 You also need write access to the GitHub repo
@@ -52,7 +55,7 @@ git checkout develop
 **0.3 Install dependencies (for tests and the frontend build)**
 
 ```bash
-python3.11 -m venv .venv
+python3.14 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 cd frontend && npm ci && cd ..

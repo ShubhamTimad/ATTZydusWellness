@@ -12,7 +12,7 @@ Built by **TiMAD** as a full-stack platform with role-based access control (RBAC
 
 | Layer | Stack |
 |-------|--------|
-| **Backend** | Python 3.11+, FastAPI, SQLAlchemy, Alembic, PostgreSQL |
+| **Backend** | Python 3.14, FastAPI, SQLAlchemy, Alembic, PostgreSQL |
 | **Frontend** | Vite, React 19, TypeScript, Tailwind CSS v4, shadcn/ui |
 | **Auth** | JWT (access + refresh), MFA, password policy, session idle |
 | **Deploy** | Docker Compose (nginx + API + Postgres) |
@@ -66,8 +66,8 @@ Clone and work from `develop` unless you are cutting a release.
 
 ### Prerequisites
 
-- Python 3.11+
-- Node.js 20+ and npm
+- Python 3.14 (same as the backend image)
+- Node.js 24 and npm (same as the frontend build image)
 - PostgreSQL
 
 ### 1. Environment

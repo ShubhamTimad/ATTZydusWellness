@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app/frontend
 
@@ -12,12 +12,12 @@ ENV VITE_API_URL=$VITE_API_URL
 
 RUN npm run build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.30-alpine
 
 # Must match backend BACKEND_PORT in the compose file (9005 by default).
 ARG BACKEND_UPSTREAM_PORT=9005
 
-RUN apk add --no-cache curl
+RUN apk upgrade --no-cache && apk add --no-cache curl
 
 COPY frontend/nginx.conf /tmp/default.conf
 COPY frontend/nginx-map.conf /etc/nginx/conf.d/00-map.conf

@@ -5,6 +5,9 @@
 #
 # Or: ./scripts/docker-deploy.sh
 #
+# Servers that must not build (client TEC): set IMAGE_REGISTRY / IMAGE_TAG in .env.docker;
+# ./scripts/docker-up.sh then pulls the CI-built images and never builds.
+#
 name: takeda_att
 
 services:
@@ -27,6 +30,7 @@ services:
       - takeda_att_network
 
   backend:
+    image: ${IMAGE_REGISTRY:-}takeda_att-backend:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: backend/Dockerfile
@@ -93,6 +97,7 @@ services:
       - takeda_att_network
 
   frontend:
+    image: ${IMAGE_REGISTRY:-}takeda_att-frontend:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: frontend/Dockerfile
@@ -124,7 +129,7 @@ services:
   # ENABLE_EDGE_PROXY=true (see scripts/compose-profile.sh).
   proxy:
     profiles: ["https"]
-    image: nginx:1.27-alpine
+    image: nginx:1.30-alpine
     restart: unless-stopped
     depends_on:
       frontend:

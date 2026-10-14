@@ -20,6 +20,11 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
+if grep -qE '^IMAGE_REGISTRY=.+' "$ENV_FILE"; then
+  echo "IMAGE_REGISTRY is set: this server runs CI-built images and must not build. Use ./scripts/docker-up.sh" >&2
+  exit 1
+fi
+
 PROFILE="$(./scripts/compose-profile.sh "$ENV_FILE")"
 export APP_VERSION="${APP_VERSION:-$(./scripts/app-version.sh)}"
 echo "==> Version $APP_VERSION"
