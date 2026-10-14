@@ -126,14 +126,9 @@ import { cn } from "@/lib/utils"
 export type AssetListTab = "all" | "draft" | "pending" | "rejected" | "approved" | "fy"
 export type AssetFySubTab = "verified" | "pending"
 
-const ASSET_LIST_TAB_KEYS = [
-  "approved",
-  "draft",
-  "pending",
-  "rejected",
-  "all",
-  "fy",
-] as const satisfies readonly AssetListTab[]
+// ponytail: the "fy" (Physical Verification) tab is hidden, not deleted; its isFyTab branches below are
+// unreachable. Re-add "fy" here plus its WorkspaceTabsTrigger to restore it, or delete those branches.
+const ASSET_LIST_TAB_KEYS: readonly AssetListTab[] = ["approved", "draft", "pending", "rejected", "all"]
 const FY_SUB_TAB_KEYS = ["verified", "pending"] as const satisfies readonly AssetFySubTab[]
 
 export type AssetListColumnKey =
@@ -2176,7 +2171,6 @@ export function AssetsListPage() {
                   </WorkspaceTabsTrigger>
                 )
               })}
-              <WorkspaceTabsTrigger value="fy">Physical Verification</WorkspaceTabsTrigger>
             </WorkspaceTabsList>
           </WorkspaceTabs>
 
