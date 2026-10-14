@@ -105,4 +105,5 @@ class UserMe(BaseModel):
     org_unit: str | None = None
     department: str | None = None
     cost_center: str | None = None
+    has_photo: bool = False
     permissions: list[str]

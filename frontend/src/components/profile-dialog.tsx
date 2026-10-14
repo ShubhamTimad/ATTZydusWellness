@@ -3,7 +3,7 @@ import { Building2, Landmark, Mail, Phone, Shield, UsersRound, XIcon } from "luc
 
 import { AdminStatusBadge } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { getJson } from "@/lib/api"
+import { useMyPhotoUrl } from "@/lib/navbar-user"
 type MeProfile = {
   id: number
   full_name: string
@@ -26,6 +27,7 @@ type MeProfile = {
   cost_center: string | null
   is_active: boolean
   is_superuser: boolean
+  has_photo?: boolean
   created_at: string
 }
 
@@ -119,6 +121,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
   }, [open])
 
   const initials = me ? profileInitials(me.full_name, me.email) : "?"
+  const photoUrl = useMyPhotoUrl(me?.has_photo)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -156,6 +159,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
           ) : me ? (
             <div className="flex items-center gap-4 pr-10">
               <Avatar className="size-14 ring-2 ring-primary/20 ring-offset-2 ring-offset-card">
+                {photoUrl ? <AvatarImage src={photoUrl} alt={me.full_name} /> : null}
                 <AvatarFallback className="bg-primary text-base font-semibold text-primary-foreground">
                   {initials}
                 </AvatarFallback>

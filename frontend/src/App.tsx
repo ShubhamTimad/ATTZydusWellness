@@ -493,6 +493,7 @@ function AppRoute() {
           email?: string
           role?: string | null
           is_superuser?: boolean
+          has_photo?: boolean
           permissions?: string[]
         }>("/me")
         if (cancelled) return
@@ -501,6 +502,7 @@ function AppRoute() {
           fullName: typeof me.full_name === "string" ? me.full_name : null,
           email: typeof me.email === "string" ? me.email : null,
           role: typeof me.role === "string" ? me.role : null,
+          hasPhoto: me.has_photo === true,
         })
         setProfileTick((t) => t + 1)
         setChecking(false)
@@ -576,6 +578,7 @@ function AdminRoute() {
           email?: string
           role?: string | null
           is_superuser?: boolean
+          has_photo?: boolean
           permissions?: string[]
         }>("/me")
         if (cancelled) return
@@ -593,6 +596,7 @@ function AdminRoute() {
               : me.is_superuser
                 ? "Superuser"
                 : null,
+          hasPhoto: me.has_photo === true,
         })
         setProfileTick((t) => t + 1)
         setSuperGate("ok")

@@ -1,8 +1,38 @@
+import * as React from "react"
+
+import { getBlob } from "@/lib/api"
+
 /** Navbar account chip: identity from ``GET /me``. */
 export type NavbarUser = {
   fullName: string | null
   email: string | null
   role: string | null
+  hasPhoto?: boolean
+}
+
+/** Object URL of the signed-in user's profile photo, or null (show initials) when none / not loaded. */
+export function useMyPhotoUrl(hasPhoto: boolean | undefined): string | null {
+  const [url, setUrl] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (!hasPhoto) return
+    let cancelled = false
+    let objectUrl: string | null = null
+    getBlob("/me/photo")
+      .then((blob) => {
+        if (cancelled) return
+        objectUrl = URL.createObjectURL(blob)
+        setUrl(objectUrl)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      setUrl(null)
+    }
+  }, [hasPhoto])
+
+  return url
 }
 
 export function navbarDisplayName(user: NavbarUser | null | undefined): string {

@@ -29,7 +29,7 @@ import { AppBrandMark } from "@/components/layout/app-brand-mark"
 import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer"
 import { clearListState } from "@/lib/use-url-tab"
 import { SessionIdleNavbarBadge } from "@/components/session-idle-navbar-badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
@@ -46,7 +46,7 @@ import {
   hasPermission,
 } from "@/lib/permissions"
 import { DASHBOARD_ANY_OF } from "@/lib/dashboard-permissions"
-import { navbarDisplayName, navbarInitials, type NavbarUser } from "@/lib/navbar-user"
+import { navbarDisplayName, navbarInitials, useMyPhotoUrl, type NavbarUser } from "@/lib/navbar-user"
 import { cn } from "@/lib/utils"
 
 type NavPerm = string | string[] | null
@@ -265,6 +265,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
   }
   const displayName = navbarDisplayName(account)
   const initials = navbarInitials(account)
+  const photoUrl = useMyPhotoUrl(account.hasPhoto)
   const location = useLocation()
 
   async function handleSignOut() {
@@ -552,6 +553,7 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
                 className="h-11 gap-2.5 rounded-full border-border bg-card py-1.5 pr-3 pl-1.5 shadow-sm hover:bg-muted/40"
               >
                 <Avatar className="size-9 ring-2 ring-primary/15">
+                  {photoUrl ? <AvatarImage src={photoUrl} alt={displayName} /> : null}
                   <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
                     {initials}
                   </AvatarFallback>

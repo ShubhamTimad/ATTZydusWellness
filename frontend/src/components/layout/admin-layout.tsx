@@ -19,7 +19,7 @@ import {
 import { BrandLogoPlaceholder, useBrandLogoSrc } from "@/components/layout/app-brand-mark"
 import { MobileNavDrawer } from "@/components/layout/mobile-nav-drawer"
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import {
@@ -33,7 +33,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { SessionIdleNavbarBadge } from "@/components/session-idle-navbar-badge"
 import { hasPermission } from "@/lib/permissions"
-import { navbarDisplayName, navbarInitials, type NavbarUser } from "@/lib/navbar-user"
+import { navbarDisplayName, navbarInitials, useMyPhotoUrl, type NavbarUser } from "@/lib/navbar-user"
 import { clearListState } from "@/lib/use-url-tab"
 import { cn } from "@/lib/utils"
 
@@ -184,6 +184,7 @@ export function AdminLayout({
   }
   const displayName = navbarDisplayName(account)
   const initials = navbarInitials(account)
+  const photoUrl = useMyPhotoUrl(account.hasPhoto)
 
   const visibleGroups = navGroups
     .map((group) => ({
@@ -321,6 +322,7 @@ export function AdminLayout({
                 className="h-11 gap-2.5 rounded-full border-border bg-card py-1.5 pr-3 pl-1.5 shadow-sm hover:bg-muted/40"
               >
                 <Avatar className="size-9 ring-2 ring-primary/15">
+                  {photoUrl ? <AvatarImage src={photoUrl} alt={displayName} /> : null}
                   <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
                     {initials}
                   </AvatarFallback>

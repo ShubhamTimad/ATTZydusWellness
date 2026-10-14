@@ -382,6 +382,7 @@ class AuthService:
             org_unit=", ".join(plant_names) if plant_names else None,
             department=", ".join(dept_labels) if dept_labels else None,
             cost_center=", ".join(cc_labels) if cc_labels else None,
+            has_photo=user.photo_content_type is not None,
             permissions=codes,
         )
 

@@ -56,6 +56,7 @@ from modules.platform.settings.session_idle import (
 )
 from modules.platform.settings.app_version import get_app_version
 from modules.platform.auth.model import UserSession
+from modules.platform.users.service import UserService
 from core.security import decode_access_token
 from jose import JWTError
 from datetime import datetime, timezone
@@ -402,6 +403,19 @@ def me(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
+
+
+@router.get("/me/photo")
+def my_photo(
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Response:
+    """Own profile photo for the navbar/profile avatar (no ``users.view`` needed)."""
+    try:
+        content, content_type = UserService(db).get_photo(int(current.subject))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return Response(content=content, media_type=content_type, headers={"Cache-Control": "private, no-store"})
 
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)
