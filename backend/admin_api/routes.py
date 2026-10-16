@@ -1,0 +1,45 @@
+"""Aggregate admin (management) API routers — mounted at ``/admin``."""
+
+from fastapi import APIRouter, Depends
+
+from core.config import get_settings
+from core.permissions import require_superuser
+from modules.platform.features.router import router as features_router
+from modules.platform.org_units.router import router as org_units_router
+from modules.platform.dashboard.router import router as dashboard_router
+from modules.platform.approvals.admin_router import router as approval_workflows_router
+from modules.platform.approvals.mappings_admin_router import router as workflow_mappings_router
+from modules.platform.emails.admin_router import router as email_templates_router
+from modules.platform.permissions.router import router as permissions_router
+from modules.platform.roles.router import router as roles_router
+from modules.platform.settings.router import router as settings_router
+from modules.platform.users.router import router as users_router
+from modules.assets.router import router as assets_router
+from modules.asset_masters.router import router as asset_masters_router
+from modules.orders.router import router as physical_orders_router
+from modules.transfers.router import router as transfer_orders_router
+from modules.disposals.router import router as disposal_orders_router
+from modules.capex.router import router as capitalization_forms_router
+
+_admin_dependencies = []
+if get_settings().enforce_superuser_on_admin:
+    _admin_dependencies.append(Depends(require_superuser()))
+
+router = APIRouter(dependencies=_admin_dependencies)
+router.include_router(dashboard_router)
+router.include_router(users_router)
+router.include_router(org_units_router)
+router.include_router(features_router)
+router.include_router(approval_workflows_router)
+router.include_router(workflow_mappings_router)
+router.include_router(email_templates_router)
+router.include_router(permissions_router)
+router.include_router(roles_router)
+router.include_router(settings_router)
+router.include_router(assets_router)
+router.include_router(asset_masters_router)
+router.include_router(physical_orders_router)
+router.include_router(transfer_orders_router)
+router.include_router(disposal_orders_router)
+router.include_router(capitalization_forms_router)
+

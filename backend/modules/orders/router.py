@@ -1,0 +1,603 @@
+from __future__ import annotations
+
+from datetime import date
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
+
+from core.auth import CurrentUser, get_current_user
+from core.permissions import require_any_permission, require_permission
+from db.session import get_db
+from modules.orders.schema import (
+    BulkScanAssetRequest,
+    BulkScanAssetResponse,
+    CreatePhysicalOrderRequest,
+    ExecutorListResponse,
+    ItemIdsRequest,
+    PhysicalOrderDetail,
+    PhysicalOrderListFilterOptionsResponse,
+    PhysicalOrderListResponse,
+    RejectItemsRequest,
+    RejectOrderRequest,
+    ApproveClosureRequest,
+    ScanAssetRequest,
+    ScanAssetResponse,
+    SubmitClosureRequest,
+    SubmitPhysicalOrderRequest,
+    UpdatePhysicalOrderRequest,
+    ValidateAssetsRequest,
+    NextOrderNumberResponse,
+    ValidateAssetsResponse,
+)
+from modules.assets.schema import AssetRemarkPublic, AssetRemarkUpdateRequest
+from modules.orders.service import PhysicalOrderService
+from modules.errors import ConflictError, NotFoundError, PermissionDeniedError
+
+router = APIRouter(prefix="/physical-orders", tags=["admin", "physical-orders"])
+
+
+def get_order_service(db: Session = Depends(get_db)) -> PhysicalOrderService:
+    return PhysicalOrderService(db)
+
+
+@router.get("/next-number", response_model=NextOrderNumberResponse)
+def peek_next_order_number(
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.create"))],
+) -> NextOrderNumberResponse:
+    """Next order number if a draft were saved now. Does not reserve or consume it."""
+    return NextOrderNumberResponse(order_number=svc.peek_next_order_number())
+
+
+@router.post("/validate-assets", response_model=ValidateAssetsResponse)
+def validate_assets(
+    body: ValidateAssetsRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.create"))],
+) -> ValidateAssetsResponse:
+    return svc.validate_assets(body.asset_ids, viewer_user_id=int(current.subject))
+
+
+@router.get("/executors", response_model=ExecutorListResponse)
+def list_executors(
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.create", "order.manage", "order.reassign", "order.execute")),
+    ],
+    plant_id: int | None = Query(
+        None,
+        description="Limit to users in the workflow role who belong to this plant.",
+    ),
+    cost_center_id: list[int] | None = Query(
+        None,
+        description="Limit to users who cover every listed cost center (repeat the param).",
+    ),
+) -> ExecutorListResponse:
+    try:
+        return svc.list_executors(plant_id=plant_id, cost_center_ids=cost_center_id)
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.get("/assignees", response_model=ExecutorListResponse)
+def list_assignees(
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "order.execute",
+                "order.approve",
+                "order.create",
+                "order.manage",
+                "mobile.order.execute",
+            )
+        ),
+    ],
+    plant_id: int | None = Query(
+        None,
+        description="Limit to users in the first Approve-step role who belong to this plant.",
+    ),
+    cost_center_id: list[int] | None = Query(
+        None,
+        description="Limit to users who cover every listed cost center (repeat the param).",
+    ),
+    role_id: int | None = Query(
+        None,
+        description="Users in this workflow role (next approval level). Defaults to first Approve step.",
+    ),
+) -> ExecutorListResponse:
+    """Users in an Approve step of the Physical order workflow (closure handoff)."""
+    try:
+        return svc.list_assignees(
+            plant_id=plant_id, cost_center_ids=cost_center_id, role_id=role_id
+        )
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.get("/column-filter-options", response_model=PhysicalOrderListFilterOptionsResponse)
+def list_column_filter_options(
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.view", "mobile.order.view")),
+    ],
+    plant_id: int | None = Query(None, ge=1),
+) -> PhysicalOrderListFilterOptionsResponse:
+    """Distinct plant / cost-center / status values present on orders in list scope."""
+    return svc.list_column_filter_options(
+        viewer_id=int(current.subject),
+        plant_id=plant_id,
+    )
+
+
+@router.get("", response_model=PhysicalOrderListResponse)
+def list_orders(
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.view", "mobile.order.view")),
+    ],
+    tab: str = Query("needs_action"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    search: str | None = Query(None),
+    plant_id: int | None = Query(None),
+    cost_center_id: int | None = Query(None),
+    order_number: str | None = Query(None),
+    status: str | None = Query(None),
+    asset_count: int | None = Query(None, ge=0),
+    created_on: date | None = Query(None),
+    assigned_to: str | None = Query(None),
+    created_by: str | None = Query(None),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc"),
+) -> PhysicalOrderListResponse:
+    return svc.list_orders(
+        tab=tab,
+        page=page,
+        page_size=page_size,
+        viewer_id=int(current.subject),
+        search=search,
+        plant_id=plant_id,
+        cost_center_id=cost_center_id,
+        order_number=order_number,
+        status=status,
+        asset_count=asset_count,
+        created_on=created_on,
+        assigned_to=assigned_to,
+        created_by=created_by,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+    )
+
+
+@router.post("", response_model=PhysicalOrderDetail, status_code=status.HTTP_201_CREATED)
+def create_order(
+    body: CreatePhysicalOrderRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.create"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.create_order(body, actor_user_id=int(current.subject))
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.get("/{order_id}", response_model=PhysicalOrderDetail)
+def get_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.view", "mobile.order.view")),
+    ],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.get_order(order_id, viewer_user_id=int(current.subject))
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.patch("/{order_id}", response_model=PhysicalOrderDetail)
+def update_order(
+    order_id: int,
+    body: UpdatePhysicalOrderRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_any_permission("order.update", "order.create"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.update_order(
+            order_id,
+            actor_user_id=int(current.subject),
+            assigned_to=body.assigned_to,
+            remarks=body.remarks,
+            asset_ids=body.asset_ids,
+        )
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.delete("/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.update"))],
+) -> None:
+    try:
+        svc.delete_draft_order(order_id, actor_user_id=int(current.subject))
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.post("/{order_id}/archive", response_model=PhysicalOrderDetail)
+def archive_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.update"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.archive_order(order_id, actor_user_id=int(current.subject))
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.post("/{order_id}/unarchive", response_model=PhysicalOrderDetail)
+def unarchive_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.update"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.unarchive_order(order_id, actor_user_id=int(current.subject))
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.post("/{order_id}/submit", response_model=PhysicalOrderDetail)
+def submit_order(
+    order_id: int,
+    body: SubmitPhysicalOrderRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.create"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.submit_order(
+            order_id,
+            actor_user_id=int(current.subject),
+            assigned_to=int(body.assigned_to),
+            remarks=body.remarks,
+        )
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.post("/{order_id}/approval/approve-order", response_model=PhysicalOrderDetail)
+def approve_creation_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.approve"))],
+    body: ApproveClosureRequest | None = None,
+) -> PhysicalOrderDetail:
+    try:
+        return svc.approve_creation_order(
+            order_id,
+            actor_user_id=int(current.subject),
+            comment=body.comment if body else None,
+        )
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{order_id}/approval/approve-all", response_model=PhysicalOrderDetail)
+def approve_all_items(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_any_permission("order.approve", "order.create"))],
+    body: ApproveClosureRequest | None = None,
+) -> PhysicalOrderDetail:
+    try:
+        return svc.approve_all_items(
+            order_id,
+            actor_user_id=int(current.subject),
+            next_assigned_user_id=body.next_assigned_user_id if body else None,
+            comment=body.comment if body else None,
+        )
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{order_id}/approval/approve-items", response_model=PhysicalOrderDetail)
+def approve_items(
+    order_id: int,
+    body: ItemIdsRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_any_permission("order.approve", "order.create"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.approve_items(order_id, body.item_ids, actor_user_id=int(current.subject))
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{order_id}/approval/reject-items", response_model=PhysicalOrderDetail)
+def reject_items(
+    order_id: int,
+    body: RejectItemsRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_any_permission("order.approve", "order.create"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.reject_items(
+            order_id,
+            body.item_ids,
+            rejection_reason=body.rejection_reason,
+            actor_user_id=int(current.subject),
+        )
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{order_id}/approval/reject-order", response_model=PhysicalOrderDetail)
+def reject_order(
+    order_id: int,
+    body: RejectOrderRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.approve"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.reject_order(order_id, reason=body.reason, actor_user_id=int(current.subject))
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{order_id}/execution/reject-items", response_model=PhysicalOrderDetail)
+def reject_execution_items(
+    order_id: int,
+    body: RejectItemsRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_permission("order.execute"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.reject_execution_items(
+            order_id,
+            body.item_ids,
+            rejection_reason=body.rejection_reason,
+            actor_user_id=int(current.subject),
+        )
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{order_id}/reassign", response_model=PhysicalOrderDetail)
+def reassign_order(
+    order_id: int,
+    body: UpdatePhysicalOrderRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(require_permission("order.reassign")),
+    ],
+) -> PhysicalOrderDetail:
+    if body.assigned_to is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="assigned_to is required.",
+        )
+    try:
+        return svc.reassign_order(
+            order_id,
+            assigned_to=body.assigned_to,
+            actor_user_id=int(current.subject),
+            reason=body.reason,
+        )
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.post("/{order_id}/close", response_model=PhysicalOrderDetail)
+def close_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_any_permission("order.approve", "order.update", "order.create"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.close_order(order_id, actor_user_id=int(current.subject))
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{order_id}/start", response_model=PhysicalOrderDetail)
+def start_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.execute", "mobile.order.execute")),
+    ],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.start_order(order_id, actor_user_id=int(current.subject))
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{order_id}/restart", response_model=PhysicalOrderDetail)
+def restart_rejected_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "order.execute",
+                "order.create",
+                "order.update",
+                "mobile.order.execute",
+            )
+        ),
+    ],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.restart_rejected_order(order_id, actor_user_id=int(current.subject))
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.patch(
+    "/{order_id}/assets/{asset_id}/remark",
+    response_model=AssetRemarkPublic,
+)
+def update_order_asset_remark(
+    order_id: int,
+    asset_id: int,
+    body: AssetRemarkUpdateRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "order.execute",
+                "order.update",
+                "mobile.order.execute",
+                "mobile.order.view",
+                "mobile.asset.view",
+                "mobile.asset.scan",
+            )
+        ),
+    ],
+) -> AssetRemarkPublic:
+    """Save per-asset remark on this order line (physical_order_items.remarks)."""
+    try:
+        return svc.update_order_asset_remark(
+            order_id,
+            asset_id,
+            body.remark,
+            actor_user_id=int(current.subject),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except PermissionDeniedError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+
+@router.post("/{order_id}/scan", response_model=ScanAssetResponse)
+def scan_asset(
+    order_id: int,
+    body: ScanAssetRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "order.execute",
+                "mobile.order.execute",
+                "mobile.order.scan",
+            )
+        ),
+    ],
+) -> ScanAssetResponse:
+    try:
+        return svc.scan_asset(
+            order_id,
+            scan_value=body.scan_value,
+            item_id=body.item_id,
+            actor_user_id=int(current.subject),
+        )
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.post("/{order_id}/scan-bulk", response_model=BulkScanAssetResponse)
+def scan_assets_bulk(
+    order_id: int,
+    body: BulkScanAssetRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "mobile.order.bulk_verify",
+            )
+        ),
+    ],
+) -> BulkScanAssetResponse:
+    try:
+        return svc.scan_assets_bulk(
+            order_id,
+            scan_values=body.scan_values,
+            actor_user_id=int(current.subject),
+        )
+    except (ConflictError, NotFoundError) as e:
+        code = status.HTTP_409_CONFLICT if isinstance(e, ConflictError) else status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
+@router.post("/{order_id}/submit-closure", response_model=PhysicalOrderDetail)
+def submit_closure(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("order.execute", "mobile.order.execute")),
+    ],
+    body: SubmitClosureRequest = SubmitClosureRequest(),
+) -> PhysicalOrderDetail:
+    try:
+        assignee = int(body.assignee_user_id) if body.assignee_user_id is not None else None
+        return svc.submit_closure(
+            order_id,
+            actor_user_id=int(current.subject),
+            assignee_user_id=assignee,
+        )
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+
+
+@router.post("/{order_id}/closure/approve-order", response_model=PhysicalOrderDetail)
+def approve_closure_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[PhysicalOrderService, Depends(get_order_service)],
+    _: Annotated[object, Depends(require_any_permission("order.approve", "order.create"))],
+) -> PhysicalOrderDetail:
+    try:
+        return svc.approve_closure_order(order_id, actor_user_id=int(current.subject))
+    except ConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e

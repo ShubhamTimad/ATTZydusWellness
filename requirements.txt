@@ -1,0 +1,38 @@
+# FastAPI
+fastapi==0.137.0
+uvicorn[standard]==0.49.0
+
+# Database
+sqlalchemy==2.0.50
+alembic==1.18.4
+psycopg2-binary==2.9.12
+
+# Authentication & Security
+# python-jose stays for OIDC JWK verification. PyJWT does not accept a raw JWK dict.
+python-jose[cryptography]==3.5.0
+cryptography==49.0.0
+bcrypt==5.0.0
+pyotp==2.10.0
+
+# Validation & Config
+pydantic==2.13.4
+pydantic-settings==2.14.1
+email-validator==2.3.0
+python-dotenv==1.2.2
+
+# Forms / Uploads
+python-multipart==0.0.32
+
+# Template Engine
+jinja2==3.1.6
+
+# HTTP / Networking
+httpx==0.28.1
+requests==2.34.2
+
+# Utilities
+openpyxl==3.1.5
+reportlab==4.5.1
+qrcode==8.2
+pillow==12.2.0
+tzdata>=2024.1

@@ -1,0 +1,380 @@
+import * as React from "react"
+import { ArrowLeft, type LucideIcon } from "lucide-react"
+import { Link } from "react-router-dom"
+
+import { Button } from "@/components/ui/button"
+import { PageLoader } from "@/components/ui/page-loader"
+import { TableCell, TableHead } from "@/components/ui/table"
+import { cn } from "@/lib/utils"
+
+/** Shared panel surface for tables, forms, and detail blocks. */
+export const adminPanelClass = "app-panel"
+
+export const adminSelectClass =
+  "flex h-9 w-full rounded-lg border border-input bg-background px-3 font-sans text-sm shadow-sm transition-colors outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-muted/40 disabled:text-muted-foreground disabled:opacity-50"
+
+export const adminTextareaClass =
+  "min-h-[120px] w-full resize-y rounded-lg border border-input bg-background px-3 py-2.5 text-sm shadow-sm transition-colors outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15"
+
+/** Compact textarea that grows with content; drag the corner to expand further. */
+export const adminAutoGrowTextareaClass =
+  "box-border min-h-[2.75rem] w-full resize-y break-words rounded-lg border border-input bg-background px-3 py-1.5 text-sm leading-5 shadow-sm transition-[border-color,box-shadow] outline-none focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:bg-muted/40 disabled:opacity-50"
+
+export function AutoGrowTextarea({
+  value,
+  onChange,
+  className,
+  minRows = 2,
+  ...props
+}: Omit<React.ComponentProps<"textarea">, "rows" | "onChange"> & {
+  value: string
+  onChange: (value: string) => void
+  minRows?: number
+}) {
+  const ref = React.useRef<HTMLTextAreaElement>(null)
+
+  React.useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = "0px"
+    el.style.height = `${el.scrollHeight}px`
+  }, [value, minRows])
+
+  return (
+    <textarea
+      {...props}
+      ref={ref}
+      rows={minRows}
+      value={value}
+      className={cn(adminAutoGrowTextareaClass, className)}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  )
+}
+
+export const adminSwitchRowClass =
+  "flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-muted/15 px-4 py-3"
+
+/** Workspace tab bar — prefer WorkspaceTabsList from list-page-ui for list pages */
+export const adminTabsListClass =
+  "h-auto min-h-10 w-fit max-w-full flex-wrap gap-1 rounded-[var(--app-radius-surface)] border border-border/70 bg-muted/35 p-1"
+
+export const adminTabsTriggerClass = "h-8 shrink-0 px-3.5"
+
+export function AdminPanel({
+  title,
+  description,
+  headerActions,
+  children,
+  footer,
+  className,
+  contentClassName,
+}: {
+  title?: string
+  description?: string
+  headerActions?: React.ReactNode
+  children: React.ReactNode
+  footer?: React.ReactNode
+  className?: string
+  contentClassName?: string
+}) {
+  return (
+    <div className={cn(adminPanelClass, className)}>
+      {title || description || headerActions ? (
+        <div className="app-panel-header">
+          <div className="min-w-0">
+            {title ? <h3 className="app-panel-title">{title}</h3> : null}
+            {description ? (
+              <p className={cn("app-panel-description", title && "mt-1")}>{description}</p>
+            ) : null}
+          </div>
+          {headerActions ? (
+            <div className="flex shrink-0 items-center gap-2 self-start pt-0.5">{headerActions}</div>
+          ) : null}
+        </div>
+      ) : null}
+      <div className={cn(contentClassName)}>{children}</div>
+      {footer ? (
+        <div className="shrink-0 border-t border-border/60 bg-muted/20 px-[var(--app-card-padding)] py-3">
+          {footer}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+export function AdminTableHeaderRow({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return <tr className={cn("hover:bg-transparent", className)}>{children}</tr>
+}
+
+export function AdminTableHeadCell({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <TableHead
+      className={cn(
+        "h-auto px-3 py-3 text-[11px] font-semibold tracking-[0.08em] uppercase xl:px-5",
+        "text-muted-foreground/85 whitespace-nowrap",
+        className,
+      )}
+    >
+      {children}
+    </TableHead>
+  )
+}
+
+export function AdminTableCell({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <TableCell
+      className={cn(
+        "h-auto min-h-[var(--app-table-row-height)] px-3 py-3.5 align-middle text-sm leading-snug xl:px-5",
+        className,
+      )}
+    >
+      {children}
+    </TableCell>
+  )
+}
+
+export type AdminPillTone =
+  | "primary"
+  | "success"
+  | "warning"
+  | "danger"
+  | "neutral"
+  | "info"
+  | "disposed"
+
+export const adminPillToneClass: Record<AdminPillTone, string> = {
+  primary: "border-primary/30 bg-primary/10 text-primary",
+  success: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/40 dark:text-emerald-300",
+  warning: "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/40 dark:text-amber-200",
+  danger: "border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300",
+  neutral: "border-border/70 bg-muted/35 text-muted-foreground",
+  info: "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/40 dark:text-sky-300",
+  disposed:
+    "border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-900/40 dark:bg-violet-950/40 dark:text-violet-200",
+}
+
+/** Outline pill badge — reference-style status chips. */
+export function AdminPillBadge({
+  children,
+  tone = "neutral",
+  className,
+}: {
+  children: React.ReactNode
+  tone?: AdminPillTone
+  className?: string
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium leading-none",
+        adminPillToneClass[tone],
+        className,
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
+export function AdminStatusBadge({ active, locked }: { active: boolean; locked?: boolean }) {
+  if (locked) return <AdminPillBadge tone="danger">Locked</AdminPillBadge>
+  if (active) return <AdminPillBadge tone="success">Active</AdminPillBadge>
+  return <AdminPillBadge tone="neutral">Inactive</AdminPillBadge>
+}
+
+export function AdminRowActions({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div className={cn("inline-flex items-center justify-end gap-0.5", className)}>{children}</div>
+  )
+}
+
+export function AdminRowAction({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  className,
+}: {
+  icon: LucideIcon
+  label: string
+  onClick: () => void
+  disabled?: boolean
+  className?: string
+}) {
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="ghost"
+      disabled={disabled}
+      className={cn(
+        "h-8 gap-1.5 px-2.5 font-normal text-foreground/75 hover:bg-muted/50 hover:text-foreground",
+        className,
+      )}
+      onClick={onClick}
+    >
+      <Icon className="size-3.5 shrink-0" aria-hidden />
+      {label}
+    </Button>
+  )
+}
+
+/** Stacked primary + secondary line — e.g. name + email. */
+export function AdminTablePrimaryCell({
+  primary,
+  secondary,
+  onPrimaryClick,
+  className,
+}: {
+  primary: React.ReactNode
+  secondary?: React.ReactNode
+  onPrimaryClick?: () => void
+  className?: string
+}) {
+  const primaryNode = onPrimaryClick ? (
+    <button
+      type="button"
+      className="block max-w-[16rem] truncate text-left text-sm font-semibold text-foreground transition-colors hover:text-primary"
+      onClick={onPrimaryClick}
+    >
+      {primary}
+    </button>
+  ) : (
+    <span className="block max-w-[16rem] truncate text-sm font-semibold text-foreground">{primary}</span>
+  )
+
+  return (
+    <div className={cn("min-w-0", className)}>
+      {primaryNode}
+      {secondary ? (
+        <div className="mt-0.5 max-w-[16rem] truncate text-xs text-muted-foreground">{secondary}</div>
+      ) : null}
+    </div>
+  )
+}
+
+export function AdminDetailGrid({
+  children,
+  className,
+}: {
+  children: React.ReactNode
+  className?: string
+}) {
+  return <dl className={cn("grid gap-4 sm:grid-cols-2", className)}>{children}</dl>
+}
+
+export function AdminDetailField({
+  label,
+  value,
+  className,
+}: {
+  label: string
+  value: React.ReactNode
+  className?: string
+}) {
+  return (
+    <div className={className}>
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="mt-1.5 text-sm font-medium leading-snug text-foreground">{value}</dd>
+    </div>
+  )
+}
+
+export function AdminBackLink({
+  to,
+  onClick,
+}: {
+  to: string
+  onClick?: () => void
+}) {
+  return (
+    <Button asChild variant="outline" size="sm">
+      <Link to={to} onClick={onClick}>
+        <ArrowLeft className="size-4" aria-hidden />
+        Back
+      </Link>
+    </Button>
+  )
+}
+
+export function AdminPrimaryButton({
+  className,
+  ...props
+}: React.ComponentProps<typeof Button>) {
+  return <Button size="sm" className={cn(className)} {...props} />
+}
+
+export function AdminDangerButton({
+  className,
+  ...props
+}: React.ComponentProps<typeof Button>) {
+  return (
+    <Button
+      size="sm"
+      className={cn(
+        "bg-red-600 text-white shadow-sm hover:bg-red-700 focus-visible:ring-red-600/30",
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
+/** Centered empty row for data tables */
+export function AdminTableEmptyRow({
+  colSpan,
+  children,
+}: {
+  colSpan: number
+  children: React.ReactNode
+}) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="app-empty-state">
+        {children}
+      </td>
+    </tr>
+  )
+}
+
+/** Fixed-height loader so the table card does not jump when rows arrive. */
+export function AdminTableLoadingRow({
+  colSpan,
+}: {
+  colSpan: number
+  /** Ignored. The caption is always "Loading". */
+  label?: string
+}) {
+  return (
+    <tr>
+      <td colSpan={colSpan} className="app-empty-state">
+        <PageLoader compact className="min-h-48 py-10" />
+      </td>
+    </tr>
+  )
+}

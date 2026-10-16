@@ -1,0 +1,4021 @@
+from __future__ import annotations
+
+import logging
+import os
+import threading
+from datetime import date, datetime, timezone
+from typing import Any, Callable
+
+from sqlalchemy import and_, false, func, or_, select
+from sqlalchemy.orm import Session, aliased, selectinload
+
+from core.app_log import log_event
+from modules.asset_masters.model import CostCenterMaster
+from modules.assets.model import AssetFinancialInformation, AssetLocationInformation, AssetMaster
+from modules.errors import ConflictError, NotFoundError
+from modules.platform.org_units.model import OrgUnit
+from modules.platform.users.scope import load_viewer_org_scope
+from modules.orders.asset_order_audit import (
+    log_asset_order_approved,
+    log_asset_order_created,
+    log_asset_order_started,
+    log_asset_physically_verified,
+)
+from modules.orders.audit import log_order_event
+from modules.orders.conflicts import (
+    asset_free_for_new_order,
+    holding_other_orders,
+    order_conflict_block_clause,
+    released_transfer_asset_ids,
+)
+from modules.orders.constants import (
+    ACTION_COMPLETE,
+    ACTIVE_ORDER_STATUSES,
+    ENTITY_TYPE_CLOSURE,
+    ENTITY_TYPE_CREATION,
+    ITEM_STATUS_APPROVED,
+    ITEM_STATUS_PENDING,
+    ITEM_STATUS_REJECTED,
+    ORDER_STATUS_APPROVED,
+    ORDER_STATUS_ASSIGNED,
+    ORDER_STATUS_CANCELLED,
+    ORDER_STATUS_CLOSED,
+    ORDER_STATUS_COMPLETED,
+    ORDER_STATUS_DRAFT,
+    ORDER_STATUS_IN_PROGRESS,
+    ORDER_STATUS_PENDING_APPROVAL,
+    ORDER_STATUS_PENDING_CLOSURE,
+    ORDER_STATUS_REJECTED,
+    status_codes_matching_search,
+)
+from modules.orders.model import PhysicalOrder, PhysicalOrderAudit, PhysicalOrderItem
+from modules.orders.progress import build_order_progress, enrich_audit_rows
+from modules.orders.schema import (
+    ActiveOrderConflict,
+    BulkScanAssetFailure,
+    BulkScanAssetResponse,
+    CreatePhysicalOrderRequest,
+    ExecutorListResponse,
+    ExecutorUserPublic,
+    InvalidAssetRef,
+    PhysicalOrderApprovalNotice,
+    PhysicalOrderDetail,
+    PhysicalOrderItemPublic,
+    PhysicalOrderListFilterCostCenter,
+    PhysicalOrderListFilterOptionsResponse,
+    PhysicalOrderListFilterPlant,
+    PhysicalOrderListItem,
+    PhysicalOrderListResponse,
+    ScanAssetResponse,
+    ValidateAssetsResponse,
+    VerifiedInFinancialYearRef,
+)
+from core.permissions import _get_cached_permission_snapshot, _has_any_permission
+from modules.assets.audit_log import log_asset_event
+from modules.assets.model import AssetAuditEvent, AssetInventoryInformation
+from modules.platform.approvals.assignment_service import get_workflow_for_action
+from modules.platform.settings.financial_year import financial_year_period_for, is_verified_in_financial_year
+from modules.list_sort import apply_sort_dir, archived_last_expr
+from modules.platform.approvals.model import ApprovalRequest, ApprovalTask, ApprovalWorkflow, TaskAuditLog
+from modules.platform.approvals.service import (
+    ApprovalEngineService,
+    ApprovalError,
+    assignment_step_for_workflow,
+    first_approval_step,
+    physical_same_role_close,
+)
+from modules.platform.roles.model import Role
+from modules.platform.users.model import User
+from modules.rbac_association import user_role
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _warning_asset_code(
+    asset: AssetMaster | None = None,
+    *,
+    code: str | None = None,
+    combined: str | None = None,
+) -> str:
+    """Asset Number, or Combined Asset No when the number was cleared."""
+    if asset is not None:
+        code = asset.asset_code
+        combined = asset.combined_asset_number
+    return (str(code or "").strip() or str(combined or "").strip())
+
+
+_EDITABLE_PHYSICAL_STATUSES = frozenset({ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED})
+_ARCHIVABLE_PHYSICAL_STATUSES = frozenset({ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED})
+
+
+def _physical_list_sort_expr(sort_by: str):
+    key = (sort_by or "created_at").strip().lower()
+    if key == "order_number":
+        return PhysicalOrder.order_number
+    if key == "status":
+        return PhysicalOrder.status
+    if key == "created_at":
+        return PhysicalOrder.created_at
+    if key == "plant_name":
+        return (
+            select(OrgUnit.name)
+            .where(OrgUnit.id == PhysicalOrder.plant_id)
+            .correlate(PhysicalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "cost_center_code":
+        return (
+            select(CostCenterMaster.code)
+            .where(CostCenterMaster.id == PhysicalOrder.cost_center_id)
+            .correlate(PhysicalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "assigned_to_name":
+        return (
+            select(User.full_name)
+            .where(User.id == PhysicalOrder.assigned_to)
+            .correlate(PhysicalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "created_by_name":
+        return (
+            select(User.full_name)
+            .where(User.id == PhysicalOrder.created_by)
+            .correlate(PhysicalOrder)
+            .limit(1)
+            .scalar_subquery()
+        )
+    if key == "asset_count":
+        return (
+            select(func.count(PhysicalOrderItem.id))
+            .where(PhysicalOrderItem.order_id == PhysicalOrder.id)
+            .correlate(PhysicalOrder)
+            .scalar_subquery()
+        )
+    return PhysicalOrder.created_at
+
+
+def _actor_may_discard_physical(order: PhysicalOrder, *, actor_user_id: int, db: Session) -> bool:
+    creator_id = int(order.created_by) if order.created_by is not None else None
+    if creator_id is not None and creator_id == int(actor_user_id):
+        return True
+    viewer = db.get(User, int(actor_user_id))
+    return viewer is not None and bool(viewer.is_superuser)
+
+
+def _order_link(order_id: int) -> str:
+    base = (os.environ.get("FRONTEND_APP_URL") or os.environ.get("FRONTEND_ORIGIN") or "http://localhost:5173").rstrip(
+        "/"
+    )
+    return f"{base}/dashboard/orders/{int(order_id)}"
+
+
+def user_covers_cost_centers(
+    *, assigned_cost_center_ids: set[int], cost_center_ids: list[int]
+) -> bool:
+    """Plant-only users (no CCs assigned) cover every CC; otherwise must include all of them."""
+    if not cost_center_ids:
+        return True
+    if not assigned_cost_center_ids:
+        return True
+    assigned = {int(x) for x in assigned_cost_center_ids}
+    return all(int(cc) in assigned for cc in cost_center_ids)
+
+
+def user_in_cost_center_scope(*, assigned_cost_center_ids: set[int], cost_center_id: int) -> bool:
+    """Plant-only users (no CCs assigned) cover every CC in their plant; otherwise must match."""
+    return user_covers_cost_centers(
+        assigned_cost_center_ids=assigned_cost_center_ids,
+        cost_center_ids=[int(cost_center_id)],
+    )
+
+
+logger = logging.getLogger(__name__)
+
+
+class PhysicalOrderService:
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    @staticmethod
+    def _is_physically_verified(item: PhysicalOrderItem) -> bool:
+        return item.scan_time is not None
+
+    @staticmethod
+    def _is_line_locked_after_approval(item: PhysicalOrderItem) -> bool:
+        """Closure-approved lines stay locked when the order returns for rework."""
+        return (item.verification_status or "").strip().lower() == ITEM_STATUS_APPROVED
+
+    def _assert_item_can_be_scanned(self, item: PhysicalOrderItem) -> None:
+        if self._is_line_locked_after_approval(item):
+            raise ConflictError(
+                "Only rejected Assets are available to edit."
+            )
+        if self._is_physically_verified(item):
+            raise ConflictError(
+                "This asset was already physically verified and cannot be scanned again."
+            )
+
+    @staticmethod
+    def _physically_verified_count(items: list[PhysicalOrderItem]) -> int:
+        return sum(1 for i in items if i.scan_time is not None)
+
+    @staticmethod
+    def _pending_physical_count(items: list[PhysicalOrderItem]) -> int:
+        return sum(
+            1
+            for i in items
+            if i.scan_time is None and i.verification_status != ITEM_STATUS_REJECTED
+        )
+
+    @staticmethod
+    def _rejected_item_count(items: list[PhysicalOrderItem]) -> int:
+        return sum(1 for i in items if i.verification_status == ITEM_STATUS_REJECTED)
+
+    def _assert_closure_reviewer(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
+        if self._find_pending_closure_task(order, actor_user_id=actor_user_id) is None:
+            raise ConflictError(
+                "Only the assigned approver can approve or reject at this stage."
+            )
+
+    def _assert_creation_reviewer(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
+        if self._find_pending_creation_task(order, actor_user_id=actor_user_id) is None:
+            raise ConflictError(
+                "Only the assigned approver can approve or reject at this stage."
+            )
+
+    def _reopen_for_execution(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int,
+        reason: str | None = None,
+        rejected_codes: list[str] | None = None,
+    ) -> None:
+        """Return order to executor after selected-item rejection at closure.
+
+        Approved lines stay locked. Rejected (and other non-approved) lines lose their
+        scan and must be verified again. Status goes back to in_progress for the assignee.
+        """
+        order.status = ORDER_STATUS_IN_PROGRESS
+        order.completed_at = None
+        for item in order.items:
+            if item.verification_status == ITEM_STATUS_APPROVED:
+                continue
+            if item.verification_status != ITEM_STATUS_REJECTED:
+                item.verification_status = ITEM_STATUS_PENDING
+                item.rejection_reason = None
+            item.scan_time = None
+            # Keep last Verified By until the line is scanned again.
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="returned_for_execution",
+            actor_user_id=actor_user_id,
+            new_value={
+                "reason": reason or "Closure Approval Rejected.",
+                "rejected_asset_codes": rejected_codes or [],
+            },
+        )
+        self._mark_closure_request_in_rework(order)
+        self._restore_executor_assignee(order)
+        if order.assigned_to:
+            try:
+                from modules.platform.emails.service import enqueue_trigger_events
+
+                assignee = self._db.get(User, order.assigned_to)
+                if assignee and assignee.email:
+                    enqueue_trigger_events(
+                        [
+                            (
+                                "ORDER_RETURNED_FOR_EXECUTION",
+                                {
+                                    "user_name": assignee.full_name,
+                                    "email": assignee.email,
+                                    "order_number": order.order_number,
+                                    "reason": reason or "Closure approval rejected.",
+                                    "order_link": _order_link(int(order.id)),
+                                },
+                            )
+                        ]
+                    )
+            except Exception:
+                pass
+
+    def _clear_item_verification(self, item: PhysicalOrderItem, *, rejected: bool, reason: str | None = None) -> None:
+        # reason is order-level only; kept as unused kwarg so callers stay stable.
+        _ = reason
+        item.scan_time = None
+        # Keep verified_by so the last scanner remains visible after reject until re-verify.
+        if rejected:
+            item.verification_status = ITEM_STATUS_REJECTED
+        else:
+            item.verification_status = ITEM_STATUS_PENDING
+        item.rejection_reason = None
+
+    def _revert_inventory_for_rejected_scans(
+        self,
+        order: PhysicalOrder,
+        items: list[PhysicalOrderItem],
+        *,
+        actor_user_id: int | None,
+        scanned_asset_ids: list[int],
+    ) -> None:
+        """After reject clears order scans, put asset inventory back to unverified."""
+        _ = items
+        asset_ids = sorted({int(aid) for aid in scanned_asset_ids})
+        if not asset_ids:
+            return
+        period = financial_year_period_for()
+        self._reset_physical_verification_for_assets(
+            asset_ids,
+            actor_user_id=int(actor_user_id or order.created_by or 0),
+            order_number=order.order_number,
+            financial_year_label=period.label,
+            reason="rejected_in_physical_order",
+        )
+
+    def _set_order_rejection_reason(self, order: PhysicalOrder, reason: str | None) -> None:
+        cleaned = (reason or "").strip()
+        order.rejection_reason = cleaned or None
+    @staticmethod
+    def _item_asset_code(item: PhysicalOrderItem) -> str:
+        asset = getattr(item, "asset", None)
+        if asset is not None and getattr(asset, "asset_code", None):
+            return str(asset.asset_code)
+        # Stubs / accidental direct attrs — prefer relationship when present.
+        code = getattr(item, "asset_code", None)
+        if code:
+            return str(code)
+        return str(item.asset_id)
+
+    def _apply_full_order_rejection(
+        self,
+        order: PhysicalOrder,
+        *,
+        reason: str,
+        actor_user_id: int | None,
+        entity_type: str | None = None,
+    ) -> None:
+        """Reject remaining lines; keep already-approved lines locked for the assignee."""
+        cleaned = (reason or "Rejected").strip() or "Rejected"
+        rejected_codes: list[str] = []
+        kept_approved: list[str] = []
+        scanned_asset_ids: list[int] = []
+        for item in order.items:
+            if item.verification_status == ITEM_STATUS_APPROVED:
+                kept_approved.append(self._item_asset_code(item))
+                continue
+            if item.scan_time is not None or self._inventory_already_posted_for_order(
+                asset_id=int(item.asset_id), order_id=int(order.id)
+            ):
+                scanned_asset_ids.append(int(item.asset_id))
+            if item.verification_status == ITEM_STATUS_REJECTED:
+                item.scan_time = None
+                item.rejection_reason = None
+            else:
+                self._clear_item_verification(item, rejected=True)
+            rejected_codes.append(self._item_asset_code(item))
+        self._revert_inventory_for_rejected_scans(
+            order,
+            list(order.items),
+            actor_user_id=actor_user_id,
+            scanned_asset_ids=scanned_asset_ids,
+        )
+        order.status = ORDER_STATUS_REJECTED
+        self._set_order_rejection_reason(order, cleaned)
+        creation_req: ApprovalRequest | None = None
+        if order.approval_request_id is not None:
+            creation_req = self._db.get(ApprovalRequest, int(order.approval_request_id))
+        if creation_req is not None and str(creation_req.status) == "pending":
+            self._close_pending_approval_tasks(int(creation_req.id))
+            creation_req.status = "rejected"
+
+        closure = self._latest_closure_approval_request(int(order.id))
+        if closure is not None and str(closure.status) == "pending":
+            self._close_pending_approval_tasks(int(closure.id))
+            closure.status = "rejected"
+
+        if entity_type == ENTITY_TYPE_CLOSURE:
+            self._restore_executor_assignee(order)
+
+        assignee_name = None
+        if order.assigned_to is not None:
+            assignee = self._db.get(User, int(order.assigned_to))
+            assignee_name = assignee.full_name if assignee is not None else None
+
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="rejected",
+            actor_user_id=actor_user_id,
+            new_value={
+                "reason": cleaned,
+                "scope": "mixed" if kept_approved else "full",
+                "entity_type": entity_type,
+                "rejected_asset_codes": rejected_codes,
+                "kept_approved_asset_codes": kept_approved,
+                "assigned_to": int(order.assigned_to) if order.assigned_to is not None else None,
+                "assigned_to_name": assignee_name,
+            },
+        )
+
+    def _reset_order_after_full_rejection(self, order: PhysicalOrder) -> None:
+        """Clear non-approved lines for a fresh execution run; approved lines stay locked."""
+        for item in order.items:
+            if item.verification_status == ITEM_STATUS_APPROVED:
+                continue
+            self._clear_item_verification(item, rejected=False, reason=None)
+        order.completed_at = None
+        order.started_at = None
+        order.started_by = None
+        order.closed_at = None
+        order.approval_request_id = None
+        order.rejection_reason = None
+        closure = self._latest_closure_approval_request(int(order.id))
+        if closure is not None and str(closure.status) in ("pending", "in_rework", "rejected"):
+            self._close_pending_approval_tasks(int(closure.id))
+            if str(closure.status) == "pending":
+                closure.status = "rejected"
+
+    def _finalize_closure_with_rejected_items(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int | None,
+        reason: str = "Closure review completed with rejected assets.",
+    ) -> None:
+        """Approve-path finish when some lines are rejected: stay Rejected for assignee Start."""
+        self._apply_full_order_rejection(
+            order,
+            reason=reason,
+            actor_user_id=actor_user_id,
+            entity_type=ENTITY_TYPE_CLOSURE,
+        )
+        if order.assigned_to:
+            try:
+                from modules.platform.emails.service import enqueue_trigger_events
+
+                assignee = self._db.get(User, order.assigned_to)
+                if assignee and assignee.email:
+                    enqueue_trigger_events(
+                        [
+                            (
+                                "ORDER_RETURNED_FOR_EXECUTION",
+                                {
+                                    "user_name": assignee.full_name,
+                                    "email": assignee.email,
+                                    "order_number": order.order_number,
+                                    "reason": reason,
+                                    "order_link": _order_link(int(order.id)),
+                                },
+                            )
+                        ]
+                    )
+            except Exception:
+                pass
+
+    def _promote_pending_closure_to_completed(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int | None = None,
+        commit: bool = True,
+    ) -> bool:
+        """Legacy: migrate old pending_closure_approval rows to completed."""
+        if order.status != ORDER_STATUS_PENDING_CLOSURE:
+            return False
+        order.status = ORDER_STATUS_COMPLETED
+        if order.completed_at is None:
+            order.completed_at = _now_utc()
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="completed",
+            actor_user_id=actor_user_id,
+            new_value={"promoted_from": ORDER_STATUS_PENDING_CLOSURE},
+        )
+        if commit:
+            self._db.commit()
+        return True
+
+    def _restore_executor_assignee(self, order: PhysicalOrder) -> None:
+        """After closure review returns work, hand the order back to the executor."""
+        executor_id = getattr(order, "started_by", None)
+        if executor_id is not None:
+            order.assigned_to = int(executor_id)
+
+    def _apply_closure_approver_handoff(
+        self,
+        order: PhysicalOrder,
+        *,
+        approver_user_id: int,
+        approval_request_id: int,
+        actor_user_id: int,
+    ) -> None:
+        """Point Assigned To + approval_request_id at the named closure approver."""
+        order.approval_request_id = int(approval_request_id)
+        order.assigned_to = int(approver_user_id)
+        order.assigned_by = int(actor_user_id)
+        order.assigned_at = _now_utc()
+
+    def _sync_pending_closure_handoff(self, order: PhysicalOrder) -> bool:
+        """Heal stale rows where closure was submitted but Assigned To stayed on the executor."""
+        if not self._awaiting_closure_approval(order):
+            return False
+        req = self._latest_closure_approval_request(int(order.id))
+        if req is None or str(req.status) != "pending":
+            return False
+        changed = False
+        if order.approval_request_id != int(req.id):
+            order.approval_request_id = int(req.id)
+            changed = True
+        task = self._db.scalar(
+            select(ApprovalTask)
+            .where(
+                ApprovalTask.request_id == int(req.id),
+                ApprovalTask.status == "pending",
+                ApprovalTask.assigned_user_id.is_not(None),
+            )
+            .order_by(ApprovalTask.id.desc())
+            .limit(1)
+        )
+        if task is not None and order.assigned_to != int(task.assigned_user_id):
+            order.assigned_to = int(task.assigned_user_id)
+            changed = True
+        return changed
+
+    def _pending_closure_order_ids_for_viewer(self, pending_req_ids):
+        """Order ids whose pending closure approval request is assigned to the viewer."""
+        return select(ApprovalRequest.entity_id).where(
+            ApprovalRequest.entity_type == ENTITY_TYPE_CLOSURE,
+            ApprovalRequest.status == "pending",
+            ApprovalRequest.id.in_(pending_req_ids),
+        )
+
+    def _awaiting_closure_approval(self, order: PhysicalOrder) -> bool:
+        if order.status != ORDER_STATUS_COMPLETED:
+            return False
+        if get_workflow_for_action(self._db, ACTION_COMPLETE) is None:
+            return False
+        req = self._latest_closure_approval_request(int(order.id))
+        return req is not None and str(req.status) == "pending"
+
+    def _closure_handoff_fields(self, order: PhysicalOrder) -> dict[str, Any]:
+        """Next named approver for Complete / mid-workflow Approve."""
+        empty: dict[str, Any] = {
+            "is_final_closure_step": True,
+            "needs_next_closure_assignee": False,
+            "next_closure_role_id": None,
+            "next_closure_role_name": None,
+            "closure_approver_role_name": None,
+        }
+        wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
+        if wf is None or not wf.steps:
+            return empty
+        try:
+            first = first_approval_step(wf)
+        except ConflictError:
+            return empty
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+        empty["closure_approver_role_name"] = role_names_label(self._db, step_role_ids(first))
+
+        steps = sorted(wf.steps, key=lambda s: int(s.step_order))
+        assign = assignment_step_for_workflow(wf)
+        approval_steps = [
+            s
+            for s in steps
+            if assign is None or int(s.id) != int(assign.id)
+        ]
+        if not approval_steps:
+            return empty
+
+        if not self._awaiting_closure_approval(order):
+            nxt = approval_steps[0]
+            more_after = len(approval_steps) > 1
+            return {
+                "is_final_closure_step": not more_after,
+                "needs_next_closure_assignee": True,
+                "next_closure_role_id": int(nxt.approver_role_id),
+                "next_closure_role_name": role_names_label(self._db, step_role_ids(nxt)),
+                "closure_approver_role_name": empty["closure_approver_role_name"],
+            }
+
+        req = self._latest_closure_approval_request(int(order.id))
+        if req is None:
+            return empty
+        current_order = int(req.current_step)
+        current = next((s for s in approval_steps if int(s.step_order) == current_order), None)
+        if current is None:
+            current = next((s for s in steps if int(s.step_order) == current_order), approval_steps[0])
+        idx = next((i for i, s in enumerate(approval_steps) if int(s.id) == int(current.id)), None)
+        nxt = approval_steps[idx + 1] if idx is not None and idx + 1 < len(approval_steps) else None
+        if nxt is None or physical_same_role_close(current, nxt):
+            return {
+                **empty,
+                "is_final_closure_step": True,
+                "closure_approver_role_name": empty["closure_approver_role_name"],
+            }
+        return {
+            "is_final_closure_step": False,
+            "needs_next_closure_assignee": True,
+            "next_closure_role_id": int(nxt.approver_role_id),
+            "next_closure_role_name": role_names_label(self._db, step_role_ids(nxt)),
+            "closure_approver_role_name": empty["closure_approver_role_name"],
+        }
+
+    def _complete_closure_approval(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int,
+        comment: str | None = None,
+    ) -> None:
+        for item in order.items:
+            if item.verification_status == ITEM_STATUS_PENDING:
+                item.verification_status = ITEM_STATUS_APPROVED
+                item.rejection_reason = None
+        order.status = ORDER_STATUS_APPROVED
+        order.rejection_reason = None
+        if order.completed_at is None:
+            order.completed_at = _now_utc()
+        # Whole-order approval → update Inventory & verification for every scanned asset.
+        self._post_inventory_for_items(order, list(order.items or []), actor_user_id=actor_user_id)
+        remark = (comment or "").strip() or None
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="closure_approved",
+            actor_user_id=actor_user_id,
+            new_value={"comment": remark} if remark else None,
+        )
+
+    def _inventory_already_posted_for_order(
+        self, *, asset_id: int, order_id: int
+    ) -> bool:
+        rows = self._db.scalars(
+            select(AssetAuditEvent)
+            .where(
+                AssetAuditEvent.asset_id == int(asset_id),
+                AssetAuditEvent.action == "physical_order_verified",
+            )
+            .order_by(AssetAuditEvent.id.desc())
+            .limit(30)
+        ).all()
+        for row in rows:
+            nv = row.new_value if isinstance(row.new_value, dict) else {}
+            if int(nv.get("order_id") or 0) == int(order_id):
+                return True
+        return False
+
+    def _post_inventory_verification_for_item(
+        self,
+        item: PhysicalOrderItem,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int | None,
+    ) -> bool:
+        """Write asset Inventory & verification after the line is approved (not on scan)."""
+        if item.scan_time is None:
+            return False
+        if item.verification_status == ITEM_STATUS_REJECTED:
+            return False
+        if self._inventory_already_posted_for_order(
+            asset_id=int(item.asset_id), order_id=int(order.id)
+        ):
+            return False
+        asset = item.asset
+        if asset is None:
+            asset = self._db.get(AssetMaster, int(item.asset_id))
+        if asset is None:
+            return False
+        inv = asset.inventory
+        if inv is None:
+            inv = AssetInventoryInformation(asset_id=int(asset.id), inventory_count=1)
+            self._db.add(inv)
+            asset.inventory = inv
+        old_physical = inv.physical_count
+        old_verified = inv.last_verification_date
+        inv.physical_count = 1
+        inv.last_verification_date = (
+            item.scan_time.date() if item.scan_time is not None else date.today()
+        )
+        log_asset_physically_verified(
+            self._db,
+            asset=asset,
+            order=order,
+            actor_user_id=actor_user_id,
+            old_physical=old_physical,
+            old_verified=old_verified,
+        )
+        return True
+
+    def _post_inventory_for_items(
+        self,
+        order: PhysicalOrder,
+        items: list[PhysicalOrderItem],
+        *,
+        actor_user_id: int | None,
+    ) -> int:
+        posted = 0
+        for item in items:
+            if self._post_inventory_verification_for_item(
+                item, order, actor_user_id=actor_user_id
+            ):
+                posted += 1
+        return posted
+
+    def _maybe_complete_closure_after_item_approval(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int,
+    ) -> bool:
+        if any(i.verification_status == ITEM_STATUS_REJECTED for i in order.items):
+            return False
+        if not all(i.verification_status == ITEM_STATUS_APPROVED for i in order.items):
+            return False
+        self._complete_closure_approval(order, actor_user_id=actor_user_id)
+        return True
+
+    def _latest_closure_approval_request(self, order_id: int) -> ApprovalRequest | None:
+        return self._db.scalar(
+            select(ApprovalRequest)
+            .where(
+                ApprovalRequest.entity_type == ENTITY_TYPE_CLOSURE,
+                ApprovalRequest.entity_id == int(order_id),
+            )
+            .order_by(ApprovalRequest.id.desc())
+            .limit(1)
+        )
+
+    def _close_pending_approval_tasks(self, request_id: int) -> None:
+        now = _now_utc()
+        tasks = self._db.scalars(
+            select(ApprovalTask).where(
+                ApprovalTask.request_id == request_id,
+                ApprovalTask.status == "pending",
+            )
+        ).all()
+        for task in tasks:
+            task.status = "closed"
+            task.closed_at = now
+
+    def _mark_closure_request_in_rework(self, order: PhysicalOrder) -> None:
+        req = self._db.scalar(
+            select(ApprovalRequest).where(
+                ApprovalRequest.entity_type == ENTITY_TYPE_CLOSURE,
+                ApprovalRequest.entity_id == int(order.id),
+                ApprovalRequest.status == "pending",
+            )
+        )
+        if req is None:
+            return
+        self._close_pending_approval_tasks(int(req.id))
+        req.status = "in_rework"
+
+    def _restart_closure_approval_request(
+        self,
+        req: ApprovalRequest,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int,
+        workflow: ApprovalWorkflow,
+        assigned_user_id: int | None = None,
+    ) -> ApprovalRequest:
+        engine = ApprovalEngineService(self._db)
+        self._close_pending_approval_tasks(int(req.id))
+        first = first_approval_step(workflow)
+        req.payload = self._order_payload(order, action_code=ACTION_COMPLETE)
+        req.status = "pending"
+        req.current_step = int(first.step_order)
+        req.last_resubmitted_at = _now_utc()
+        self._db.flush()
+        engine._create_tasks_for_step(req, first, assigned_user_id=assigned_user_id)
+        new_task = self._db.scalar(
+            select(ApprovalTask)
+            .where(ApprovalTask.request_id == req.id)
+            .order_by(ApprovalTask.id.desc())
+            .limit(1)
+        )
+        if new_task is not None:
+            self._db.add(
+                TaskAuditLog(
+                    task_id=int(new_task.id),
+                    action="resubmitted",
+                    actor_user_id=actor_user_id,
+                    new_value={"request_id": int(req.id), "phase": "closure"},
+                )
+            )
+        return req
+
+    def _user_name(self, user_id: int | None) -> str | None:
+        if user_id is None:
+            return None
+        u = self._db.get(User, user_id)
+        return u.full_name if u else None
+
+    def _cached_user_name_fn(self) -> Callable[[int | None], str | None]:
+        cache: dict[int, str | None] = {}
+
+        def resolve(user_id: int | None) -> str | None:
+            if user_id is None:
+                return None
+            key = int(user_id)
+            if key not in cache:
+                cache[key] = self._user_name(key)
+            return cache[key]
+
+        return resolve
+
+    @staticmethod
+    def _run_after_commit(task: Callable[[], None]) -> None:
+        threading.Thread(target=task, daemon=True).start()
+
+    def peek_next_order_number(self) -> str:
+        """Preview only — no row is inserted, so an unsaved preview does not consume the number."""
+        return self._next_order_number()
+
+    def _next_order_number(self) -> str:
+        year = datetime.now(timezone.utc).year
+        prefix = f"PVO-{year}-"
+        last = self._db.scalar(
+            select(PhysicalOrder.order_number)
+            .where(PhysicalOrder.order_number.like(f"{prefix}%"))
+            .order_by(PhysicalOrder.id.desc())
+            .limit(1)
+        )
+        seq = 1
+        if last:
+            try:
+                seq = int(str(last).split("-")[-1]) + 1
+            except ValueError:
+                seq = 1
+        return f"{prefix}{seq:05d}"
+
+    def _load_assets(self, asset_ids: list[int]) -> list[AssetMaster]:
+        assets = list(
+            self._db.scalars(
+                select(AssetMaster)
+                .where(AssetMaster.id.in_(asset_ids), AssetMaster.deleted_at.is_(None))
+                .options(
+                    selectinload(AssetMaster.location).selectinload(AssetLocationInformation.plant),
+                    selectinload(AssetMaster.financial),
+                    selectinload(AssetMaster.inventory),
+                )
+            ).all()
+        )
+        found = {a.id for a in assets}
+        missing = [i for i in asset_ids if i not in found]
+        if missing:
+            raise NotFoundError("AssetMaster", missing[0])
+        return assets
+
+    def _resolve_cost_center_id(self, plant_id: int, cost_center_code: str) -> int:
+        cc = self._db.scalar(
+            select(CostCenterMaster).where(
+                CostCenterMaster.plant_id == plant_id,
+                CostCenterMaster.code == cost_center_code,
+            )
+        )
+        if cc is None:
+            raise ConflictError(
+                f"Cost center '{cost_center_code}' is not defined for this plant in reference masters."
+            )
+        return int(cc.id)
+
+    def validate_assets(
+        self, asset_ids: list[int], *, viewer_user_id: int | None = None
+    ) -> ValidateAssetsResponse:
+        from modules.platform.settings.scanning_process import get_scanning_process_config
+
+        scan_cfg = get_scanning_process_config()
+        assets = self._load_assets(asset_ids)
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        active_conflicts: list[ActiveOrderConflict] = []
+        missing_rfid: list[InvalidAssetRef] = []
+        not_approved: list[InvalidAssetRef] = []
+        plant_mismatch: list[InvalidAssetRef] = []
+        cc_mismatch: list[InvalidAssetRef] = []
+        blocked: set[int] = set()
+
+        active_rows = self._db.execute(
+            select(
+                PhysicalOrderItem.asset_id,
+                AssetMaster.asset_code,
+                AssetMaster.combined_asset_number,
+                AssetMaster.asset_name,
+                PhysicalOrder.id,
+                PhysicalOrder.order_number,
+                PhysicalOrder.status,
+            )
+            .join(PhysicalOrder, PhysicalOrder.id == PhysicalOrderItem.order_id)
+            .join(AssetMaster, AssetMaster.id == PhysicalOrderItem.asset_id)
+            .where(
+                PhysicalOrderItem.asset_id.in_(asset_ids),
+                order_conflict_block_clause(),
+            )
+        ).all()
+        # Mid-workflow conflicts are hard blocks — deselect before creating a new order.
+        for aid, code, combined, name, oid, onum, ost in active_rows:
+            active_conflicts.append(
+                ActiveOrderConflict(
+                    asset_id=int(aid),
+                    asset_code=_warning_asset_code(code=code, combined=combined),
+                    asset_name=str(name),
+                    order_id=int(oid),
+                    order_number=str(onum),
+                    order_status=str(ost),
+                )
+            )
+            blocked.add(int(aid))
+
+        assets_by_id = {int(a.id): a for a in assets}
+        for aid, oid, onum, ost, kind in holding_other_orders(self._db, asset_ids):
+            if int(aid) in blocked:
+                continue
+            asset = assets_by_id.get(int(aid))
+            if asset is None:
+                continue
+            active_conflicts.append(
+                ActiveOrderConflict(
+                    asset_id=int(aid),
+                    asset_code=_warning_asset_code(asset),
+                    asset_name=str(asset.asset_name),
+                    order_id=int(oid),
+                    order_number=str(onum),
+                    order_status=str(ost),
+                    order_kind=kind,
+                )
+            )
+            blocked.add(int(aid))
+
+        plant_ids = set()
+        cc_codes = set()
+        for a in assets:
+            loc = a.location
+            fin = a.financial
+            pid = int(loc.plant_id) if loc and loc.plant_id else None
+            cc = (fin.cost_center or "").strip() if fin else ""
+            if pid:
+                plant_ids.add(pid)
+            if cc:
+                cc_codes.add(cc)
+
+        ref_plant = next(iter(plant_ids)) if len(plant_ids) == 1 else None
+        ref_cc = next(iter(cc_codes)) if len(cc_codes) == 1 else None
+
+        released_transfer = released_transfer_asset_ids(self._db, asset_ids)
+        for a in assets:
+            if int(a.id) in blocked:
+                continue
+            approval = (a.approval_status or "").strip().lower()
+            free = not a.lifecycle_status or asset_free_for_new_order(a.lifecycle_status, int(a.id), released_transfer)
+            if approval != "approved" or not free:
+                not_approved.append(
+                    InvalidAssetRef(
+                        asset_id=int(a.id),
+                        asset_code=_warning_asset_code(a),
+                        asset_name=a.asset_name,
+                    )
+                )
+                blocked.add(int(a.id))
+                continue
+            has_rfid = bool((a.rfid_code or "").strip())
+            has_code = bool((a.asset_code or "").strip())
+
+            # RFID-only mode: requires RFID tag
+            if scan_cfg.rfid_enabled and not (scan_cfg.barcode_enabled or scan_cfg.qr_enabled):
+                if not has_rfid:
+                    missing_rfid.append(
+                        InvalidAssetRef(
+                            asset_id=int(a.id),
+                            asset_code=_warning_asset_code(a),
+                            asset_name=a.asset_name,
+                        )
+                    )
+                    blocked.add(int(a.id))
+                    continue
+            # Optical-only mode (Barcode / QR): requires asset_code
+            elif not scan_cfg.rfid_enabled and (scan_cfg.barcode_enabled or scan_cfg.qr_enabled):
+                if not has_code:
+                    missing_rfid.append(
+                        InvalidAssetRef(
+                            asset_id=int(a.id),
+                            asset_code=_warning_asset_code(a),
+                            asset_name=a.asset_name,
+                        )
+                    )
+                    blocked.add(int(a.id))
+                    continue
+            # Hybrid / All modes: asset is eligible if it has either RFID or asset_code
+            else:
+                if not has_rfid and not has_code:
+                    missing_rfid.append(
+                        InvalidAssetRef(
+                            asset_id=int(a.id),
+                            asset_code=_warning_asset_code(a),
+                            asset_name=a.asset_name,
+                        )
+                    )
+                    blocked.add(int(a.id))
+                    continue
+            loc = a.location
+            fin = a.financial
+            pid = int(loc.plant_id) if loc and loc.plant_id else None
+            pname = loc.plant.name if loc and loc.plant else None
+            cc = (fin.cost_center or "").strip() if fin else ""
+            if not cc:
+                cc_mismatch.append(
+                    InvalidAssetRef(
+                        asset_id=int(a.id),
+                        asset_code=_warning_asset_code(a),
+                        asset_name=a.asset_name,
+                        plant_id=pid,
+                        plant_name=pname,
+                        cost_center_code=None,
+                    )
+                )
+                blocked.add(int(a.id))
+                continue
+            if not scope.unrestricted:
+                out_of_scope = False
+                if scope.cost_center_keys is not None:
+                    out_of_scope = (
+                        pid is None
+                        or not cc
+                        or (pid, cc) not in scope.cost_center_keys
+                    )
+                elif scope.plant_ids is not None:
+                    out_of_scope = pid is None or pid not in scope.plant_ids
+                if out_of_scope:
+                    cc_mismatch.append(
+                        InvalidAssetRef(
+                            asset_id=int(a.id),
+                            asset_code=_warning_asset_code(a),
+                            asset_name=a.asset_name,
+                            plant_id=pid,
+                            plant_name=pname,
+                            cost_center_code=cc or None,
+                        )
+                    )
+                    blocked.add(int(a.id))
+                    continue
+            if ref_plant is not None and pid != ref_plant:
+                plant_mismatch.append(
+                    InvalidAssetRef(
+                        asset_id=int(a.id),
+                        asset_code=_warning_asset_code(a),
+                        asset_name=a.asset_name,
+                        plant_id=pid,
+                        plant_name=pname,
+                    )
+                )
+                blocked.add(int(a.id))
+            elif len(plant_ids) > 1 and pid != ref_plant:
+                plant_mismatch.append(
+                    InvalidAssetRef(
+                        asset_id=int(a.id),
+                        asset_code=_warning_asset_code(a),
+                        asset_name=a.asset_name,
+                        plant_id=pid,
+                        plant_name=pname,
+                    )
+                )
+                blocked.add(int(a.id))
+            # Mixed cost centers on one order are allowed; assignee must cover all of them.
+
+        eligible = [int(a.id) for a in assets if int(a.id) not in blocked]
+        period = financial_year_period_for()
+        already_verified: list[VerifiedInFinancialYearRef] = []
+        for a in assets:
+            if int(a.id) not in eligible:
+                continue
+            inv = a.inventory
+            last_dt = inv.last_verification_date if inv else None
+            if not is_verified_in_financial_year(last_dt):
+                continue
+            already_verified.append(
+                VerifiedInFinancialYearRef(
+                    asset_id=int(a.id),
+                    asset_code=_warning_asset_code(a),
+                    asset_name=a.asset_name,
+                    last_verification_date=last_dt,
+                    physical_count=inv.physical_count if inv else None,
+                )
+            )
+        resolved_plant_id: int | None = None
+        resolved_cost_center_ids: list[int] = []
+        if eligible and ref_plant is not None:
+            resolved_plant_id = ref_plant
+            seen_codes: list[str] = []
+            eligible_set = set(eligible)
+            for a in assets:
+                if int(a.id) not in eligible_set:
+                    continue
+                fin = a.financial
+                cc = (fin.cost_center or "").strip() if fin else ""
+                if not cc or cc in seen_codes:
+                    continue
+                seen_codes.append(cc)
+                try:
+                    resolved_cost_center_ids.append(self._resolve_cost_center_id(ref_plant, cc))
+                except ConflictError:
+                    pass
+        resolved_cost_center_id = resolved_cost_center_ids[0] if resolved_cost_center_ids else None
+
+        tag_label = "No RFID tag"
+        if not scan_cfg.rfid_enabled and (scan_cfg.barcode_enabled or scan_cfg.qr_enabled):
+            tag_label = "No barcode / QR code"
+        elif scan_cfg.rfid_enabled and (scan_cfg.barcode_enabled or scan_cfg.qr_enabled):
+            tag_label = "Missing verification tag / code"
+
+        return ValidateAssetsResponse(
+            eligible_asset_ids=eligible,
+            active_order_conflicts=active_conflicts,
+            missing_rfid=missing_rfid,
+            missing_tag_label=tag_label,
+            not_approved=not_approved,
+            plant_mismatch=plant_mismatch,
+            cost_center_mismatch=cc_mismatch,
+            plant_id=resolved_plant_id,
+            cost_center_id=resolved_cost_center_id,
+            cost_center_ids=resolved_cost_center_ids,
+            financial_year_label=period.label,
+            financial_year_start=period.start,
+            financial_year_end=period.end,
+            already_verified_in_fy=already_verified,
+        )
+
+    def _user_can_execute_orders(self, user_id: int) -> bool:
+        snapshot = _get_cached_permission_snapshot(self._db, user_id)
+        return _has_any_permission(snapshot, ("order.execute",))
+
+    def _user_can_view_orders(self, user_id: int) -> bool:
+        snapshot = _get_cached_permission_snapshot(self._db, user_id)
+        return _has_any_permission(snapshot, ("order.view",))
+
+    def _user_may_execute_at_plant(self, user: User, plant_id: int) -> bool:
+        user_plants = {int(ou.id) for ou in (user.org_units or [])}
+        if user_plants and plant_id not in user_plants:
+            return False
+        execute_codes = frozenset({"order.execute", "order:execute"})
+        for role in user.roles or []:
+            role_codes = {str(p.code) for p in (role.permissions or [])}
+            if role_codes.isdisjoint(execute_codes):
+                continue
+            scoped_plants = {int(ou.id) for ou in (role.org_units or [])}
+            if not scoped_plants or plant_id in scoped_plants:
+                return True
+        return False
+
+    def _users_in_role(self, role_id: int) -> list[User]:
+        return list(
+            self._db.scalars(
+                select(User)
+                .select_from(user_role)
+                .join(User, User.id == user_role.c.user_id)
+                .where(user_role.c.role_id == int(role_id), User.is_active.is_(True))
+                .options(
+                    selectinload(User.org_units),
+                    selectinload(User.cost_centers),
+                    selectinload(User.roles).selectinload(Role.permissions),
+                    selectinload(User.roles).selectinload(Role.org_units),
+                )
+                .order_by(User.full_name.asc(), User.id.asc())
+            ).all()
+        )
+
+    def _user_in_plant_scope(self, user: User, plant_id: int) -> bool:
+        user_plants = {int(ou.id) for ou in (user.org_units or [])}
+        if user_plants and plant_id not in user_plants:
+            return False
+        return True
+
+    def _user_covers_cost_centers(self, user: User, cost_center_ids: list[int]) -> bool:
+        return user_covers_cost_centers(
+            assigned_cost_center_ids={int(cc.id) for cc in (user.cost_centers or [])},
+            cost_center_ids=cost_center_ids,
+        )
+
+    def _cost_center_ids_for_order(self, order: PhysicalOrder) -> list[int]:
+        """All cost centers on the order's assets (mixed CCs allowed)."""
+        plant_id = int(order.plant_id)
+        ids: list[int] = []
+        seen: set[str] = set()
+        for item in order.items:
+            asset = item.asset
+            fin = asset.financial if asset is not None else None
+            code = (fin.cost_center or "").strip() if fin is not None else ""
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            try:
+                ids.append(self._resolve_cost_center_id(plant_id, code))
+            except ConflictError:
+                continue
+        if not ids:
+            ids.append(int(order.cost_center_id))
+        return ids
+
+    def _cost_center_codes_for_order(self, order: PhysicalOrder) -> list[str]:
+        codes: list[str] = []
+        seen: set[str] = set()
+        for item in order.items:
+            asset = item.asset
+            fin = asset.financial if asset is not None else None
+            code = (fin.cost_center or "").strip() if fin is not None else ""
+            if code and code not in seen:
+                seen.add(code)
+                codes.append(code)
+        if not codes and order.cost_center is not None:
+            codes.append(order.cost_center.code)
+        return codes
+
+    def _physical_order_workflow(self) -> ApprovalWorkflow:
+        wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
+        if wf is None or not wf.steps:
+            raise ConflictError(
+                "No active Physical order workflow is configured. "
+                "Map order.complete to a workflow in Workflow Assignment."
+            )
+        return wf
+
+    def _user_in_role(self, user_id: int, role_id: int) -> bool:
+        return (
+            self._db.scalar(
+                select(user_role.c.user_id).where(
+                    user_role.c.user_id == int(user_id),
+                    user_role.c.role_id == int(role_id),
+                )
+            )
+            is not None
+        )
+
+    def list_executors(
+        self,
+        *,
+        plant_id: int | None = None,
+        cost_center_ids: list[int] | None = None,
+    ) -> ExecutorListResponse:
+        """Users in every Assign-step role (must cover every listed cost center)."""
+        wf = self._physical_order_workflow()
+        step = assignment_step_for_workflow(wf)
+        if step is None:
+            raise ConflictError("Physical order workflow has no steps.")
+        return self._step_users_response(
+            step, plant_id=plant_id, cost_center_ids=cost_center_ids
+        )
+
+    def list_assignees(
+        self,
+        *,
+        plant_id: int | None = None,
+        cost_center_ids: list[int] | None = None,
+        role_id: int | None = None,
+    ) -> ExecutorListResponse:
+        """Users in an Approve-step role (closure handoff after Complete, or a later level)."""
+        if role_id is not None:
+            step = self._workflow_step_for_role(int(role_id))
+            return self._step_users_response(
+                step, plant_id=plant_id, cost_center_ids=cost_center_ids
+            )
+        wf = self._physical_order_workflow()
+        return self._step_users_response(
+            first_approval_step(wf),
+            plant_id=plant_id,
+            cost_center_ids=cost_center_ids,
+        )
+
+    def _workflow_step_for_role(self, role_id: int):
+        from modules.platform.approvals.step_roles import step_role_ids
+
+        wf = self._physical_order_workflow()
+        wanted = int(role_id)
+        for step in sorted(wf.steps or [], key=lambda s: int(s.step_order)):
+            if wanted == int(step.approver_role_id) or wanted in step_role_ids(step):
+                return step
+        raise ConflictError("That role is not on the Physical order workflow.")
+
+    def _step_users_response(
+        self,
+        step,
+        *,
+        plant_id: int | None = None,
+        cost_center_ids: list[int] | None = None,
+    ) -> ExecutorListResponse:
+        from modules.platform.approvals.step_roles import step_role_ids
+
+        ids = step_role_ids(step)
+        role = self._db.get(Role, ids[0]) if ids else None
+        if role is None:
+            raise ConflictError("Workflow role is missing.")
+        return self._role_users_response(
+            role,
+            plant_id=plant_id,
+            cost_center_ids=cost_center_ids,
+            role_ids=ids,
+        )
+
+    def _role_users_response(
+        self,
+        role: Role,
+        *,
+        plant_id: int | None = None,
+        cost_center_ids: list[int] | None = None,
+        role_ids: list[int] | None = None,
+    ) -> ExecutorListResponse:
+        from modules.platform.approvals.step_roles import role_names_label, users_in_any_role
+
+        ids = role_ids or [int(role.id)]
+        users = users_in_any_role(self._db, ids) if role_ids else self._users_in_role(int(role.id))
+        cc_ids = [int(x) for x in (cost_center_ids or [])]
+        items: list[ExecutorUserPublic] = []
+        for user in users:
+            if user.is_superuser:
+                continue
+            if plant_id is not None and not self._user_in_plant_scope(user, int(plant_id)):
+                continue
+            if cc_ids and not self._user_covers_cost_centers(user, cc_ids):
+                continue
+            items.append(
+                ExecutorUserPublic(
+                    id=int(user.id),
+                    full_name=user.full_name,
+                    email=user.email,
+                )
+            )
+        return ExecutorListResponse(
+            role_id=int(role.id),
+            role_name=role_names_label(self._db, ids),
+            items=items,
+        )
+
+    def _assert_valid_executor(
+        self,
+        user_id: int,
+        *,
+        plant_id: int,
+        cost_center_ids: list[int] | None = None,
+    ) -> User:
+        user = self._db.get(User, user_id)
+        if user is None or not user.is_active:
+            raise NotFoundError("User", user_id)
+        pool = self.list_executors(plant_id=plant_id, cost_center_ids=cost_center_ids)
+        if int(user_id) not in {e.id for e in pool.items}:
+            scope = " for this plant and all selected cost centers" if cost_center_ids else ""
+            raise ConflictError(
+                f"Selected user is not in the \"{pool.role_name}\" role configured "
+                f"for Physical order assignment in the workflow{scope}."
+            )
+        return user
+
+    def _assert_valid_closure_assignee(
+        self,
+        user_id: int,
+        *,
+        plant_id: int,
+        cost_center_ids: list[int],
+    ) -> User:
+        user = self._db.get(User, user_id)
+        if user is None or not user.is_active:
+            raise NotFoundError("User", user_id)
+        pool = self.list_assignees(plant_id=plant_id, cost_center_ids=cost_center_ids)
+        if int(user_id) not in {e.id for e in pool.items}:
+            raise ConflictError(
+                f"Selected user is not in the \"{pool.role_name}\" role configured "
+                "for Physical order approval in the workflow for all selected cost centers."
+            )
+        return user
+
+    def _assert_can_close(self, *, actor_user_id: int) -> None:
+        """Any role on the last approval step may close the order."""
+        from modules.platform.approvals.step_roles import role_names_label, step_role_ids
+
+        wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
+        if wf is None or not wf.steps:
+            snapshot = _get_cached_permission_snapshot(self._db, actor_user_id)
+            if _has_any_permission(snapshot, ("order.approve", "order.update", "order.create")):
+                return
+            raise ConflictError("You do not have permission to close this order.")
+        try:
+            first = first_approval_step(wf)
+        except ConflictError:
+            snapshot = _get_cached_permission_snapshot(self._db, actor_user_id)
+            if _has_any_permission(snapshot, ("order.approve", "order.update", "order.create")):
+                return
+            raise ConflictError("You do not have permission to close this order.")
+        steps = sorted(wf.steps, key=lambda s: int(s.step_order))
+        approval_steps = [
+            s
+            for s in steps
+            if str(getattr(s, "step_kind", None) or "approve").strip().lower() != "assign"
+        ]
+        last = approval_steps[-1] if approval_steps else first
+        ids = step_role_ids(last)
+        user = self._db.get(User, actor_user_id)
+        if user is not None and bool(user.is_superuser):
+            return
+        if any(self._user_in_role(actor_user_id, rid) for rid in ids):
+            return
+        raise ConflictError(
+            f"Only users in the \"{role_names_label(self._db, ids)}\" role can close the order after approval."
+        )
+
+    def _apply_pending_verification_resets(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int | None,
+    ) -> list[str]:
+        raw = order.reset_verification_asset_ids or []
+        asset_ids = [int(x) for x in raw]
+        if not asset_ids:
+            return []
+        period = financial_year_period_for()
+        codes = self._reset_physical_verification_for_assets(
+            asset_ids,
+            actor_user_id=actor_user_id,
+            order_number=order.order_number,
+            financial_year_label=period.label,
+        )
+        order.reset_verification_asset_ids = None
+        return codes
+
+    def _build_approval_notice(self, order: PhysicalOrder) -> PhysicalOrderApprovalNotice | None:
+        if order.status != ORDER_STATUS_PENDING_APPROVAL:
+            return None
+        period = financial_year_period_for()
+        reset_set = {int(x) for x in (order.reset_verification_asset_ids or [])}
+        fy_codes: list[str] = []
+        reset_codes: list[str] = []
+        for item in order.items:
+            asset = item.asset
+            if asset is None:
+                continue
+            inv = asset.inventory
+            last_dt = inv.last_verification_date if inv else None
+            if is_verified_in_financial_year(last_dt):
+                fy_codes.append(asset.asset_code)
+            if int(item.asset_id) in reset_set:
+                reset_codes.append(asset.asset_code)
+        if not fy_codes and not reset_codes:
+            return None
+        message_parts: list[str] = []
+        if fy_codes:
+            message_parts.append(
+                f"{len(fy_codes)} asset(s) were already physically verified in {period.label}."
+            )
+        if reset_codes:
+            message_parts.append(
+                f"{len(reset_codes)} asset(s) will have physical count set to 0 and verification date cleared "
+                "when this order is created."
+            )
+        return PhysicalOrderApprovalNotice(
+            financial_year_label=period.label,
+            financial_year_start=period.start,
+            financial_year_end=period.end,
+            fy_verified_asset_codes=fy_codes,
+            reset_on_approval_asset_codes=reset_codes,
+            message=" ".join(message_parts),
+        )
+
+    def _reset_physical_verification_for_assets(
+        self,
+        asset_ids: list[int],
+        *,
+        actor_user_id: int,
+        order_number: str,
+        financial_year_label: str,
+        reason: str = "re_audit_for_physical_order",
+    ) -> list[str]:
+        if not asset_ids:
+            return []
+        assets = self._load_assets(asset_ids)
+        reset_codes: list[str] = []
+        for asset in assets:
+            inv = asset.inventory
+            if inv is None:
+                inv = AssetInventoryInformation(asset_id=int(asset.id))
+                self._db.add(inv)
+                asset.inventory = inv
+            old_physical = inv.physical_count
+            old_verified = inv.last_verification_date
+            if old_physical in (None, 0) and old_verified is None:
+                continue
+            inv.physical_count = 0
+            inv.last_verification_date = None
+            reset_codes.append(asset.asset_code)
+            log_asset_event(
+                self._db,
+                asset_id=int(asset.id),
+                actor_user_id=actor_user_id,
+                action="physical_verification_reset",
+                section="inventory",
+                old_value={
+                    "physical_count": old_physical,
+                    "last_verification_date": old_verified.isoformat() if old_verified else None,
+                },
+                new_value={
+                    "physical_count": 0,
+                    "last_verification_date": None,
+                    "reason": reason,
+                    "order_number": order_number,
+                    "financial_year": financial_year_label,
+                },
+            )
+        return reset_codes
+
+    def create_order(
+        self,
+        body: CreatePhysicalOrderRequest,
+        *,
+        actor_user_id: int,
+    ) -> PhysicalOrderDetail:
+        validation = self.validate_assets(body.asset_ids, viewer_user_id=actor_user_id)
+        if validation.active_order_conflicts:
+            sample = validation.active_order_conflicts[0]
+            extra = len(validation.active_order_conflicts) - 1
+            code = (sample.asset_code or "").strip()
+            name = (sample.asset_name or "").strip()
+            ident = (
+                f"{code} ({name})"
+                if code and name and code != name
+                else (name or code)
+            )
+            msg = (
+                f"{ident} is already on order "
+                f"{sample.order_number} ({sample.order_status.replace('_', ' ')}). "
+                "Deselect assets on an open physical order before creating a new one."
+            )
+            if extra > 0:
+                msg = f"{msg} (+{extra} more)"
+            raise ConflictError(msg)
+        if not validation.eligible_asset_ids:
+            if validation.missing_rfid and len(validation.missing_rfid) == len(body.asset_ids):
+                from modules.platform.settings.scanning_process import get_scanning_process_config
+
+                scan_cfg = get_scanning_process_config()
+                if scan_cfg.rfid_enabled and not (scan_cfg.barcode_enabled or scan_cfg.qr_enabled):
+                    msg = (
+                        "Physical orders require assets with an attached RFID code in RFID-only mode. "
+                        "Attach RFID on the asset before adding it to an order."
+                    )
+                else:
+                    msg = (
+                        "Physical orders require assets with an attached RFID tag or valid asset code. "
+                        "Ensure assets have valid verification identifiers before adding to an order."
+                    )
+                raise ConflictError(msg)
+            raise ConflictError("No eligible assets to create an order.")
+        assets = self._load_assets(validation.eligible_asset_ids)
+        first = assets[0]
+        loc = first.location
+        fin = first.financial
+        if not loc or not loc.plant_id:
+            raise ConflictError("Assets must have a plant assigned.")
+        plant_id = int(loc.plant_id)
+        cc_ids = list(validation.cost_center_ids)
+        if not cc_ids:
+            cc_code = (fin.cost_center or "").strip() if fin else ""
+            if not cc_code:
+                raise ConflictError("Assets must have a cost center assigned.")
+            cc_ids = [self._resolve_cost_center_id(plant_id, cc_code)]
+        for cid in cc_ids:
+            cc_row = self._db.get(CostCenterMaster, int(cid))
+            self._assert_cost_center_in_viewer_scope(
+                plant_id=plant_id,
+                cost_center_id=int(cid),
+                cost_center_code=cc_row.code if cc_row is not None else "",
+                viewer_user_id=actor_user_id,
+            )
+        cost_center_id = int(cc_ids[0])
+
+        assignee: User | None = None
+        assigned_to_id: int | None = body.assigned_to
+        if assigned_to_id is not None:
+            assignee = self._assert_valid_executor(
+                int(assigned_to_id), plant_id=plant_id, cost_center_ids=cc_ids
+            )
+
+        eligible_set = set(validation.eligible_asset_ids)
+        reset_ids = {int(i) for i in (body.reset_verification_asset_ids or [])}
+        if reset_ids - eligible_set:
+            raise ConflictError("Reset verification is only allowed for assets in this order.")
+        period = financial_year_period_for()
+        order_number = self._next_order_number()
+        if reset_ids:
+            for asset in assets:
+                if int(asset.id) not in reset_ids:
+                    continue
+                inv = asset.inventory
+                last_dt = inv.last_verification_date if inv else None
+                if not is_verified_in_financial_year(last_dt):
+                    raise ConflictError(
+                        f"Asset {asset.asset_code} has not been physically verified in {period.label}."
+                    )
+
+        order = PhysicalOrder(
+            order_number=order_number,
+            plant_id=plant_id,
+            cost_center_id=cost_center_id,
+            created_by=actor_user_id,
+            assigned_to=assigned_to_id,
+            status=ORDER_STATUS_DRAFT,
+            remarks=body.remarks,
+            reset_verification_asset_ids=sorted(reset_ids) if reset_ids else None,
+        )
+        self._db.add(order)
+        self._db.flush()
+        for a in assets:
+            self._db.add(
+                PhysicalOrderItem(
+                    order_id=order.id,
+                    asset_id=a.id,
+                    verification_status=ITEM_STATUS_PENDING,
+                )
+            )
+        self._db.flush()
+        # Clear FY verification on create (not on assign) so re-audit starts from count 0.
+        if reset_ids:
+            self._apply_pending_verification_resets(order, actor_user_id=actor_user_id)
+        for a in assets:
+            log_asset_order_created(
+                self._db,
+                asset_id=int(a.id),
+                order=order,
+                actor_user_id=actor_user_id,
+                # Hide duplicate "Order created" when reset row already records count/date clear.
+                pending_reset=int(a.id) in reset_ids,
+            )
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="order_created",
+            actor_user_id=actor_user_id,
+            new_value={
+                "order_number": order.order_number,
+                "asset_count": len(assets),
+                "assigned_to": assigned_to_id,
+                "assigned_to_name": assignee.full_name if assignee is not None else None,
+                "reset_on_create_asset_ids": sorted(reset_ids) if reset_ids else [],
+                "financial_year": period.label if reset_ids else None,
+            },
+        )
+        if body.submit:
+            if assigned_to_id is None:
+                raise ConflictError("Select an executor before submitting.")
+            self._submit_and_assign(order, actor_user_id=actor_user_id)
+        else:
+            self._db.commit()
+        log_event(
+            logger,
+            "physical_order_created",
+            order_id=int(order.id),
+            order_number=order.order_number,
+            asset_count=len(assets),
+            submitted=bool(body.submit),
+        )
+        return self.get_order(int(order.id))
+
+    def _order_payload(self, order: PhysicalOrder, *, action_code: str) -> dict[str, Any]:
+        cc = order.cost_center
+        notice = self._build_approval_notice(order)
+        payload: dict[str, Any] = {
+            "action_code": action_code,
+            "order_number": order.order_number,
+            "order_id": int(order.id),
+            "plant_id": int(order.plant_id),
+            "cost_center_code": cc.code if cc else "",
+            "asset_count": len(order.items),
+        }
+        if notice is not None:
+            payload["approval_notice"] = notice.model_dump(mode="json")
+        return payload
+
+    def _submit_and_assign(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
+        """Draft/Rejected → Assigned (creator picks workflow-role executor)."""
+        if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
+            raise ConflictError("Order cannot be submitted in its current status.")
+        if order.assigned_to is None:
+            raise ConflictError("Select an executor before submitting.")
+        self._assert_valid_executor(
+            int(order.assigned_to),
+            plant_id=int(order.plant_id),
+            cost_center_ids=self._cost_center_ids_for_order(order),
+        )
+        # FY re-audit inventory reset runs on create, not assign.
+        # Clear any leftover creation-approval linkage from legacy flows.
+        order.approval_request_id = None
+        self._activate_assignment(
+            order,
+            actor_user_id=actor_user_id,
+            after_creation_approval=False,
+        )
+        self._db.commit()
+        log_event(
+            logger,
+            "physical_order_assigned",
+            order_id=int(order.id),
+            order_number=order.order_number,
+            assigned_to=int(order.assigned_to) if order.assigned_to is not None else None,
+        )
+
+    def _submit_for_creation_approval(self, order: PhysicalOrder, *, actor_user_id: int) -> None:
+        # Kept as alias for older call sites / scripts.
+        self._submit_and_assign(order, actor_user_id=actor_user_id)
+
+    def _activate_assignment(
+        self,
+        order: PhysicalOrder,
+        *,
+        actor_user_id: int | None,
+        after_creation_approval: bool = True,
+        set_status_assigned: bool = True,
+    ) -> None:
+        if order.assigned_to is None:
+            raise ConflictError("Order has no intended assignee.")
+        now = _now_utc()
+        order.assigned_by = actor_user_id or order.created_by
+        order.assigned_at = now
+        if set_status_assigned:
+            order.status = ORDER_STATUS_ASSIGNED
+        assignee = self._db.get(User, order.assigned_to)
+        new_value: dict[str, Any] = {
+            "assigned_to": int(order.assigned_to),
+            "assigned_to_name": assignee.full_name if assignee is not None else None,
+        }
+        if after_creation_approval:
+            new_value["auto_assigned"] = True
+        else:
+            new_value["on_submit"] = True
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="assignment_changed",
+            actor_user_id=actor_user_id,
+            new_value=new_value,
+        )
+        self._notify_assigned(order)
+
+    def _notify_assigned(self, order: PhysicalOrder) -> None:
+        order_id = int(order.id)
+        assigned_to = order.assigned_to
+        order_number = order.order_number
+
+        def _send() -> None:
+            from db.session import SessionLocal
+            from modules.platform.emails.service import EmailNotificationService
+
+            db = SessionLocal()
+            try:
+                assignee = db.get(User, assigned_to) if assigned_to else None
+                if assignee and assignee.email:
+                    EmailNotificationService(db).trigger_event(
+                        event_code="ORDER_ASSIGNED",
+                        payload={
+                            "user_name": assignee.full_name,
+                            "email": assignee.email,
+                            "order_number": order_number,
+                            "order_link": _order_link(order_id),
+                        },
+                    )
+            except Exception:
+                pass
+            finally:
+                db.close()
+
+        self._run_after_commit(_send)
+
+    def list_column_filter_options(
+        self,
+        *,
+        viewer_id: int,
+        plant_id: int | None = None,
+    ) -> PhysicalOrderListFilterOptionsResponse:
+        """Plant / CC / status dropdowns from masters in scope. Does not scan every order."""
+        scope = load_viewer_org_scope(self._db, viewer_id)
+        if plant_id is not None:
+            plant_ids: list[int] | None = [int(plant_id)]
+        elif scope.plant_ids is not None:
+            plant_ids = sorted(scope.plant_ids)
+        else:
+            plant_ids = None
+
+        plant_stmt = select(OrgUnit.id, OrgUnit.code, OrgUnit.name).where(OrgUnit.type == "plant")
+        if plant_ids is not None:
+            plant_stmt = plant_stmt.where(OrgUnit.id.in_(plant_ids) if plant_ids else false())
+        plant_rows = self._db.execute(plant_stmt.order_by(OrgUnit.code, OrgUnit.name)).all()
+        plants = [
+            PhysicalOrderListFilterPlant(
+                id=int(pid),
+                code=str(code) if code else None,
+                name=str(name or ""),
+            )
+            for pid, code, name in plant_rows
+        ]
+
+        cc_stmt = select(
+            CostCenterMaster.id,
+            CostCenterMaster.code,
+            CostCenterMaster.name,
+            CostCenterMaster.plant_id,
+        )
+        if plant_ids is not None:
+            cc_stmt = cc_stmt.where(
+                CostCenterMaster.plant_id.in_(plant_ids) if plant_ids else false()
+            )
+        if scope.cost_center_ids is not None:
+            cc_stmt = cc_stmt.where(
+                CostCenterMaster.id.in_(scope.cost_center_ids) if scope.cost_center_ids else false()
+            )
+        cc_rows = self._db.execute(
+            cc_stmt.order_by(CostCenterMaster.code, CostCenterMaster.name)
+        ).all()
+        cost_centers = [
+            PhysicalOrderListFilterCostCenter(
+                id=int(cid),
+                code=str(code),
+                name=str(name) if name else None,
+                plant_id=int(ppid) if ppid is not None else None,
+            )
+            for cid, code, name, ppid in cc_rows
+        ]
+
+        statuses = [
+            ORDER_STATUS_DRAFT,
+            ORDER_STATUS_APPROVED,
+            ORDER_STATUS_ASSIGNED,
+            ORDER_STATUS_IN_PROGRESS,
+            ORDER_STATUS_COMPLETED,
+            ORDER_STATUS_CLOSED,
+            ORDER_STATUS_REJECTED,
+            ORDER_STATUS_CANCELLED,
+        ]
+
+        return PhysicalOrderListFilterOptionsResponse(
+            plants=plants,
+            cost_centers=cost_centers,
+            statuses=statuses,
+        )
+
+    def list_orders(
+        self,
+        *,
+        tab: str,
+        page: int,
+        page_size: int,
+        viewer_id: int,
+        search: str | None = None,
+        plant_id: int | None = None,
+        cost_center_id: int | None = None,
+        order_number: str | None = None,
+        status: str | None = None,
+        asset_count: int | None = None,
+        created_on: date | None = None,
+        assigned_to: str | None = None,
+        created_by: str | None = None,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
+    ) -> PhysicalOrderListResponse:
+        base = select(PhysicalOrder).options(
+            selectinload(PhysicalOrder.plant),
+            selectinload(PhysicalOrder.cost_center),
+            selectinload(PhysicalOrder.creator),
+            selectinload(PhysicalOrder.assignee),
+        )
+        tab = tab.strip().lower()
+        from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
+
+        pending_ids = {
+            int(x)
+            for x in self._db.scalars(
+                pending_approval_request_ids_for_viewer(self._db, int(viewer_id))
+            ).all()
+            if x is not None
+        }
+        active_statuses = (
+            ORDER_STATUS_PENDING_APPROVAL,
+            ORDER_STATUS_APPROVED,
+            ORDER_STATUS_ASSIGNED,
+            ORDER_STATUS_IN_PROGRESS,
+            ORDER_STATUS_PENDING_CLOSURE,
+        )
+        if tab == "needs_action":
+            closure_order_ids = self._pending_closure_order_ids_for_viewer(pending_ids)
+            base = base.where(
+                or_(
+                    and_(
+                        PhysicalOrder.approval_request_id.is_not(None),
+                        PhysicalOrder.approval_request_id.in_(pending_ids or [-1]),
+                    ),
+                    and_(
+                        PhysicalOrder.id.in_(closure_order_ids),
+                        PhysicalOrder.status.in_(
+                            (ORDER_STATUS_COMPLETED, ORDER_STATUS_PENDING_CLOSURE)
+                        ),
+                    ),
+                    and_(
+                        PhysicalOrder.created_by == int(viewer_id),
+                        or_(
+                            PhysicalOrder.status == ORDER_STATUS_DRAFT,
+                            # Creation-approval reject only — execution rejects belong to assignee.
+                            and_(
+                                PhysicalOrder.status == ORDER_STATUS_REJECTED,
+                                PhysicalOrder.assigned_at.is_(None),
+                                PhysicalOrder.started_at.is_(None),
+                                PhysicalOrder.completed_at.is_(None),
+                            ),
+                        ),
+                    ),
+                    and_(
+                        PhysicalOrder.assigned_to == int(viewer_id),
+                        or_(
+                            PhysicalOrder.status.in_(
+                                (
+                                    ORDER_STATUS_ASSIGNED,
+                                    ORDER_STATUS_APPROVED,
+                                    ORDER_STATUS_IN_PROGRESS,
+                                    ORDER_STATUS_COMPLETED,
+                                    ORDER_STATUS_PENDING_CLOSURE,
+                                )
+                            ),
+                            and_(
+                                PhysicalOrder.status == ORDER_STATUS_REJECTED,
+                                or_(
+                                    PhysicalOrder.assigned_at.is_not(None),
+                                    PhysicalOrder.started_at.is_not(None),
+                                    PhysicalOrder.completed_at.is_not(None),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                PhysicalOrder.status != ORDER_STATUS_CLOSED,
+                PhysicalOrder.status != ORDER_STATUS_CANCELLED,
+            )
+        elif tab == "done":
+            base = base.where(
+                PhysicalOrder.status.in_((ORDER_STATUS_CLOSED, ORDER_STATUS_CANCELLED))
+            )
+        elif tab == "needs_approval":
+            base = base.where(
+                PhysicalOrder.status.in_(
+                    (ORDER_STATUS_PENDING_APPROVAL, ORDER_STATUS_PENDING_CLOSURE)
+                )
+            )
+        elif tab == "active":
+            base = base.where(PhysicalOrder.status.in_(active_statuses))
+        elif tab == "finished":
+            base = base.where(
+                PhysicalOrder.status.in_((ORDER_STATUS_COMPLETED, ORDER_STATUS_CLOSED))
+            )
+        elif tab == "my_orders":
+            base = base.where(PhysicalOrder.created_by == viewer_id)
+        elif tab == "assigned_to_me":
+            base = base.where(
+                PhysicalOrder.assigned_to == viewer_id,
+                PhysicalOrder.status.in_(
+                    (
+                        ORDER_STATUS_ASSIGNED,
+                        ORDER_STATUS_APPROVED,
+                        ORDER_STATUS_IN_PROGRESS,
+                        ORDER_STATUS_PENDING_CLOSURE,
+                        ORDER_STATUS_COMPLETED,
+                        ORDER_STATUS_REJECTED,
+                    )
+                ),
+            )
+        # Legacy tab keys (kept for bookmarks / API clients)
+        elif tab == "draft":
+            base = base.where(PhysicalOrder.status == ORDER_STATUS_DRAFT)
+        elif tab == "rejected":
+            base = base.where(PhysicalOrder.status == ORDER_STATUS_REJECTED)
+        elif tab == "pending_approval":
+            base = base.where(
+                PhysicalOrder.status.in_(
+                    (ORDER_STATUS_PENDING_APPROVAL, ORDER_STATUS_PENDING_CLOSURE)
+                )
+            )
+        elif tab == "approved":
+            base = base.where(
+                PhysicalOrder.status == ORDER_STATUS_APPROVED,
+                PhysicalOrder.completed_at.is_not(None),
+            )
+        elif tab == "assigned":
+            base = base.where(
+                or_(
+                    PhysicalOrder.status == ORDER_STATUS_ASSIGNED,
+                    and_(
+                        PhysicalOrder.status == ORDER_STATUS_APPROVED,
+                        PhysicalOrder.completed_at.is_(None),
+                    ),
+                )
+            )
+        elif tab == "in_progress":
+            base = base.where(PhysicalOrder.status == ORDER_STATUS_IN_PROGRESS)
+        elif tab == "pending_closure":
+            base = base.where(PhysicalOrder.status == ORDER_STATUS_PENDING_CLOSURE)
+        elif tab == "completed":
+            base = base.where(PhysicalOrder.status == ORDER_STATUS_COMPLETED)
+        elif tab == "closed":
+            base = base.where(PhysicalOrder.status == ORDER_STATUS_CLOSED)
+        elif tab == "all":
+            pass
+        else:
+            base = base.where(PhysicalOrder.status.in_(active_statuses))
+
+        base = self._apply_viewer_org_scope(base, viewer_user_id=viewer_id)
+        filter_kwargs = dict(
+            search=search,
+            plant_id=plant_id,
+            cost_center_id=cost_center_id,
+            order_number=order_number,
+            status=status,
+            asset_count=asset_count,
+            created_on=created_on,
+            assigned_to=assigned_to,
+            created_by=created_by,
+        )
+        base = self._apply_list_filters(base, **filter_kwargs)
+        status_q = (status or "").strip().lower()
+
+        total = int(
+            self._db.scalar(
+                base.options()
+                .with_only_columns(func.count(func.distinct(PhysicalOrder.id)))
+                .order_by(None)
+            )
+            or 0
+        )
+        sorted_base = apply_sort_dir(
+            base,
+            _physical_list_sort_expr(sort_by),
+            sort_dir=sort_dir,
+            tiebreaker=PhysicalOrder.id,
+            pin_last=archived_last_expr(PhysicalOrder.status, status_filter=status_q),
+        )
+        rows = list(
+            self._db.scalars(
+                sorted_base.offset((page - 1) * page_size).limit(page_size)
+            )
+            .unique()
+            .all()
+        )
+        # List GET stays read-only — promote/handoff heal runs on detail fetch.
+        has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
+        asset_counts = self._asset_counts_for_orders([int(o.id) for o in rows])
+        items = [
+            self._to_list_item(
+                o,
+                has_closure_workflow=has_closure_workflow,
+                action_label=self._row_action_label(o, int(viewer_id), pending_ids),
+                asset_count=asset_counts.get(int(o.id), 0),
+            )
+            for o in rows
+        ]
+        tab_counts = self._order_tab_counts(
+            viewer_id=viewer_id,
+            pending_req_ids=pending_ids,
+            skip=(tab,),
+            filter_kwargs=filter_kwargs,
+        )
+        if tab in ("all", "needs_action", "done"):
+            tab_counts[tab] = total
+        return PhysicalOrderListResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+            tab_counts=tab_counts,
+        )
+
+    def _apply_list_filters(
+        self,
+        base,
+        *,
+        search: str | None = None,
+        plant_id: int | None = None,
+        cost_center_id: int | None = None,
+        order_number: str | None = None,
+        status: str | None = None,
+        asset_count: int | None = None,
+        created_on: date | None = None,
+        assigned_to: str | None = None,
+        created_by: str | None = None,
+    ):
+        if plant_id is not None:
+            base = base.where(PhysicalOrder.plant_id == int(plant_id))
+        if cost_center_id is not None:
+            base = base.where(PhysicalOrder.cost_center_id == int(cost_center_id))
+
+        status_q = (status or "").strip().lower()
+        if status_q:
+            if status_q == ORDER_STATUS_COMPLETED:
+                base = base.where(
+                    PhysicalOrder.status.in_(
+                        (ORDER_STATUS_COMPLETED, ORDER_STATUS_PENDING_CLOSURE)
+                    )
+                )
+            else:
+                base = base.where(PhysicalOrder.status == status_q)
+
+        if asset_count is not None:
+            item_count = (
+                select(func.count(PhysicalOrderItem.id))
+                .where(PhysicalOrderItem.order_id == PhysicalOrder.id)
+                .correlate(PhysicalOrder)
+                .scalar_subquery()
+            )
+            base = base.where(item_count == int(asset_count))
+
+        if created_on is not None:
+            base = base.where(func.date(PhysicalOrder.created_at) == created_on)
+
+        onum = (order_number or "").strip()
+        if onum:
+            base = base.where(PhysicalOrder.order_number.ilike(f"%{onum}%"))
+
+        assignee_q = (assigned_to or "").strip()
+        if assignee_q:
+            assignee_alias = aliased(User)
+            base = base.join(assignee_alias, assignee_alias.id == PhysicalOrder.assigned_to).where(
+                assignee_alias.full_name.ilike(f"%{assignee_q}%")
+            )
+
+        creator_q = (created_by or "").strip()
+        if creator_q:
+            creator_alias = aliased(User)
+            base = base.join(creator_alias, creator_alias.id == PhysicalOrder.created_by).where(
+                creator_alias.full_name.ilike(f"%{creator_q}%")
+            )
+
+        q = (search or "").strip()
+        if q:
+            pattern = f"%{q}%"
+            plant_alias = aliased(OrgUnit)
+            cc_alias = aliased(CostCenterMaster)
+            creator_s = aliased(User)
+            assignee_s = aliased(User)
+            search_parts = [
+                PhysicalOrder.order_number.ilike(pattern),
+                plant_alias.name.ilike(pattern),
+                plant_alias.code.ilike(pattern),
+                cc_alias.code.ilike(pattern),
+                cc_alias.name.ilike(pattern),
+                creator_s.full_name.ilike(pattern),
+                assignee_s.full_name.ilike(pattern),
+            ]
+            status_codes = status_codes_matching_search(q)
+            if status_codes:
+                search_parts.append(PhysicalOrder.status.in_(status_codes))
+            base = (
+                base.outerjoin(plant_alias, plant_alias.id == PhysicalOrder.plant_id)
+                .outerjoin(cc_alias, cc_alias.id == PhysicalOrder.cost_center_id)
+                .outerjoin(creator_s, creator_s.id == PhysicalOrder.created_by)
+                .outerjoin(assignee_s, assignee_s.id == PhysicalOrder.assigned_to)
+                .where(or_(*search_parts))
+            )
+        return base
+
+    def _asset_counts_for_orders(self, order_ids: list[int]) -> dict[int, int]:
+        if not order_ids:
+            return {}
+        rows = self._db.execute(
+            select(PhysicalOrderItem.order_id, func.count())
+            .where(PhysicalOrderItem.order_id.in_(order_ids))
+            .group_by(PhysicalOrderItem.order_id)
+        ).all()
+        return {int(oid): int(cnt) for oid, cnt in rows}
+
+    def _order_tab_counts(
+        self,
+        *,
+        viewer_id: int,
+        pending_req_ids: set[int] | None = None,
+        skip: tuple[str, ...] = (),
+        filter_kwargs: dict | None = None,
+    ) -> dict[str, int]:
+        """Tab badge counts without wrapping full entity selects."""
+        out: dict[str, int] = {}
+        skipped = set(skip)
+        for key in ("all", "needs_action", "done"):
+            if key in skipped:
+                continue
+            stmt = self._list_orders_base_for_tab(
+                key, viewer_id=viewer_id, pending_req_ids=pending_req_ids
+            )
+            stmt = self._apply_list_filters(stmt, **(filter_kwargs or {}))
+            out[key] = int(
+                self._db.scalar(
+                    stmt.with_only_columns(func.count(func.distinct(PhysicalOrder.id))).order_by(
+                        None
+                    )
+                )
+                or 0
+            )
+        return out
+
+    def _list_orders_base_for_tab(
+        self,
+        tab: str,
+        *,
+        viewer_id: int,
+        pending_req_ids: set[int] | frozenset[int] | None = None,
+    ):
+        """Minimal count query for inbox tabs (org-scoped)."""
+        base = select(PhysicalOrder.id)
+        tab = tab.strip().lower()
+        if tab == "needs_action":
+            from modules.platform.approvals.list_inbox import pending_approval_request_ids_for_viewer
+
+            if pending_req_ids is None:
+                pending_req_ids = {
+                    int(x)
+                    for x in self._db.scalars(
+                        pending_approval_request_ids_for_viewer(self._db, int(viewer_id))
+                    ).all()
+                    if x is not None
+                }
+            closure_order_ids = self._pending_closure_order_ids_for_viewer(pending_req_ids)
+            base = base.where(
+                or_(
+                    and_(
+                        PhysicalOrder.approval_request_id.is_not(None),
+                        PhysicalOrder.approval_request_id.in_(pending_req_ids),
+                    ),
+                    and_(
+                        PhysicalOrder.id.in_(closure_order_ids),
+                        PhysicalOrder.status.in_(
+                            (ORDER_STATUS_COMPLETED, ORDER_STATUS_PENDING_CLOSURE)
+                        ),
+                    ),
+                    and_(
+                        PhysicalOrder.created_by == int(viewer_id),
+                        or_(
+                            PhysicalOrder.status == ORDER_STATUS_DRAFT,
+                            and_(
+                                PhysicalOrder.status == ORDER_STATUS_REJECTED,
+                                PhysicalOrder.assigned_at.is_(None),
+                                PhysicalOrder.started_at.is_(None),
+                                PhysicalOrder.completed_at.is_(None),
+                            ),
+                        ),
+                    ),
+                    and_(
+                        PhysicalOrder.assigned_to == int(viewer_id),
+                        or_(
+                            PhysicalOrder.status.in_(
+                                (
+                                    ORDER_STATUS_ASSIGNED,
+                                    ORDER_STATUS_APPROVED,
+                                    ORDER_STATUS_IN_PROGRESS,
+                                    ORDER_STATUS_COMPLETED,
+                                    ORDER_STATUS_PENDING_CLOSURE,
+                                )
+                            ),
+                            and_(
+                                PhysicalOrder.status == ORDER_STATUS_REJECTED,
+                                or_(
+                                    PhysicalOrder.assigned_at.is_not(None),
+                                    PhysicalOrder.started_at.is_not(None),
+                                    PhysicalOrder.completed_at.is_not(None),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                PhysicalOrder.status != ORDER_STATUS_CLOSED,
+                PhysicalOrder.status != ORDER_STATUS_CANCELLED,
+            )
+        elif tab == "done":
+            base = base.where(
+                PhysicalOrder.status.in_((ORDER_STATUS_CLOSED, ORDER_STATUS_CANCELLED))
+            )
+        base = self._apply_viewer_org_scope(base, viewer_user_id=viewer_id)
+        return base
+
+    @staticmethod
+    def _execution_side_rejection(order: PhysicalOrder) -> bool:
+        """True when reject happened after assignment/execution (assignee restarts)."""
+        return (
+            order.status == ORDER_STATUS_REJECTED
+            and (
+                order.assigned_at is not None
+                or order.started_at is not None
+                or order.completed_at is not None
+            )
+        )
+
+    def _row_action_label(
+        self, order: PhysicalOrder, viewer_id: int, pending_request_ids: set[int]
+    ) -> str | None:
+        """Short label for what this viewer should do next, mirroring the needs_action tab."""
+        uid = int(viewer_id)
+        if order.status in (ORDER_STATUS_CLOSED, ORDER_STATUS_CANCELLED):
+            return None
+        is_creator = order.created_by is not None and int(order.created_by) == uid
+        is_assignee = order.assigned_to is not None and int(order.assigned_to) == uid
+        # Execution reject stays with assignee (Restart) — not creator Resubmit.
+        if is_assignee and PhysicalOrderService._execution_side_rejection(order):
+            return "Restart"
+        if is_creator and order.status in _EDITABLE_PHYSICAL_STATUSES:
+            if order.status == ORDER_STATUS_REJECTED and PhysicalOrderService._execution_side_rejection(
+                order
+            ):
+                return None
+            return "Submit" if order.status == ORDER_STATUS_DRAFT else "Resubmit"
+        if (
+            order.approval_request_id is not None
+            and int(order.approval_request_id) in pending_request_ids
+        ):
+            return "Approve"
+        if is_assignee:
+            if (
+                order.status in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED)
+                and order.completed_at is None
+            ):
+                return "Start"
+            if order.status == ORDER_STATUS_IN_PROGRESS:
+                return "Verify"
+            if order.status in (ORDER_STATUS_PENDING_CLOSURE, ORDER_STATUS_COMPLETED):
+                # Completed + approval_request_id → awaiting named closure approver.
+                if order.status == ORDER_STATUS_COMPLETED and order.approval_request_id is None:
+                    return "Close"
+                return "Approve"
+            if order.status == ORDER_STATUS_APPROVED:
+                return "Close"
+        return None
+
+    def _to_list_item(
+        self,
+        order: PhysicalOrder,
+        *,
+        has_closure_workflow: bool = False,
+        action_label: str | None = None,
+        asset_count: int | None = None,
+    ) -> PhysicalOrderListItem:
+        cc = order.cost_center
+        return PhysicalOrderListItem(
+            id=int(order.id),
+            order_number=order.order_number,
+            plant_id=int(order.plant_id),
+            plant_name=order.plant.name if order.plant else "",
+            cost_center_id=int(order.cost_center_id),
+            cost_center_code=cc.code if cc else "",
+            cost_center_description=cc.name if cc else "",
+            asset_count=int(asset_count) if asset_count is not None else len(order.items),
+            status=order.status,
+            closed_at=order.closed_at,
+            has_closure_workflow=has_closure_workflow,
+            assigned_to_name=order.assignee.full_name if order.assignee else None,
+            created_by_name=order.creator.full_name if order.creator else None,
+            created_at=order.created_at,
+            needs_my_action=action_label is not None,
+            my_action_label=action_label,
+        )
+
+    def _apply_viewer_org_scope(self, base: Any, *, viewer_user_id: int) -> Any:
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        if scope.unrestricted:
+            return base
+        if scope.cost_center_ids is not None:
+            if not scope.cost_center_ids:
+                return base.where(false())
+            return base.where(PhysicalOrder.cost_center_id.in_(scope.cost_center_ids))
+        if scope.plant_ids is not None:
+            return base.where(PhysicalOrder.plant_id.in_(scope.plant_ids))
+        return base
+
+    def _assert_order_in_viewer_scope(
+        self, order: PhysicalOrder, *, viewer_user_id: int
+    ) -> None:
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        if scope.unrestricted:
+            return
+        if scope.cost_center_ids is not None:
+            if int(order.cost_center_id) not in scope.cost_center_ids:
+                raise NotFoundError("PhysicalOrder", int(order.id))
+            return
+        if scope.plant_ids is not None and int(order.plant_id) not in scope.plant_ids:
+            raise NotFoundError("PhysicalOrder", int(order.id))
+
+    def _assert_cost_center_in_viewer_scope(
+        self,
+        *,
+        plant_id: int,
+        cost_center_id: int,
+        cost_center_code: str,
+        viewer_user_id: int,
+    ) -> None:
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        if scope.unrestricted:
+            return
+        if scope.cost_center_ids is not None:
+            if int(cost_center_id) not in scope.cost_center_ids:
+                raise ConflictError("Cost center is outside your assigned scope.")
+            return
+        if scope.plant_ids is not None and int(plant_id) not in scope.plant_ids:
+            raise ConflictError("Plant is outside your assigned scope.")
+        _ = cost_center_code
+
+    def _load_order(
+        self, order_id: int, *, viewer_user_id: int | None = None
+    ) -> PhysicalOrder:
+        order = self._db.scalar(
+            select(PhysicalOrder)
+            .where(PhysicalOrder.id == order_id)
+            .options(
+                selectinload(PhysicalOrder.plant),
+                selectinload(PhysicalOrder.cost_center),
+                selectinload(PhysicalOrder.creator),
+                selectinload(PhysicalOrder.assignee),
+                selectinload(PhysicalOrder.items).selectinload(PhysicalOrderItem.asset).selectinload(
+                    AssetMaster.inventory
+                ),
+                selectinload(PhysicalOrder.items).selectinload(PhysicalOrderItem.asset).selectinload(
+                    AssetMaster.financial
+                ),
+                selectinload(PhysicalOrder.items).selectinload(PhysicalOrderItem.asset).selectinload(
+                    AssetMaster.category
+                ),
+                selectinload(PhysicalOrder.items).selectinload(PhysicalOrderItem.asset).selectinload(
+                    AssetMaster.asset_class_master
+                ),
+            )
+        )
+        if order is None:
+            raise NotFoundError("PhysicalOrder", order_id)
+        if viewer_user_id is not None:
+            self._assert_order_in_viewer_scope(order, viewer_user_id=viewer_user_id)
+        return order
+
+    def _to_item_public(
+        self,
+        item: PhysicalOrderItem,
+        *,
+        user_name_fn: Callable[[int | None], str | None] | None = None,
+    ) -> PhysicalOrderItemPublic:
+        a = item.asset
+        resolve_name = user_name_fn or self._user_name
+        verifier = resolve_name(item.verified_by)
+        inv = a.inventory if a else None
+        fin = a.financial if a else None
+        return PhysicalOrderItemPublic(
+            id=int(item.id),
+            asset_id=int(item.asset_id),
+            asset_code=a.asset_code if a else "",
+            asset_name=a.asset_name if a else "",
+            rfid_code=a.rfid_code if a else None,
+            verification_status=item.verification_status,
+            rejection_reason=None,
+            scan_time=item.scan_time,
+            verified_by_name=verifier,
+            physically_verified=self._is_physically_verified(item),
+            # Order UI reflects this order's scan only — rejected/unscanned lines show 0 / blank.
+            last_verification_date=(
+                item.scan_time.date() if item.scan_time is not None else None
+            ),
+            # Per-line remark on this order (not asset_master.remark).
+            remark=(item.remarks.strip() if item.remarks and item.remarks.strip() else None),
+            combined_asset_number=a.combined_asset_number if a else None,
+            sub_no=a.sub_no if a else None,
+            category_name=a.category.name if a is not None and a.category is not None else None,
+            asset_class=(
+                a.asset_class_master.name
+                if a is not None and a.asset_class_master is not None
+                else (a.asset_class if a else None)
+            ),
+            inventory_count=inv.inventory_count if inv else None,
+            physical_count=1 if self._is_physically_verified(item) else 0,
+            cost_center_code=(fin.cost_center.strip() if fin and fin.cost_center else None),
+        )
+
+    def get_order(self, order_id: int, *, viewer_user_id: int | None = None) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=viewer_user_id)
+        if self._promote_pending_closure_to_completed(order, commit=True):
+            order = self._load_order(order_id, viewer_user_id=viewer_user_id)
+        if self._sync_pending_closure_handoff(order):
+            self._db.commit()
+            order = self._load_order(order_id, viewer_user_id=viewer_user_id)
+        user_name_fn = self._cached_user_name_fn()
+        physically_verified = self._physically_verified_count(order.items)
+        pending_physical = self._pending_physical_count(order.items)
+        rejected_items = self._rejected_item_count(order.items)
+        audit_rows = self._db.scalars(
+            select(PhysicalOrderAudit)
+            .where(PhysicalOrderAudit.order_id == order_id)
+            .order_by(PhysicalOrderAudit.created_at.asc())
+        ).all()
+        audit = enrich_audit_rows(
+            audit_rows,
+            user_name_fn=user_name_fn,
+            db=self._db,
+            order_id=order_id,
+            order_items=list(order.items),
+            assigned_to_name=user_name_fn(order.assigned_to) if order.assigned_to else None,
+            work_completed_at=order.completed_at,
+            work_completed_by=order.started_by,
+        )
+        progress = build_order_progress(
+            self._db,
+            order,
+            audit_rows=list(audit_rows),
+            user_name_fn=user_name_fn,
+        )
+        cc = order.cost_center
+        viewer = self._db.get(User, int(viewer_user_id)) if viewer_user_id is not None else None
+        is_super = viewer is not None and bool(viewer.is_superuser)
+        is_creator = (
+            order.created_by is not None
+            and viewer_user_id is not None
+            and int(order.created_by) == int(viewer_user_id)
+        )
+        can_review_creation = False
+        can_review_closure = False
+        if viewer_user_id is not None:
+            uid = int(viewer_user_id)
+            if order.status == ORDER_STATUS_PENDING_APPROVAL:
+                can_review_creation = (
+                    self._find_pending_creation_task(order, actor_user_id=uid) is not None
+                )
+            elif self._awaiting_closure_approval(order):
+                can_review_closure = (
+                    self._find_pending_closure_task(order, actor_user_id=uid) is not None
+                )
+        handoff = self._closure_handoff_fields(order)
+        return PhysicalOrderDetail(
+            id=int(order.id),
+            order_number=order.order_number,
+            plant_id=int(order.plant_id),
+            plant_name=order.plant.name if order.plant else "",
+            cost_center_id=int(order.cost_center_id),
+            cost_center_ids=self._cost_center_ids_for_order(order),
+            cost_center_code=", ".join(self._cost_center_codes_for_order(order)) or (cc.code if cc else ""),
+            cost_center_description=cc.name if cc else "",
+            status=order.status,
+            remarks=order.remarks,
+            rejection_reason=order.rejection_reason,
+            created_by=order.created_by,
+            created_by_name=user_name_fn(order.created_by),
+            assigned_to=order.assigned_to,
+            assigned_to_name=user_name_fn(order.assigned_to),
+            assigned_by_name=user_name_fn(order.assigned_by),
+            assigned_at=order.assigned_at,
+            started_at=order.started_at,
+            started_by_name=user_name_fn(order.started_by),
+            completed_at=order.completed_at,
+            closed_at=order.closed_at,
+            created_at=order.created_at,
+            approval_request_id=order.approval_request_id,
+            items=[self._to_item_public(i, user_name_fn=user_name_fn) for i in order.items],
+            verified_count=physically_verified,
+            physically_verified_count=physically_verified,
+            pending_physical_count=pending_physical,
+            rejected_item_count=rejected_items,
+            total_count=len(order.items),
+            audit=audit,
+            progress=progress,
+            approval_notice=self._build_approval_notice(order),
+            can_delete=False,
+            can_archive=(
+                order.status in _ARCHIVABLE_PHYSICAL_STATUSES
+                and (is_creator or is_super)
+            ),
+            can_unarchive=(
+                order.status == ORDER_STATUS_CANCELLED and (is_creator or is_super)
+            ),
+            can_review_creation=can_review_creation,
+            can_review_closure=can_review_closure,
+            can_reassign_rejected=(
+                viewer_user_id is not None
+                and self._rejected_by(order) == int(viewer_user_id)
+                and _has_any_permission(
+                    _get_cached_permission_snapshot(self._db, int(viewer_user_id)), ("order.reassign",)
+                )
+            ),
+            is_final_closure_step=bool(handoff["is_final_closure_step"]),
+            needs_next_closure_assignee=bool(handoff["needs_next_closure_assignee"]),
+            next_closure_role_id=handoff["next_closure_role_id"],
+            next_closure_role_name=handoff["next_closure_role_name"],
+            closure_approver_role_name=handoff["closure_approver_role_name"],
+        )
+
+    def delete_draft_order(self, order_id: int, *, actor_user_id: int) -> None:
+        raise ConflictError("Physical verification orders cannot be deleted. Archive the order instead.")
+
+    def archive_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status not in _ARCHIVABLE_PHYSICAL_STATUSES:
+            raise ConflictError("Only draft or rejected physical orders can be archived.")
+        if not _actor_may_discard_physical(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the order creator can archive this physical order.")
+
+        if order.approval_request_id is not None:
+            now = _now_utc()
+            req = self._db.get(ApprovalRequest, int(order.approval_request_id))
+            if req is not None and str(req.status) in ("pending", "in_rework"):
+                req.status = "rejected"
+            open_tasks = self._db.scalars(
+                select(ApprovalTask).where(
+                    ApprovalTask.request_id == int(order.approval_request_id),
+                    ApprovalTask.status.in_(("pending", "open")),
+                )
+            ).all()
+            for t in open_tasks:
+                t.status = "closed"
+                t.closed_at = now
+
+        old_status = order.status
+        order.status = ORDER_STATUS_CANCELLED
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="archived",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status},
+            new_value={"status": order.status},
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def unarchive_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_CANCELLED:
+            raise ConflictError("Only archived physical orders can be unarchived.")
+        if not _actor_may_discard_physical(order, actor_user_id=actor_user_id, db=self._db):
+            raise ConflictError("Only the order creator can unarchive this physical order.")
+
+        restore = self._status_before_archive(int(order.id), allowed=_EDITABLE_PHYSICAL_STATUSES)
+        old_status = order.status
+        order.status = restore
+        log_order_event(
+            self._db,
+            order_id=int(order.id),
+            action="unarchived",
+            actor_user_id=actor_user_id,
+            old_value={"status": old_status},
+            new_value={"status": order.status},
+        )
+        self._db.commit()
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def _status_before_archive(self, order_id: int, *, allowed: frozenset[str]) -> str:
+        row = self._db.scalar(
+            select(PhysicalOrderAudit)
+            .where(
+                PhysicalOrderAudit.order_id == order_id,
+                PhysicalOrderAudit.action == "archived",
+            )
+            .order_by(PhysicalOrderAudit.id.desc())
+            .limit(1)
+        )
+        if row is not None and isinstance(row.old_value, dict):
+            prev = str(row.old_value.get("status") or "").strip().lower()
+            if prev in allowed:
+                return prev
+        return ORDER_STATUS_DRAFT
+
+    def update_order(
+        self,
+        order_id: int,
+        *,
+        actor_user_id: int,
+        assigned_to: int | None = None,
+        remarks: str | None = None,
+        asset_ids: list[int] | None = None,
+    ) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
+            raise ConflictError("Only draft or rejected orders can be edited.")
+        if assigned_to is not None:
+            assignee = self._assert_valid_executor(
+                int(assigned_to),
+                plant_id=int(order.plant_id),
+                cost_center_ids=self._cost_center_ids_for_order(order),
+            )
+            old = order.assigned_to
+            order.assigned_to = assigned_to
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="assignment_changed",
+                actor_user_id=actor_user_id,
+                old_value={"assigned_to": old},
+                new_value={
+                    "assigned_to": assigned_to,
+                    "assigned_to_name": assignee.full_name,
+                    "intended_only": True,
+                },
+            )
+        if remarks is not None:
+            order.remarks = remarks
+        if asset_ids is not None:
+            validation = self.validate_assets(asset_ids)
+            if not validation.eligible_asset_ids:
+                raise ConflictError("No eligible assets.")
+            assets = self._load_assets(validation.eligible_asset_ids)
+            self._db.execute(
+                PhysicalOrderItem.__table__.delete().where(PhysicalOrderItem.order_id == order_id)
+            )
+            for a in assets:
+                self._db.add(
+                    PhysicalOrderItem(
+                        order_id=order_id,
+                        asset_id=a.id,
+                        verification_status=ITEM_STATUS_PENDING,
+                    )
+                )
+        self._db.commit()
+        return self.get_order(order_id)
+
+    def submit_order(
+        self,
+        order_id: int,
+        *,
+        actor_user_id: int,
+        assigned_to: int,
+        remarks: str | None = None,
+    ) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.created_by != actor_user_id:
+            raise ConflictError("Only the order creator can submit.")
+        if order.status not in (ORDER_STATUS_DRAFT, ORDER_STATUS_REJECTED):
+            raise ConflictError("Order cannot be submitted in its current status.")
+        description = (remarks or "").strip()
+        if not description:
+            raise ConflictError("Order description is required.")
+        self._assert_valid_executor(
+            int(assigned_to),
+            plant_id=int(order.plant_id),
+            cost_center_ids=self._cost_center_ids_for_order(order),
+        )
+        order.remarks = description
+        order.assigned_to = int(assigned_to)
+        if order.status == ORDER_STATUS_REJECTED:
+            self._reset_order_after_full_rejection(order)
+        else:
+            for item in order.items:
+                self._clear_item_verification(item, rejected=False, reason=None)
+        self._submit_and_assign(order, actor_user_id=actor_user_id)
+        return self.get_order(order_id)
+
+    def restart_rejected_order(
+        self, order_id: int, *, actor_user_id: int
+    ) -> PhysicalOrderDetail:
+        """Assignee (or creator) restarts a fully rejected order with the same executor."""
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_REJECTED:
+            raise ConflictError("Only a rejected order can be restarted.")
+        if order.assigned_to is None:
+            raise ConflictError("Assign an executor before restarting.")
+        is_assignee = int(order.assigned_to) == int(actor_user_id)
+        is_creator = order.created_by is not None and int(order.created_by) == int(actor_user_id)
+        if not is_assignee and not is_creator:
+            raise ConflictError("Only the assigned executor or order creator can restart.")
+        self._assert_valid_executor(
+            int(order.assigned_to),
+            plant_id=int(order.plant_id),
+            cost_center_ids=self._cost_center_ids_for_order(order),
+        )
+        self._reset_order_after_full_rejection(order)
+        self._activate_assignment(
+            order,
+            actor_user_id=actor_user_id,
+            after_creation_approval=False,
+            set_status_assigned=False,
+        )
+        # Restart is the resume action — go straight to in_progress (no second Start).
+        order.status = ORDER_STATUS_IN_PROGRESS
+        order.started_at = _now_utc()
+        order.started_by = actor_user_id
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="returned_for_execution",
+            actor_user_id=actor_user_id,
+            new_value={
+                "reason": "Restarted after full order rejection",
+                "scope": "full",
+                "status": ORDER_STATUS_IN_PROGRESS,
+            },
+        )
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="started",
+            actor_user_id=actor_user_id,
+            new_value={"reason": "Auto-started on restart"},
+        )
+        self._db.commit()
+        log_event(
+            logger,
+            "physical_order_started",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            restart=True,
+        )
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def update_order_asset_remark(
+        self,
+        order_id: int,
+        asset_id: int,
+        remark: str | None,
+        *,
+        actor_user_id: int,
+    ):
+        """Update physical_order_items.remarks for an asset line on this order."""
+        from modules.assets.schema import AssetRemarkPublic
+
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        item = next(
+            (i for i in (order.items or []) if int(i.asset_id) == int(asset_id)),
+            None,
+        )
+        if item is None:
+            raise NotFoundError("Asset", asset_id)
+
+        previous = item.remarks
+        cleaned = (remark or "").strip() or None
+        if previous == cleaned:
+            return AssetRemarkPublic(
+                asset_id=int(asset_id),
+                remark=cleaned,
+                previous_remark=previous,
+            )
+
+        item.remarks = cleaned
+        asset_code = item.asset.asset_code if item.asset else None
+        asset_name = item.asset.asset_name if item.asset else None
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="item_remark_updated",
+            actor_user_id=actor_user_id,
+            old_value={
+                "asset_id": int(asset_id),
+                "asset_code": asset_code,
+                "asset_name": asset_name,
+                "remarks": previous,
+            },
+            new_value={
+                "asset_id": int(asset_id),
+                "asset_code": asset_code,
+                "asset_name": asset_name,
+                "remarks": cleaned,
+            },
+        )
+        self._db.commit()
+        return AssetRemarkPublic(
+            asset_id=int(asset_id),
+            remark=cleaned,
+            previous_remark=previous,
+        )
+
+    @staticmethod
+    def _task_for_actor(
+        tasks: list[ApprovalTask], *, actor_user_id: int, role_ids: set[int]
+    ) -> ApprovalTask | None:
+        """Match act_on_task: named user wins; role pool only when no user is set."""
+        for task in tasks:
+            if task.assigned_user_id is not None:
+                if int(task.assigned_user_id) == int(actor_user_id):
+                    return task
+                continue
+            if task.assigned_role_id is not None and int(task.assigned_role_id) in role_ids:
+                return task
+        return None
+
+    def _find_pending_closure_task(
+        self, order: PhysicalOrder, *, actor_user_id: int
+    ) -> ApprovalTask | None:
+        req = self._latest_closure_approval_request(int(order.id))
+        if req is None or str(req.status) != "pending":
+            return None
+        engine = ApprovalEngineService(self._db)
+        role_ids = engine._role_ids_for_user(actor_user_id)
+        tasks = list(
+            self._db.scalars(
+                select(ApprovalTask).where(
+                    ApprovalTask.request_id == int(req.id),
+                    ApprovalTask.status == "pending",
+                )
+            ).all()
+        )
+        return self._task_for_actor(tasks, actor_user_id=actor_user_id, role_ids=role_ids)
+
+    def _find_pending_creation_task(
+        self, order: PhysicalOrder, *, actor_user_id: int
+    ) -> ApprovalTask | None:
+        req_id = order.approval_request_id
+        if req_id is None:
+            req = self._db.scalar(
+                select(ApprovalRequest)
+                .where(
+                    ApprovalRequest.entity_type == ENTITY_TYPE_CREATION,
+                    ApprovalRequest.entity_id == int(order.id),
+                )
+                .order_by(ApprovalRequest.created_at.desc())
+                .limit(1)
+            )
+            req_id = int(req.id) if req is not None else None
+        if req_id is None:
+            return None
+
+        engine = ApprovalEngineService(self._db)
+        role_ids = engine._role_ids_for_user(actor_user_id)
+        tasks = list(
+            self._db.scalars(
+                select(ApprovalTask).where(
+                    ApprovalTask.request_id == req_id,
+                    ApprovalTask.status == "pending",
+                )
+            ).all()
+        )
+        return self._task_for_actor(tasks, actor_user_id=actor_user_id, role_ids=role_ids)
+
+    def approve_creation_order(
+        self,
+        order_id: int,
+        *,
+        actor_user_id: int,
+        comment: str | None = None,
+    ) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_PENDING_APPROVAL:
+            raise ConflictError("Order is not pending approval.")
+        self._assert_creation_reviewer(order, actor_user_id=actor_user_id)
+        for item in order.items:
+            if item.verification_status == ITEM_STATUS_PENDING:
+                item.verification_status = ITEM_STATUS_APPROVED
+                item.rejection_reason = None
+        self._db.flush()
+        remark = (comment or "").strip() or None
+
+        task = self._find_pending_creation_task(order, actor_user_id=actor_user_id)
+        if task is not None:
+            ApprovalEngineService(self._db).act_on_task(
+                task_id=int(task.id),
+                actor_user_id=actor_user_id,
+                action="approve",
+                comment=remark,
+            )
+        else:
+            finalize_creation_approval(
+                self._db,
+                order_id=order_id,
+                approver_user_id=actor_user_id,
+                comment=remark,
+            )
+        return self.get_order(order_id)
+
+    def approve_all_items(
+        self,
+        order_id: int,
+        *,
+        actor_user_id: int,
+        next_assigned_user_id: int | None = None,
+        comment: str | None = None,
+    ) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        remark = (comment or "").strip() or None
+        if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
+            self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
+            for item in order.items:
+                if item.verification_status == ITEM_STATUS_PENDING:
+                    item.verification_status = ITEM_STATUS_APPROVED
+                    item.rejection_reason = None
+            has_rejected = any(
+                i.verification_status == ITEM_STATUS_REJECTED for i in order.items
+            )
+            if has_rejected:
+                # Mixed finish: approved stay locked; rejected return to assignee as Rejected.
+                self._finalize_closure_with_rejected_items(
+                    order,
+                    actor_user_id=actor_user_id,
+                    reason=(order.rejection_reason or "").strip() or "Rejected",
+                )
+                self._db.commit()
+                log_event(
+                    logger,
+                    "physical_order_items_rejected",
+                    order_id=int(order_id),
+                    order_number=order.order_number,
+                    scope="mixed_finalize",
+                )
+                return self.get_order(order_id)
+            task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)
+            if task is not None:
+                try:
+                    ApprovalEngineService(self._db).act_on_task(
+                        task_id=int(task.id),
+                        actor_user_id=actor_user_id,
+                        action="approve",
+                        comment=remark,
+                        next_assigned_user_id=next_assigned_user_id,
+                    )
+                except ApprovalError as exc:
+                    raise ConflictError(exc.message) from exc
+            else:
+                self._complete_closure_approval(
+                    order, actor_user_id=actor_user_id, comment=remark
+                )
+                self._db.commit()
+            log_event(
+                logger,
+                "physical_order_approved",
+                order_id=int(order_id),
+                order_number=order.order_number,
+                scope="closure_all",
+            )
+            return self.get_order(order_id)
+        if order.status != ORDER_STATUS_PENDING_APPROVAL:
+            raise ConflictError("Order is not pending approval.")
+        self._assert_creation_reviewer(order, actor_user_id=actor_user_id)
+        for item in order.items:
+            if item.verification_status == ITEM_STATUS_PENDING:
+                item.verification_status = ITEM_STATUS_APPROVED
+                item.rejection_reason = None
+        self._db.commit()
+        log_event(
+            logger,
+            "physical_order_approved",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            scope="creation_all",
+        )
+        return self.get_order(order_id)
+
+    def approve_items(self, order_id: int, item_ids: list[int], *, actor_user_id: int) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        id_set = set(item_ids)
+        if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
+            self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
+            if not id_set:
+                raise ConflictError("Select at least one line item to approve.")
+            order_item_ids = {int(i.id) for i in order.items}
+            if id_set - order_item_ids:
+                raise ConflictError("One or more selected line items are not on this order.")
+            for item in order.items:
+                if item.id in id_set:
+                    item.verification_status = ITEM_STATUS_APPROVED
+                    item.rejection_reason = None
+            selected = [i for i in order.items if int(i.id) in id_set]
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="closure_items_approved",
+                actor_user_id=actor_user_id,
+                new_value={
+                    "asset_codes": [self._item_asset_code(i) for i in selected],
+                },
+            )
+            if id_set == order_item_ids:
+                task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)
+                if task is not None:
+                    ApprovalEngineService(self._db).act_on_task(
+                        task_id=int(task.id),
+                        actor_user_id=actor_user_id,
+                        action="approve",
+                        comment=None,
+                    )
+                    log_event(
+                        logger,
+                        "physical_order_approved",
+                        order_id=int(order_id),
+                        order_number=order.order_number,
+                        scope="closure_items",
+                        item_count=len(id_set),
+                    )
+                    return self.get_order(order_id)
+                self._complete_closure_approval(order, actor_user_id=actor_user_id)
+            else:
+                completed = self._maybe_complete_closure_after_item_approval(
+                    order,
+                    actor_user_id=actor_user_id,
+                )
+                if not completed:
+                    # Partial approval → update Inventory & verification only for those assets.
+                    self._post_inventory_for_items(
+                        order, selected, actor_user_id=actor_user_id
+                    )
+            self._db.commit()
+            log_event(
+                logger,
+                "physical_order_approved",
+                order_id=int(order_id),
+                order_number=order.order_number,
+                scope="closure_items",
+                item_count=len(id_set),
+            )
+            return self.get_order(order_id)
+        if order.status != ORDER_STATUS_PENDING_APPROVAL:
+            raise ConflictError("Order is not pending approval.")
+        self._assert_creation_reviewer(order, actor_user_id=actor_user_id)
+        for item in order.items:
+            if item.id in id_set:
+                item.verification_status = ITEM_STATUS_APPROVED
+                item.rejection_reason = None
+        self._db.commit()
+        log_event(
+            logger,
+            "physical_order_approved",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            scope="creation_items",
+            item_count=len(id_set),
+        )
+        return self.get_order(order_id)
+
+    def reject_items(
+        self,
+        order_id: int,
+        item_ids: list[int],
+        *,
+        rejection_reason: str,
+        actor_user_id: int,
+    ) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status == ORDER_STATUS_PENDING_APPROVAL:
+            self._assert_creation_reviewer(order, actor_user_id=actor_user_id)
+            id_set = set(item_ids)
+            reason = rejection_reason.strip()
+            for item in order.items:
+                if item.id in id_set:
+                    item.verification_status = ITEM_STATUS_REJECTED
+                    item.rejection_reason = None
+            self._set_order_rejection_reason(order, reason)
+            self._db.commit()
+            log_event(
+                logger,
+                "physical_order_items_rejected",
+                order_id=int(order_id),
+                order_number=order.order_number,
+                scope="creation",
+                item_count=len(id_set),
+            )
+            return self.get_order(order_id)
+        if order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
+            self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
+            id_set = set(item_ids)
+            reason = rejection_reason.strip()
+            if not reason:
+                raise ConflictError("A rejection reason is required.")
+            selected = [i for i in order.items if i.id in id_set]
+            if not selected:
+                raise ConflictError("Select at least one line item to reject.")
+            rejected_codes: list[str] = []
+            scanned_asset_ids: list[int] = []
+            for item in selected:
+                if item.scan_time is not None or self._inventory_already_posted_for_order(
+                    asset_id=int(item.asset_id), order_id=int(order.id)
+                ):
+                    scanned_asset_ids.append(int(item.asset_id))
+                self._clear_item_verification(item, rejected=True)
+                rejected_codes.append(self._item_asset_code(item))
+            self._revert_inventory_for_rejected_scans(
+                order,
+                selected,
+                actor_user_id=actor_user_id,
+                scanned_asset_ids=scanned_asset_ids,
+            )
+            self._set_order_rejection_reason(order, reason)
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="closure_items_rejected",
+                actor_user_id=actor_user_id,
+                new_value={"asset_codes": rejected_codes, "reason": reason},
+            )
+            # Stay in closure review so the approver can continue approving/rejecting lines.
+            self._db.commit()
+            log_event(
+                logger,
+                "physical_order_items_rejected",
+                order_id=int(order_id),
+                order_number=order.order_number,
+                scope="closure",
+                item_count=len(rejected_codes),
+            )
+            return self.get_order(order_id)
+        raise ConflictError("Order is not in an approval phase.")
+
+    def reject_execution_items(
+        self,
+        order_id: int,
+        item_ids: list[int],
+        *,
+        rejection_reason: str,
+        actor_user_id: int,
+    ) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_IN_PROGRESS:
+            raise ConflictError("Order is not in progress.")
+        if order.assigned_to != actor_user_id:
+            raise ConflictError("Only the assigned executor can reject line items.")
+        id_set = set(item_ids)
+        reason = rejection_reason.strip()
+        if not reason:
+            raise ConflictError("A rejection reason is required.")
+        rejected_codes: list[str] = []
+        for item in order.items:
+            if item.id not in id_set:
+                continue
+            if self._is_physically_verified(item):
+                raise ConflictError(
+                    f"Cannot reject verified asset {self._item_asset_code(item)}."
+                )
+            if item.verification_status == ITEM_STATUS_REJECTED:
+                continue
+            item.verification_status = ITEM_STATUS_REJECTED
+            item.rejection_reason = None
+            rejected_codes.append(self._item_asset_code(item))
+        if not rejected_codes:
+            raise ConflictError("No eligible line items to reject.")
+        self._set_order_rejection_reason(order, reason)
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="execution_items_rejected",
+            actor_user_id=actor_user_id,
+            new_value={"asset_codes": rejected_codes, "reason": reason},
+        )
+        self._db.commit()
+        return self.get_order(order_id)
+
+    def reject_order(self, order_id: int, *, reason: str, actor_user_id: int) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        entity_type: str | None = None
+        if order.status == ORDER_STATUS_PENDING_APPROVAL:
+            entity_type = ENTITY_TYPE_CREATION
+            self._assert_creation_reviewer(order, actor_user_id=actor_user_id)
+        elif order.status == ORDER_STATUS_COMPLETED and self._awaiting_closure_approval(order):
+            entity_type = ENTITY_TYPE_CLOSURE
+            self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
+        else:
+            raise ConflictError("Order is not in an approval phase.")
+        cleaned = reason.strip()
+        if not cleaned:
+            raise ConflictError("A rejection reason is required.")
+        self._apply_full_order_rejection(
+            order,
+            reason=cleaned,
+            actor_user_id=actor_user_id,
+            entity_type=entity_type,
+        )
+        self._notify_rejected(order, cleaned)
+        self._db.commit()
+        log_event(
+            logger,
+            "physical_order_rejected",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            entity_type=entity_type,
+        )
+        return self.get_order(order_id)
+
+    def _rejected_by(self, order: PhysicalOrder) -> int | None:
+        """Who rejected a fully rejected order after work started; None for any other state."""
+        if not self._execution_side_rejection(order):
+            return None
+        actor = self._db.scalar(
+            select(PhysicalOrderAudit.actor_user_id)
+            .where(PhysicalOrderAudit.order_id == int(order.id), PhysicalOrderAudit.action == "rejected")
+            .order_by(PhysicalOrderAudit.id.desc())
+            .limit(1)
+        )
+        return int(actor) if actor is not None else None
+
+    def reassign_order(
+        self,
+        order_id: int,
+        *,
+        assigned_to: int,
+        actor_user_id: int,
+        reason: str | None = None,
+    ) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        cleaned_reason = (reason or "").strip()
+        if order.status == ORDER_STATUS_REJECTED:
+            # Rejected order: the rejecter may hand it to another executor instead of the last one.
+            if self._rejected_by(order) != int(actor_user_id):
+                raise ConflictError("Only the user who rejected this order can reassign it.")
+            if not cleaned_reason:
+                raise ConflictError("A reassign reason is required.")
+        elif order.status == ORDER_STATUS_APPROVED and order.completed_at is not None:
+            raise ConflictError("Order can only be reassigned before work starts.")
+        elif order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
+            raise ConflictError("Order can only be reassigned before work starts.")
+        if assigned_to == order.assigned_to:
+            raise ConflictError("Select a different executor to reassign this order.")
+        assignee = self._assert_valid_executor(
+            int(assigned_to),
+            plant_id=int(order.plant_id),
+            cost_center_ids=self._cost_center_ids_for_order(order),
+        )
+        old_id = order.assigned_to
+        old_name = self._user_name(old_id)
+        new_name = assignee.full_name
+        order.assigned_to = assigned_to
+        order.assigned_by = actor_user_id
+        order.assigned_at = _now_utc()
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="reassigned",
+            actor_user_id=actor_user_id,
+            old_value={
+                "assigned_to": old_id,
+                "assigned_to_name": old_name,
+            },
+            new_value={
+                "assigned_to": assigned_to,
+                "assigned_to_name": new_name,
+                **({"reason": cleaned_reason} if cleaned_reason else {}),
+            },
+        )
+        self._notify_assigned(order)
+        self._db.commit()
+        log_event(
+            logger,
+            "physical_order_reassigned",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            from_user_id=int(old_id) if old_id is not None else None,
+            to_user_id=int(assigned_to),
+        )
+        return self.get_order(order_id)
+
+    def close_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        has_closure_workflow = get_workflow_for_action(self._db, ACTION_COMPLETE) is not None
+        if has_closure_workflow:
+            if order.status != ORDER_STATUS_APPROVED:
+                raise ConflictError("Order must be approved before it can be closed.")
+        elif order.status != ORDER_STATUS_COMPLETED:
+            raise ConflictError("Order must be completed before it can be closed.")
+        self._assert_can_close(actor_user_id=actor_user_id)
+        order.status = ORDER_STATUS_CLOSED
+        order.closed_at = _now_utc()
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="closed",
+            actor_user_id=actor_user_id,
+        )
+        self._db.commit()
+        log_event(
+            logger,
+            "physical_order_closed",
+            order_id=int(order_id),
+            order_number=order.order_number,
+        )
+        return self.get_order(order_id)
+
+    def start_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.assigned_to != actor_user_id:
+            raise ConflictError("Only the assigned executor can start this order.")
+        restarted = False
+        if order.status == ORDER_STATUS_REJECTED:
+            if not self._execution_side_rejection(order):
+                raise ConflictError(
+                    "This rejected order must be resubmitted for approval before starting."
+                )
+            # Clear prior run; stay with same assignee and move straight to in progress.
+            self._reset_order_after_full_rejection(order)
+            restarted = True
+        elif order.status not in (ORDER_STATUS_ASSIGNED, ORDER_STATUS_APPROVED):
+            raise ConflictError("Order must be assigned before starting.")
+        order.status = ORDER_STATUS_IN_PROGRESS
+        order.started_at = _now_utc()
+        order.started_by = actor_user_id
+        for item in order.items:
+            # Keep lines already approved at closure review locked.
+            if item.verification_status == ITEM_STATUS_APPROVED:
+                continue
+            item.verification_status = ITEM_STATUS_PENDING
+            item.rejection_reason = None
+            item.scan_time = None
+            # Keep verified_by until the next successful scan overwrites it.
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="started",
+            actor_user_id=actor_user_id,
+        )
+        for item in order.items:
+            if item.verification_status != ITEM_STATUS_REJECTED:
+                log_asset_order_started(
+                    self._db,
+                    asset_id=int(item.asset_id),
+                    order=order,
+                    actor_user_id=actor_user_id,
+                )
+        self._db.commit()
+        log_event(
+            logger,
+            "physical_order_started",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            restart=restarted,
+        )
+        return self.get_order(order_id, viewer_user_id=actor_user_id)
+
+    def scan_asset(
+        self,
+        order_id: int,
+        *,
+        scan_value: str,
+        item_id: int | None = None,
+        actor_user_id: int,
+    ) -> ScanAssetResponse:
+        order = self._db.scalar(
+            select(PhysicalOrder)
+            .where(PhysicalOrder.id == order_id)
+            .options(
+                selectinload(PhysicalOrder.items)
+                .selectinload(PhysicalOrderItem.asset)
+                .selectinload(AssetMaster.inventory),
+            )
+        )
+        if order is None:
+            raise NotFoundError("PhysicalOrder", order_id)
+        self._assert_order_in_viewer_scope(order, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_IN_PROGRESS:
+            raise ConflictError("Order is not in progress.")
+        if order.assigned_to != actor_user_id:
+            raise ConflictError("Only the assigned executor can scan assets.")
+        val = scan_value.strip().upper()
+        if not val:
+            raise ConflictError("Scan value is required.")
+
+        from modules.platform.settings.scanning_process import get_scanning_process_config
+
+        scan_cfg = get_scanning_process_config()
+
+        item: PhysicalOrderItem | None = None
+        if item_id is not None:
+            item = next((i for i in order.items if int(i.id) == int(item_id)), None)
+            if item is None:
+                raise NotFoundError("PhysicalOrderItem", item_id)
+        else:
+            for i in order.items:
+                a = i.asset
+                if not a:
+                    continue
+                rfid = (a.rfid_code or "").strip().upper()
+                code = (a.asset_code or "").strip().upper()
+                if scan_cfg.rfid_enabled and rfid and rfid == val:
+                    item = i
+                    break
+                if (scan_cfg.barcode_enabled or scan_cfg.qr_enabled) and code and code == val:
+                    item = i
+                    break
+
+        if item is None:
+            raise NotFoundError("Asset in order", scan_value)
+
+        self._assert_item_can_be_scanned(item)
+
+        a = item.asset
+        if a is None:
+            raise ConflictError("Asset not found for this line item.")
+        rfid = (a.rfid_code or "").strip().upper()
+        code = (a.asset_code or "").strip().upper()
+
+        matched = False
+        if scan_cfg.rfid_enabled and rfid and rfid == val:
+            matched = True
+        elif (scan_cfg.barcode_enabled or scan_cfg.qr_enabled) and code and code == val:
+            matched = True
+
+        if not matched:
+            if not scan_cfg.rfid_enabled and rfid and rfid == val:
+                raise ConflictError("RFID scanning is disabled in global scanning process settings.")
+            if not (scan_cfg.barcode_enabled or scan_cfg.qr_enabled) and code and code == val:
+                raise ConflictError("Barcode / QR code scanning is disabled in global scanning process settings.")
+            raise ConflictError("Invalid tag or asset code scanned. Please scan the right tag or code.")
+
+        now = _now_utc()
+        # Scan locks physical verification only; line approval is a separate reviewer action.
+        item.verification_status = ITEM_STATUS_PENDING
+        item.scan_time = now
+        item.verified_by = actor_user_id
+        item.rejection_reason = None
+        log_order_event(
+            self._db,
+            order_id=order_id,
+            action="asset_verified",
+            actor_user_id=actor_user_id,
+            new_value={
+                "asset_id": int(item.asset_id),
+                "asset_code": a.asset_code,
+                "rfid_code": rfid,
+            },
+        )
+        # Inventory & verification on the asset master updates only after closure approval
+        # (whole order or selected lines) — not at scan time.
+        self._db.commit()
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        physically_verified = self._physically_verified_count(order.items)
+        log_event(
+            logger,
+            "physical_order_scanned",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            asset_id=int(item.asset_id),
+            asset_code=a.asset_code,
+            verified_count=physically_verified,
+            total_count=len(order.items),
+            bulk=False,
+        )
+        return ScanAssetResponse(
+            item=self._to_item_public(item),
+            verified_count=physically_verified,
+            total_count=len(order.items),
+        )
+
+    def scan_assets_bulk(
+        self,
+        order_id: int,
+        *,
+        scan_values: list[str],
+        actor_user_id: int,
+    ) -> BulkScanAssetResponse:
+        """Verify many RFID tags in one request (single load + single commit)."""
+        order = self._db.scalar(
+            select(PhysicalOrder)
+            .where(PhysicalOrder.id == order_id)
+            .options(
+                selectinload(PhysicalOrder.items)
+                .selectinload(PhysicalOrderItem.asset)
+                .selectinload(AssetMaster.inventory),
+            )
+        )
+        if order is None:
+            raise NotFoundError("PhysicalOrder", order_id)
+        self._assert_order_in_viewer_scope(order, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_IN_PROGRESS:
+            raise ConflictError("Order is not in progress.")
+        if order.assigned_to != actor_user_id:
+            raise ConflictError("Only the assigned executor can scan assets.")
+
+        # Preserve first occurrence order while de-duplicating.
+        seen: set[str] = set()
+        unique_values: list[str] = []
+        for raw in scan_values:
+            val = (raw or "").strip().upper()
+            if not val or val in seen:
+                continue
+            seen.add(val)
+            unique_values.append(val)
+
+        from modules.platform.settings.scanning_process import get_scanning_process_config
+
+        scan_cfg = get_scanning_process_config()
+
+        by_identifier: dict[str, PhysicalOrderItem] = {}
+        for item in order.items:
+            asset = item.asset
+            if not asset:
+                continue
+            rfid = (asset.rfid_code or "").strip().upper()
+            code = (asset.asset_code or "").strip().upper()
+            if scan_cfg.rfid_enabled and rfid and rfid not in by_identifier:
+                by_identifier[rfid] = item
+            if (scan_cfg.barcode_enabled or scan_cfg.qr_enabled) and code and code not in by_identifier:
+                by_identifier[code] = item
+
+        now = _now_utc()
+        success_items: list[PhysicalOrderItem] = []
+        failures: list[BulkScanAssetFailure] = []
+
+        for val in unique_values:
+            item = by_identifier.get(val)
+            if item is None:
+                failures.append(
+                    BulkScanAssetFailure(
+                        scan_value=val,
+                        message="Tag or code not found on this order",
+                    )
+                )
+                continue
+
+            if self._is_line_locked_after_approval(item):
+                failures.append(
+                    BulkScanAssetFailure(
+                        scan_value=val,
+                        message="Only rejected Assets are available to edit.",
+                    )
+                )
+                continue
+
+            if self._is_physically_verified(item):
+                success_items.append(item)
+                continue
+
+            asset = item.asset
+            if asset is None:
+                failures.append(
+                    BulkScanAssetFailure(
+                        scan_value=val,
+                        message="Asset not found for this line item",
+                    )
+                )
+                continue
+
+            rfid = (asset.rfid_code or "").strip().upper()
+            if not rfid:
+                failures.append(
+                    BulkScanAssetFailure(
+                        scan_value=val,
+                        message="Asset has no RFID code attached",
+                    )
+                )
+                continue
+            if rfid != val:
+                failures.append(
+                    BulkScanAssetFailure(
+                        scan_value=val,
+                        message="Invalid Tag scanned. Please scan the right tag.",
+                    )
+                )
+                continue
+
+            item.verification_status = ITEM_STATUS_PENDING
+            item.scan_time = now
+            item.verified_by = actor_user_id
+            item.rejection_reason = None
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="asset_verified",
+                actor_user_id=actor_user_id,
+                new_value={
+                    "asset_id": int(item.asset_id),
+                    "asset_code": asset.asset_code,
+                    "rfid_code": rfid,
+                    "bulk": True,
+                },
+            )
+            success_items.append(item)
+
+        self._db.commit()
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        user_name_fn = self._cached_user_name_fn()
+        # Deduplicate success rows by item id while keeping response order.
+        seen_item_ids: set[int] = set()
+        public_items: list[PhysicalOrderItemPublic] = []
+        for item in success_items:
+            item_id = int(item.id)
+            if item_id in seen_item_ids:
+                continue
+            seen_item_ids.add(item_id)
+            # Reload from committed order for fresh public mapping.
+            live = next((i for i in order.items if int(i.id) == item_id), item)
+            public_items.append(self._to_item_public(live, user_name_fn=user_name_fn))
+
+        verified_count = self._physically_verified_count(order.items)
+        if success_items or failures:
+            log_event(
+                logger,
+                "physical_order_scanned",
+                order_id=int(order_id),
+                order_number=order.order_number,
+                success_count=len(seen_item_ids),
+                failure_count=len(failures),
+                verified_count=verified_count,
+                total_count=len(order.items),
+                bulk=True,
+            )
+
+        return BulkScanAssetResponse(
+            items=public_items,
+            failures=failures,
+            verified_count=verified_count,
+            total_count=len(order.items),
+        )
+
+    def submit_closure(
+        self,
+        order_id: int,
+        *,
+        actor_user_id: int,
+        assignee_user_id: int | None = None,
+    ) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_IN_PROGRESS:
+            raise ConflictError("Order is not in progress.")
+        if order.assigned_to != actor_user_id:
+            raise ConflictError("Only the assigned executor can submit for closure.")
+        # Unscanned lines stay pending for closure review. Scanned lines stay pending too
+        # until the reviewer explicitly approves them (scan ≠ line approval).
+        for item in order.items:
+            if item.verification_status == ITEM_STATUS_APPROVED:
+                item.rejection_reason = None
+                continue
+            item.verification_status = ITEM_STATUS_PENDING
+            item.rejection_reason = None
+        order.status = ORDER_STATUS_COMPLETED
+        order.completed_at = _now_utc()
+        wf = get_workflow_for_action(self._db, ACTION_COMPLETE)
+        if wf:
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="completed",
+                actor_user_id=actor_user_id,
+            )
+            self._db.flush()
+            # Mobile (and other clients) may omit assignee; default to first valid approver.
+            resolved_assignee = assignee_user_id
+            if resolved_assignee is None:
+                pool = self.list_assignees(
+                    plant_id=int(order.plant_id),
+                    cost_center_ids=self._cost_center_ids_for_order(order),
+                )
+                if not pool.items:
+                    raise ConflictError(
+                        "No approver is available who covers all cost centers on this order."
+                    )
+                resolved_assignee = int(pool.items[0].id)
+            self._assert_valid_closure_assignee(
+                int(resolved_assignee),
+                plant_id=int(order.plant_id),
+                cost_center_ids=self._cost_center_ids_for_order(order),
+            )
+            engine = ApprovalEngineService(self._db)
+            existing = self._latest_closure_approval_request(order_id)
+            resubmitted = False
+            if existing and str(existing.status) == "pending":
+                req = self._restart_closure_approval_request(
+                    existing,
+                    order,
+                    actor_user_id=actor_user_id,
+                    workflow=wf,
+                    assigned_user_id=int(resolved_assignee),
+                )
+            elif existing and str(existing.status) in ("in_rework", "rejected"):
+                self._db.flush()
+                req, _ = engine.resubmit_rejected_request(
+                    request_id=int(existing.id),
+                    actor_user_id=actor_user_id,
+                    assigned_user_id=int(resolved_assignee),
+                )
+                resubmitted = True
+            else:
+                req = engine.create_request_for_entity(
+                    workflow=wf,
+                    entity_type=ENTITY_TYPE_CLOSURE,
+                    entity_id=int(order.id),
+                    payload=self._order_payload(order, action_code=ACTION_COMPLETE),
+                    created_by=actor_user_id,
+                    assigned_user_id=int(resolved_assignee),
+                )
+            self._apply_closure_approver_handoff(
+                order,
+                approver_user_id=int(resolved_assignee),
+                approval_request_id=int(req.id),
+                actor_user_id=actor_user_id,
+            )
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="closure_submitted",
+                actor_user_id=actor_user_id,
+                new_value={
+                    "approval_request_id": int(req.id),
+                    "resubmitted": resubmitted,
+                    "assignee_user_id": int(resolved_assignee),
+                    "assignee_user_name": self._user_name(int(resolved_assignee)),
+                },
+            )
+        else:
+            for item in order.items:
+                item.verification_status = ITEM_STATUS_APPROVED
+            # No closure workflow → completion is the approval gate for inventory.
+            self._post_inventory_for_items(
+                order, list(order.items or []), actor_user_id=actor_user_id
+            )
+            log_order_event(
+                self._db,
+                order_id=order_id,
+                action="completed",
+                actor_user_id=actor_user_id,
+            )
+            self._notify_completed(order)
+        self._db.commit()
+        log_event(
+            logger,
+            "physical_order_completed",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            has_closure_workflow=bool(wf),
+        )
+        return self.get_order(order_id)
+
+    def approve_closure_order(self, order_id: int, *, actor_user_id: int) -> PhysicalOrderDetail:
+        order = self._load_order(order_id, viewer_user_id=actor_user_id)
+        if order.status != ORDER_STATUS_COMPLETED or not self._awaiting_closure_approval(order):
+            raise ConflictError("Order is not awaiting closure approval.")
+        self._assert_closure_reviewer(order, actor_user_id=actor_user_id)
+        rejected = [i for i in order.items if i.verification_status == ITEM_STATUS_REJECTED]
+        if rejected:
+            self._reopen_for_execution(
+                order,
+                actor_user_id=actor_user_id,
+                reason="Closure Approval Rejected.",
+                rejected_codes=[self._item_asset_code(i) for i in rejected],
+            )
+        else:
+            task = self._find_pending_closure_task(order, actor_user_id=actor_user_id)
+            if task is not None:
+                ApprovalEngineService(self._db).act_on_task(
+                    task_id=int(task.id),
+                    actor_user_id=actor_user_id,
+                    action="approve",
+                    comment=None,
+                )
+                log_event(
+                    logger,
+                    "physical_order_approved",
+                    order_id=int(order_id),
+                    order_number=order.order_number,
+                    scope="closure_order",
+                )
+                return self.get_order(order_id)
+            self._complete_closure_approval(order, actor_user_id=actor_user_id)
+        self._db.commit()
+        log_event(
+            logger,
+            "physical_order_items_rejected" if rejected else "physical_order_approved",
+            order_id=int(order_id),
+            order_number=order.order_number,
+            scope="closure_order",
+            rejected_item_count=len(rejected) if rejected else None,
+        )
+        return self.get_order(order_id)
+
+    def _notify_rejected(self, order: PhysicalOrder, reason: str) -> None:
+        order_id = int(order.id)
+        created_by = order.created_by
+        order_number = order.order_number
+
+        def _send() -> None:
+            from db.session import SessionLocal
+            from modules.platform.emails.service import EmailNotificationService
+
+            db = SessionLocal()
+            try:
+                creator = db.get(User, created_by) if created_by else None
+                if creator and creator.email:
+                    EmailNotificationService(db).trigger_event(
+                        event_code="ORDER_REJECTED",
+                        payload={
+                            "user_name": creator.full_name,
+                            "email": creator.email,
+                            "order_number": order_number,
+                            "reason": reason,
+                            "order_link": _order_link(order_id),
+                        },
+                    )
+            except Exception:
+                pass
+            finally:
+                db.close()
+
+        self._run_after_commit(_send)
+
+    def _notify_completed(self, order: PhysicalOrder) -> None:
+        order_id = int(order.id)
+        order_number = order.order_number
+        recipient_ids = {uid for uid in (order.created_by, order.assigned_to) if uid is not None}
+
+        def _send() -> None:
+            from db.session import SessionLocal
+            from modules.platform.emails.service import EmailNotificationService
+
+            db = SessionLocal()
+            try:
+                for uid in recipient_ids:
+                    u = db.get(User, uid)
+                    if u and u.email:
+                        EmailNotificationService(db).trigger_event(
+                            event_code="ORDER_COMPLETED",
+                            payload={
+                                "user_name": u.full_name,
+                                "email": u.email,
+                                "order_number": order_number,
+                                "order_link": _order_link(order_id),
+                            },
+                        )
+            except Exception:
+                pass
+            finally:
+                db.close()
+
+        self._run_after_commit(_send)
+
+
+# --- Approval engine hooks (called from ApprovalEngineService) ---
+
+
+def finalize_creation_approval(
+    db: Session,
+    *,
+    order_id: int,
+    approver_user_id: int | None,
+    comment: str | None = None,
+) -> None:
+    svc = PhysicalOrderService(db)
+    try:
+        order = svc._load_order(order_id)
+    except NotFoundError:
+        return
+    rejected = [i for i in order.items if i.verification_status == ITEM_STATUS_REJECTED]
+    if rejected:
+        order.status = ORDER_STATUS_REJECTED
+        log_order_event(
+            db,
+            order_id=order_id,
+            action="rejected",
+            actor_user_id=approver_user_id,
+            new_value={"phase": "creation"},
+        )
+        svc._notify_rejected(order, "One or more assets were rejected.")
+    else:
+        for item in order.items:
+            if item.verification_status == ITEM_STATUS_PENDING:
+                item.verification_status = ITEM_STATUS_APPROVED
+        order.status = ORDER_STATUS_APPROVED
+        reset_codes = svc._apply_pending_verification_resets(order, actor_user_id=approver_user_id)
+        remark = (comment or "").strip() or None
+        new_value: dict = {"reset_verification_assets": reset_codes}
+        if remark:
+            new_value["comment"] = remark
+        log_order_event(
+            db,
+            order_id=order_id,
+            action="approved",
+            actor_user_id=approver_user_id,
+            new_value=new_value,
+        )
+        for item in order.items:
+            if item.verification_status != ITEM_STATUS_REJECTED:
+                log_asset_order_approved(
+                    db,
+                    asset_id=int(item.asset_id),
+                    order=order,
+                    actor_user_id=approver_user_id,
+                )
+        svc._activate_assignment(order, actor_user_id=approver_user_id)
+    db.commit()
+
+
+def finalize_closure_approval(db: Session, *, order_id: int, approver_user_id: int | None) -> None:
+    svc = PhysicalOrderService(db)
+    try:
+        order = svc._load_order(order_id)
+    except NotFoundError:
+        return
+    rejected = [i for i in order.items if i.verification_status == ITEM_STATUS_REJECTED]
+    if rejected:
+        svc._finalize_closure_with_rejected_items(
+            order,
+            actor_user_id=approver_user_id,
+            reason="Closure review completed with rejected assets.",
+        )
+    else:
+        svc._complete_closure_approval(order, actor_user_id=approver_user_id)
+    db.commit()
+
+
+def reject_order_approval(
+    db: Session,
+    *,
+    order_id: int,
+    entity_type: str,
+    approver_user_id: int | None,
+    comment: str | None,
+) -> None:
+    svc = PhysicalOrderService(db)
+    try:
+        order = svc._load_order(order_id)
+    except NotFoundError:
+        return
+    svc._apply_full_order_rejection(
+        order,
+        reason=comment or "Rejected",
+        actor_user_id=approver_user_id,
+        entity_type=entity_type,
+    )
+    PhysicalOrderService(db)._notify_rejected(order, comment or "Rejected")
+    db.commit()

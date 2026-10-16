@@ -1,0 +1,57 @@
+.DS_Store
+Thumbs.db
+
+# Secrets and local overrides
+.env
+.env.*
+!.env.example
+!.env.docker.example
+!frontend/.env.example
+*.pem
+*.key
+*.p12
+credentials.json
+secrets.json
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+ENV/
+env/
+engin/
+
+# Runtime / generated data
+backend/uploads/
+backups/
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node / frontend
+node_modules/
+dist/
+dist-ssr/
+.turbo/
+.vite/
+*.local
+
+# IDE
+.idea/
+.vscode/
+
+# Cursor
+.cursor/

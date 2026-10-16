@@ -1,0 +1,71 @@
+#!/usr/bin/env sh
+# Deploy helper — defaults to FAST restart (no rebuild).
+#
+#   ./scripts/docker-deploy.sh           # fast: up -d only (~30s)
+#   ./scripts/docker-deploy.sh --build   # full rebuild after git pull (slow)
+#   ./scripts/docker-deploy.sh backend   # rebuild one service
+#
+# See also: docker-up.sh, docker-rebuild.sh
+
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+ENV_FILE="${ENV_FILE:-.env.docker}"
+
+if [ ! -f "$ENV_FILE" ]; then
+  echo "Missing $ENV_FILE — copy .env.docker.example and edit secrets:" >&2
+  echo "  cp .env.docker.example .env.docker" >&2
+  exit 1
+fi
+
+PROFILE="$(./scripts/compose-profile.sh "$ENV_FILE")"
+export APP_VERSION="${APP_VERSION:-$(./scripts/app-version.sh)}"
+# shellcheck disable=SC2086
+compose() {
+  docker compose --env-file "$ENV_FILE" $PROFILE "$@"
+}
+
+BUILD=0
+SERVICE=""
+for arg in "$@"; do
+  case "$arg" in
+    --build|-b) BUILD=1 ;;
+    backend|frontend|db) SERVICE="$arg" ;;
+    *) echo "Unknown argument: $arg" >&2; exit 1 ;;
+  esac
+done
+
+echo "==> Using env file: $ENV_FILE${PROFILE:+ ($PROFILE)}"
+
+if [ "$BUILD" -eq 1 ]; then
+  if grep -qE '^IMAGE_REGISTRY=.+' "$ENV_FILE"; then
+    echo "IMAGE_REGISTRY is set: this server runs CI-built images and must not build. Use ./scripts/docker-up.sh" >&2
+    exit 1
+  fi
+  if [ -n "$SERVICE" ]; then
+    echo "==> Rebuilding: $SERVICE"
+    compose up -d --build "$SERVICE"
+  else
+    echo "==> Full rebuild (this can take several minutes)…"
+    compose up -d --build
+  fi
+else
+  echo "==> Fast start (no rebuild). Use --build after git pull."
+  compose up -d
+fi
+
+echo ""
+echo "==> Service status"
+compose ps
+
+DOMAIN="$(grep -E '^DOMAIN=' "$ENV_FILE" | tail -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'" || true)"
+echo ""
+if [ -n "$DOMAIN" ]; then
+  echo "==> App: https://${DOMAIN}/login"
+  echo "    Upstream for external proxy: http://127.0.0.1:\${APP_PORT:-8083}"
+else
+  echo "==> App: http://127.0.0.1:\${APP_PORT:-8083}/login"
+fi
+echo "    Logs: docker compose --env-file $ENV_FILE logs -f backend"

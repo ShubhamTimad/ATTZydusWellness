@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+ApprovalEntityType = Literal["user_creation", "asset_creation", "asset_import"]
+ApprovalRequestStatus = Literal["pending", "approved", "rejected", "in_rework"]
+ApprovalTaskStatus = Literal["pending", "approved", "rejected", "open", "closed"]
+ApprovalActionType = Literal["approve", "reject"]
+ApprovalStepKind = Literal["approve", "receive", "confirm", "close", "assign"]
+# Blank / null = all role users; source / destination = filter by order CC.
+ApprovalOrgScope = Literal["source", "destination"]
+
+
+class ApprovalWorkflowCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    entity_type: str = Field(min_length=1, max_length=64)
+    is_active: bool = False
+
+
+class ApprovalWorkflowUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    entity_type: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class ApprovalStepUpdate(BaseModel):
+    approver_role_id: int | None = Field(default=None, ge=1)
+    approver_role_ids: list[int] | None = None
+    required_approvals: int | None = Field(default=None, ge=1)
+    step_kind: ApprovalStepKind | None = None
+    # null / omit / "" → clear (all role users). "source" | "destination" → CC filter.
+    org_scope: ApprovalOrgScope | None = None
+
+
+class ApprovalWorkflowPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    entity_type: str
+    is_active: bool
+    created_by: int | None
+    created_at: datetime
+
+
+class ApprovalStepCreate(BaseModel):
+    step_order: int = Field(ge=1)
+    approver_role_id: int | None = Field(default=None, ge=1)
+    approver_role_ids: list[int] = Field(default_factory=list)
+    required_approvals: int = Field(default=1, ge=1)
+    step_kind: ApprovalStepKind = "approve"
+    org_scope: ApprovalOrgScope | None = None
+
+    @model_validator(mode="after")
+    def _require_roles(self) -> "ApprovalStepCreate":
+        ids = list(self.approver_role_ids)
+        if self.approver_role_id is not None and self.approver_role_id not in ids:
+            ids.insert(0, self.approver_role_id)
+        if not ids:
+            raise ValueError("At least one role is required")
+        self.approver_role_ids = ids
+        self.approver_role_id = ids[0]
+        return self
+
+
+class ApprovalStepPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    workflow_id: int
+    step_order: int
+    approver_role_id: int
+    approver_role_ids: list[int] = Field(default_factory=list)
+    required_approvals: int
+    step_kind: ApprovalStepKind = "approve"
+    org_scope: ApprovalOrgScope | None = None
+
+
+class ApprovalWorkflowDetail(ApprovalWorkflowPublic):
+    steps: list[ApprovalStepPublic] = Field(default_factory=list)
+
+
+class ApprovalRequestPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    workflow_id: int
+    entity_type: str
+    entity_id: int
+    status: str
+    current_step: int
+    payload: dict[str, Any]
+    created_by: int | None
+    created_at: datetime
+
+
+class ResubmitRejectedResponse(BaseModel):
+    """Same approval request id; a new first-step approver task id after resubmit."""
+
+    request_id: int
+    new_task_id: int
+    status: str = "pending"
+
+
+class ApprovalTaskPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    request_id: int
+    step_id: int
+    assigned_user_id: int | None
+    status: str
+    acted_at: datetime | None
+
+
+class TransferReceiveItemLocation(BaseModel):
+    asset_id: int
+    to_functional_location: str = Field(min_length=1, max_length=255)
+    to_actual_location: str = Field(min_length=1, max_length=255)
+
+
+class ApprovalTaskActionRequest(BaseModel):
+    action: ApprovalActionType
+    comment: str | None = Field(default=None, max_length=10_000)
+    # CapEx / transfer user-handoff: required when approving a non-final named-handoff step.
+    next_assigned_user_id: int | None = Field(default=None, ge=1)
+    # Transfer / disposal receive step: destination locations applied to assets on approve.
+    to_functional_location: str | None = Field(default=None, max_length=255)
+    to_actual_location: str | None = Field(default=None, max_length=255)
+    # Transfer / disposal receive: per-asset Location 1 / 2 (overrides order-level pair when set).
+    item_locations: list[TransferReceiveItemLocation] | None = None
+    # Disposal receive step: scrapyard / destination cost center.
+    to_cost_center_id: int | None = Field(default=None, ge=1)
+
+
+class WorkflowMappingCreate(BaseModel):
+    action_code: str = Field(min_length=1, max_length=128)
+    workflow_id: int = Field(ge=1)
+
+
+class WorkflowMappingPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    action_code: str
+    workflow_id: int
+    workflow_name: str | None = None
+    is_active: bool
+    created_at: datetime
+
+
+class PermissionActionOption(BaseModel):
+    code: str
+    feature_key: str
+    feature_name: str
+
+
+class MyApprovalTaskItem(BaseModel):
+    """Enriched inbox row for ``GET /approvals/my-tasks``."""
+
+    task_id: int
+    request_id: int
+    entity_type: str
+    entity_id: int
+    action_code: str
+    action_label: str | None = None
+    current_step: int
+    total_steps: int
+    step_order: int
+    step_name: str | None = None
+    created_by: int | None = None
+    created_by_name: str | None = None
+    created_at: datetime
+    payload_preview: dict[str, Any] = Field(default_factory=dict)
+    status: str
+
+
+class ApprovalRequestStatusPublic(BaseModel):
+    request_id: int
+    request_status: str
+    current_step: int
+    total_steps: int
+    pending_approvers: list[str] = Field(default_factory=list)
+    approved_count: int
+    required_approvals: int
+
+
+class ApprovalRequestStatusStepPublic(BaseModel):
+    step_order: int
+    role_name: str | None = None
+    required_approvals: int
+    approved_by: list[str] = Field(default_factory=list)
+    pending: list[str] = Field(default_factory=list)
+
+
+class ApprovalRequestStatusDetailPublic(ApprovalRequestStatusPublic):
+    steps: list[ApprovalRequestStatusStepPublic] = Field(default_factory=list)
+
+
+class ApprovalTaskCommentRequest(BaseModel):
+    comment: str = Field(min_length=1, max_length=10_000)
+

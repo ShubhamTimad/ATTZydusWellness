@@ -1,0 +1,172 @@
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
+
+from core.auth import CurrentUser, get_current_user
+from core.permissions import require_any_permission, require_permission
+from db.session import get_db
+from modules.errors import RbacSafetyError
+from modules.platform.org_units.model import OrgUnit
+from modules.platform.org_units.schema import OrgUnitCreate, OrgUnitListPage, OrgUnitPublic, OrgUnitUpdate
+from modules.platform.org_units.service import (
+    DuplicateOrgUnitCodeError,
+    NotFoundError,
+    OrgUnitService,
+)
+
+router = APIRouter(prefix="/org-units", tags=["admin", "org-units"])
+
+
+def get_org_unit_service(db: Session = Depends(get_db)) -> OrgUnitService:
+    return OrgUnitService(db)
+
+
+@router.get("", response_model=list[OrgUnitPublic])
+def list_org_units(
+    svc: Annotated[OrgUnitService, Depends(get_org_unit_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "org_units.view",
+                "users.create",
+                "users.update",
+                "roles.create",
+                "roles.update",
+                "asset.view",
+                "asset.create",
+                "asset.update",
+                "masters.view",
+            )
+        ),
+    ],
+    org_type: str | None = Query(None, alias="type"),
+    parent_id: int | None = Query(None),
+) -> list[OrgUnit]:
+    return svc.list_org_units(
+        org_type=org_type,
+        parent_id=parent_id,
+        viewer_user_id=int(current.subject),
+    )
+
+
+@router.get("/page", response_model=OrgUnitListPage)
+def list_org_units_page(
+    svc: Annotated[OrgUnitService, Depends(get_org_unit_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "org_units.view",
+                "users.create",
+                "users.update",
+                "roles.create",
+                "roles.update",
+                "asset.view",
+                "asset.create",
+                "asset.update",
+                "masters.view",
+            )
+        ),
+    ],
+    org_type: str | None = Query(None, alias="type"),
+    parent_id: int | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+) -> OrgUnitListPage:
+    items, total = svc.list_org_units_page(
+        page=page,
+        page_size=page_size,
+        org_type=org_type,
+        parent_id=parent_id,
+        viewer_user_id=int(current.subject),
+    )
+    return OrgUnitListPage(
+        items=[OrgUnitPublic.model_validate(u) for u in items],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/{org_unit_id}", response_model=OrgUnitPublic)
+def get_org_unit(
+    org_unit_id: int,
+    svc: Annotated[OrgUnitService, Depends(get_org_unit_service)],
+    _: Annotated[
+        object,
+        Depends(
+            require_any_permission(
+                "org_units.view",
+                "org_units.update",
+            )
+        ),
+    ],
+) -> OrgUnit:
+    try:
+        return svc.get_org_unit(org_unit_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("", response_model=OrgUnitPublic, status_code=status.HTTP_201_CREATED)
+def create_org_unit(
+    payload: OrgUnitCreate,
+    svc: Annotated[OrgUnitService, Depends(get_org_unit_service)],
+    _: Annotated[object, Depends(require_permission("org_units.create"))],
+) -> OrgUnit:
+    try:
+        return svc.create_org_unit(payload)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except DuplicateOrgUnitCodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An org unit with this code already exists for this type.",
+        ) from exc
+
+
+@router.patch("/{org_unit_id}", response_model=OrgUnitPublic)
+def update_org_unit(
+    org_unit_id: int,
+    payload: OrgUnitUpdate,
+    svc: Annotated[OrgUnitService, Depends(get_org_unit_service)],
+    _: Annotated[object, Depends(require_permission("org_units.update"))],
+) -> OrgUnit:
+    try:
+        return svc.update_org_unit(org_unit_id, payload)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except DuplicateOrgUnitCodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An org unit with this code already exists for this type.",
+        ) from exc
+
+
+@router.delete("/{org_unit_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_org_unit(
+    org_unit_id: int,
+    svc: Annotated[OrgUnitService, Depends(get_org_unit_service)],
+    _: Annotated[object, Depends(require_permission("org_units.delete"))],
+) -> None:
+    try:
+        svc.delete_org_unit(org_unit_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RbacSafetyError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except DuplicateOrgUnitCodeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Could not delete this org unit because other records still reference it.",
+        ) from exc

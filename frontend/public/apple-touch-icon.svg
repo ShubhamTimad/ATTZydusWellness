@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Takeda">
+  <rect width="180" height="180" rx="40" fill="#ffffff" />
+  <path
+    fill="none"
+    stroke="#E1242A"
+    stroke-width="8"
+    stroke-linecap="round"
+    d="M 42 72 C 62 50, 118 50, 138 72"
+  />
+  <text
+    x="90"
+    y="108"
+    text-anchor="middle"
+    font-family="Georgia, 'Times New Roman', serif"
+    font-size="52"
+    font-weight="700"
+    font-style="italic"
+    fill="#E1242A"
+  >
+    T
+  </text>
+  <path
+    fill="none"
+    stroke="#E1242A"
+    stroke-width="6.5"
+    stroke-linecap="round"
+    d="M 48 122 C 66 138, 114 138, 132 122"
+  />
+</svg>

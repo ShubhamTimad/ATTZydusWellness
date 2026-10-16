@@ -1,0 +1,178 @@
+# Full stack: PostgreSQL + FastAPI backend + React/nginx frontend.
+#
+#   cp .env.docker.example .env.docker   # edit secrets and URLs first
+#   docker compose --env-file .env.docker up -d --build
+#
+# Or: ./scripts/docker-deploy.sh
+#
+# Servers that must not build (client TEC): set IMAGE_REGISTRY / IMAGE_TAG in .env.docker;
+# ./scripts/docker-up.sh then pulls the CI-built images and never builds.
+#
+name: takeda_att
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-takeda}
+      # Not ":?" so docker-compose.rds.yml works without it; postgres itself refuses an empty password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_DB: ${POSTGRES_DB:-takeda_att}
+    volumes:
+      - takeda_att_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-takeda} -d ${POSTGRES_DB:-takeda_att}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - takeda_att_network
+
+  backend:
+    image: ${IMAGE_REGISTRY:-}takeda_att-backend:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env.docker
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-takeda}:${POSTGRES_PASSWORD:-}@db:5432/${POSTGRES_DB:-takeda_att}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env.docker}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-2}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: ${PASSWORD_RESET_TOKEN_EXPIRE_MINUTES:-30}
+      FRONTEND_APP_URL: ${FRONTEND_APP_URL:-http://localhost:8083}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:8083}
+      FRONTEND_ADMIN_URL: ${FRONTEND_ADMIN_URL:-http://localhost:8083/admin}
+      # Public URL prefix of the API (nginx location /api/). Leave empty for bare uvicorn.
+      ROOT_PATH: ${ROOT_PATH:-/api}
+      ENFORCE_SUPERUSER_ON_ADMIN: ${ENFORCE_SUPERUSER_ON_ADMIN:-false}
+      SYNC_MODULES_ON_STARTUP: ${SYNC_MODULES_ON_STARTUP:-true}
+      SEED_SYSTEM_EMAIL_TEMPLATES: ${SEED_SYSTEM_EMAIL_TEMPLATES:-true}
+      BOOTSTRAP_SUPERUSER_EMAIL: ${BOOTSTRAP_SUPERUSER_EMAIL:-}
+      BOOTSTRAP_SUPERUSER_PASSWORD: ${BOOTSTRAP_SUPERUSER_PASSWORD:-}
+      BOOTSTRAP_SUPERUSER_FULL_NAME: ${BOOTSTRAP_SUPERUSER_FULL_NAME:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-true}
+      SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Takeda Workspace}
+      BACKEND_PORT: ${BACKEND_PORT:-9005}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      LOG_DIR: /app/logs
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+      ERROR_ALERT_EMAILS: ${ERROR_ALERT_EMAILS:-}
+      ERROR_ALERT_THROTTLE_SECONDS: ${ERROR_ALERT_THROTTLE_SECONDS:-900}
+    expose:
+      - "${BACKEND_PORT:-9005}"
+    volumes:
+      - takeda_att_uploads:/app/backend/uploads
+      # Host folder (outside the container): survives container/image removal and docker compose down -v.
+      - ${LOG_HOST_DIR:-./logs}:/app/logs
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:$${BACKEND_PORT:-9005}/health > /dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+    networks:
+      - takeda_att_network
+
+  frontend:
+    image: ${IMAGE_REGISTRY:-}takeda_att-frontend:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        BACKEND_UPSTREAM_PORT: ${BACKEND_PORT:-9005}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    # Default: public :8083 (HTTP). For HTTPS-only edge proxy, set APP_HOST_BIND=127.0.0.1.
+    ports:
+      - "${APP_HOST_BIND:-0.0.0.0}:${APP_PORT:-8083}:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/ > /dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+    networks:
+      - takeda_att_network
+
+  # Optional edge proxy (Compose profile https). Off by default — host :80/:443
+  # belong to an external reverse proxy → 127.0.0.1:APP_PORT. Enable only when
+  # ENABLE_EDGE_PROXY=true (see scripts/compose-profile.sh).
+  proxy:
+    profiles: ["https"]
+    image: nginx:1.30-alpine
+    restart: unless-stopped
+    depends_on:
+      frontend:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:-assets.timadit.com}
+    ports:
+      - "${PROXY_HTTP_BIND:-0.0.0.0}:${PROXY_HTTP_PORT:-80}:80"
+      - "${PROXY_HTTPS_BIND:-0.0.0.0}:${PROXY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/proxy/entrypoint.sh:/entrypoint.sh:ro
+      - ./deploy/proxy/http.conf.template:/etc/nginx/templates/http.conf.template:ro
+      - ./deploy/proxy/https.conf.template:/etc/nginx/templates/https.conf.template:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - takeda_att_network
+
+  # Certificate renewal (initial issue via scripts/ssl-init.sh).
+  certbot:
+    profiles: ["https"]
+    image: certbot/certbot:v2.11.0
+    restart: unless-stopped
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    entrypoint: /bin/sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h; done"
+    networks:
+      - takeda_att_network
+
+volumes:
+  takeda_att_db_data:
+  takeda_att_uploads:
+  certbot_www:
+  certbot_certs:
+
+networks:
+  takeda_att_network:
+    driver: bridge

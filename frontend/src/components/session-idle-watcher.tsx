@@ -1,0 +1,61 @@
+import * as React from "react"
+import { useNavigate } from "react-router-dom"
+import { toast } from "sonner"
+
+import { SessionIdleProvider } from "@/context/session-idle-context"
+import { endServerSession } from "@/lib/api"
+import { clearAuthProfile } from "@/lib/permissions"
+import { clearSharedLastActive, clearStoredAuthMethod } from "@/lib/session-idle-events"
+
+function hasToken() {
+  try {
+    const t = localStorage.getItem("access_token")
+    return !!(t && t.length > 0)
+  } catch {
+    return false
+  }
+}
+
+function clearTokens() {
+  endServerSession()
+  localStorage.removeItem("access_token")
+  localStorage.removeItem("refresh_token")
+  clearSharedLastActive()
+  clearStoredAuthMethod()
+  clearAuthProfile()
+}
+
+type SessionIdleWatcherProps = {
+  /** Where to send the user after idle sign-out (e.g. `/login` or `/admin/login`). */
+  loginPath: string
+  children: React.ReactNode
+}
+
+export function SessionIdleWatcher({ loginPath, children }: SessionIdleWatcherProps) {
+  const navigate = useNavigate()
+  const [enabled, setEnabled] = React.useState(hasToken)
+
+  const handleIdleLogout = React.useCallback((reason?: "session_idle" | "unauthorized") => {
+    if (!hasToken()) return
+    clearTokens()
+    setEnabled(false)
+    toast.info(
+      reason === "session_idle"
+        ? "Signed out due to inactivity."
+        : "Your session has expired. Please sign in again.",
+    )
+    navigate(loginPath, { replace: true })
+  }, [loginPath, navigate])
+
+  React.useEffect(() => {
+    const sync = () => setEnabled(hasToken())
+    window.addEventListener("storage", sync)
+    return () => window.removeEventListener("storage", sync)
+  }, [])
+
+  return (
+    <SessionIdleProvider enabled={enabled} onIdleLogout={handleIdleLogout}>
+      {children}
+    </SessionIdleProvider>
+  )
+}

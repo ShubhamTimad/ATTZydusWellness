@@ -1,0 +1,350 @@
+"""Declarative RBAC modules: each module has tabs; each tab lists action-level permissions.
+
+Permission codes are dotted: ``module.tab.action``, collapsing to ``module.action`` when
+``tab.key == module.key`` (primary tab).
+"""
+
+from __future__ import annotations
+
+from typing import TypedDict
+
+
+class TabConfigDict(TypedDict):
+    key: str
+    title: str
+    actions: list[str]
+
+
+class ModuleConfigDict(TypedDict):
+    key: str
+    title: str
+    tabs: list[TabConfigDict]
+
+
+# Standard CRUD-style actions stored in ``permissions.action`` (``edit`` maps to ``update``).
+DEFAULT_TAB_ACTIONS: tuple[str, ...] = ("view", "create", "update", "delete")
+
+MODULE_CONFIG: list[ModuleConfigDict] = [
+    {
+        "key": "users",
+        "title": "User management",
+        "tabs": [
+            {
+                "key": "users",
+                "title": "Users",
+                "actions": [*DEFAULT_TAB_ACTIONS, "unlock"],
+            },
+        ],
+    },
+    {
+        "key": "org_units",
+        "title": "Plants (org units)",
+        "tabs": [
+            {
+                "key": "org_units",
+                "title": "Plants",
+                "actions": list(DEFAULT_TAB_ACTIONS),
+            },
+        ],
+    },
+    {
+        "key": "roles",
+        "title": "Roles",
+        "tabs": [
+            {
+                "key": "roles",
+                "title": "Roles",
+                "actions": list(DEFAULT_TAB_ACTIONS),
+            },
+        ],
+    },
+    {
+        "key": "permissions",
+        "title": "Permissions",
+        "tabs": [
+            {
+                "key": "permissions",
+                "title": "Permissions",
+                "actions": list(DEFAULT_TAB_ACTIONS),
+            },
+        ],
+    },
+    {
+        "key": "settings",
+        "title": "Settings",
+        "tabs": [
+            {
+                "key": "settings",
+                "title": "Settings",
+                "actions": list(DEFAULT_TAB_ACTIONS),
+            },
+        ],
+    },
+    {
+        "key": "features",
+        "title": "Features",
+        "tabs": [
+            {
+                "key": "features",
+                "title": "Features",
+                "actions": list(DEFAULT_TAB_ACTIONS),
+            },
+        ],
+    },
+    {
+        "key": "approval",
+        "title": "Approvals",
+        "tabs": [
+            {
+                "key": "approval",
+                "title": "Approvals",
+                "actions": ["view", "act", "manage"],
+            },
+        ],
+    },
+    {
+        "key": "task",
+        "title": "Tasks",
+        "tabs": [
+            {
+                "key": "task",
+                "title": "Tasks",
+                "actions": ["view", "create", "assign", "act", "close"],
+            },
+        ],
+    },
+    {
+        "key": "asset",
+        "title": "Asset Master",
+        "tabs": [
+            {
+                "key": "asset",
+                "title": "Assets",
+                "actions": [
+                    "view",
+                    "view_all",
+                    "create",
+                    "update",
+                    "delete",
+                    "import",
+                    "approve",
+                    "reassign",
+                    "deactivate",
+                    "reactivate",
+                    "manage",
+                ],
+            },
+        ],
+    },
+    {
+        "key": "masters",
+        "title": "Asset reference masters",
+        "tabs": [
+            {
+                "key": "masters",
+                "title": "Masters",
+                "actions": [
+                    "view",
+                    "create",
+                    "update",
+                    "delete",
+                ],
+            },
+        ],
+    },
+    {
+        "key": "order",
+        "title": "Physical verification orders",
+        "tabs": [
+            {
+                "key": "order",
+                "title": "Orders",
+                "actions": [
+                    "view",
+                    "create",
+                    "update",
+                    "approve",
+                    "execute",
+                    "reassign",
+                    "close",
+                    "complete",
+                    "manage",
+                ],
+            },
+        ],
+    },
+    {
+        "key": "transfer",
+        "title": "Asset Transfer Orders",
+        "tabs": [
+            {
+                "key": "transfer",
+                "title": "Transfer orders",
+                "actions": [
+                    "view",
+                    "create",
+                    "update",
+                    "submit",
+                    "approve",
+                    "receive",
+                    "confirm",
+                    "manage",
+                ],
+            },
+        ],
+    },
+    {
+        "key": "disposal",
+        "title": "Asset Disposal Orders",
+        "tabs": [
+            {
+                "key": "disposal",
+                "title": "Disposal orders",
+                "actions": [
+                    "view",
+                    "create",
+                    "update",
+                    "submit",
+                    "submit_with_engineering",
+                    "reassign",
+                    "receive",
+                    "close",
+                    "manage",
+                ],
+            },
+        ],
+    },
+    {
+        "key": "capitalization",
+        "title": "Asset capitalization forms",
+        "tabs": [
+            {
+                "key": "capitalization",
+                "title": "Capitalization Forms",
+                "actions": [
+                    "view",
+                    "create",
+                    "update",
+                    "submit",
+                    "submit_with_engineering",
+                    "reassign",
+                ],
+            },
+        ],
+    },
+    {
+        "key": "report",
+        "title": "Report",
+        "tabs": [
+            {
+                "key": "report",
+                "title": "Report",
+                "actions": ["view", "export"],
+            },
+        ],
+    },
+    {
+        "key": "dashboard",
+        "title": "Dashboard",
+        "tabs": [
+            {
+                "key": "dashboard",
+                "title": "Dashboard",
+                "actions": ["view"],
+            },
+            # One tab per dashboard tile; titles match the tile headings.
+            {
+                "key": "summary_orders",
+                "title": "Summary · Phy. Verification Order",
+                "actions": ["view"],
+            },
+            {
+                "key": "summary_transfers",
+                "title": "Summary · Transfer Order",
+                "actions": ["view"],
+            },
+            {
+                "key": "summary_disposals",
+                "title": "Summary · Disposal Order",
+                "actions": ["view"],
+            },
+            {
+                "key": "summary_assets",
+                "title": "Summary · Asset Tagged",
+                "actions": ["view"],
+            },
+            {
+                "key": "summary_users",
+                "title": "Summary · Users",
+                "actions": ["view"],
+            },
+            {
+                "key": "financial_year",
+                "title": "Physical Verification",
+                "actions": ["view"],
+            },
+            {
+                "key": "orders",
+                "title": "Physical Verification Order",
+                "actions": ["view"],
+            },
+            {
+                "key": "transfers",
+                "title": "Asset Transfer Order",
+                "actions": ["view"],
+            },
+            {
+                "key": "disposals",
+                "title": "Asset Disposal Order",
+                "actions": ["view"],
+            },
+            {
+                "key": "assets",
+                "title": "Asset Register",
+                "actions": ["view"],
+            },
+            {
+                "key": "it",
+                "title": "Users",
+                "actions": ["view"],
+            },
+        ],
+    },
+    {
+        "key": "mobile",
+        "title": "Mobile application",
+        "tabs": [
+            {
+                "key": "mobile",
+                "title": "Mobile app",
+                "actions": ["access"],
+            },
+            {
+                "key": "asset",
+                "title": "Assets (mobile)",
+                "actions": ["view", "scan"],
+            },
+            {
+                "key": "order",
+                "title": "Orders (mobile)",
+                "actions": ["view", "execute", "scan", "bulk_verify"],
+            },
+        ],
+    },
+]
+def flatten_config_actions() -> frozenset[str]:
+    """All action strings referenced by MODULE_CONFIG (normalized storage names)."""
+    out: set[str] = set()
+    for mod in MODULE_CONFIG:
+        for tab in mod["tabs"]:
+            for a in tab["actions"]:
+                out.add(_normalize_action_token(a))
+    return frozenset(out)
+
+
+def _normalize_action_token(raw: str) -> str:
+    s = raw.strip().lower()
+    if s == "edit":
+        return "update"
+    return s
+ 

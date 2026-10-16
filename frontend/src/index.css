@@ -1,0 +1,225 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "./styles/app-design.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    --background: oklch(1 0 0);
+    --foreground: #000000;
+    --card: oklch(1 0 0);
+    --card-foreground: #000000;
+    --popover: oklch(1 0 0);
+    --popover-foreground: #000000;
+    /* Takeda brand red */
+    --brand: #E1242A;
+    --brand-soft: color-mix(in srgb, #E1242A 10%, white);
+    --brand-muted: color-mix(in srgb, #E1242A 18%, white);
+    --primary: #E1242A;
+    --primary-foreground: #ffffff;
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: #000000;
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: #000000;
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: #000000;
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: var(--primary);
+    --chart-1: #E1242A;
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --radius: 0.75rem;
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: #000000;
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
+}
+
+/* Superadmin shell — reusable admin console theme (slate sidebar + neutral canvas) */
+.admin-shell {
+    --sidebar: oklch(0.24 0.02 260);
+    --sidebar-foreground: oklch(0.96 0.01 260);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: oklch(0.31 0.025 260);
+    --sidebar-accent-foreground: oklch(0.98 0 0);
+    --sidebar-border: oklch(0.34 0.02 260);
+    --sidebar-ring: oklch(0.55 0.03 260);
+    --admin-canvas: oklch(0.975 0.004 260);
+}
+
+.dark .admin-shell {
+    --sidebar: oklch(0.18 0.02 260);
+    --sidebar-foreground: oklch(0.95 0.01 260);
+    --sidebar-accent: oklch(0.26 0.025 260);
+    --sidebar-accent-foreground: oklch(0.98 0 0);
+    --sidebar-border: oklch(0.28 0.02 260);
+    --admin-canvas: oklch(0.14 0.015 260);
+}
+
+.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --brand: #E1242A;
+    --brand-soft: color-mix(in srgb, #E1242A 22%, black);
+    --brand-muted: color-mix(in srgb, #E1242A 35%, black);
+    --primary: #F03A40;
+    --primary-foreground: #ffffff;
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: var(--primary);
+    --chart-1: oklch(0.87 0 0);
+    --chart-2: oklch(0.556 0 0);
+    --chart-3: oklch(0.439 0 0);
+    --chart-4: oklch(0.371 0 0);
+    --chart-5: oklch(0.269 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: oklch(0.269 0 0);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+}
+
+@layer utilities {
+  .admin-canvas {
+    background-color: var(--admin-canvas);
+  }
+
+  .dialog-surface {
+    overflow: hidden;
+    border-radius: calc(var(--app-radius-surface) + 2px);
+    border: 1px solid var(--border);
+    background-color: var(--card);
+    padding: 0;
+    box-shadow: var(--app-shadow-elevated);
+  }
+
+  .dialog-surface-header {
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+    background: linear-gradient(
+      135deg,
+      var(--brand-soft) 0%,
+      var(--card) 55%
+    );
+    padding: var(--app-card-padding);
+    padding-top: calc(var(--app-card-padding) + 0.25rem);
+  }
+
+  .dialog-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-form-gap);
+    padding: var(--app-card-padding);
+  }
+
+  .dialog-footer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+    background-color: color-mix(in srgb, var(--muted) 25%, var(--card));
+    padding: var(--app-card-padding);
+  }
+}
+
+/* Login photo: fast path fade / slow path top→bottom wipe (used via Tailwind animate-[]). */
+@keyframes login-bg-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes login-bg-wipe {
+  from {
+    opacity: 1;
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+}

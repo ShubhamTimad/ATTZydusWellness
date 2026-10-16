@@ -1,0 +1,615 @@
+from __future__ import annotations
+
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
+
+from modules.assets.field_definitions import ASSET_FIELD_LABELS
+from modules.assets.model import AssetMaster
+from modules.platform.users.model import User
+
+AUDIT_FIELD_LABELS: dict[str, str] = {
+    **ASSET_FIELD_LABELS,
+    "asset_class": "Asset Class",
+    "asset_class_id": "Asset Class",
+    "asset_class_code": "Asset Class",
+    "tag_color_id": "Tag color",
+    "asset_custodian_id": "Asset Custodian",
+    "asset_condition_id": "Asset Condition",
+    "asset_category_id": "Asset Category",
+    "serial_no": "Serial No.",
+    "combined_asset_number": "Combined Asset No",
+    "remark": "Asset Remark",
+    "sub_no": "Sub-No",
+    "ownership_type": "Ownership",
+    "inventory_no": "Inventory No.",
+    "asset_description": "Description",
+    "engineering_description": "Engineering",
+    "qa_description": "QA",
+    "pm_equipment_id": "PM Equipment ID",
+    "plant_id": "Plant",
+    "functional_location": "Actual Location 1",
+    "actual_location": "Actual Location 2",
+    "building": "Building",
+    "floor": "Floor",
+    "room": "Room",
+    "zone": "Zone",
+    "cost_center": "Cost Center Code",
+    "laboratory": "Laboratory",
+    "profit_center": "Profit Center",
+    "po_number": "PO No.",
+    "party_details": "Party Details",
+    "gross_block": "Gross Block",
+    "cap_date": "CAP Date",
+    "inventory_count": "Inventory Count",
+    "physical_count": "Physical Count",
+    "last_verification_date": "Last Verification Date",
+    "verification_status": "Verification Status",
+    "verification_remarks": "Verification Remarks",
+}
+
+
+def _norm(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
+def _blank_snapshot(value: Any) -> str | None:
+    """Store cleared NOT NULL text fields as None so audit shows — not a blank."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def snapshot_asset(asset: AssetMaster) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "asset_name": asset.asset_name,
+        "asset_class": asset.asset_class_master.name
+        if getattr(asset, "asset_class_master", None)
+        else asset.asset_class,
+        "asset_class_id": asset.asset_class_id,
+        "asset_type": asset.asset_type,
+        "asset_code": _blank_snapshot(asset.asset_code),
+        "combined_asset_number": _blank_snapshot(asset.combined_asset_number),
+        "remark": asset.remark,
+        "sub_no": asset.sub_no,
+        "rfid_code": asset.rfid_code,
+        "serial_no": asset.serial_no,
+        "asset_category_id": asset.asset_category_id,
+        "tag_color_id": asset.tag_color_id,
+        "asset_custodian_id": asset.asset_custodian_id,
+        "asset_condition_id": asset.asset_condition_id,
+        "ownership_type": asset.ownership_type,
+    }
+    if asset.information:
+        for k in (
+            "inventory_no",
+            "asset_description",
+            "engineering_description",
+            "qa_description",
+            "pm_equipment_id",
+        ):
+            state[k] = getattr(asset.information, k, None)
+    if asset.location:
+        for k in (
+            "plant_id",
+            "sub_location",
+            "functional_location",
+            "actual_location",
+            "building",
+            "floor",
+            "room",
+            "zone",
+        ):
+            state[k] = getattr(asset.location, k, None)
+    if asset.financial:
+        for k in (
+            "cost_center",
+            "laboratory",
+            "profit_center",
+            "party_details",
+            "invoice_no",
+            "invoice_date",
+            "voucher_no",
+            "voucher_date",
+            "grn_no",
+            "grn_date",
+            "put_to_use_date",
+            "depreciation_rate",
+            "gross_block",
+            "life_span",
+            "cap_date",
+            "po_number",
+        ):
+            state[k] = getattr(asset.financial, k, None)
+    if asset.inventory:
+        for k in ("verification_status", "verification_remarks"):
+            state[k] = getattr(asset.inventory, k, None)
+    if asset.information and "pm_equipment_id" not in state:
+        state["pm_equipment_id"] = asset.information.pm_equipment_id
+    return {k: _norm(v) for k, v in state.items()}
+
+
+def diff_snapshots(
+    before: dict[str, Any], after: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
+    changes: dict[str, dict[str, Any]] = {}
+    for key in set(before) | set(after):
+        old = before.get(key)
+        new = after.get(key)
+        if old != new:
+            changes[key] = {"from": old, "to": new}
+    return changes
+
+
+_CODE_FIELDS = frozenset(
+    {
+        "functional_location",
+        "actual_location",
+        "cost_center",
+        "profit_center",
+    }
+)
+_CODE_FIELD_PREFIX = {
+    "functional_location": "fl",
+    "actual_location": "al",
+    "cost_center": "cc",
+    "profit_center": "pc",
+}
+_ID_LABEL_FIELDS = frozenset(
+    {
+        "tag_color_id",
+        "asset_condition_id",
+        "asset_class_id",
+    }
+)
+# Name snapshot already exists — don't also print the raw id.
+_SKIP_ID_WHEN_NAME = {"asset_class_id": "asset_class"}
+
+
+def _lookup_id_label(labels: dict[int, str] | None, value: Any) -> str | None:
+    if labels is None:
+        return None
+    try:
+        return labels.get(int(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _lookup_code_label(
+    code_labels: dict[str, str] | None,
+    key: str,
+    value: Any,
+    *,
+    peer_fl: Any = None,
+) -> str | None:
+    """Resolve a stored master code to its display name.
+
+    Actual Location 1 (FL) and Actual Location 2 (AL) are looked up under
+    separate prefixes so a shared code cannot show AL's name on both lines.
+    """
+    if code_labels is None or value is None or value == "":
+        return None
+    folded = str(value).strip().casefold()
+    if not folded:
+        return None
+    prefix = _CODE_FIELD_PREFIX.get(key)
+    if prefix == "al" and peer_fl not in (None, ""):
+        named = code_labels.get(f"al:{str(peer_fl).strip().casefold()}:{folded}")
+        if named:
+            return named
+    if prefix:
+        named = code_labels.get(f"{prefix}:{folded}")
+        if named:
+            return named
+    return code_labels.get(folded)
+
+
+def _display_value(
+    key: str,
+    value: Any,
+    *,
+    plant_labels: dict[int, str] | None = None,
+    category_labels: dict[int, str] | None = None,
+    user_labels: dict[int, str] | None = None,
+    code_labels: dict[str, str] | None = None,
+    id_labels: dict[str, dict[int, str]] | None = None,
+    peer_fl: Any = None,
+) -> str:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return "—"
+    if key == "plant_id" and plant_labels is not None:
+        named = _lookup_id_label(plant_labels, value)
+        if named:
+            return named
+    if key == "asset_category_id" and category_labels is not None:
+        named = _lookup_id_label(category_labels, value)
+        if named:
+            return named
+    if key == "asset_custodian_id" and user_labels is not None:
+        named = _lookup_id_label(user_labels, value)
+        if named:
+            return named
+    if key in _ID_LABEL_FIELDS and id_labels is not None:
+        named = _lookup_id_label(id_labels.get(key), value)
+        if named:
+            return named
+    if key in _CODE_FIELDS:
+        named = _lookup_code_label(code_labels, key, value, peer_fl=peer_fl)
+        if named:
+            return named
+    if key in {"cap_date", "last_verification_date"}:
+        return _format_audit_date_value(value)
+    text = str(value)
+    if len(text) > 120:
+        return text[:117] + "…"
+    return text
+
+
+def format_changes_detail(
+    changes: dict[str, dict[str, Any]],
+    *,
+    plant_labels: dict[int, str] | None = None,
+    category_labels: dict[int, str] | None = None,
+    user_labels: dict[int, str] | None = None,
+    code_labels: dict[str, str] | None = None,
+    id_labels: dict[str, dict[int, str]] | None = None,
+) -> list[dict[str, str]]:
+    skip = {id_key for id_key, name_key in _SKIP_ID_WHEN_NAME.items() if name_key in changes}
+    lines: list[dict[str, str]] = []
+    fl_delta = changes.get("functional_location")
+    fl_from = fl_delta.get("from") if isinstance(fl_delta, dict) else None
+    fl_to = fl_delta.get("to") if isinstance(fl_delta, dict) else None
+    for key in sorted(changes.keys(), key=lambda k: AUDIT_FIELD_LABELS.get(k, k)):
+        if key in skip:
+            continue
+        delta = changes[key]
+        if not isinstance(delta, dict):
+            continue
+        label = AUDIT_FIELD_LABELS.get(key, key.replace("_", " "))
+        peer_from = fl_from if key == "actual_location" else None
+        peer_to = fl_to if key == "actual_location" else None
+        lines.append(
+            {
+                "field_label": label,
+                "from_value": _display_value(
+                    key,
+                    delta.get("from"),
+                    plant_labels=plant_labels,
+                    category_labels=category_labels,
+                    user_labels=user_labels,
+                    code_labels=code_labels,
+                    id_labels=id_labels,
+                    peer_fl=peer_from,
+                ),
+                "to_value": _display_value(
+                    key,
+                    delta.get("to"),
+                    plant_labels=plant_labels,
+                    category_labels=category_labels,
+                    user_labels=user_labels,
+                    code_labels=code_labels,
+                    id_labels=id_labels,
+                    peer_fl=peer_to,
+                ),
+            }
+        )
+    return lines
+
+
+ORDER_ASSET_AUDIT_ACTIONS = frozenset(
+    {
+        "physical_order_created",
+        "physical_order_approved",
+        "physical_order_rejected",
+        "physical_order_started",
+        "physical_order_verified",
+        "physical_order_line_rejected",
+        "physical_order_completed",
+        "physical_verification_reset",
+    }
+)
+
+# Shown on asset detail audit trail (order lifecycle only).
+ASSET_AUDIT_VISIBLE_ORDER_ACTIONS = frozenset(
+    {
+        "physical_order_created",
+        "physical_verification_reset",
+        "physical_order_verified",
+    }
+)
+
+
+def include_asset_audit_event(
+    action: str,
+    *,
+    new_value: dict[str, Any] | None = None,
+) -> bool:
+    nv = new_value or {}
+    if action == "physical_order_created":
+        # Re-audit: reset on create is shown as "Order created" with count/date changes.
+        return not bool(nv.get("pending_reset_on_approval"))
+    if action == "physical_order_approved":
+        return False
+    if action in ORDER_ASSET_AUDIT_ACTIONS:
+        return action in ASSET_AUDIT_VISIBLE_ORDER_ACTIONS
+    return True
+
+
+def _format_audit_date_value(value: Any) -> str:
+    """Match app date display: DD/MM/YY."""
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, datetime):
+        value = value.date()
+    if isinstance(value, date):
+        return value.strftime("%d/%m/%y")
+    text = str(value).strip()
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        try:
+            return date.fromisoformat(text[:10]).strftime("%d/%m/%y")
+        except ValueError:
+            pass
+    return text
+
+
+def format_inventory_count_date_lines(
+    *,
+    old_value: dict[str, Any] | None = None,
+    new_value: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    """Physical count and last verification date only — for asset audit display."""
+    ov = old_value or {}
+    nv = new_value or {}
+    lines: list[dict[str, str]] = []
+
+    old_pc = ov.get("physical_count")
+    new_pc = nv.get("physical_count")
+    if old_pc != new_pc:
+        lines.append(
+            {
+                "field_label": "Physical count",
+                "from_value": "—" if old_pc is None else str(old_pc),
+                "to_value": "—" if new_pc is None else str(new_pc),
+            }
+        )
+
+    old_dt = ov.get("last_verification_date")
+    new_dt = nv.get("last_verification_date")
+    if old_dt != new_dt:
+        lines.append(
+            {
+                "field_label": "Last verification date",
+                "from_value": _format_audit_date_value(old_dt),
+                "to_value": _format_audit_date_value(new_dt),
+            }
+        )
+
+    return lines
+
+
+def _order_ref(nv: dict[str, Any], ov: dict[str, Any]) -> str:
+    order_no = nv.get("order_number") or ov.get("order_number")
+    if order_no:
+        return str(order_no)
+    order_id = nv.get("order_id") or ov.get("order_id")
+    return f"#{order_id}" if order_id else ""
+
+
+def compact_order_audit_text(
+    action: str,
+    *,
+    old_value: dict[str, Any] | None = None,
+    new_value: dict[str, Any] | None = None,
+) -> str:
+    """One-line physical order activity for asset audit (actor shown separately)."""
+    ov = old_value or {}
+    nv = new_value or {}
+    ref = _order_ref(nv, ov)
+    prefix = f"{ref} · " if ref else ""
+
+    if action == "physical_order_created":
+        return f"{prefix}Order Created".lstrip(" · ")
+    if action == "physical_order_approved":
+        return f"{prefix}Order Approved".lstrip(" · ")
+    if action == "physical_order_started":
+        return f"{prefix}Verification Started".lstrip(" · ")
+    if action == "physical_order_verified":
+        return f"{prefix}Verified".lstrip(" · ")
+    if action == "physical_verification_reset":
+        return f"{prefix}Order Created".lstrip(" · ")
+    return f"{prefix}{action.replace('_', ' ')}".lstrip(" · ")
+
+
+def format_rfid_audit_lines(
+    *,
+    old_value: dict[str, Any] | None = None,
+    new_value: dict[str, Any] | None = None,
+    id_labels: dict[str, dict[int, str]] | None = None,
+) -> list[dict[str, str]]:
+    """RFID attach/update: show the code that was attached, or from → to on replace."""
+    ov = old_value or {}
+    nv = new_value or {}
+    changes: dict[str, dict[str, Any]] = {}
+    old_rfid = ov.get("rfid_code")
+    new_rfid = nv.get("rfid_code")
+    if old_rfid != new_rfid or new_rfid:
+        changes["rfid_code"] = {"from": old_rfid, "to": new_rfid}
+    if ov.get("tag_color_id") != nv.get("tag_color_id") and (
+        "tag_color_id" in ov or "tag_color_id" in nv
+    ):
+        changes["tag_color_id"] = {"from": ov.get("tag_color_id"), "to": nv.get("tag_color_id")}
+    return format_changes_detail(changes, id_labels=id_labels)
+
+
+def format_asset_order_audit_lines(
+    action: str,
+    *,
+    old_value: dict[str, Any] | None = None,
+    new_value: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    if action in ("physical_verification_reset", "physical_order_verified"):
+        return format_inventory_count_date_lines(old_value=old_value, new_value=new_value)
+    return []
+
+
+def activity_verb_for_action(action: str, new_value: dict[str, Any] | None, source_type: str | None) -> str:
+    nv = new_value or {}
+    if action == "physical_order_approved":
+        return "Order approved"
+    if action == "physical_order_started":
+        return "Verification started"
+    if action == "physical_order_verified":
+        return "Verified in order"
+    if action == "physical_verification_reset":
+        return "Order Created"
+    if action in ORDER_ASSET_AUDIT_ACTIONS:
+        return "Physical order"
+    if action == "created":
+        source = str(nv.get("source") or "")
+        if not source:
+            source = source_type or "manual"
+        if source == "import":
+            return "Imported By"
+        if source == "seed":
+            return "Created (seed data) By"
+        if nv.get("pending_approval"):
+            return "Created Manually By"
+        return "Created Manually By"
+    if action == "imported":
+        return "Imported By"
+    if action == "updated":
+        return "Updated By"
+    if action == "approved":
+        return "Approved By"
+    if action == "activated":
+        return "Activated By"
+    if action == "deactivated":
+        return "Deactivated By"
+    if action == "reactivated":
+        return "Reactivated By"
+    if action == "submitted_for_approval":
+        return "Submitted for Approval By"
+    if action == "rejected":
+        return "Rejected By"
+    if action == "reassigned":
+        return "Reassigned By"
+    if action == "deleted":
+        return "Deleted By"
+    if action == "rfid_updated":
+        return "RFID Updated By"
+    if action == "rfid_attached":
+        return "RFID Attached By"
+    return action.replace("_", " ").title() + " by"
+
+
+def format_field_list(keys: list[str]) -> str:
+    labels = [AUDIT_FIELD_LABELS.get(k, k.replace("_", " ")) for k in keys]
+    if not labels:
+        return "Updated"
+    if len(labels) <= 4:
+        return ", ".join(labels)
+    return f"{', '.join(labels[:3])}, +{len(labels) - 3} more"
+
+
+def actor_display(user: User | None, user_id: int | None) -> str:
+    if user is not None:
+        return user.full_name or user.email or f"User #{user.id}"
+    if user_id is not None:
+        return f"User #{user_id}"
+    return "System"
+
+
+def build_audit_summary(
+    *,
+    action: str,
+    actor_name: str,
+    new_value: dict[str, Any] | None = None,
+    old_value: dict[str, Any] | None = None,
+    source_type: str | None = None,
+    plant_labels: dict[int, str] | None = None,
+    category_labels: dict[int, str] | None = None,
+    user_labels: dict[int, str] | None = None,
+    code_labels: dict[str, str] | None = None,
+    id_labels: dict[str, dict[int, str]] | None = None,
+) -> str:
+    nv = new_value or {}
+    ov = old_value or {}
+    if action == "created":
+        source = str(nv.get("source") or "")
+        if not source:
+            source = source_type or "manual"
+        if source == "import":
+            return f"Imported by {actor_name}"
+        if source == "seed":
+            return f"Created (seed data) by {actor_name}"
+        return f"Created Manually by {actor_name}"
+    if action == "imported":
+        return f"Imported by {actor_name}"
+    if action == "updated":
+        changes = nv.get("changes")
+        if isinstance(changes, dict) and changes:
+            detail_lines = format_changes_detail(
+                changes,
+                plant_labels=plant_labels,
+                category_labels=category_labels,
+                user_labels=user_labels,
+                code_labels=code_labels,
+                id_labels=id_labels,
+            )
+            if detail_lines:
+                body = "\n".join(
+                    f"{d['field_label']}: {d['from_value']} → {d['to_value']}" for d in detail_lines
+                )
+                return f"Updated by {actor_name}:\n{body}"
+            fields = format_field_list(list(changes.keys()))
+            return f"Updated {fields} by {actor_name}"
+        return f"Updated by {actor_name}"
+    if action == "approved":
+        comment = str(nv.get("comment") or "").strip()
+        if comment:
+            return f"Approved by {actor_name}: {comment}"
+        return f"Approved by {actor_name}"
+    if action == "activated":
+        return f"Activated by {actor_name}"
+    if action == "deactivated":
+        return f"Deactivated by {actor_name}"
+    if action == "reactivated":
+        return f"Reactivated by {actor_name}"
+    if action == "submitted_for_approval":
+        assignee = str(nv.get("assignee_name") or "").strip()
+        if assignee:
+            return f"Submitted for Approval by {actor_name} → {assignee}"
+        return f"Submitted for Approval by {actor_name}"
+    if action == "rejected":
+        comment = str(nv.get("comment") or "").strip()
+        if comment:
+            return f"Rejected by {actor_name}: {comment}"
+        return f"Rejected by {actor_name}"
+    if action == "reassigned":
+        to_name = str(nv.get("assignee_name") or "").strip() or "—"
+        from_name = str(ov.get("assignee_name") or "").strip()
+        if from_name:
+            return f"Reassigned by {actor_name}: {from_name} → {to_name}"
+        return f"Reassigned by {actor_name} to {to_name}"
+    if action == "deleted":
+        return f"Deleted by {actor_name}"
+    if action in ("rfid_updated", "rfid_attached"):
+        verb = "RFID Updated" if action == "rfid_updated" else "RFID Attached"
+        detail_lines = format_rfid_audit_lines(
+            old_value=ov, new_value=nv, id_labels=id_labels
+        )
+        if detail_lines:
+            body = "\n".join(
+                f"{d['field_label']}: {d['from_value']} → {d['to_value']}" for d in detail_lines
+            )
+            return f"{verb} by {actor_name}:\n{body}"
+        return f"{verb} by {actor_name}"
+    if action in ASSET_AUDIT_VISIBLE_ORDER_ACTIONS:
+        text = compact_order_audit_text(action, old_value=old_value, new_value=nv)
+        return f"{text} · {actor_name}" if text else f"Physical order · {actor_name}"
+    return f"{action.replace('_', ' ').title()} by {actor_name}"
