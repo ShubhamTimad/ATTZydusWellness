@@ -9,13 +9,17 @@ from core.permissions import require_any_permission, require_permission, require
 from core.password_policy import PasswordPolicyError
 from db.session import get_db
 from modules.assets.service import MAX_ASSET_IMAGE_BYTES, InvalidAssetImageError
-from modules.errors import NotFoundError, RbacSafetyError
+from modules.errors import ConflictError, NotFoundError, RbacSafetyError
 from modules.platform.users.model import User
 from modules.platform.users.schema import (
+    UserAssigneeListResponse,
     UserCreate,
+    UserDetailPublic,
     UserFilterOptions,
     UserListPage,
     UserPublic,
+    UserSubmitForApprovalRequest,
+    UserSubmitForApprovalResponse,
     UserUpdate,
 )
 from modules.platform.users.service import DuplicateEmailError, DuplicatePhoneError, DuplicateUsernameError, UserService
@@ -132,6 +136,65 @@ def list_users_page(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/assignees", response_model=UserAssigneeListResponse)
+def list_user_creation_assignees_for_create(
+    svc: Annotated[UserService, Depends(get_user_service)],
+    _: Annotated[object, Depends(require_any_permission("users.create", "users.update"))],
+) -> UserAssigneeListResponse:
+    """First-step approvers for users.create (create-page Submit picker)."""
+    try:
+        return svc.list_assignees_for_user_creation(None)
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get("/{user_id}", response_model=UserDetailPublic)
+def get_user(
+    user_id: int,
+    svc: Annotated[UserService, Depends(get_user_service)],
+    _: Annotated[object, Depends(require_permission("users.view"))],
+) -> UserDetailPublic:
+    try:
+        return svc.get_user_detail(user_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/{user_id}/assignees", response_model=UserAssigneeListResponse)
+def list_user_creation_assignees(
+    user_id: int,
+    svc: Annotated[UserService, Depends(get_user_service)],
+    _: Annotated[object, Depends(require_any_permission("users.create", "users.update"))],
+) -> UserAssigneeListResponse:
+    try:
+        return svc.list_assignees_for_user_creation(user_id)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.post("/{user_id}/submit-for-approval", response_model=UserSubmitForApprovalResponse)
+def submit_user_for_approval(
+    user_id: int,
+    payload: UserSubmitForApprovalRequest,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    svc: Annotated[UserService, Depends(get_user_service)],
+    _: Annotated[object, Depends(require_any_permission("users.create", "users.update"))],
+) -> UserSubmitForApprovalResponse:
+    try:
+        result = svc.submit_for_approval(
+            user_id,
+            actor_user_id=int(current.subject),
+            assignee_user_id=payload.assignee_user_id,
+        )
+        return UserSubmitForApprovalResponse(**result)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.patch("/{user_id}", response_model=UserPublic)

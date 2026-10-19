@@ -598,13 +598,13 @@ export function AssetDetailPage() {
   const reassignRoleName = asset?.approval_panel?.current_step_role_name ?? "Approver"
   const progress = asset ? buildAssetProgress(asset) : null
 
-  async function submitWithAssignee(userId: number) {
+  async function submitWithAssignee(userId?: number) {
     if (!asset) return
     setSaving(true)
     try {
       const res = await postJson<SubmitForApprovalResult>(
         `/admin/assets/${asset.id}/submit-for-approval`,
-        { assignee_user_id: userId },
+        userId != null && userId > 0 ? { assignee_user_id: userId } : {},
       )
       if (res.errors?.length) {
         toast.error(formatSubmitForApprovalError(res.errors[0]))
@@ -763,7 +763,19 @@ export function AssetDetailPage() {
     }
 
     if (actionId === "submit") {
-      setSubmitAssignOpen(true)
+      if (!asset) return
+      void (async () => {
+        try {
+          await getJson(`/admin/assets/${asset.id}/assignees`)
+          setSubmitAssignOpen(true)
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 409) {
+            await submitWithAssignee()
+            return
+          }
+          toast.error(e instanceof ApiError ? e.message : "Could not load approvers.")
+        }
+      })()
       return
     }
 

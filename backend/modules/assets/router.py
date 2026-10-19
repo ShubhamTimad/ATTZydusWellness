@@ -389,7 +389,7 @@ def submit_assets_for_approval(
         return svc.submit_for_approval(
             body.asset_ids,
             actor_user_id=int(current.subject),
-            assignee_user_id=int(body.assignee_user_id),
+            assignee_user_id=body.assignee_user_id,
         )
     except PermissionDeniedError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
@@ -467,7 +467,7 @@ def submit_asset_for_approval(
         return svc.submit_for_approval(
             [asset_id],
             actor_user_id=int(current.subject),
-            assignee_user_id=int(body.assignee_user_id),
+            assignee_user_id=body.assignee_user_id,
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

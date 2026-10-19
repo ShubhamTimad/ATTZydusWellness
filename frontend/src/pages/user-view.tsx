@@ -24,6 +24,7 @@ import { ApiError, deleteJson, getBlob, getJson, postJson } from "@/lib/api"
 import { formatAppDateTime as formatDateTime } from "@/lib/dates"
 import { hasPermission, isSuperuser } from "@/lib/permissions"
 import { useConfirmDialog } from "@/components/ui/confirm-dialog"
+import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 
 type UserPublic = {
   id: number
@@ -37,6 +38,8 @@ type UserPublic = {
   locked_at?: string | null
   mfa_setup_completed?: boolean
   has_photo?: boolean
+  approval_status?: "draft" | "pending" | "rejected" | "approved" | string
+  can_submit_for_approval?: boolean
   role: { id: number; name: string } | null
   roles?: { id: number; name: string }[]
   org_units?: { id: number; name: string; type: string; code?: string | null }[]
@@ -92,6 +95,8 @@ export function UserViewPage() {
   const [unlocking, setUnlocking] = React.useState(false)
   const [mfaEnabled, setMfaEnabled] = React.useState<boolean>(false)
   const [photoUrl, setPhotoUrl] = React.useState<string | null>(null)
+  const [submitOpen, setSubmitOpen] = React.useState(false)
+  const [submitting, setSubmitting] = React.useState(false)
 
   React.useEffect(() => {
     setPhotoUrl(null)
@@ -112,12 +117,58 @@ export function UserViewPage() {
   }, [user?.id, user?.has_photo])
 
   const canUpdate = hasPermission("users.update")
+  const canCreate = hasPermission("users.create")
   const canUnlock = hasPermission("users.unlock")
   const canViewAudit = hasPermission("users.view")
   const canResendMfa = hasPermission("mfa.manage")
+  const canSubmit =
+    Boolean(user?.can_submit_for_approval) && (canCreate || canUpdate) && !user?.is_superuser
 
   const canHardDelete = isSuperuser() && meId !== null && user !== null && user.id !== meId
   const { ask: confirmAsk, dialog: confirmDialog } = useConfirmDialog()
+
+  async function reloadUser(userId: number) {
+    const u = await getJson<UserPublic>(`/admin/users/${userId}`)
+    setUser(u)
+  }
+
+  async function submitWithAssignee(assigneeUserId?: number) {
+    if (!user) return
+    setSubmitting(true)
+    try {
+      const res = await postJson<{ status: string }>(
+        `/admin/users/${user.id}/submit-for-approval`,
+        assigneeUserId != null && assigneeUserId > 0
+          ? { assignee_user_id: assigneeUserId }
+          : {},
+      )
+      setSubmitOpen(false)
+      await reloadUser(user.id)
+      if (res.status === "activated") {
+        toast.success("User activated — no approval workflow is configured.")
+      } else {
+        toast.success("User submitted for approval successfully.")
+      }
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "Could not submit this user for approval.")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function requestSubmit() {
+    if (!user) return
+    try {
+      await getJson(`/admin/users/${user.id}/assignees`)
+      setSubmitOpen(true)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        await submitWithAssignee()
+        return
+      }
+      toast.error(e instanceof ApiError ? e.message : "Could not load approvers.")
+    }
+  }
 
   async function unlockAccount() {
     if (!user) return
@@ -228,8 +279,7 @@ export function UserViewPage() {
           setMeId(null)
         }
 
-        const all = await getJson<UserPublic[]>("/admin/users?skip=0&limit=200")
-        const u = all.find((x) => x.id === userId) ?? null
+        const u = await getJson<UserPublic>(`/admin/users/${userId}`)
         setUser(u)
         if (u?.org_unit?.id) {
           try {
@@ -273,6 +323,15 @@ export function UserViewPage() {
         >
           {unlocking ? "Unlocking…" : "Unlock Account"}
         </Button>
+      ) : null}
+      {user && canSubmit ? (
+        <AdminPrimaryButton
+          type="button"
+          disabled={submitting}
+          onClick={() => void requestSubmit()}
+        >
+          {user.approval_status === "rejected" ? "Resubmit for Approval" : "Submit for Approval"}
+        </AdminPrimaryButton>
       ) : null}
       {user && canUpdate && user.is_active && !user.is_superuser ? (
         <Button
@@ -344,6 +403,21 @@ export function UserViewPage() {
               headerActions={
                 <span className="flex flex-wrap items-center gap-1.5">
                   <AdminStatusBadge active={user.is_active} locked={user.is_locked} />
+                  {user.approval_status === "draft" ? (
+                    <Badge variant="outline" className="rounded-md">
+                      Draft
+                    </Badge>
+                  ) : null}
+                  {user.approval_status === "pending" ? (
+                    <Badge variant="outline" className="rounded-md border-amber-300/80 text-amber-800">
+                      Pending Approval
+                    </Badge>
+                  ) : null}
+                  {user.approval_status === "rejected" ? (
+                    <Badge variant="outline" className="rounded-md border-destructive/50 text-destructive">
+                      Rejected
+                    </Badge>
+                  ) : null}
                   {user.is_superuser ? (
                     <Badge variant="outline" className="rounded-md border-amber-300/80 text-amber-800">
                       Superuser
@@ -407,6 +481,16 @@ export function UserViewPage() {
       )}
     </AdminPage>
     {confirmDialog}
+    <CapexAssigneePickerDialog
+      open={submitOpen}
+      onOpenChange={setSubmitOpen}
+      assigneesUrl={user ? `/admin/users/${user.id}/assignees` : undefined}
+      roleLabel="Approver"
+      title="Submit for Approval"
+      confirmLabel={submitting ? "Submitting…" : "Submit"}
+      busy={submitting}
+      onConfirm={(userId) => void submitWithAssignee(userId)}
+    />
     </>
   )
 }

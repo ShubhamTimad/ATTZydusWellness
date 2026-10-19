@@ -857,17 +857,23 @@ class ApprovalEngineService:
         )
 
     @staticmethod
-    def _build_user_creation_payload(user: User) -> dict[str, Any]:
+    def _build_user_creation_payload(
+        user: User, *, temp_password: str | None = None
+    ) -> dict[str, Any]:
         role = user.roles[0] if user.roles else None
         org = user.org_units[0] if user.org_units else None
-        return {
+        payload: dict[str, Any] = {
             "action_code": "users.create",
             "full_name": user.full_name,
+            "username": user.username,
             "phone": user.phone,
             "email": user.email,
             "role_id": int(role.id) if role is not None else None,
             "org_unit_id": int(org.id) if org is not None else None,
         }
+        if temp_password and str(temp_password).strip():
+            payload["temp_password"] = str(temp_password).strip()
+        return payload
 
     def act_on_task(
         self,
@@ -1752,39 +1758,82 @@ class ApprovalEngineService:
             )
             return
         if req.entity_type == "user_creation":
+            import hashlib
+            import os
+            from urllib.parse import quote
+
+            from core.password_policy import validate_password
+            from core.security import hash_password
+            from modules.platform.auth.model import PasswordResetToken
+
             user = self._db.get(User, req.entity_id)
             if user is None:
                 raise ApprovalError("Target user not found for approval request.")
             user.is_active = True
-            # Trigger configurable email notification (template-driven).
-            if user.email:
-                payload: dict[str, Any] = {
-                    "user_name": user.full_name,
-                    "username": user.username,
-                    "email": user.email,
-                    "company_name": "Takeda Asset Management",
-                    # Always include keys used by templates; values may be blank.
-                    "temp_password": "",
-                    "setup_link": "",
-                }
-                # If the user was created with an auto-generated password, it is stored in the approval payload.
+            # Last approve activates the user and sends the welcome mail (temp password + reset URL).
+            payload: dict[str, Any] = {
+                "user_name": user.full_name,
+                "username": user.username,
+                "email": user.email or "",
+                "company_name": "Takeda Asset Management",
+                "temp_password": "",
+                "setup_link": "",
+                "reset_link": "",
+            }
+            try:
+                if isinstance(req.payload, dict) and req.payload.get("temp_password"):
+                    payload["temp_password"] = str(req.payload.get("temp_password") or "")
+            except Exception:
+                pass
+
+            if user.email and not str(payload.get("temp_password") or "").strip():
                 try:
-                    if isinstance(req.payload, dict) and req.payload.get("temp_password"):
-                        payload["temp_password"] = str(req.payload.get("temp_password") or "")
+                    from modules.platform.users.service import UserService
+
+                    plain = UserService(self._db)._generate_password()
+                    validate_password(plain)
+                    user.hashed_password = hash_password(plain)
+                    user.password_changed_at = datetime.now(timezone.utc)
+                    payload["temp_password"] = plain
+                    if isinstance(req.payload, dict):
+                        req.payload["temp_password"] = plain
                 except Exception:
                     pass
 
-                # If MFA is enabled by policy (and not completed), include setup link in the same email.
+            if user.email:
+                raw = secrets.token_urlsafe(32)
+                token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+                expires_minutes = int(
+                    (os.environ.get("PASSWORD_RESET_TOKEN_EXPIRE_MINUTES") or "30").strip() or "30"
+                )
+                if expires_minutes < 5:
+                    expires_minutes = 5
+                now = datetime.now(timezone.utc)
+                self._db.add(
+                    PasswordResetToken(
+                        user_id=int(user.id),
+                        token_hash=token_hash,
+                        expires_at=now + timedelta(minutes=expires_minutes),
+                    )
+                )
+                base = (
+                    os.environ.get("FRONTEND_APP_URL")
+                    or os.environ.get("FRONTEND_ORIGIN")
+                    or "http://localhost:5173"
+                ).rstrip("/")
+                payload["reset_link"] = f"{base}/reset-password?token={quote(raw, safe='')}"
+
                 try:
                     pol = get_global_policy(self._db)
                     if bool(pol.mfa_enabled):
-                        # Reload for mfa_record if needed.
                         u2 = self._db.scalar(
                             select(User)
                             .where(User.id == int(user.id))
                             .options(selectinload(User.mfa_record))
                         )
-                        if u2 is not None and (u2.mfa_record is None or not bool(u2.mfa_record.setup_completed)):
+                        if u2 is not None and (
+                            u2.mfa_record is None or not bool(u2.mfa_record.setup_completed)
+                        ):
                             link = create_mfa_setup_link(self._db, user=u2)
                             if link:
                                 payload["setup_link"] = link
@@ -1792,7 +1841,6 @@ class ApprovalEngineService:
                     pass
 
                 enqueue_trigger_events([("USER_CREATED", payload)])
-            # Avoid sending a second MFA email when the setup link was already included above.
-            if not (isinstance(payload, dict) and payload.get("setup_link")):
+            if not payload.get("setup_link"):
                 maybe_send_mfa_setup_for_user(self._db, user)
 
