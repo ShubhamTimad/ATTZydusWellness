@@ -161,7 +161,7 @@ export function transferStatusLabel(
     in_rework: "Rejected", // legacy; normalized to rejected
     approved_by_cf: "Pending Receive",
     received_by_cc2: "Received",
-    confirmed_by_cf: "Confirmed by CF",
+    confirmed_by_cf: "Approved",
     closed: "Closed",
     cancelled: "Cancelled",
   }
@@ -176,15 +176,14 @@ export function transferStatusLabel(
 export function transferStatusPillTone(
   status: string,
 ): "neutral" | "primary" | "success" | "warning" | "danger" {
-  if (status === "closed") return "success"
+  if (status === "closed" || status === "confirmed_by_cf") return "success"
   if (status === "rejected" || status === "in_rework" || status === "cancelled") return "danger"
   if (status === "draft") return "neutral"
   if (
     status === "pending_approval" ||
     status === "assigned_to_cf" ||
     status === "approved_by_cf" ||
-    status === "received_by_cc2" ||
-    status === "confirmed_by_cf"
+    status === "received_by_cc2"
   ) {
     return "warning"
   }
@@ -507,7 +506,7 @@ export function buildTransferProgress(detail: TransferOrderDetail): {
     },
     {
       key: "received_by_cc2",
-      label: confirmStatus === "completed" ? "Confirmed by CF" : "CF confirm",
+      label: confirmStatus === "completed" ? "Approved" : "CF confirm",
       status: confirmStatus,
       detail: status === "received_by_cc2" ? (detail.assigned_to_name ?? null) : null,
       approver_slots: [],

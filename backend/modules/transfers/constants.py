@@ -50,6 +50,18 @@ PRE_RECEIVE_TRANSFER_STATUSES = frozenset(
         STATUS_APPROVED_BY_CF,
     }
 )
+# Statuses where the transfer has not yet been confirmed by Central Finance.
+PRE_CONFIRM_TRANSFER_STATUSES = frozenset(
+    {
+        STATUS_DRAFT,
+        STATUS_PENDING_APPROVAL,
+        STATUS_ASSIGNED_TO_CF,
+        STATUS_REJECTED,
+        STATUS_IN_REWORK,
+        STATUS_APPROVED_BY_CF,
+        STATUS_RECEIVED_BY_CC2,
+    }
+)
 
 TRANSFER_IN_PROGRESS_MESSAGE = (
     "A Transfer Order is already in progress for this asset. "
@@ -104,7 +116,7 @@ STATUS_LABELS: dict[str, str] = {
     STATUS_IN_REWORK: "Rejected",  # legacy; normalized to rejected
     STATUS_APPROVED_BY_CF: "Pending Receive",
     STATUS_RECEIVED_BY_CC2: "Received",
-    STATUS_CONFIRMED_BY_CF: "Confirmed by CF",
+    STATUS_CONFIRMED_BY_CF: "Approved",
     STATUS_CLOSED: "Closed",
     STATUS_CANCELLED: "Cancelled",
 }

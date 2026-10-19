@@ -279,15 +279,46 @@ def test_apply_receive_sets_per_item_locations_and_custodians() -> None:
     assert a1.location.actual_location == "AL-A"
     assert a1.asset_custodian_id == 8
     assert a1.financial.cost_center == "CC-200"
-    assert a1.lifecycle_status == "active"
-    assert a1.approval_status == "approved"
+    assert a1.lifecycle_status == LIFECYCLE_PENDING_TRANSFER
     assert a2.location.functional_location == "FL-B"
     assert a2.location.actual_location == "AL-B"
     assert a2.asset_custodian_id == 9
-    assert a2.lifecycle_status == "active"
-    assert a2.approval_status == "approved"
+    assert a2.lifecycle_status == LIFECYCLE_PENDING_TRANSFER
     assert items[0].to_functional_location == "FL-A"
     assert items[1].to_actual_location == "AL-B"
+
+
+def test_cf_confirm_restores_assets_to_active_and_approved() -> None:
+    a1 = _asset(1)
+    a1.lifecycle_status = LIFECYCLE_PENDING_TRANSFER
+    a1.approval_status = "pending"
+    order = _order("received_by_cc2", assets=[a1])
+    order.id = 10
+    svc = TransferOrderService(MagicMock())
+    with patch.object(svc, "_load_order", return_value=order):
+        with patch.object(svc, "get_order", return_value=None):
+            with patch("modules.transfers.service._log"):
+                svc.cf_confirm(10, actor_user_id=1)
+    assert order.status == "confirmed_by_cf"
+    assert a1.lifecycle_status == "active"
+    assert a1.approval_status == "approved"
+
+
+def test_apply_transfer_confirm_restores_assets_to_active_and_approved() -> None:
+    from modules.transfers.service import apply_transfer_confirm
+
+    a1 = _asset(1)
+    a1.lifecycle_status = LIFECYCLE_PENDING_TRANSFER
+    a1.approval_status = "pending"
+    order = _order("received_by_cc2", assets=[a1])
+    order.id = 10
+    db = MagicMock()
+    db.scalar.return_value = order
+    with patch("modules.transfers.service._log"):
+        apply_transfer_confirm(db, order_id=10, actor_user_id=1, next_assignee_user_id=2)
+    assert order.status == "confirmed_by_cf"
+    assert a1.lifecycle_status == "active"
+    assert a1.approval_status == "approved"
 
 
 def test_revert_transfer_assets_after_receive_marks_pending_transfer() -> None:
