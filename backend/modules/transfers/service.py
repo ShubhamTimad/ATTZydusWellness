@@ -11,6 +11,7 @@ from modules.asset_masters.location_lookup import (
 )
 from modules.asset_masters.model import CostCenterAssetCustodian, CostCenterMaster
 from modules.assets.lifecycle import (
+    APPROVAL_APPROVED,
     LIFECYCLE_ACTIVE,
     LIFECYCLE_PENDING_DISPOSAL,
     LIFECYCLE_PENDING_TRANSFER,
@@ -53,6 +54,7 @@ from modules.transfers.constants import (
     ENTITY_TYPE,
     LEGACY_STATUS_ALIASES,
     PENDING_APPROVAL_STATUSES,
+    PRE_RECEIVE_TRANSFER_STATUSES,
     REJECTABLE_STATUSES,
     RESUMABLE_STATUSES,
     ROLE_TO_ASSIGNEE_LEVEL,
@@ -451,11 +453,14 @@ def _audit_payload_for_api(
 
 
 def sync_open_transfer_asset_lifecycles(db: Session) -> int:
-    """Mark assets on open transfer orders as pending_transfer (idempotent backfill)."""
+    """Mark assets on pre-receive transfer orders as pending_transfer (idempotent backfill).
+
+    Assets on orders that are already received or confirmed are restored to active/approved.
+    """
     open_asset_ids = (
         select(AssetTransferOrderItem.asset_id)
         .join(AssetTransferOrder, AssetTransferOrderItem.order_id == AssetTransferOrder.id)
-        .where(AssetTransferOrder.status.in_(tuple(ACTIVE_STATUSES)))
+        .where(AssetTransferOrder.status.in_(tuple(PRE_RECEIVE_TRANSFER_STATUSES)))
     )
     result = db.execute(
         update(AssetMaster)
@@ -467,6 +472,26 @@ def sync_open_transfer_asset_lifecycles(db: Session) -> int:
         .values(lifecycle_status=LIFECYCLE_PENDING_TRANSFER)
     )
     n = int(getattr(result, "rowcount", 0) or 0)
+
+    # Post-receive transfers: ensure assets are restored to active and approved
+    received_asset_ids = (
+        select(AssetTransferOrderItem.asset_id)
+        .join(AssetTransferOrder, AssetTransferOrderItem.order_id == AssetTransferOrder.id)
+        .where(
+            AssetTransferOrder.status.in_((STATUS_RECEIVED_BY_CC2, STATUS_CONFIRMED_BY_CF, STATUS_CLOSED))
+        )
+    )
+    restore_result = db.execute(
+        update(AssetMaster)
+        .where(
+            AssetMaster.deleted_at.is_(None),
+            func.lower(func.trim(AssetMaster.lifecycle_status)) == LIFECYCLE_PENDING_TRANSFER,
+            AssetMaster.id.in_(received_asset_ids),
+            AssetMaster.id.not_in(open_asset_ids),
+        )
+        .values(lifecycle_status=LIFECYCLE_ACTIVE, approval_status=APPROVAL_APPROVED)
+    )
+    n += int(getattr(restore_result, "rowcount", 0) or 0)
     if n:
         db.commit()
     return n
@@ -2627,6 +2652,7 @@ def _revert_transfer_assets_after_receive(order: AssetTransferOrder) -> None:
         asset.asset_custodian_id = (
             int(item.from_asset_custodian_id) if item.from_asset_custodian_id else None
         )
+        mark_pending_transfer(asset)
 
 
 def _receive_loc_map(item_locations: list | None) -> dict[int, tuple[str, str]]:
@@ -2714,6 +2740,8 @@ def _apply_receive_assets(
         if item.to_asset_custodian_id is None:
             item.to_asset_custodian_id = custodian_id
         asset = item.asset
+        if asset is None and item.asset_id:
+            asset = db.get(AssetMaster, int(item.asset_id))
         if asset is None:
             continue
         fin = _ensure_financial(asset)
@@ -2722,6 +2750,7 @@ def _apply_receive_assets(
         loc.functional_location = pair[0]
         loc.actual_location = pair[1]
         asset.asset_custodian_id = custodian_id
+        restore_from_pending_transfer(asset)
     first = order.items[0]
     order.to_functional_location = first.to_functional_location
     order.to_actual_location = first.to_actual_location

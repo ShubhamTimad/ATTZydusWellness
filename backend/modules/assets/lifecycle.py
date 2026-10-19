@@ -172,9 +172,10 @@ def mark_pending_transfer(asset: AssetMaster) -> dict[str, Any]:
 
 
 def restore_from_pending_transfer(asset: AssetMaster) -> dict[str, Any]:
-    """Transfer archived/deleted/closed — asset is approved/active again."""
+    """Transfer archived/deleted/closed/received — asset is approved/active again."""
     before = {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status}
     asset.lifecycle_status = LIFECYCLE_ACTIVE
+    asset.approval_status = APPROVAL_APPROVED
     return {
         "before": before,
         "after": {"lifecycle_status": asset.lifecycle_status, "approval_status": asset.approval_status},

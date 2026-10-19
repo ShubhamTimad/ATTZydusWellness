@@ -237,7 +237,9 @@ def test_backfill_migration_covers_all_open_transfer_statuses() -> None:
 
 def test_apply_receive_sets_per_item_locations_and_custodians() -> None:
     a1 = _asset(1)
+    a1.lifecycle_status = LIFECYCLE_PENDING_TRANSFER
     a2 = _asset(2)
+    a2.lifecycle_status = LIFECYCLE_PENDING_TRANSFER
     items = [
         SimpleNamespace(
             asset_id=1,
@@ -277,11 +279,38 @@ def test_apply_receive_sets_per_item_locations_and_custodians() -> None:
     assert a1.location.actual_location == "AL-A"
     assert a1.asset_custodian_id == 8
     assert a1.financial.cost_center == "CC-200"
+    assert a1.lifecycle_status == "active"
+    assert a1.approval_status == "approved"
     assert a2.location.functional_location == "FL-B"
     assert a2.location.actual_location == "AL-B"
     assert a2.asset_custodian_id == 9
+    assert a2.lifecycle_status == "active"
+    assert a2.approval_status == "approved"
     assert items[0].to_functional_location == "FL-A"
     assert items[1].to_actual_location == "AL-B"
+
+
+def test_revert_transfer_assets_after_receive_marks_pending_transfer() -> None:
+    from modules.transfers.service import _revert_transfer_assets_after_receive
+
+    asset = _asset(1)
+    asset.lifecycle_status = "active"
+    asset.approval_status = "approved"
+    item = SimpleNamespace(
+        asset_id=1,
+        asset=asset,
+        from_cost_center_code="CC-OLD",
+        from_functional_location="FL-OLD",
+        from_actual_location="AL-OLD",
+        from_asset_custodian_id=2,
+    )
+    order = SimpleNamespace(items=[item])
+    _revert_transfer_assets_after_receive(order)
+    assert asset.lifecycle_status == LIFECYCLE_PENDING_TRANSFER
+    assert asset.financial.cost_center == "CC-OLD"
+    assert asset.location.functional_location == "FL-OLD"
+    assert asset.location.actual_location == "AL-OLD"
+    assert asset.asset_custodian_id == 2
 
 
 def test_receive_audit_skips_locations_saved_earlier() -> None:

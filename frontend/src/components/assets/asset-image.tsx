@@ -104,7 +104,7 @@ export function AssetImage({
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
-            <DialogTitle>{label} image</DialogTitle>
+            <DialogTitle>{label.toLowerCase().endsWith("image") ? label : `${label} Image`}</DialogTitle>
           </DialogHeader>
           {src ? (
             <div className="flex max-h-[80vh] items-center justify-center overflow-hidden rounded-md bg-muted/20">

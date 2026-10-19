@@ -39,6 +39,17 @@ ACTIVE_STATUSES = frozenset(
         STATUS_CONFIRMED_BY_CF,
     }
 )
+# Statuses where the transfer has not yet been received by the user/custodian.
+PRE_RECEIVE_TRANSFER_STATUSES = frozenset(
+    {
+        STATUS_DRAFT,
+        STATUS_PENDING_APPROVAL,
+        STATUS_ASSIGNED_TO_CF,
+        STATUS_REJECTED,
+        STATUS_IN_REWORK,
+        STATUS_APPROVED_BY_CF,
+    }
+)
 
 TRANSFER_IN_PROGRESS_MESSAGE = (
     "A Transfer Order is already in progress for this asset. "
