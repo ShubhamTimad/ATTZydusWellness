@@ -34,6 +34,8 @@ from modules.assets.schema import (
     AssetListColumnsPreference,
     AssetListFilterOptionsResponse,
     AssetImagePublic,
+    AssetPrintItemPublic,
+    AssetPrintQueueResponse,
     AssetReassignRequest,
     AssetSubmitRequest,
     AssetUpdateRequest,
@@ -43,6 +45,9 @@ from modules.assets.schema import (
     ImportConfirmChunkResponse,
     ImportConfirmRequest,
     ImportConfirmResponse,
+    MarkPrintedRequest,
+    MarkPrintedResponse,
+    ReprintReasonsResponse,
     ImportPreviewResponse,
     ImportValidateRequest,
     SubmitForApprovalRequest,
@@ -451,6 +456,73 @@ def list_asset_assignees(
         return svc.list_assignees_for_action(action_code=action)
     except PermissionDeniedError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get("/printing/reprint-reasons", response_model=ReprintReasonsResponse)
+def get_reprint_reasons(
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+) -> ReprintReasonsResponse:
+    return svc.get_reprint_reasons()
+
+
+@router.get("/printing-queue", response_model=AssetPrintQueueResponse)
+def list_printing_queue(
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[object, Depends(require_permission("asset.view"))],
+    tab: str = Query("pending", description="pending or reprint"),
+    search: str | None = Query(None),
+    asset_code: str | None = Query(None),
+    asset_name: str | None = Query(None),
+    rfid_code: str | None = Query(None),
+    reprint_reason: str | None = Query(None),
+    plant_id: int | None = Query(None, ge=1),
+    category_id: int | None = Query(None, ge=1),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    sort_by: str = Query("created_at"),
+    sort_dir: str = Query("desc"),
+) -> AssetPrintQueueResponse:
+    return svc.list_printing_queue(
+        tab=tab,
+        search=search,
+        asset_code=asset_code,
+        asset_name=asset_name,
+        rfid_code=rfid_code,
+        reprint_reason=reprint_reason,
+        plant_id=plant_id,
+        category_id=category_id,
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        viewer_user_id=int(current.subject) if current.subject else None,
+    )
+
+
+@router.post("/printing/mark-printed", response_model=MarkPrintedResponse)
+def mark_assets_printed(
+    payload: MarkPrintedRequest,
+    svc: Annotated[AssetMasterService, Depends(get_asset_service)],
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    _: Annotated[
+        object,
+        Depends(require_any_permission("asset.view", "asset.create", "asset.update")),
+    ],
+) -> MarkPrintedResponse:
+    try:
+        return svc.mark_printed(
+            asset_ids=payload.asset_ids,
+            print_type=payload.print_type,
+            reprint_reason=payload.reprint_reason,
+            remarks=payload.remarks,
+            actor_user_id=int(current.subject) if current.subject else None,
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 

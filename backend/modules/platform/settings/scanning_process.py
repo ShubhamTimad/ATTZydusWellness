@@ -10,6 +10,13 @@ from modules.platform.settings.lookup import get_setting
 SETTING_KEY: Final = "scanning.process_mode"
 DEFAULT_MODE: Final = "rfid_barcode_qr"
 
+BARCODE_QR_FIELD_SETTING_KEY: Final = "scanning.barcode_qr_field"
+DEFAULT_BARCODE_QR_FIELD: Final = "combined_asset_number"
+
+BARCODE_QR_FIELDS: Final[dict[str, str]] = {
+    "combined_asset_number": "Combined Asset Number",
+}
+
 SCANNING_MODES: Final[dict[str, dict[str, object]]] = {
     "rfid_only": {
         "label": "RFID only",
@@ -71,6 +78,7 @@ class ScanningProcessConfig:
     barcode_enabled: bool
     qr_enabled: bool
     description: str
+    barcode_qr_field: str = DEFAULT_BARCODE_QR_FIELD
 
 
 def get_scanning_process_config() -> ScanningProcessConfig:
@@ -79,6 +87,12 @@ def get_scanning_process_config() -> ScanningProcessConfig:
     if mode not in SCANNING_MODES:
         mode = DEFAULT_MODE
     details = SCANNING_MODES[mode]
+
+    raw_field = get_setting(BARCODE_QR_FIELD_SETTING_KEY)
+    field = raw_field.strip().lower() if raw_field else DEFAULT_BARCODE_QR_FIELD
+    if field not in BARCODE_QR_FIELDS:
+        field = DEFAULT_BARCODE_QR_FIELD
+
     return ScanningProcessConfig(
         process_mode=mode,
         label=str(details["label"]),
@@ -86,4 +100,5 @@ def get_scanning_process_config() -> ScanningProcessConfig:
         barcode_enabled=bool(details["barcode_enabled"]),
         qr_enabled=bool(details["qr_enabled"]),
         description=str(details["description"]),
+        barcode_qr_field=field,
     )

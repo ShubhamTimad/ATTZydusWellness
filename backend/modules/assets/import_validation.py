@@ -251,20 +251,10 @@ def apply_import_validation(db: Session, rows: list[ImportPreviewRow]) -> list[I
                 duplicate_combined_asset_number = True
 
         code = _cell_str(row.data.get("asset_code")).upper()
-        if code and asset_number_has_special_chars(code):
+        if not code:
+            field_errors["asset_code"] = "Asset Number is required."
+        elif asset_number_has_special_chars(code):
             field_errors["asset_code"] = ASSET_NUMBER_SPECIAL_CHARS_MSG
-        elif code:
-            if len(codes_in_file.get(code, [])) > 1:
-                field_errors["asset_code"] = "Duplicate Asset Number in this file."
-                duplicate_asset_code = True
-            elif db.scalar(
-                select(AssetMaster.id).where(
-                    AssetMaster.asset_code == code,
-                    AssetMaster.deleted_at.is_(None),
-                )
-            ):
-                field_errors["asset_code"] = "Asset Number already exists in the system."
-                duplicate_asset_code = True
 
         rfid = _cell_str(row.data.get("rfid_code"))
         if rfid:

@@ -58,7 +58,7 @@ class AssetMaster(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     asset_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    asset_code: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    asset_code: Mapped[str] = mapped_column(String(128), unique=False, nullable=False, index=True)
     combined_asset_number: Mapped[str] = mapped_column(
         String(128), unique=True, nullable=False, index=True
     )
@@ -104,6 +104,12 @@ class AssetMaster(Base):
     image_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)
     image_content_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     image_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    print_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", index=True)
+    last_printed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_printed_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    last_reprint_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     category = relationship("AssetCategory")
     tag_color = relationship("TagColorMaster")
@@ -123,6 +129,10 @@ class AssetMaster(Base):
     inventory = relationship(
         "AssetInventoryInformation", back_populates="asset", uselist=False, cascade="all, delete-orphan"
     )
+    print_logs = relationship(
+        "AssetPrintLog", back_populates="asset", cascade="all, delete-orphan"
+    )
+    last_printed_by_user = relationship("User", foreign_keys=[last_printed_by])
 
 
 class AssetInformation(Base):
@@ -248,3 +258,26 @@ class AssetAuditEvent(Base):
     old_value: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     new_value: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AssetPrintLog(Base):
+    """Log of tag/label print and reprint operations for auditing."""
+
+    __tablename__ = "asset_print_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    asset_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("asset_master.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    printed_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    printed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    print_type: Mapped[str] = mapped_column(String(32), nullable=False, server_default="initial")
+    reprint_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    remarks: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    asset = relationship("AssetMaster", back_populates="print_logs")
+    user = relationship("User", foreign_keys=[printed_by])

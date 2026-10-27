@@ -37,6 +37,9 @@ from modules.platform.settings.login_background import (
 from modules.platform.settings.lookup import clear_setting_cache
 from modules.platform.settings.model import Setting
 from modules.platform.settings.scanning_process import (
+    BARCODE_QR_FIELDS,
+    BARCODE_QR_FIELD_SETTING_KEY,
+    DEFAULT_BARCODE_QR_FIELD,
     DEFAULT_MODE as SCANNING_DEFAULT_MODE,
     SCANNING_MODES,
     SETTING_KEY as SCANNING_SETTING_KEY,
@@ -395,6 +398,8 @@ class SettingsService:
         return cleaned
 
     def get_scanning_process(self) -> ScanningProcessSettingsPublic:
+        from core.tag_crypto import get_tag_crypto_key
+
         cfg = get_scanning_process_config()
         return ScanningProcessSettingsPublic(
             process_mode=cfg.process_mode,
@@ -403,12 +408,17 @@ class SettingsService:
             barcode_enabled=cfg.barcode_enabled,
             qr_enabled=cfg.qr_enabled,
             description=cfg.description,
+            barcode_qr_field=cfg.barcode_qr_field,
+            tag_crypto_key=get_tag_crypto_key(),
         )
 
     def put_scanning_process(
         self, payload: ScanningProcessUpdateRequest
     ) -> ScanningProcessSettingsPublic:
         from modules.errors import ConflictError
+        from modules.assets.model import AssetMaster
+        import sqlalchemy as sa
+        from sqlalchemy import func, or_, text
 
         mode = payload.process_mode.strip().lower()
         if mode not in SCANNING_MODES:
@@ -416,6 +426,70 @@ class SettingsService:
                 f"Invalid scanning mode '{payload.process_mode}'. Must be one of: {', '.join(SCANNING_MODES.keys())}"
             )
         self._upsert(SCANNING_SETTING_KEY, mode)
+
+        if payload.barcode_qr_field:
+            field = payload.barcode_qr_field.strip().lower()
+            if field not in BARCODE_QR_FIELDS:
+                raise ConflictError(
+                    f"Invalid barcode/QR field '{payload.barcode_qr_field}'. Must be one of: {', '.join(BARCODE_QR_FIELDS.keys())}"
+                )
+
+            # Check that the field exists on AssetMaster
+            if not hasattr(AssetMaster, field):
+                raise ConflictError(f"Field '{field}' does not exist on Asset Master.")
+
+            # Validate NOT NULL requirement on all active assets
+            col = getattr(AssetMaster, field)
+            null_count = self._db.scalar(
+                select(func.count(AssetMaster.id)).where(
+                    AssetMaster.deleted_at.is_(None),
+                    or_(
+                        col.is_(None),
+                        func.trim(func.cast(col, sa.String)) == "",
+                    ),
+                )
+            )
+            if null_count and null_count > 0:
+                field_label = BARCODE_QR_FIELDS.get(field, field)
+                raise ConflictError(
+                    f"Cannot set '{field_label}' as the Barcode/QR generation field: {null_count} active asset(s) have empty or missing values. All assets must have this field populated (NOT NULL)."
+                )
+
+            # Validate UNIQUE requirement on all active assets (asset_code is required but not unique)
+            if field != "asset_code":
+                dup_subq = (
+                    select(col)
+                    .where(
+                        AssetMaster.deleted_at.is_(None),
+                        col.isnot(None),
+                        func.trim(func.cast(col, sa.String)) != "",
+                    )
+                    .group_by(col)
+                    .having(func.count(AssetMaster.id) > 1)
+                )
+                dup_values = list(self._db.scalars(dup_subq).all())
+                if dup_values:
+                    field_label = BARCODE_QR_FIELDS.get(field, field)
+                    sample_dups = ", ".join(str(v) for v in dup_values[:5])
+                    raise ConflictError(
+                        f"Cannot set '{field_label}' as the Barcode/QR generation field: duplicate values found among active assets ({sample_dups}). This field must be completely UNIQUE."
+                    )
+
+            # Mark required in asset_field_config so dynamic UI and forms enforce it
+            self._db.execute(
+                text(
+                    """
+                    UPDATE asset_field_config
+                    SET is_required = true, is_visible = true
+                    WHERE field_key = :field_key
+                    """
+                ),
+                {"field_key": field},
+            )
+
+            self._upsert(BARCODE_QR_FIELD_SETTING_KEY, field)
+            clear_setting_cache(BARCODE_QR_FIELD_SETTING_KEY)
+
         self._db.commit()
         clear_setting_cache(SCANNING_SETTING_KEY)
         return self.get_scanning_process()

@@ -1,6 +1,9 @@
 import * as React from "react"
 import { toast } from "sonner"
 import { Barcode, QrCode, Radio } from "lucide-react"
+import { setCachedScanningSettings } from "@/lib/use-scanning-process"
+import { Checkbox } from "@/components/ui/checkbox"
+import { cn } from "@/lib/utils"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { PageLoader } from "@/components/ui/page-loader"
@@ -112,6 +115,7 @@ export type ScanningProcessSettings = {
   barcode_enabled: boolean
   qr_enabled: boolean
   description: string
+  barcode_qr_field?: string
 }
 
 const SCANNING_PROCESS_OPTIONS = [
@@ -151,6 +155,17 @@ const SCANNING_PROCESS_OPTIONS = [
     hint: "Accepts all scanning methods (RFID tag, 1D Barcode, and 2D QR Code).",
   },
 ]
+
+function computeProcessMode(rfid: boolean, barcode: boolean, qr: boolean): string {
+  if (rfid && barcode && qr) return "rfid_barcode_qr"
+  if (rfid && barcode) return "rfid_barcode"
+  if (rfid && qr) return "rfid_qr"
+  if (barcode && qr) return "barcode_qr"
+  if (rfid) return "rfid_only"
+  if (barcode) return "barcode_only"
+  if (qr) return "qr_only"
+  return "rfid_barcode_qr"
+}
 
 type DocumentFormatSettings = {
   org_name: string
@@ -1402,79 +1417,192 @@ export function SettingsPage() {
                 <PageLoader label="Loading scanning settings" compact className="min-h-40" />
               ) : (
                 <>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="scanning_process_mode">Verification & scanning mode</Label>
-                    <select
-                      id="scanning_process_mode"
-                      className={adminSelectClass}
-                      disabled={!canWriteSettings}
-                      value={scanningProcess.process_mode}
-                      onChange={(e) => {
-                        const nextMode = e.target.value
-                        const opt = SCANNING_PROCESS_OPTIONS.find((o) => o.value === nextMode)
-                        setScanningProcess((p) =>
-                          p
-                            ? {
-                                ...p,
-                                process_mode: nextMode,
-                                rfid_enabled: nextMode.includes("rfid") || nextMode === "rfid_barcode_qr",
-                                barcode_enabled: nextMode.includes("barcode") || nextMode === "rfid_barcode_qr",
-                                qr_enabled: nextMode.includes("qr") || nextMode === "rfid_barcode_qr",
-                                label: opt?.label ?? nextMode,
-                                description: opt?.hint ?? p.description,
-                              }
-                            : p,
-                        )
-                      }}
-                    >
-                      {SCANNING_PROCESS_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
+                  {/* 3 Checkboxes: RFID, 1D Barcode, 2D QR Code */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-semibold">Active verification & scanning methods</Label>
+                      {/* <span className="text-xs font-medium text-muted-foreground bg-muted/60 px-2.5 py-0.5 rounded-full border border-border/50">
+                        {scanningProcess.label}
+                      </span> */}
+                    </div>
+                    {/* <p className="text-xs text-muted-foreground">
+                      Check the scanning technologies accepted during physical asset verification and audits.
+                    </p> */}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                      {/* 1. RFID Tag Checkbox Card */}
+                      <label
+                        htmlFor="chk_rfid_enabled"
+                        className={cn(
+                          "relative flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer select-none transition-all",
+                          scanningProcess.rfid_enabled
+                            ? "border-emerald-500/50 bg-emerald-500/10 text-foreground ring-1 ring-emerald-500/20"
+                            : "border-border/60 bg-muted/10 text-muted-foreground opacity-70 hover:opacity-100 hover:border-border",
+                          !canWriteSettings && "cursor-not-allowed opacity-50",
+                        )}
+                      >
+                        <Checkbox
+                          id="chk_rfid_enabled"
+                          disabled={!canWriteSettings}
+                          checked={scanningProcess.rfid_enabled}
+                          onCheckedChange={(checked) => {
+                            const rfid = Boolean(checked)
+                            const barcode = scanningProcess.barcode_enabled
+                            const qr = scanningProcess.qr_enabled
+                            if (!rfid && !barcode && !qr) {
+                              toast.error("At least one scanning method must remain active")
+                              return
+                            }
+                            const nextMode = computeProcessMode(rfid, barcode, qr)
+                            const opt = SCANNING_PROCESS_OPTIONS.find((o) => o.value === nextMode)
+                            setScanningProcess((p) =>
+                              p
+                                ? {
+                                    ...p,
+                                    process_mode: nextMode,
+                                    rfid_enabled: rfid,
+                                    label: opt?.label ?? nextMode,
+                                    description: opt?.hint ?? p.description,
+                                  }
+                                : p,
+                            )
+                          }}
+                          className="mt-0.5 data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600"
+                        />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-1.5 font-semibold text-xs text-emerald-700 dark:text-emerald-400">
+                            <Radio className="size-3.5" />
+                            <span>RFID Tag</span>
+                          </div>
+                          {/* <p className="text-[11px] text-muted-foreground leading-normal">
+                            Ultra-high frequency (UHF) handheld RFID reader scans
+                          </p> */}
+                        </div>
+                      </label>
+
+                      {/* 2. 1D Barcode Checkbox Card */}
+                      <label
+                        htmlFor="chk_barcode_enabled"
+                        className={cn(
+                          "relative flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer select-none transition-all",
+                          scanningProcess.barcode_enabled
+                            ? "border-blue-500/50 bg-blue-500/10 text-foreground ring-1 ring-blue-500/20"
+                            : "border-border/60 bg-muted/10 text-muted-foreground opacity-70 hover:opacity-100 hover:border-border",
+                          !canWriteSettings && "cursor-not-allowed opacity-50",
+                        )}
+                      >
+                        <Checkbox
+                          id="chk_barcode_enabled"
+                          disabled={!canWriteSettings}
+                          checked={scanningProcess.barcode_enabled}
+                          onCheckedChange={(checked) => {
+                            const rfid = scanningProcess.rfid_enabled
+                            const barcode = Boolean(checked)
+                            const qr = scanningProcess.qr_enabled
+                            if (!rfid && !barcode && !qr) {
+                              toast.error("At least one scanning method must remain active")
+                              return
+                            }
+                            const nextMode = computeProcessMode(rfid, barcode, qr)
+                            const opt = SCANNING_PROCESS_OPTIONS.find((o) => o.value === nextMode)
+                            setScanningProcess((p) =>
+                              p
+                                ? {
+                                    ...p,
+                                    process_mode: nextMode,
+                                    barcode_enabled: barcode,
+                                    label: opt?.label ?? nextMode,
+                                    description: opt?.hint ?? p.description,
+                                  }
+                                : p,
+                            )
+                          }}
+                          className="mt-0.5 data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
+                        />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-1.5 font-semibold text-xs text-blue-700 dark:text-blue-400">
+                            <Barcode className="size-3.5" />
+                            <span>Barcode</span>
+                          </div>
+                          {/* <p className="text-[11px] text-muted-foreground leading-normal">
+                            Optical Code-128 linear barcode scanners
+                          </p> */}
+                        </div>
+                      </label>
+
+                      {/* 3. 2D QR Code Checkbox Card */}
+                      <label
+                        htmlFor="chk_qr_enabled"
+                        className={cn(
+                          "relative flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer select-none transition-all",
+                          scanningProcess.qr_enabled
+                            ? "border-purple-500/50 bg-purple-500/10 text-foreground ring-1 ring-purple-500/20"
+                            : "border-border/60 bg-muted/10 text-muted-foreground opacity-70 hover:opacity-100 hover:border-border",
+                          !canWriteSettings && "cursor-not-allowed opacity-50",
+                        )}
+                      >
+                        <Checkbox
+                          id="chk_qr_enabled"
+                          disabled={!canWriteSettings}
+                          checked={scanningProcess.qr_enabled}
+                          onCheckedChange={(checked) => {
+                            const rfid = scanningProcess.rfid_enabled
+                            const barcode = scanningProcess.barcode_enabled
+                            const qr = Boolean(checked)
+                            if (!rfid && !barcode && !qr) {
+                              toast.error("At least one scanning method must remain active")
+                              return
+                            }
+                            const nextMode = computeProcessMode(rfid, barcode, qr)
+                            const opt = SCANNING_PROCESS_OPTIONS.find((o) => o.value === nextMode)
+                            setScanningProcess((p) =>
+                              p
+                                ? {
+                                    ...p,
+                                    process_mode: nextMode,
+                                    qr_enabled: qr,
+                                    label: opt?.label ?? nextMode,
+                                    description: opt?.hint ?? p.description,
+                                  }
+                                : p,
+                            )
+                          }}
+                          className="mt-0.5 data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600"
+                        />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-1.5 font-semibold text-xs text-purple-700 dark:text-purple-400">
+                            <QrCode className="size-3.5" />
+                            <span>QR Code</span>
+                          </div>
+                          {/* <p className="text-[11px] text-muted-foreground leading-normal">
+                            Camera and 2D matrix optical scanners
+                          </p> */}
+                        </div>
+                      </label>
+                    </div>
+
+                    {/* <div className="rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                      <strong>Policy:</strong>{" "}
+                      {SCANNING_PROCESS_OPTIONS.find((o) => o.value === scanningProcess.process_mode)?.hint ||
+                        scanningProcess.description}
+                    </div> */}
                   </div>
 
-                  <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2.5">
-                    <div className="text-xs font-medium text-muted-foreground">
-                      Active verification methods:
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                          scanningProcess.rfid_enabled
-                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
-                            : "bg-muted text-muted-foreground/50 border border-border/40 line-through"
-                        }`}
-                      >
-                        <Radio className="size-3.5" />
-                        RFID Tag
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                          scanningProcess.barcode_enabled
-                            ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30"
-                            : "bg-muted text-muted-foreground/50 border border-border/40 line-through"
-                        }`}
-                      >
-                        <Barcode className="size-3.5" />
-                        1D Barcode
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                          scanningProcess.qr_enabled
-                            ? "bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30"
-                            : "bg-muted text-muted-foreground/50 border border-border/40 line-through"
-                        }`}
-                      >
-                        <QrCode className="size-3.5" />
-                        2D QR Code
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {SCANNING_PROCESS_OPTIONS.find((o) => o.value === scanningProcess.process_mode)?.hint ||
-                        "Globally sets the accepted tag scanning methods during asset audit and verification."}
-                    </p>
+                  {/* Barcode & QR Code generation field selector */}
+                  <div className="space-y-1.5 pt-1">
+                    <Label htmlFor="barcode_qr_field">Barcode & QR Code generation field</Label>
+                    <select
+                      id="barcode_qr_field"
+                      className={adminSelectClass}
+                      disabled={!canWriteSettings}
+                      value={scanningProcess.barcode_qr_field || "combined_asset_number"}
+                      onChange={(e) => {
+                        const nextField = e.target.value
+                        setScanningProcess((p) => (p ? { ...p, barcode_qr_field: nextField } : p))
+                      }}
+                    >
+                      <option value="combined_asset_number">Combined Asset Number</option>
+                    </select>
                   </div>
 
                   <div className="flex justify-end border-t border-border/60 pt-4">
@@ -1490,9 +1618,11 @@ export function SettingsPage() {
                             "/admin/settings/scanning-process",
                             {
                               process_mode: scanningProcess.process_mode,
+                              barcode_qr_field: scanningProcess.barcode_qr_field || "combined_asset_number",
                             },
                           )
                           setScanningProcess(updated)
+                          setCachedScanningSettings(updated)
                           toast.success("Saved scanning process", { id: "scan-save" })
                         } catch (e) {
                           toast.error(e instanceof Error ? e.message : "Save failed", { id: "scan-save" })

@@ -179,11 +179,23 @@ class ScanningProcessSettingsPublic(BaseModel):
     barcode_enabled: bool = True
     qr_enabled: bool = True
     description: str = Field(default="")
+    barcode_qr_field: str = Field(
+        default="combined_asset_number",
+        description="Asset field encoded into Barcode and QR code: combined_asset_number",
+    )
+    tag_crypto_key: str = Field(
+        default="",
+        description="Key used for symmetric tag code encryption/decryption in QR and barcodes",
+    )
 
 
 class ScanningProcessUpdateRequest(BaseModel):
     process_mode: str = Field(
         ...,
         description="One of: rfid_only, barcode_only, qr_only, barcode_qr, rfid_barcode, rfid_qr, rfid_barcode_qr",
+    )
+    barcode_qr_field: str | None = Field(
+        default=None,
+        description="One of: combined_asset_number",
     )
 

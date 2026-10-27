@@ -57,6 +57,7 @@ import { useConfirmDialog } from "@/components/ui/confirm-dialog"
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { AssetExportDialog } from "@/components/assets/asset-export-dialog"
 import { AssetRfidDialog } from "@/components/assets/asset-rfid-dialog"
+import { AssetTagPrintDialog } from "@/components/assets/asset-tag-print-dialog"
 import { ApiError, deleteJson, downloadFile, getJson, postJson, putJson } from "@/lib/api"
 import {
   assetListRootKey,
@@ -781,6 +782,7 @@ export function AssetsListPage() {
   const [fyYearOptions, setFyYearOptions] = React.useState<FinancialYearOption[]>([])
   const [currentFyStartYear, setCurrentFyStartYear] = React.useState<number | null>(null)
   const [exportOpen, setExportOpen] = React.useState(false)
+  const [printTagDialogOpen, setPrintTagDialogOpen] = React.useState(false)
   const [submitAssignOpen, setSubmitAssignOpen] = React.useState(false)
   const [bulkDecisionOpen, setBulkDecisionOpen] = React.useState(false)
   const [bulkDecisionMode, setBulkDecisionMode] = React.useState<"approve" | "reject">("approve")
@@ -2030,6 +2032,10 @@ export function AssetsListPage() {
       void beginCreateDisposalOrder()
       return
     }
+    if (actionId === "print-tag") {
+      setPrintTagDialogOpen(true)
+      return
+    }
     if (actionId === "open") {
       const id = selectedRows[0]?.id
       if (id != null) navigate(String(id))
@@ -3014,6 +3020,15 @@ export function AssetsListPage() {
         selectedAssetIds={[...selected]}
         fyYearOptions={fyYearOptions}
         currentFyStartYear={currentFyStartYear}
+      />
+
+      <AssetTagPrintDialog
+        open={printTagDialogOpen}
+        onOpenChange={setPrintTagDialogOpen}
+        assets={selectedRows}
+        onPrinted={() => {
+          invalidateAssetLists()
+        }}
       />
 
       <CapexAssigneePickerDialog

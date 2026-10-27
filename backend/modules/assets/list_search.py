@@ -100,6 +100,18 @@ def asset_global_search_clause(term: str, columns: Iterable[str] | None = None):
     needle = (term or "").strip()
     if not needle:
         return None
+
+    from core.tag_crypto import decrypt_tag_code, TAG_CODE_PREFIX
+
+    if needle.upper().startswith(TAG_CODE_PREFIX.upper()) or needle.upper().startswith("ZT-"):
+        decrypted = decrypt_tag_code(needle)
+        if decrypted:
+            dq = f"%{decrypted}%"
+            return or_(
+                AssetMaster.combined_asset_number.ilike(dq),
+                AssetMaster.asset_code.ilike(dq),
+            )
+
     q = f"%{needle}%"
     keys = {k for k in (columns or DEFAULT_SEARCH_COLUMNS) if k}
 

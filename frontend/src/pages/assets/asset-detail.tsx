@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { AssetActionsMenu } from "@/components/assets/asset-actions-menu"
 import { AssetImage, validateAssetImageFile } from "@/components/assets/asset-image"
 import { AssetAuditLog, type AssetAuditLogRow } from "@/components/assets/asset-audit-log"
+import { AssetTagPrintDialog } from "@/components/assets/asset-tag-print-dialog"
 import { CapexFormSearchSelect } from "@/components/assets/capex-form-search-select"
 import { renderPhysicalOrderInventoryField } from "@/lib/asset-physical-order-display"
 import { AssetDetailSectionPanel } from "@/components/assets/asset-detail-section-panel"
@@ -186,6 +187,7 @@ export function AssetDetailPage() {
   const [decisionOpen, setDecisionOpen] = React.useState(false)
   const [decisionMode, setDecisionMode] = React.useState<"approve" | "reject">("approve")
   const [submitAssignOpen, setSubmitAssignOpen] = React.useState(false)
+  const [printTagDialogOpen, setPrintTagDialogOpen] = React.useState(false)
   const [reassignOpen, setReassignOpen] = React.useState(false)
   const [reassigning, setReassigning] = React.useState(false)
 
@@ -767,6 +769,11 @@ export function AssetDetailPage() {
       return
     }
 
+    if (actionId === "print-tag") {
+      setPrintTagDialogOpen(true)
+      return
+    }
+
     if (actionId === "deactivate") {
       void toggleLifecycle("deactivate")
       return
@@ -1300,6 +1307,12 @@ export function AssetDetailPage() {
         busy={acting}
         needsNextAssignee={false}
         onConfirm={confirmDecision}
+      />
+
+      <AssetTagPrintDialog
+        open={printTagDialogOpen}
+        onOpenChange={setPrintTagDialogOpen}
+        assets={asset ? [asset] : []}
       />
 
       {confirmDialog}

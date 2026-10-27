@@ -26,7 +26,7 @@ import { ForgotPasswordPage } from "@/pages/forgot-password"
 import { ResetPasswordPage } from "@/pages/reset-password"
 import { MfaSetupPage } from "@/pages/mfa-setup"
 import { SsoCallbackPage } from "@/pages/sso-callback"
-import { AssetCreatePage, AssetDetailPage, AssetImportPage, AssetsListPage } from "@/pages/assets"
+import { AssetCreatePage, AssetDetailPage, AssetImportPage, AssetsListPage, AssetTagPrintingPage } from "@/pages/assets"
 import { MastersPage } from "@/pages/masters/masters-page"
 import { OrderDetailPage, OrdersListPage, PhysicalOrderCreatePage } from "@/pages/orders"
 import {
@@ -138,6 +138,15 @@ function App() {
             />
             <Route path=":id" element={<AssetDetailPage />} />
           </Route>
+
+          <Route
+            path="tag-printing"
+            element={
+              <RequirePermission anyOf={["asset.view", "asset.create", "asset.update"]}>
+                <AssetTagPrintingPage />
+              </RequirePermission>
+            }
+          />
 
           <Route
             path="masters"

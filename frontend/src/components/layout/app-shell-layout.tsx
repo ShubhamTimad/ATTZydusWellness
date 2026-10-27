@@ -16,6 +16,7 @@ import {
   Menu,
   PanelLeft,
   PackageX,
+  // Printer,
   Settings,
   Shield,
   User2,
@@ -47,6 +48,7 @@ import {
 } from "@/lib/permissions"
 import { DASHBOARD_ANY_OF } from "@/lib/dashboard-permissions"
 import { navbarDisplayName, navbarInitials, useMyPhotoUrl, type NavbarUser } from "@/lib/navbar-user"
+import { useScanningProcess } from "@/lib/use-scanning-process"
 import { cn } from "@/lib/utils"
 
 type NavPerm = string | string[] | null
@@ -72,6 +74,8 @@ type ShellNavItem = {
    * (so roles with only user-management permissions do not see generic workspace tabs).
    */
   hideWhenOnlyUsersModule?: boolean
+  /** When true, only visible when optical QR/Barcode scanning is enabled globally */
+  requiresBarcodeOrQr?: boolean
 }
 
 type ShellNavGroup = {
@@ -127,6 +131,14 @@ const shellNavGroups: ShellNavGroup[] = [
         to: "/dashboard/assets",
         permission: "asset.view",
       },
+      // {
+      //   id: "tag-printing",
+      //   label: "Tag Printing",
+      //   icon: Printer,
+      //   to: "/dashboard/tag-printing",
+      //   permission: ["asset.view", "asset.create", "asset.update"],
+      //   requiresBarcodeOrQr: true,
+      // },
       {
         id: "capitalization",
         label: "Capitalization",
@@ -277,11 +289,15 @@ export function AppShellLayout({ children, user, userEmail, onSignOut }: AppShel
     if (!ok) return
     onSignOut?.()
   }
+  const { barcodeOrQrEnabled } = useScanningProcess()
   const visibleGroups = shellNavGroups
     .map((group) => ({
       ...group,
       items: group.items
-        .filter(navItemVisible)
+        .filter((item) => {
+          if (item.requiresBarcodeOrQr && !barcodeOrQrEnabled) return false
+          return navItemVisible(item)
+        })
         .map((item) =>
           item.children?.length
             ? { ...item, children: item.children.filter(navChildVisible) }

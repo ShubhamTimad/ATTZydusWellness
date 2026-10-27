@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import and_, cast, delete, false, func, or_, select, String, tuple_, union_all
+from sqlalchemy import and_, asc, cast, delete, desc, false, func, or_, select, String, tuple_, union_all
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -70,6 +70,10 @@ from modules.platform.settings.financial_year import (
     list_financial_year_periods,
     resolve_financial_year_period,
 )
+from modules.platform.settings.scanning_process import (
+    BARCODE_QR_FIELDS,
+    get_scanning_process_config,
+)
 from modules.assets.list_search import asset_global_search_clause
 from modules.assets.model import AssetAuditEvent
 from modules.assets.import_parser import parse_upload_file
@@ -99,6 +103,7 @@ from modules.assets.model import (
     AssetInventoryInformation,
     AssetLocationInformation,
     AssetMaster,
+    AssetPrintLog,
 )
 from modules.orders.constants import (
     ACTION_COMPLETE,
@@ -120,6 +125,8 @@ from modules.assets.schema import (
     AssetListFilterOptionsResponse,
     AssetListItem,
     AssetListResponse,
+    AssetPrintItemPublic,
+    AssetPrintQueueResponse,
     AssetWorkflowRunPublic,
     FinancialYearListResponse,
     FinancialYearOptionPublic,
@@ -132,6 +139,10 @@ from modules.assets.schema import (
     ImportConfirmResponse,
     ImportPreviewRow,
     ImportPreviewResponse,
+    MarkPrintedRequest,
+    MarkPrintedResponse,
+    ReprintReasonItem,
+    ReprintReasonsResponse,
     SubmitForApprovalResponse,
 )
 from modules.errors import ConflictError, NotFoundError, PermissionDeniedError
@@ -1477,13 +1488,6 @@ class AssetMasterService:
         code = (data.asset_code or "").strip().upper()
         if not code:
             raise ConflictError("Asset Number is required.")
-        if self._db.scalar(
-            select(AssetMaster.id).where(
-                AssetMaster.asset_code == code,
-                AssetMaster.deleted_at.is_(None),
-            )
-        ):
-            raise ConflictError(f"Asset Number '{code}' already exists.")
         if data.rfid_code:
             rfid = _normalize_rfid(data.rfid_code)
             if rfid:
@@ -1503,6 +1507,26 @@ class AssetMasterService:
             source_type="manual",
             created_by=actor_user_id,
         )
+
+        scan_cfg = get_scanning_process_config()
+        target_field = scan_cfg.barcode_qr_field
+        if target_field not in ("asset_code", "combined_asset_number"):
+            val = getattr(asset, target_field, None)
+            val_str = (str(val) if val is not None else "").strip()
+            if not val_str:
+                field_label = BARCODE_QR_FIELDS.get(target_field, target_field)
+                raise ConflictError(f"{field_label} is required for Barcode & QR Code generation.")
+            if self._db.scalar(
+                select(AssetMaster.id).where(
+                    getattr(AssetMaster, target_field) == val_str,
+                    AssetMaster.deleted_at.is_(None),
+                )
+            ):
+                field_label = BARCODE_QR_FIELDS.get(target_field, target_field)
+                raise ConflictError(
+                    f"{field_label} '{val_str}' already exists. Must be unique for Barcode & QR Code generation."
+                )
+
         set_asset_inactive_draft(asset)
         self._db.add(asset)
         self._db.flush()
@@ -2529,6 +2553,9 @@ class AssetMasterService:
                     approval_status=a.approval_status,
                     source_type=a.source_type,
                     created_at=a.created_at,
+                    print_count=getattr(a, "print_count", 0) or 0,
+                    last_printed_at=a.last_printed_at,
+                    last_reprint_reason=a.last_reprint_reason,
                     active_physical_order=active_orders.get(int(a.id)),
                     action_allowed=asset_in_scope(a, scope),
                     can_approve=int(a.id) in approvable_ids,
@@ -3303,14 +3330,6 @@ class AssetMasterService:
             code = (data.asset_code or "").strip().upper()
             if not code:
                 raise ConflictError("Asset Number is required.")
-            if self._db.scalar(
-                select(AssetMaster.id).where(
-                    AssetMaster.asset_code == code,
-                    AssetMaster.id != asset.id,
-                    AssetMaster.deleted_at.is_(None),
-                )
-            ):
-                raise ConflictError(f"Asset Number '{code}' already exists.")
             asset.asset_code = code
         if "remark" in data.model_dump(exclude_unset=True):
             asset.remark = (data.remark.strip() if data.remark and data.remark.strip() else None)
@@ -3389,6 +3408,26 @@ class AssetMasterService:
                     asset_id=int(asset.id),
                     actor_user_id=actor_user_id,
                     asset_code=asset.asset_code,
+                )
+
+        scan_cfg = get_scanning_process_config()
+        target_field = scan_cfg.barcode_qr_field
+        if target_field not in ("asset_code", "combined_asset_number"):
+            val = getattr(asset, target_field, None)
+            val_str = (str(val) if val is not None else "").strip()
+            if not val_str:
+                field_label = BARCODE_QR_FIELDS.get(target_field, target_field)
+                raise ConflictError(f"{field_label} is required for Barcode & QR Code generation.")
+            if self._db.scalar(
+                select(AssetMaster.id).where(
+                    getattr(AssetMaster, target_field) == val_str,
+                    AssetMaster.id != asset.id,
+                    AssetMaster.deleted_at.is_(None),
+                )
+            ):
+                field_label = BARCODE_QR_FIELDS.get(target_field, target_field)
+                raise ConflictError(
+                    f"{field_label} '{val_str}' already exists on another asset. Must be unique for Barcode & QR Code generation."
                 )
 
         asset.updated_at = _now()
@@ -4014,6 +4053,259 @@ class AssetMasterService:
             pending_approval=False,
             errors=errors,
         )
+
+    def get_reprint_reasons(self) -> ReprintReasonsResponse:
+        return ReprintReasonsResponse(
+            reasons=[
+                ReprintReasonItem(
+                    code=r["code"],
+                    label=r["label"],
+                    description=r.get("description"),
+                )
+                for r in REPRINT_REASONS
+            ]
+        )
+
+    def list_printing_queue(
+        self,
+        *,
+        tab: str = "pending",
+        search: str | None = None,
+        asset_code: str | None = None,
+        asset_name: str | None = None,
+        rfid_code: str | None = None,
+        reprint_reason: str | None = None,
+        plant_id: int | None = None,
+        category_id: int | None = None,
+        page: int = 1,
+        page_size: int = 25,
+        sort_by: str = "created_at",
+        sort_dir: str = "desc",
+        viewer_user_id: int | None = None,
+    ) -> AssetPrintQueueResponse:
+        page = max(1, page)
+        page_size = min(max(1, page_size), 100)
+
+        stmt = (
+            select(AssetMaster)
+            .outerjoin(AssetMaster.location)
+            .outerjoin(AssetMaster.category)
+            .filter(AssetMaster.deleted_at.is_(None))
+        )
+
+        if tab == "reprint":
+            stmt = stmt.filter(AssetMaster.print_count > 0)
+        elif tab == "pending" or tab == "print":
+            stmt = stmt.filter(AssetMaster.print_count == 0)
+        # tab == "all": don't filter by print_count
+
+        if plant_id is not None:
+            stmt = stmt.filter(AssetLocationInformation.plant_id == plant_id)
+        if category_id is not None:
+            stmt = stmt.filter(AssetMaster.asset_category_id == category_id)
+
+        if asset_code and asset_code.strip():
+            stmt = stmt.filter(AssetMaster.asset_code.ilike(f"%{asset_code.strip()}%"))
+        if asset_name and asset_name.strip():
+            stmt = stmt.filter(AssetMaster.asset_name.ilike(f"%{asset_name.strip()}%"))
+        if rfid_code and rfid_code.strip():
+            stmt = stmt.filter(AssetMaster.rfid_code.ilike(f"%{rfid_code.strip()}%"))
+        if reprint_reason and reprint_reason.strip():
+            stmt = stmt.filter(AssetMaster.last_reprint_reason.ilike(f"%{reprint_reason.strip()}%"))
+
+        if search and search.strip():
+            term = f"%{search.strip()}%"
+            stmt = stmt.filter(
+                or_(
+                    AssetMaster.asset_code.ilike(term),
+                    AssetMaster.asset_name.ilike(term),
+                    AssetMaster.combined_asset_number.ilike(term),
+                    AssetMaster.rfid_code.ilike(term),
+                    AssetMaster.serial_no.ilike(term),
+                )
+            )
+
+        scope = load_viewer_org_scope(self._db, viewer_user_id)
+        if not self._can_view_all_assets(viewer_user_id) and scope and scope.plant_ids:
+            stmt = stmt.filter(AssetLocationInformation.plant_id.in_(scope.plant_ids))
+
+        total_stmt = select(func.count()).select_from(stmt.subquery())
+        total = int(self._db.scalar(total_stmt) or 0)
+
+        if tab == "reprint" and sort_by == "last_printed_at":
+            sort_col = AssetMaster.last_printed_at
+        elif sort_by == "category_name":
+            sort_col = AssetCategory.name
+        elif sort_by in ("plant_name", "plant_code"):
+            stmt = stmt.outerjoin(OrgUnit, OrgUnit.id == AssetLocationInformation.plant_id)
+            sort_col = OrgUnit.name if sort_by == "plant_name" else OrgUnit.code
+        elif hasattr(AssetMaster, sort_by):
+            sort_col = getattr(AssetMaster, sort_by)
+        else:
+            sort_col = AssetMaster.created_at
+
+        if sort_dir.lower() == "asc":
+            stmt = stmt.order_by(asc(sort_col))
+        else:
+            stmt = stmt.order_by(desc(sort_col))
+
+        stmt = stmt.offset((page - 1) * page_size).limit(page_size)
+        assets = list(self._db.scalars(stmt).all())
+
+        user_ids = {a.last_printed_by for a in assets if a.last_printed_by}
+        user_map: dict[int, str] = {}
+        if user_ids:
+            users = self._db.scalars(select(User).filter(User.id.in_(user_ids))).all()
+            for u in users:
+                user_map[int(u.id)] = u.full_name or u.username
+
+        items: list[AssetPrintItemPublic] = []
+        for a in assets:
+            loc = a.location
+            items.append(
+                AssetPrintItemPublic(
+                    id=a.id,
+                    asset_name=a.asset_name,
+                    asset_code=a.asset_code,
+                    combined_asset_number=a.combined_asset_number,
+                    rfid_code=a.rfid_code,
+                    category_name=a.category.name if a.category else None,
+                    plant_name=loc.plant.name if loc and loc.plant else None,
+                    plant_code=loc.plant.code if loc and loc.plant else None,
+                    functional_location=loc.functional_location if loc else None,
+                    actual_location=loc.actual_location if loc else None,
+                    asset_class=a.asset_class_master.name if a.asset_class_master else a.asset_class,
+                    serial_no=a.serial_no,
+                    print_count=getattr(a, "print_count", 0) or 0,
+                    last_printed_at=a.last_printed_at,
+                    last_printed_by=a.last_printed_by,
+                    last_printed_by_name=user_map.get(a.last_printed_by) if a.last_printed_by else None,
+                    last_reprint_reason=a.last_reprint_reason,
+                    lifecycle_status=a.lifecycle_status,
+                    approval_status=a.approval_status,
+                    created_at=a.created_at,
+                )
+            )
+
+        return AssetPrintQueueResponse(
+            items=items,
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    def mark_printed(
+        self,
+        *,
+        asset_ids: list[int],
+        print_type: str = "initial",
+        reprint_reason: str | None = None,
+        remarks: str | None = None,
+        actor_user_id: int | None = None,
+    ) -> MarkPrintedResponse:
+        if not asset_ids:
+            return MarkPrintedResponse(success=False, updated_count=0, message="No assets provided")
+
+        if print_type == "reprint" and not reprint_reason:
+            raise ConflictError("Reprint reason is required when reprinting tags.")
+
+        assets = list(
+            self._db.scalars(
+                select(AssetMaster)
+                .filter(AssetMaster.id.in_(asset_ids), AssetMaster.deleted_at.is_(None))
+            ).all()
+        )
+        if not assets:
+            raise NotFoundError("No matching assets found.")
+
+        now = datetime.now(timezone.utc)
+        updated_count = 0
+
+        for a in assets:
+            is_reprint = print_type == "reprint" or (getattr(a, "print_count", 0) or 0) > 0
+            effective_type = "reprint" if is_reprint else "initial"
+            old_count = getattr(a, "print_count", 0) or 0
+            new_count = old_count + 1
+
+            a.print_count = new_count
+            a.last_printed_at = now
+            a.last_printed_by = actor_user_id
+            if is_reprint:
+                a.last_reprint_reason = reprint_reason
+
+            log_entry = AssetPrintLog(
+                asset_id=a.id,
+                printed_by=actor_user_id,
+                printed_at=now,
+                print_type=effective_type,
+                reprint_reason=reprint_reason if is_reprint else None,
+                remarks=remarks,
+            )
+            self._db.add(log_entry)
+
+            audit = AssetAuditEvent(
+                asset_id=a.id,
+                actor_user_id=actor_user_id,
+                action="tag_reprinted" if is_reprint else "tag_printed",
+                section="tag_printing",
+                old_value={"print_count": old_count},
+                new_value={
+                    "print_count": new_count,
+                    "print_type": effective_type,
+                    "reprint_reason": reprint_reason if is_reprint else None,
+                    "remarks": remarks,
+                },
+                created_at=now,
+            )
+            self._db.add(audit)
+            updated_count += 1
+
+        self._db.commit()
+        return MarkPrintedResponse(
+            success=True,
+            updated_count=updated_count,
+            message=f"Successfully marked {updated_count} asset(s) as printed.",
+        )
+
+
+REPRINT_REASONS: list[dict[str, str]] = [
+    {
+        "code": "damaged_tag",
+        "label": "Damaged / Worn Tag",
+        "description": "Tag is physically torn, peeled, scratched, or destroyed.",
+    },
+    {
+        "code": "lost_detached",
+        "label": "Lost / Detached Tag",
+        "description": "Original tag fell off or is missing from the physical asset.",
+    },
+    {
+        "code": "unreadable_code",
+        "label": "Barcode / QR Code Not Scanning / Unreadable",
+        "description": "Optical scanner or camera cannot decode the barcode or QR code.",
+    },
+    {
+        "code": "faded_print",
+        "label": "Faded Print / Poor Print Quality",
+        "description": "Thermal/ink print has faded or smudged over time.",
+    },
+    {
+        "code": "relocation",
+        "label": "Asset Relocation / Re-tagging",
+        "description": "Asset moved to a new site, plant, or requiring updated tag identifier.",
+    },
+    {
+        "code": "info_updated",
+        "label": "Asset Details / Information Updated",
+        "description": "Asset name, code, or description changed and tag needs fresh text.",
+    },
+    {
+        "code": "other",
+        "label": "Other (Remarks Required)",
+        "description": "Other operational or maintenance reason specified in remarks.",
+    },
+]
+
 
 
 def activate_asset_after_approval(

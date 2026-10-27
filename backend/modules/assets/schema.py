@@ -247,6 +247,9 @@ class AssetListItem(BaseModel):
     approval_status: str
     source_type: str
     created_at: datetime
+    print_count: int = 0
+    last_printed_at: datetime | None = None
+    last_reprint_reason: str | None = None
     active_physical_order: AssetActivePhysicalOrderPublic | None = None
     action_allowed: bool = True
     # True when the viewer has a pending approval task for this asset (user or role).
@@ -541,3 +544,59 @@ class AssetFieldConfigPublic(BaseModel):
 
 class AssetFieldConfigListResponse(BaseModel):
     fields: list[AssetFieldConfigPublic]
+
+
+class AssetPrintItemPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    asset_name: str
+    asset_code: str
+    combined_asset_number: str | None = None
+    rfid_code: str | None = None
+    category_name: str | None = None
+    plant_name: str | None = None
+    plant_code: str | None = None
+    functional_location: str | None = None
+    actual_location: str | None = None
+    asset_class: str | None = None
+    serial_no: str | None = None
+    print_count: int = 0
+    last_printed_at: datetime | None = None
+    last_printed_by: int | None = None
+    last_printed_by_name: str | None = None
+    last_reprint_reason: str | None = None
+    lifecycle_status: str
+    approval_status: str
+    created_at: datetime
+
+
+class AssetPrintQueueResponse(BaseModel):
+    items: list[AssetPrintItemPublic]
+    total: int
+    page: int
+    page_size: int
+
+
+class MarkPrintedRequest(BaseModel):
+    asset_ids: list[int] = Field(min_length=1)
+    print_type: Literal["initial", "reprint"] = "initial"
+    reprint_reason: str | None = None
+    remarks: str | None = None
+
+
+class MarkPrintedResponse(BaseModel):
+    success: bool
+    updated_count: int
+    message: str
+
+
+class ReprintReasonItem(BaseModel):
+    code: str
+    label: str
+    description: str | None = None
+
+
+class ReprintReasonsResponse(BaseModel):
+    reasons: list[ReprintReasonItem]
+

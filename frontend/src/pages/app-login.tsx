@@ -229,7 +229,7 @@ export function AppLoginPage() {
                 id="identifier"
                 type="email"
                 autoComplete="email"
-                placeholder="Enter Email"
+                placeholder="Enter Email ID"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
                 disabled={isSubmitting}

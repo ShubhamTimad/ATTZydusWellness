@@ -15,6 +15,7 @@ import {
   Power,
   PowerOff,
   PackageX,
+  Printer,
   Send,
   Trash2,
   ScanLine,
@@ -121,6 +122,7 @@ export function buildAssetListActionItems(opts: {
   canCreateTransfer?: boolean
   canCreateDisposal?: boolean
   canSubmitForApproval?: boolean
+  canPrintTag?: boolean
 }): AssetActionItem[] {
   const {
     selectedCount,
@@ -140,6 +142,7 @@ export function buildAssetListActionItems(opts: {
     canCreateTransfer = false,
     canCreateDisposal = false,
     canSubmitForApproval: canSubmit = false,
+    canPrintTag = true,
   } = opts
 
   const actions: AssetActionItem[] = []
@@ -224,6 +227,19 @@ export function buildAssetListActionItems(opts: {
     })
   }
 
+  if (canPrintTag) {
+    actions.push({
+      id: "print-tag",
+      label: "Print Tag",
+      hint:
+        selectedCount === 0
+          ? undefined
+          : `${selectedCount} Asset(s)`,
+      disabled: selectedCount === 0,
+      icon: Printer,
+    })
+  }
+
   if (canDeactivate) {
     actions.push({
       id: "deactivate",
@@ -292,6 +308,7 @@ export function buildAssetDetailActionItems(opts: {
   canDeactivate?: boolean
   canReactivate?: boolean
   canSubmit?: boolean
+  canPrintTag?: boolean
 }): AssetActionItem[] {
   const {
     canUpdate,
@@ -300,8 +317,17 @@ export function buildAssetDetailActionItems(opts: {
     canDeactivate = false,
     canReactivate = false,
     canSubmit = false,
+    canPrintTag = true,
   } = opts
   const actions: AssetActionItem[] = []
+
+  if (canPrintTag && !editing) {
+    actions.push({
+      id: "print-tag",
+      label: "Print Tag",
+      icon: Printer,
+    })
+  }
 
   if (canUpdate) {
     actions.push({

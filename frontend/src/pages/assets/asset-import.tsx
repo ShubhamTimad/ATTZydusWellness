@@ -315,7 +315,7 @@ export function AssetImportPage() {
           totalChunks,
         })
 
-        const res = await fetch(`${API_BASE_URL}/admin/assets/import/confirm-chunk`, {
+        const res: Response = await fetch(`${API_BASE_URL}/admin/assets/import/confirm-chunk`, {
           method: "POST",
           signal: abortController.signal,
           headers: {
@@ -334,8 +334,10 @@ export function AssetImportPage() {
             initiate_approval: false,
           }),
         })
-        const text = await res.text()
-        const data = text ? (JSON.parse(text) as ImportChunkResponse & { detail?: unknown }) : null
+        const text: string = await res.text()
+        const data: (ImportChunkResponse & { detail?: unknown }) | null = text
+          ? (JSON.parse(text) as ImportChunkResponse & { detail?: unknown })
+          : null
 
         if (res.status === 422 && data && typeof data.detail === "object" && data.detail !== null) {
           const detail = data.detail as PreviewResponse

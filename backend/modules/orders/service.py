@@ -3458,8 +3458,10 @@ class PhysicalOrderService:
             raise ConflictError("Scan value is required.")
 
         from modules.platform.settings.scanning_process import get_scanning_process_config
+        from core.tag_crypto import resolve_scanned_code
 
         scan_cfg = get_scanning_process_config()
+        candidate_vals = {v.strip().upper() for v in resolve_scanned_code(scan_value) if v.strip()}
 
         item: PhysicalOrderItem | None = None
         if item_id is not None:
@@ -3473,12 +3475,18 @@ class PhysicalOrderService:
                     continue
                 rfid = (a.rfid_code or "").strip().upper()
                 code = (a.asset_code or "").strip().upper()
-                if scan_cfg.rfid_enabled and rfid and rfid == val:
+                combined = (a.combined_asset_number or "").strip().upper()
+                if scan_cfg.rfid_enabled and rfid and (rfid == val or rfid in candidate_vals):
                     item = i
                     break
-                if (scan_cfg.barcode_enabled or scan_cfg.qr_enabled) and code and code == val:
-                    item = i
-                    break
+                if (scan_cfg.barcode_enabled or scan_cfg.qr_enabled):
+                    if (
+                        str(a.id) in candidate_vals
+                        or (code and (code == val or code in candidate_vals))
+                        or (combined and (combined == val or combined in candidate_vals))
+                    ):
+                        item = i
+                        break
 
         if item is None:
             raise NotFoundError("Asset in order", scan_value)
@@ -3490,17 +3498,25 @@ class PhysicalOrderService:
             raise ConflictError("Asset not found for this line item.")
         rfid = (a.rfid_code or "").strip().upper()
         code = (a.asset_code or "").strip().upper()
+        combined = (a.combined_asset_number or "").strip().upper()
 
         matched = False
-        if scan_cfg.rfid_enabled and rfid and rfid == val:
+        if scan_cfg.rfid_enabled and rfid and (rfid == val or rfid in candidate_vals):
             matched = True
-        elif (scan_cfg.barcode_enabled or scan_cfg.qr_enabled) and code and code == val:
+        elif (scan_cfg.barcode_enabled or scan_cfg.qr_enabled) and (
+            str(a.id) in candidate_vals
+            or (code and (code == val or code in candidate_vals))
+            or (combined and (combined == val or combined in candidate_vals))
+        ):
             matched = True
 
         if not matched:
-            if not scan_cfg.rfid_enabled and rfid and rfid == val:
+            if not scan_cfg.rfid_enabled and rfid and (rfid == val or rfid in candidate_vals):
                 raise ConflictError("RFID scanning is disabled in global scanning process settings.")
-            if not (scan_cfg.barcode_enabled or scan_cfg.qr_enabled) and code and code == val:
+            if not (scan_cfg.barcode_enabled or scan_cfg.qr_enabled) and (
+                (code and (code == val or code in candidate_vals))
+                or (combined and (combined == val or combined in candidate_vals))
+            ):
                 raise ConflictError("Barcode / QR code scanning is disabled in global scanning process settings.")
             raise ConflictError("Invalid tag or asset code scanned. Please scan the right tag or code.")
 
@@ -3579,6 +3595,7 @@ class PhysicalOrderService:
             unique_values.append(val)
 
         from modules.platform.settings.scanning_process import get_scanning_process_config
+        from core.tag_crypto import resolve_scanned_code
 
         scan_cfg = get_scanning_process_config()
 
@@ -3589,17 +3606,27 @@ class PhysicalOrderService:
                 continue
             rfid = (asset.rfid_code or "").strip().upper()
             code = (asset.asset_code or "").strip().upper()
+            combined = (asset.combined_asset_number or "").strip().upper()
             if scan_cfg.rfid_enabled and rfid and rfid not in by_identifier:
                 by_identifier[rfid] = item
-            if (scan_cfg.barcode_enabled or scan_cfg.qr_enabled) and code and code not in by_identifier:
-                by_identifier[code] = item
+            if (scan_cfg.barcode_enabled or scan_cfg.qr_enabled):
+                by_identifier[str(asset.id)] = item
+                if code and code not in by_identifier:
+                    by_identifier[code] = item
+                if combined and combined not in by_identifier:
+                    by_identifier[combined] = item
 
         now = _now_utc()
         success_items: list[PhysicalOrderItem] = []
         failures: list[BulkScanAssetFailure] = []
 
         for val in unique_values:
-            item = by_identifier.get(val)
+            candidates = [c.strip().upper() for c in resolve_scanned_code(val) if c.strip()]
+            item = None
+            for c in candidates:
+                if c in by_identifier:
+                    item = by_identifier[c]
+                    break
             if item is None:
                 failures.append(
                     BulkScanAssetFailure(
