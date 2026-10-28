@@ -132,9 +132,11 @@ def test_deactivate_revokes_sessions_and_reset_tokens(db: Session) -> None:
             email="active@example.com",
             role_id=role.id,
             org_unit_ids=[plant.id],
-            is_active=True,
         )
     )
+    # Create always drafts (inactive); activate so the deactivate transition is exercised.
+    user.is_active = True
+    db.commit()
     now = datetime.now(timezone.utc)
     session = UserSession(
         user_id=user.id,

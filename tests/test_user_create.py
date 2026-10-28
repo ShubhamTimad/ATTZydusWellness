@@ -196,6 +196,8 @@ def test_list_users_search_and_filters(db: Session) -> None:
             org_unit_ids=[plant.id],
         )
     )
+    # Create always drafts (inactive); activate Alice to exercise the is_active filter.
+    alice.is_active = True
     bob.is_active = False
     db.commit()
 

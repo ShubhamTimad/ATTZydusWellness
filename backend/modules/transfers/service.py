@@ -11,6 +11,7 @@ from modules.asset_masters.location_lookup import (
 )
 from modules.asset_masters.model import CostCenterAssetCustodian, CostCenterMaster
 from modules.assets.lifecycle import (
+    APPROVAL_APPROVED,
     LIFECYCLE_ACTIVE,
     LIFECYCLE_PENDING_DISPOSAL,
     LIFECYCLE_PENDING_TRANSFER,
@@ -53,6 +54,8 @@ from modules.transfers.constants import (
     ENTITY_TYPE,
     LEGACY_STATUS_ALIASES,
     PENDING_APPROVAL_STATUSES,
+    PRE_CONFIRM_TRANSFER_STATUSES,
+    PRE_RECEIVE_TRANSFER_STATUSES,
     REJECTABLE_STATUSES,
     RESUMABLE_STATUSES,
     ROLE_TO_ASSIGNEE_LEVEL,
@@ -451,11 +454,14 @@ def _audit_payload_for_api(
 
 
 def sync_open_transfer_asset_lifecycles(db: Session) -> int:
-    """Mark assets on open transfer orders as pending_transfer (idempotent backfill)."""
+    """Mark assets on pre-confirm transfer orders as pending_transfer (idempotent backfill).
+
+    Assets on orders that are confirmed or closed are restored to active/approved.
+    """
     open_asset_ids = (
         select(AssetTransferOrderItem.asset_id)
         .join(AssetTransferOrder, AssetTransferOrderItem.order_id == AssetTransferOrder.id)
-        .where(AssetTransferOrder.status.in_(tuple(ACTIVE_STATUSES)))
+        .where(AssetTransferOrder.status.in_(tuple(PRE_CONFIRM_TRANSFER_STATUSES)))
     )
     result = db.execute(
         update(AssetMaster)
@@ -467,6 +473,26 @@ def sync_open_transfer_asset_lifecycles(db: Session) -> int:
         .values(lifecycle_status=LIFECYCLE_PENDING_TRANSFER)
     )
     n = int(getattr(result, "rowcount", 0) or 0)
+
+    # Confirmed/closed transfers: ensure assets are restored to active and approved
+    confirmed_asset_ids = (
+        select(AssetTransferOrderItem.asset_id)
+        .join(AssetTransferOrder, AssetTransferOrderItem.order_id == AssetTransferOrder.id)
+        .where(
+            AssetTransferOrder.status.in_((STATUS_CONFIRMED_BY_CF, STATUS_CLOSED))
+        )
+    )
+    restore_result = db.execute(
+        update(AssetMaster)
+        .where(
+            AssetMaster.deleted_at.is_(None),
+            func.lower(func.trim(AssetMaster.lifecycle_status)) == LIFECYCLE_PENDING_TRANSFER,
+            AssetMaster.id.in_(confirmed_asset_ids),
+            AssetMaster.id.not_in(open_asset_ids),
+        )
+        .values(lifecycle_status=LIFECYCLE_ACTIVE, approval_status=APPROVAL_APPROVED)
+    )
+    n += int(getattr(restore_result, "rowcount", 0) or 0)
     if n:
         db.commit()
     return n
@@ -1739,6 +1765,12 @@ class TransferOrderService:
                 raise ConflictError("Only the assigned Central Finance user can confirm this order.")
         old_status = order.status
         order.status = STATUS_CONFIRMED_BY_CF
+        for item in order.items:
+            asset = item.asset
+            if asset is None and item.asset_id:
+                asset = self._db.get(AssetMaster, int(item.asset_id))
+            if asset is not None:
+                restore_from_pending_transfer(asset)
         _log(
             self._db,
             order_id=int(order.id),
@@ -2627,6 +2659,7 @@ def _revert_transfer_assets_after_receive(order: AssetTransferOrder) -> None:
         asset.asset_custodian_id = (
             int(item.from_asset_custodian_id) if item.from_asset_custodian_id else None
         )
+        mark_pending_transfer(asset)
 
 
 def _receive_loc_map(item_locations: list | None) -> dict[int, tuple[str, str]]:
@@ -2714,6 +2747,8 @@ def _apply_receive_assets(
         if item.to_asset_custodian_id is None:
             item.to_asset_custodian_id = custodian_id
         asset = item.asset
+        if asset is None and item.asset_id:
+            asset = db.get(AssetMaster, int(item.asset_id))
         if asset is None:
             continue
         fin = _ensure_financial(asset)
@@ -2839,7 +2874,13 @@ def apply_transfer_confirm(
     step_role_name: str | None = None,
     comment: str | None = None,
 ) -> None:
-    order = db.get(AssetTransferOrder, order_id)
+    order = db.scalar(
+        select(AssetTransferOrder)
+        .where(AssetTransferOrder.id == int(order_id))
+        .options(
+            selectinload(AssetTransferOrder.items).selectinload(AssetTransferOrderItem.asset),
+        )
+    )
     if order is None:
         return
     old_status = order.status
@@ -2847,6 +2888,12 @@ def apply_transfer_confirm(
     order.assigned_to = int(next_assignee_user_id)
     order.assigned_by = actor_user_id
     order.assigned_at = datetime.now(timezone.utc)
+    for item in order.items:
+        asset = item.asset
+        if asset is None and item.asset_id:
+            asset = db.get(AssetMaster, int(item.asset_id))
+        if asset is not None:
+            restore_from_pending_transfer(asset)
     _log(
         db,
         order_id=int(order.id),

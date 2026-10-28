@@ -98,7 +98,7 @@ function transferAuditHeadline(ev: TransferOrderAudit): string {
     case "receive_locations_saved":
       return "Actual Locations Saved"
     case "cf_confirmed":
-      return step ? `Confirmed — ${step}` : "Confirmed by CF"
+      return step ? `Approved — ${step}` : "Approved"
     case "cf_closed":
       return step ? `Closed — ${step}` : "Closed"
     case "archived":

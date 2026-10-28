@@ -19,10 +19,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, getJson, postJson, putFormData } from "@/lib/api"
+import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 import { invalidateAssetLists } from "@/lib/query-client"
 import { listReturnTo } from "@/lib/use-url-tab"
 import type { CapexFormDetail } from "@/lib/capex-types"
-import type { AssetDetail } from "@/lib/assets-types"
+import type { AssetDetail, SubmitForApprovalResult } from "@/lib/assets-types"
+import { formatSubmitForApprovalSuccess } from "@/lib/assets-types"
 import { useAssetFieldConfig } from "@/lib/use-asset-field-config"
 import { hasPermission } from "@/lib/permissions"
 import {
@@ -342,7 +344,9 @@ export function AssetCreatePage() {
     }
   }, [masters.plants, form.plant_id])
 
-  async function createAsset() {
+  const [pickerOpen, setPickerOpen] = React.useState(false)
+
+  function validateOrFocus(): boolean {
     const missing = validateCreateForm(form, fc.isRequired).filter((key) => {
       if (key === "cost_center_name") return fc.isVisible("cost_center_name")
       return true
@@ -351,9 +355,27 @@ export function AssetCreatePage() {
       setInvalidKeys(missing)
       toast.error(`${fc.getLabel(missing[0]!)} is required.`)
       document.getElementById(missing[0]!)?.scrollIntoView({ behavior: "smooth", block: "center" })
-      return
+      return false
     }
     setInvalidKeys([])
+    return true
+  }
+
+  async function createAsset(submit: boolean, assigneeUserId?: number) {
+    if (!validateOrFocus()) return
+    if (submit && assigneeUserId == null) {
+      try {
+        await getJson("/admin/assets/assignees?action=asset.create")
+        setPickerOpen(true)
+        return
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 409)) {
+          toast.error(e instanceof ApiError ? e.message : "Could not load approvers.")
+          return
+        }
+        // No workflow — fall through and auto-activate after create.
+      }
+    }
     setCreating(true)
     try {
       const created = await postJson<AssetDetail>("/admin/assets", buildCreatePayload(form))
@@ -366,7 +388,31 @@ export function AssetCreatePage() {
           toast.error("Asset created, but the image could not be uploaded. Add it from Edit.")
         }
       }
-      toast.success("Asset saved as draft successfully.")
+      if (submit) {
+        const res = await postJson<SubmitForApprovalResult>(
+          `/admin/assets/${created.id}/submit-for-approval`,
+          assigneeUserId != null ? { assignee_user_id: assigneeUserId } : {},
+        )
+        setPickerOpen(false)
+        if (res.errors?.length) {
+          toast.error(res.errors[0]!)
+          void invalidateAssetLists()
+          navigate(`/dashboard/assets/${created.id}`, { replace: true })
+          return
+        }
+        const success = formatSubmitForApprovalSuccess(res, {
+          assetCode: created.asset_code,
+          assetName: created.asset_name,
+        })
+        toast.success(
+          success ??
+            (res.activated_count > 0
+              ? `Asset ${created.asset_code} activated — no approval workflow is configured.`
+              : "Asset submitted for approval successfully."),
+        )
+      } else {
+        toast.success("Asset saved as draft successfully.")
+      }
       void invalidateAssetLists()
       navigate(`/dashboard/assets/${created.id}`, { replace: true })
     } catch (e) {
@@ -399,7 +445,7 @@ export function AssetCreatePage() {
         className="space-y-[var(--app-grid-gap)]"
         onSubmit={(e) => {
           e.preventDefault()
-          void createAsset()
+          void createAsset(true)
         }}
       >
         <AdminPanel
@@ -1086,15 +1132,38 @@ export function AssetCreatePage() {
             type="button"
             variant="outline"
             className="h-9 shadow-sm"
+            disabled={creating}
             onClick={() => navigate(listReturnTo("/dashboard/assets"))}
           >
             Cancel
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shadow-sm"
+            disabled={creating}
+            onClick={() => void createAsset(false)}
+          >
+            {creating ? "Saving…" : "Save Draft"}
+          </Button>
           <AdminPrimaryButton type="submit" disabled={creating}>
-            {creating ? "Creating…" : "Create Asset"}
+            Submit for Approval
           </AdminPrimaryButton>
         </div>
       </form>
+
+      <CapexAssigneePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        assigneesUrl="/admin/assets/assignees?action=asset.create"
+        roleLabel="Approver"
+        title="Submit for Approval"
+        confirmLabel={creating ? "Submitting…" : "Submit"}
+        busy={creating}
+        onConfirm={async (userId) => {
+          await createAsset(true, userId)
+        }}
+      />
     </AdminPage>
   )
 }

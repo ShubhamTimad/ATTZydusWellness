@@ -186,4 +186,32 @@ class UserPublic(BaseModel):
         return self.cost_centers[0]
 
 
+class UserAssigneeOption(BaseModel):
+    id: int
+    full_name: str
+    email: str | None = None
+
+
+class UserAssigneeListResponse(BaseModel):
+    role_name: str
+    items: list[UserAssigneeOption] = Field(default_factory=list)
+
+
+class UserSubmitForApprovalRequest(BaseModel):
+    # Required when a users.create workflow exists; ignored when auto-activating.
+    assignee_user_id: int | None = Field(default=None, ge=1)
+
+
+class UserSubmitForApprovalResponse(BaseModel):
+    status: str  # submitted | activated
+    user_id: int
+
+
+class UserDetailPublic(UserPublic):
+    """User detail with creation-approval flags for the Submit button."""
+
+    approval_status: str = "approved"  # draft | pending | rejected | approved
+    can_submit_for_approval: bool = False
+
+
 UserListPage.model_rebuild()

@@ -99,6 +99,9 @@ def get_workflow_for_action(db: Session, action_code: str) -> ApprovalWorkflow |
     transfer_submit_variants = _permission_code_variants("transfer.submit")
     if (canonical is not None and canonical in transfer_submit_variants) or raw in transfer_submit_variants:
         return wf_svc.get_active_workflow_for_entity("transfer_order")
+    users_create_variants = _permission_code_variants("users.create")
+    if (canonical is not None and canonical in users_create_variants) or raw in users_create_variants:
+        return wf_svc.get_active_workflow_for_entity("user_creation")
 
     return None
 

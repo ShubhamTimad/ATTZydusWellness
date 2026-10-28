@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Building2, Landmark, Mail, Phone, Shield, UsersRound, XIcon } from "lucide-react"
+import { Building2, Landmark, Mail, Phone, Shield, UsersRound, XIcon, ZoomIn } from "lucide-react"
 
 import { AdminStatusBadge } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog"
 import { getJson } from "@/lib/api"
 import { useMyPhotoUrl } from "@/lib/navbar-user"
+import { cn } from "@/lib/utils"
 type MeProfile = {
   id: number
   full_name: string
@@ -93,6 +94,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
   const [me, setMe] = React.useState<MeProfile | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [photoPreviewOpen, setPhotoPreviewOpen] = React.useState(false)
 
   React.useEffect(() => {
     if (!open) return
@@ -124,106 +126,152 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
   const photoUrl = useMyPhotoUrl(me?.has_photo)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="flex max-h-[min(90dvh,40rem)] flex-col gap-0 overflow-hidden sm:max-w-[420px]"
-        showCloseButton={false}
-      >
-        <DialogClose asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="absolute top-2.5 right-2.5 z-10 size-10 rounded-full text-muted-foreground hover:bg-muted/80 hover:text-foreground"
-            aria-label="Close"
-          >
-            <XIcon className="size-5" aria-hidden />
-          </Button>
-        </DialogClose>
-        <div className="dialog-surface-header shrink-0 -mx-0 border-b border-primary/10">
-          <DialogHeader className="px-0 pt-0">
-            <DialogTitle className="sr-only">My profile</DialogTitle>
-            <DialogDescription className="sr-only">
-              Your account details, plant, department, and cost center.
-            </DialogDescription>
-          </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          className="flex max-h-[min(90dvh,40rem)] flex-col gap-0 overflow-hidden sm:max-w-[420px]"
+          showCloseButton={false}
+        >
+          <DialogClose asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="absolute top-2.5 right-2.5 z-10 size-10 rounded-full text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+              aria-label="Close"
+            >
+              <XIcon className="size-5" aria-hidden />
+            </Button>
+          </DialogClose>
+          <div className="dialog-surface-header shrink-0 -mx-0 border-b border-primary/10">
+            <DialogHeader className="px-0 pt-0">
+              <DialogTitle className="sr-only">My profile</DialogTitle>
+              <DialogDescription className="sr-only">
+                Your account details, plant, department, and cost center.
+              </DialogDescription>
+            </DialogHeader>
 
-          {loading ? (
-            <div className="flex items-center gap-4 py-2">
-              <div className="size-14 animate-pulse rounded-full bg-muted" />
-              <div className="flex-1 space-y-2">
-                <div className="h-4 w-32 animate-pulse rounded-md bg-muted" />
-                <div className="h-3 w-40 animate-pulse rounded-md bg-muted/80" />
-              </div>
-            </div>
-          ) : me ? (
-            <div className="flex items-center gap-4 pr-10">
-              <Avatar className="size-14 ring-2 ring-primary/20 ring-offset-2 ring-offset-card">
-                {photoUrl ? <AvatarImage src={photoUrl} alt={me.full_name} /> : null}
-                <AvatarFallback className="bg-primary text-base font-semibold text-primary-foreground">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <div className="min-w-0">
-                <p className="truncate text-lg font-semibold tracking-tight text-foreground">
-                  {me.full_name}
-                </p>
-                <p className="truncate text-sm text-muted-foreground">{me.email ?? "No email"}</p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <AdminStatusBadge active={me.is_active} />
-                  {me.is_superuser ? (
-                    <Badge
-                      variant="outline"
-                      className="rounded-md border-primary/30 bg-primary/5 text-primary"
-                    >
-                      Superuser
-                    </Badge>
-                  ) : null}
+            {loading ? (
+              <div className="flex items-center gap-4 py-2">
+                <div className="size-14 animate-pulse rounded-full bg-muted" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-32 animate-pulse rounded-md bg-muted" />
+                  <div className="h-3 w-40 animate-pulse rounded-md bg-muted/80" />
                 </div>
               </div>
-            </div>
-          ) : (
-            <p className="text-sm font-medium text-foreground">My profile</p>
-          )}
-        </div>
+            ) : me ? (
+              <div className="flex items-center gap-4 pr-10">
+                <button
+                  type="button"
+                  disabled={!photoUrl}
+                  onClick={() => {
+                    if (photoUrl) setPhotoPreviewOpen(true)
+                  }}
+                  className={cn(
+                    "group relative shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+                    photoUrl ? "cursor-pointer" : "cursor-default",
+                  )}
+                  title={photoUrl ? "Click to view image" : undefined}
+                  aria-label={photoUrl ? `View profile photo of ${me.full_name}` : undefined}
+                >
+                  <Avatar className="size-14 ring-2 ring-primary/20 ring-offset-2 ring-offset-card transition-all group-hover:scale-105 group-hover:ring-primary/50">
+                    {photoUrl ? <AvatarImage src={photoUrl} alt={me.full_name} /> : null}
+                    <AvatarFallback className="bg-primary text-base font-semibold text-primary-foreground">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  {photoUrl ? (
+                    <span
+                      className="absolute inset-0 flex items-center justify-center rounded-full bg-black/35 opacity-0 transition-opacity group-hover:opacity-100"
+                      aria-hidden
+                    >
+                      <ZoomIn className="size-4 text-white drop-shadow" />
+                    </span>
+                  ) : null}
+                </button>
+                <div className="min-w-0">
+                  <p className="truncate text-lg font-semibold tracking-tight text-foreground">
+                    {me.full_name}
+                  </p>
+                  <p className="truncate text-sm text-muted-foreground">{me.email ?? "No email"}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <AdminStatusBadge active={me.is_active} />
+                    {me.is_superuser ? (
+                      <Badge
+                        variant="outline"
+                        className="rounded-md border-primary/30 bg-primary/5 text-primary"
+                      >
+                        Superuser
+                      </Badge>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm font-medium text-foreground">My profile</p>
+            )}
+          </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
-          {loading ? (
-            <div className="space-y-3">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-14 animate-pulse rounded-xl bg-muted/40" />
-              ))}
-            </div>
-          ) : error ? (
-            <Alert variant="destructive">
-              <AlertTitle>Profile unavailable</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : !me ? (
-            <Alert>
-              <AlertTitle>Profile unavailable</AlertTitle>
-              <AlertDescription>Sign in again or contact your administrator.</AlertDescription>
-            </Alert>
-          ) : (
-            <div className="space-y-3">
-              <ProfileRow icon={Mail} label="Email" value={<MultiLineValue value={me.email} />} />
-              <ProfileRow icon={Phone} label="Mobile" value={me.phone ?? "—"} />
-              <ProfileRow icon={Building2} label="Plant" value={<MultiLineValue value={me.org_unit} />} />
-              <ProfileRow
-                icon={UsersRound}
-                label="Department"
-                value={<MultiLineValue value={me.department} />}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+            {loading ? (
+              <div className="space-y-3">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="h-14 animate-pulse rounded-xl bg-muted/40" />
+                ))}
+              </div>
+            ) : error ? (
+              <Alert variant="destructive">
+                <AlertTitle>Profile unavailable</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : !me ? (
+              <Alert>
+                <AlertTitle>Profile unavailable</AlertTitle>
+                <AlertDescription>Sign in again or contact your administrator.</AlertDescription>
+              </Alert>
+            ) : (
+              <div className="space-y-3">
+                <ProfileRow icon={Mail} label="Email" value={<MultiLineValue value={me.email} />} />
+                <ProfileRow icon={Phone} label="Mobile" value={me.phone ?? "—"} />
+                <ProfileRow icon={Building2} label="Plant" value={<MultiLineValue value={me.org_unit} />} />
+                <ProfileRow
+                  icon={UsersRound}
+                  label="Department"
+                  value={<MultiLineValue value={me.department} />}
+                />
+                <ProfileRow
+                  icon={Landmark}
+                  label="Cost center"
+                  value={<MultiLineValue value={me.cost_center} />}
+                />
+                <ProfileRow icon={Shield} label="Role" value={<MultiLineValue value={me.role} />} />
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={photoPreviewOpen} onOpenChange={setPhotoPreviewOpen}>
+        <DialogContent className="max-w-2xl p-4 sm:p-6" showCloseButton>
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold text-foreground">
+              {me?.full_name ? `${me.full_name}` : "Profile Photo"}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Full size profile photo
+            </DialogDescription>
+          </DialogHeader>
+          {photoUrl ? (
+            <div className="mt-2 flex max-h-[75vh] items-center justify-center overflow-hidden rounded-xl bg-muted/20 p-2">
+              <img
+                src={photoUrl}
+                alt={me?.full_name ? `${me.full_name}'s profile photo` : "Profile photo"}
+                className="max-h-[75vh] max-w-full rounded-lg object-contain shadow-md"
               />
-              <ProfileRow
-                icon={Landmark}
-                label="Cost center"
-                value={<MultiLineValue value={me.cost_center} />}
-              />
-              <ProfileRow icon={Shield} label="Role" value={<MultiLineValue value={me.role} />} />
             </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

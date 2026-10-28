@@ -401,7 +401,8 @@ class AssetAssigneeListResponse(BaseModel):
 
 
 class AssetSubmitRequest(BaseModel):
-    assignee_user_id: int = Field(ge=1)
+    # Required when an asset.create/import workflow exists; ignored when auto-activating.
+    assignee_user_id: int | None = Field(default=None, ge=1)
 
 
 class AssetReassignRequest(BaseModel):
@@ -459,7 +460,7 @@ class ImportConfirmRequest(BaseModel):
 
 class SubmitForApprovalRequest(BaseModel):
     asset_ids: list[int] = Field(min_length=1)
-    assignee_user_id: int = Field(ge=1)
+    assignee_user_id: int | None = Field(default=None, ge=1)
 
 
 class SubmitForApprovalResponse(BaseModel):
@@ -546,6 +547,7 @@ class AssetFieldConfigListResponse(BaseModel):
     fields: list[AssetFieldConfigPublic]
 
 
+
 class AssetPrintItemPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -599,4 +601,3 @@ class ReprintReasonItem(BaseModel):
 
 class ReprintReasonsResponse(BaseModel):
     reasons: list[ReprintReasonItem]
-

@@ -13,7 +13,6 @@ import {
   AdminBackLink,
   AdminPanel,
   AdminPrimaryButton,
-  adminSelectClass,
 } from "@/components/layout/admin-ui"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -23,6 +22,7 @@ import { ApiError, getJson, postJson, putFormData } from "@/lib/api"
 import { phoneFieldSchema } from "@/lib/phone"
 import { canListOrgUnitsForAssignments, hasPermission } from "@/lib/permissions"
 import { MultiCheckList } from "@/components/admin/multi-check-list"
+import { CapexAssigneePickerDialog } from "@/pages/capex/capex-assignee-picker-dialog"
 import { cn } from "@/lib/utils"
 
 type RoleListItem = { id: number; name: string; org_unit_ids?: number[] }
@@ -224,20 +224,24 @@ export function UserCreatePage() {
     })()
   }, [navigate, canLoadPlantList])
 
-  async function onSubmit(values: CreateUserValues) {
-    toast.loading("Creating user…", { id: "create-user" })
+  const [pickerOpen, setPickerOpen] = React.useState(false)
+  const [busy, setBusy] = React.useState(false)
+
+  async function persistUser(values: CreateUserValues, submit: boolean, assigneeUserId?: number) {
+    const roleIds = values.role_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+    const orgUnitIds = values.org_unit_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+    if (roleIds.length === 0) {
+      toast.error("Select at least one role.", { id: "create-user" })
+      return
+    }
+    if (orgUnitIds.length === 0) {
+      toast.error("Select at least one plant.", { id: "create-user" })
+      return
+    }
+    toast.loading(submit ? "Submitting…" : "Saving draft…", { id: "create-user" })
     setError(null)
+    setBusy(true)
     try {
-      const roleIds = values.role_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
-      const orgUnitIds = values.org_unit_ids.map(Number).filter((n) => Number.isFinite(n) && n > 0)
-      if (roleIds.length === 0) {
-        toast.error("Select at least one role.", { id: "create-user" })
-        return
-      }
-      if (orgUnitIds.length === 0) {
-        toast.error("Select at least one plant.", { id: "create-user" })
-        return
-      }
       const created = await postJson<UserPublic>("/admin/users", {
         full_name: values.full_name.trim(),
         username: values.username.trim(),
@@ -249,7 +253,7 @@ export function UserCreatePage() {
         cost_center_ids: values.cost_center_ids
           .map(Number)
           .filter((n) => Number.isFinite(n) && n > 0),
-        is_active: values.is_active,
+        is_active: false,
       })
       if (photoFile) {
         const body = new FormData()
@@ -257,16 +261,57 @@ export function UserCreatePage() {
         try {
           await putFormData(`/admin/users/${created.id}/photo`, body)
         } catch {
-          toast.error("User created, but the photo could not be uploaded.")
+          toast.error(
+            submit
+              ? "User created, but the photo could not be uploaded."
+              : "User saved as draft, but the photo could not be uploaded.",
+          )
         }
       }
-      toast.success("User created successfully.", { id: "create-user" })
+      if (submit) {
+        const res = await postJson<{ status: string }>(
+          `/admin/users/${created.id}/submit-for-approval`,
+          assigneeUserId != null ? { assignee_user_id: assigneeUserId } : {},
+        )
+        setPickerOpen(false)
+        toast.success(
+          res.status === "activated"
+            ? "User activated — no approval workflow is configured."
+            : "User submitted for approval successfully.",
+          { id: "create-user" },
+        )
+      } else {
+        toast.success("User saved as draft successfully.", { id: "create-user" })
+      }
       navigate(`../${created.id}`, { replace: true })
     } catch (e) {
-      const message = e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to create user"
+      const message =
+        e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Failed to create user"
       toast.error(message, { id: "create-user" })
       setError(message)
+    } finally {
+      setBusy(false)
     }
+  }
+
+  async function saveDraft() {
+    await form.handleSubmit((values) => persistUser(values, false))()
+  }
+
+  async function requestSubmit() {
+    await form.handleSubmit(async (values) => {
+      try {
+        await getJson("/admin/users/assignees")
+        setPickerOpen(true)
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          // No workflow mapped — create + auto-activate.
+          await persistUser(values, true)
+          return
+        }
+        toast.error(e instanceof ApiError ? e.message : "Could not load approvers.")
+      }
+    })()
   }
 
   return (
@@ -289,7 +334,10 @@ export function UserCreatePage() {
       <form
         id="create-user-form"
         className="space-y-[var(--app-grid-gap)]"
-        onSubmit={form.handleSubmit(onSubmit)}
+        onSubmit={(e) => {
+          e.preventDefault()
+          void requestSubmit()
+        }}
       >
         <AdminPanel
           title="PROFILE"
@@ -336,29 +384,12 @@ export function UserCreatePage() {
             >
               <Input id="create-email" type="email" autoComplete="email" {...form.register("email")} />
             </FormField>
-            <FormField
-              id="create-is-active"
-              labelText="Active"
-              hint="Inactive users cannot sign in and will not receive emails."
-            >
-              <select
-                id="create-is-active"
-                className={adminSelectClass}
-                value={form.watch("is_active") ? "true" : "false"}
-                onChange={(e) =>
-                  form.setValue("is_active", e.target.value === "true", { shouldDirty: true })
-                }
-              >
-                <option value="true">Active</option>
-                <option value="false">Inactive</option>
-              </select>
-            </FormField>
             <FormField labelText="Photo">
               <AssetImage
                 label="Photo"
                 file={photoFile}
                 editable
-                busy={form.formState.isSubmitting}
+                busy={busy}
                 onFileChange={(file) => {
                   const message = validateAssetImageFile(file, "Photo")
                   if (message) {
@@ -442,14 +473,42 @@ export function UserCreatePage() {
         </AdminPanel>
 
         <div className="flex justify-end gap-2 border-t border-border/60 pt-4">
-          <Button type="button" variant="outline" className="h-9 shadow-sm" onClick={() => navigate("..")}>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shadow-sm"
+            disabled={busy}
+            onClick={() => navigate("..")}
+          >
             Cancel
           </Button>
-          <AdminPrimaryButton type="submit" disabled={form.formState.isSubmitting}>
-            {form.formState.isSubmitting ? "Creating…" : "Create User"}
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 shadow-sm"
+            disabled={busy}
+            onClick={() => void saveDraft()}
+          >
+            {busy ? "Saving…" : "Save Draft"}
+          </Button>
+          <AdminPrimaryButton type="submit" disabled={busy}>
+            Submit for Approval
           </AdminPrimaryButton>
         </div>
       </form>
+
+      <CapexAssigneePickerDialog
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        assigneesUrl="/admin/users/assignees"
+        roleLabel="Approver"
+        title="Submit for Approval"
+        confirmLabel={busy ? "Submitting…" : "Submit"}
+        busy={busy}
+        onConfirm={async (userId) => {
+          await form.handleSubmit((values) => persistUser(values, true, userId))()
+        }}
+      />
     </AdminPage>
   )
 }
